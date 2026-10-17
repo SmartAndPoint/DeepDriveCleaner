@@ -1,0 +1,10 @@
+# Deletion and $HOME access are funnelled through dedicated modules (see ADR
+# "Cleanup safety model"). Allow them locally with a justification.
+disallowed-methods = [
+  { path = "std::env::home_dir", reason = "read $HOME only through ddc_core::env::Env" },
+  { path = "std::env::var", reason = "read the environment only through ddc_core::env::Env" },
+  { path = "std::env::var_os", reason = "read the environment only through ddc_core::env::Env" },
+  { path = "std::fs::remove_dir_all", reason = "deletion goes through the executor (exec::delete)" },
+  { path = "std::fs::remove_dir", reason = "deletion goes through the executor (exec::delete)" },
+  { path = "std::fs::remove_file", reason = "deletion goes through the executor (exec::delete)" },
+]

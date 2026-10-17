@@ -1,0 +1,23 @@
+//! Process setup done by `main` before any filesystem access.
+
+use std::process::Command;
+
+#[test]
+fn ddc_starts_with_dataless_materialization_off_and_raised_file_limit() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
+        .env_clear()
+        .env("HOME", tmp.path())
+        .current_dir(tmp.path())
+        .arg("diag")
+        .output()
+        .unwrap();
+
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.lines().any(|l| l == "dataless_materialization: off"), "{stdout}");
+    let limit: u64 =
+        stdout.lines().find_map(|l| l.strip_prefix("open_files_limit: ")).and_then(|v| v.parse().ok()).unwrap();
+    assert!(limit > 256, "open-file limit not raised: {limit}");
+    assert!(stdout.contains("volume: apfs"), "{stdout}");
+}

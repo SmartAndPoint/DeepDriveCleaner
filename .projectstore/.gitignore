@@ -1,0 +1,3 @@
+# projectstore — the binding and the state are machine-local; harness/ is committed
+projectstore.json
+state/

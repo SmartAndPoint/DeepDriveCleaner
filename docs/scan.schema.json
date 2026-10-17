@@ -1,0 +1,582 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScanReport",
+  "type": "object",
+  "properties": {
+    "cancelled": {
+      "type": "boolean"
+    },
+    "ddc_version": {
+      "type": "string"
+    },
+    "duration_ms": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "errors_total": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "findings": {
+      "description": "Ordered by class, then size (largest first), then path.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Finding"
+      }
+    },
+    "full_disk_access": {
+      "description": "Whether the scanning process could read TCC-protected data. Without it\nparts of `~/Library` are unreadable and listed in `inaccessible`.",
+      "type": "boolean"
+    },
+    "generated_at": {
+      "description": "RFC 3339, UTC.",
+      "type": "string"
+    },
+    "home": {
+      "type": "string"
+    },
+    "inaccessible": {
+      "description": "Directories that could not be read (at most 10 000; see `errors_total`).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Inaccessible"
+      }
+    },
+    "large_files": {
+      "description": "Largest files outside every finding, for manual review.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/LargeFile"
+      }
+    },
+    "min_age_days": {
+      "description": "`rebuildable` findings idle at least this long are selected by default.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "scan_roots": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "skipped": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SkippedPath"
+      }
+    },
+    "skipped_total": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "totals": {
+      "$ref": "#/$defs/Totals"
+    }
+  },
+  "required": [
+    "schema_version",
+    "ddc_version",
+    "generated_at",
+    "duration_ms",
+    "home",
+    "scan_roots",
+    "full_disk_access",
+    "min_age_days",
+    "totals",
+    "findings",
+    "large_files",
+    "inaccessible",
+    "errors_total",
+    "skipped",
+    "skipped_total",
+    "cancelled"
+  ],
+  "$defs": {
+    "Category": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "project-artifact",
+            "package-cache",
+            "xcode",
+            "vm-container",
+            "toolchain",
+            "ml-model",
+            "ide",
+            "app-cache",
+            "trash",
+            "generic-cache"
+          ]
+        },
+        {
+          "description": "Photos, backups, downloads, messengers.",
+          "type": "string",
+          "const": "personal"
+        }
+      ]
+    },
+    "ClassTotal": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "class": {
+          "$ref": "#/$defs/RiskClass"
+        },
+        "count": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "selected_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "selected_count": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "class",
+        "count",
+        "bytes",
+        "selected_count",
+        "selected_bytes"
+      ]
+    },
+    "Finding": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Allocated bytes belonging to this finding alone.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "category": {
+          "$ref": "#/$defs/Category"
+        },
+        "class": {
+          "description": "Effective class (may be lower than `rule_class`, see `notes`).",
+          "$ref": "#/$defs/RiskClass"
+        },
+        "dev": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "dirs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "hint": {
+          "description": "How to get it back.",
+          "type": "string"
+        },
+        "incomplete": {
+          "description": "Some content could not be read or was skipped; sizes are lower bounds.",
+          "type": "boolean"
+        },
+        "ino": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "not_selected": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NotSelected"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Note"
+          }
+        },
+        "parent_dev": {
+          "description": "Identity of the parent directory at scan time (re-checked before cleaning).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "parent_ino": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "path": {
+          "type": "string"
+        },
+        "private_bytes": {
+          "description": "Lower bound of what deleting it frees (APFS private size). Present\nwhere clones are expected (uv, pnpm) and measurable.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Project"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "removal": {
+          "$ref": "#/$defs/RemovalKind"
+        },
+        "rule": {
+          "description": "Stable rule id (`python.venv`, `cache.uv`, …).",
+          "type": "string"
+        },
+        "rule_class": {
+          "$ref": "#/$defs/RiskClass"
+        },
+        "selected": {
+          "description": "Selected by default in a cleanup plan.",
+          "type": "boolean"
+        },
+        "shared_bytes": {
+          "description": "Allocated bytes of hard-linked files also linked elsewhere.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "path",
+        "rule",
+        "category",
+        "class",
+        "rule_class",
+        "removal",
+        "bytes",
+        "shared_bytes",
+        "files",
+        "dirs",
+        "incomplete",
+        "selected",
+        "notes",
+        "hint",
+        "dev",
+        "ino"
+      ]
+    },
+    "Inaccessible": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "error"
+      ]
+    },
+    "LargeFile": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "bytes"
+      ]
+    },
+    "NotSelected": {
+      "oneOf": [
+        {
+          "description": "Expensive to restore or restorability uncertain: always a manual choice.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "review"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "The user's data: never planned.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "user-data"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "The project changed recently.",
+          "type": "object",
+          "properties": {
+            "idle_days": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "reason": {
+              "type": "string",
+              "const": "active-project"
+            }
+          },
+          "required": [
+            "reason",
+            "idle_days"
+          ]
+        },
+        {
+          "description": "No activity signal: treated as active.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "unknown-activity"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        }
+      ]
+    },
+    "Note": {
+      "oneOf": [
+        {
+          "description": "Environment without a lock file: restoring may give a different environment.",
+          "type": "string",
+          "const": "no-lockfile"
+        },
+        {
+          "description": "Inside a hidden top-level folder of $HOME or ~/Library: owned by an app or tool.",
+          "type": "string",
+          "const": "app-owned"
+        },
+        {
+          "description": "A `.ddc-keep` marker in it or above it.",
+          "type": "string",
+          "const": "kept-by-marker"
+        },
+        {
+          "description": "Matched `--exclude`.",
+          "type": "string",
+          "const": "excluded"
+        }
+      ]
+    },
+    "Project": {
+      "type": "object",
+      "properties": {
+        "has_lockfile": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "idle_days": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "last_activity": {
+          "description": "Latest activity (RFC 3339): git index/HEAD, manifests, lock files.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "root"
+      ]
+    },
+    "RemovalKind": {
+      "type": "string",
+      "enum": [
+        "delete",
+        "trash",
+        "native",
+        "native-only",
+        "none"
+      ]
+    },
+    "RiskClass": {
+      "oneOf": [
+        {
+          "description": "Cache that refills itself.",
+          "type": "string",
+          "const": "safe"
+        },
+        {
+          "description": "Project artifact restored by install (from a lock file) or by a build.",
+          "type": "string",
+          "const": "rebuildable"
+        },
+        {
+          "description": "Expensive to restore, or restorability is uncertain.",
+          "type": "string",
+          "const": "review"
+        },
+        {
+          "description": "The user's data: reported, never planned.",
+          "type": "string",
+          "const": "user-data"
+        }
+      ]
+    },
+    "SkipReason": {
+      "oneOf": [
+        {
+          "description": "Excluded by the visitor (`--exclude`, cloud folders, …).",
+          "type": "string",
+          "const": "excluded"
+        },
+        {
+          "description": "Evicted cloud content; reading it would download it.",
+          "type": "string",
+          "const": "dataless"
+        },
+        {
+          "description": "Another filesystem is mounted here.",
+          "type": "string",
+          "const": "other-filesystem"
+        },
+        {
+          "description": "The directory changed between listing its parent and opening it.",
+          "type": "string",
+          "const": "changed"
+        }
+      ]
+    },
+    "SkippedPath": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/SkipReason"
+        }
+      },
+      "required": [
+        "path",
+        "reason"
+      ]
+    },
+    "Totals": {
+      "type": "object",
+      "properties": {
+        "classes": {
+          "description": "One entry per class, in the order safe, rebuildable, review, user-data.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ClassTotal"
+          }
+        },
+        "dirs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "scanned_bytes": {
+          "description": "Allocated bytes under the scan roots, each inode once.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "selected_bytes": {
+          "description": "Bytes of findings selected by default.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "selected_reclaimable_bytes": {
+          "description": "Estimate of what deleting the selected findings frees: APFS private\nsize where clones are expected and measured (uv, pnpm), allocated size\nelsewhere (no clones expected there).",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "unowned_bytes": {
+          "description": "Bytes outside every finding.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "scanned_bytes",
+        "files",
+        "dirs",
+        "unowned_bytes",
+        "classes",
+        "selected_bytes",
+        "selected_reclaimable_bytes"
+      ]
+    }
+  }
+}

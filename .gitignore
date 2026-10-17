@@ -1,0 +1,8 @@
+/target/
+.DS_Store
+.claude/settings.local.json
+__pycache__/
+
+# Coverage data from the reference machine lists personal folder names: it stays local.
+/bench/baseline-*.tsv
+/bench/devartifacts-*.txt

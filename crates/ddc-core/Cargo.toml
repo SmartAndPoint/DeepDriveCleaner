@@ -1,0 +1,27 @@
+[package]
+name = "ddc-core"
+description = "DeepDriveCleaner core: parallel filesystem scanner, rule catalog, cleanup planning and execution"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+humantime.workspace = true
+libc.workspace = true
+rayon.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+trash.workspace = true
+
+[dev-dependencies]
+schemars.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

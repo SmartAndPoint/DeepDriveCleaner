@@ -1,0 +1,10 @@
+{
+  "agents": {
+    "per_agent": {
+      "critic": {
+        "model": "fable",
+        "effort": "xhigh"
+      }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+[package]
+name = "ddc-cli"
+description = "DeepDriveCleaner command-line interface (`ddc`)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+# Full name in Full Disk Access, Activity Monitor and Login Items; `ddc` is a symlink (make install).
+name = "deepdrivecleaner"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+ddc-core.workspace = true
+humantime.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
