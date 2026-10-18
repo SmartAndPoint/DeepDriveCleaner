@@ -8,7 +8,7 @@ use ddc_core::store;
 use ddc_core::sys::procs;
 
 use crate::cli::{IntervalArg, ScheduleAction};
-use crate::launchd::{self, AgentSpec, Launchctl as _, SystemLaunchctl};
+use crate::launchd::{self, AgentSpec, Launchctl as _, ProgramState, SystemLaunchctl};
 use crate::size::human;
 
 pub fn run(action: ScheduleAction) -> anyhow::Result<ExitCode> {
@@ -42,11 +42,13 @@ pub fn run(action: ScheduleAction) -> anyhow::Result<ExitCode> {
             };
             println!("Agent:   {}", path.display());
             println!("Loaded:  {}", if lc.loaded(&launchd::target(uid)) { "yes" } else { "no" });
-            let current = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
+            let current = std::env::current_exe().ok();
             match launchd::installed_program(&text) {
-                Some(p) if !p.exists() => println!("Binary:  {} (missing! reinstall)", p.display()),
-                Some(p) if Some(&p) != current.as_ref() => println!("Binary:  {} (not this ddc)", p.display()),
-                Some(p) => println!("Binary:  {}", p.display()),
+                Some(p) => match launchd::program_state(&p, current.as_deref()) {
+                    ProgramState::Missing => println!("Binary:  {} (missing! reinstall)", p.display()),
+                    ProgramState::Other => println!("Binary:  {} (not this ddc)", p.display()),
+                    ProgramState::Current => println!("Binary:  {}", p.display()),
+                },
                 None => println!("Binary:  unreadable plist"),
             }
             match store::read_last_scan(&env)? {

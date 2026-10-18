@@ -14,9 +14,19 @@ DeepDriveCleaner · scanned ~ in 39.6s · 5.5M files · 544.8 GiB
 
 > **Built in the open with [ProjectStore](https://projectstore.dev).** Every decision, epic and story behind this code lives in a second public repository, [DeepDriveCleaner-projectstore](https://github.com/SmartAndPoint/DeepDriveCleaner-projectstore): the research, the ADRs, the acceptance criteria and the evidence each story was closed with. This repository is meant to be read as a worked example of that workflow, not only as a tool. See [Contributing](#contributing).
 
-Status: early. macOS only (APFS). A terminal tool today; a Mac app may follow.
+Status: early (0.1.0). macOS only (APFS), Apple Silicon builds. A terminal tool today; a menu bar app is next.
 
 ## Install
+
+On a Mac with Apple Silicon:
+
+```
+brew install --cask smartandpoint/tap/deepdrivecleaner
+```
+
+This installs `deepdrivecleaner` and `ddc`, the same binary under a short name. The long name is what macOS shows in Full Disk Access, Activity Monitor and background items; `ddc` is for typing. The binary is signed with the SmartAndPoint Developer ID and notarized by Apple. If you use the background scan, run `ddc schedule uninstall` before `brew uninstall deepdrivecleaner`, or uninstall with `brew uninstall --zap`, which also removes the agent, the logs and the saved scan.
+
+### From source
 
 You need [rustup](https://rustup.rs) (the toolchain is pinned in `rust-toolchain.toml`).
 
@@ -26,7 +36,7 @@ cd DeepDriveCleaner
 make install
 ```
 
-This installs `~/.cargo/bin/deepdrivecleaner` and a `ddc` symlink to it. The long name is what macOS shows in Full Disk Access, Activity Monitor and background items; `ddc` is for typing.
+This installs `~/.cargo/bin/deepdrivecleaner` and a `ddc` symlink to it. A local build is not signed with the Developer ID, so macOS ties privacy grants such as Full Disk Access to that one build.
 
 ## Use
 
@@ -56,7 +66,7 @@ This installs `~/.cargo/bin/deepdrivecleaner` and a `ddc` symlink to it. The lon
 
 ### Full Disk Access
 
-Without Full Disk Access some of `~/Library` cannot be read; the report lists those folders instead of guessing. The background scan skips the folders where macOS would show a permission prompt, because a prompt would block it. To scan everything, add `~/.cargo/bin/deepdrivecleaner` under System Settings → Privacy & Security → Full Disk Access. The binary is not signed yet, so macOS ties the permission to one build: after `make install` you have to grant it again.
+Without Full Disk Access some of `~/Library` cannot be read; the report lists those folders instead of guessing. The background scan skips the folders where macOS would show a permission prompt, because a prompt would block it. To scan everything, add the binary under System Settings → Privacy & Security → Full Disk Access: `$(brew --prefix)/Caskroom/deepdrivecleaner/<version>/deepdrivecleaner` (press ⇧⌘G in the file picker to type the path; `brew info --cask deepdrivecleaner` shows it). macOS keys the permission by the file's path as well as its signature, and Homebrew puts every version in its own directory, so after `brew upgrade` remove the old entry and add the new one; `brew reinstall` keeps the path, so the grant stays. A local `make install` build is not signed with the Developer ID and has to be granted again after every build.
 
 ## How it is built
 
@@ -108,6 +118,7 @@ Development commands (they work around a Homebrew Rust that may shadow rustup in
 make check      # fmt check, clippy -D warnings, all tests
 make release    # optimized build
 make install    # install deepdrivecleaner + ddc
+make dist       # maintainers: signed, notarized release tarball (then scripts/publish-release.sh)
 ```
 
 By submitting a contribution you agree that SmartAndPoint may use, modify and relicense it under any terms, including commercial ones, and you confirm that you have the right to grant this.

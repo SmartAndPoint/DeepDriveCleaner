@@ -94,6 +94,55 @@ pub fn inside_cargo_target(exe: &Path) -> bool {
     })
 }
 
+/// Homebrew installs every version under a new directory, which `brew upgrade`
+/// removes; a link outside it follows the upgrade. Path arithmetic only:
+/// - cask: `<prefix>/Caskroom/<token>/<version>/<file>` → `<prefix>/bin/<file>`
+/// - formula: `<prefix>/Cellar/<name>/<version>/bin/<file>` → `<prefix>/opt/<name>/bin/<file>`
+pub fn homebrew_stable_path(exe: &Path) -> Option<PathBuf> {
+    let file = exe.file_name()?;
+    let parent = exe.parent()?;
+    let named = |dir: &Path, name: &str| dir.file_name().is_some_and(|n| n == name);
+    let caskroom = parent.parent()?.parent()?;
+    if named(caskroom, "Caskroom") {
+        return Some(caskroom.parent()?.join("bin").join(file));
+    }
+    let formula = parent.parent()?.parent()?;
+    let cellar = formula.parent()?;
+    if named(parent, "bin") && named(cellar, "Cellar") {
+        return Some(cellar.parent()?.join("opt").join(formula.file_name()?).join("bin").join(file));
+    }
+    None
+}
+
+/// Both paths name the same file once symlinks are resolved.
+pub fn same_binary(a: &Path, b: &Path) -> bool {
+    matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
+}
+
+/// The path the agent runs: Homebrew's stable link when it leads to this binary,
+/// so the schedule survives `brew upgrade`; otherwise the binary itself.
+pub fn scheduled_program(exe: &Path) -> PathBuf {
+    homebrew_stable_path(exe).filter(|link| same_binary(link, exe)).unwrap_or_else(|| exe.to_path_buf())
+}
+
+/// How the program in an installed plist relates to the running binary.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ProgramState {
+    Missing,
+    Other,
+    Current,
+}
+
+pub fn program_state(program: &Path, current: Option<&Path>) -> ProgramState {
+    if !program.exists() {
+        ProgramState::Missing
+    } else if current.is_some_and(|c| same_binary(program, c)) {
+        ProgramState::Current
+    } else {
+        ProgramState::Other
+    }
+}
+
 pub trait Launchctl {
     /// Unloads; `Ok(false)` when it was not loaded.
     fn bootout(&self, target: &str) -> io::Result<bool>;
@@ -146,7 +195,8 @@ pub fn install(spec: &AgentSpec, home: &Path, uid: u32, lc: &dyn Launchctl) -> a
         spec.exe.display()
     );
     std::fs::create_dir_all(&spec.log_dir)?;
-    let path = ddc_core::store::write_atomic(&plist_path(home), plist(spec).as_bytes())?;
+    let spec = AgentSpec { exe: scheduled_program(&spec.exe), ..spec.clone() };
+    let path = ddc_core::store::write_atomic(&plist_path(home), plist(&spec).as_bytes())?;
     lc.bootout(&target(uid))?;
     lc.bootstrap(&domain(uid), &path)?;
     Ok(path)
@@ -241,6 +291,128 @@ mod tests {
         assert!(uninstall(tmp.path(), 501, &stuck).is_err());
         assert!(install(&spec(tmp.path()), tmp.path(), 501, &stuck).is_err());
         assert!(stuck.loaded(&target(501)) && plist_path(tmp.path()).exists());
+    }
+
+    /// `<root>/Cellar/deepdrivecleaner/<v>/bin/deepdrivecleaner`, a real file.
+    fn keg(root: &Path, v: &str) -> PathBuf {
+        let exe = root.join("Cellar/deepdrivecleaner").join(v).join("bin/deepdrivecleaner");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, "binary").unwrap();
+        exe
+    }
+
+    /// `<root>/opt/deepdrivecleaner -> ../Cellar/deepdrivecleaner/<v>`, as Homebrew links it.
+    fn link_opt(root: &Path, v: &str) -> PathBuf {
+        std::fs::create_dir_all(root.join("opt")).unwrap();
+        std::os::unix::fs::symlink(format!("../Cellar/deepdrivecleaner/{v}"), root.join("opt/deepdrivecleaner"))
+            .unwrap();
+        root.join("opt/deepdrivecleaner/bin/deepdrivecleaner")
+    }
+
+    /// `<root>/Caskroom/deepdrivecleaner/<v>/deepdrivecleaner` linked from `<root>/bin`, as a cask installs it.
+    fn cask(root: &Path, v: &str) -> (PathBuf, PathBuf) {
+        let exe = root.join("Caskroom/deepdrivecleaner").join(v).join("deepdrivecleaner");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, "binary").unwrap();
+        std::fs::create_dir_all(root.join("bin")).unwrap();
+        let link = root.join("bin/deepdrivecleaner");
+        std::os::unix::fs::symlink(&exe, &link).unwrap();
+        (exe, link)
+    }
+
+    #[test]
+    fn homebrew_stable_path_maps_versioned_binaries_to_their_links() {
+        let opt = |p: &str| homebrew_stable_path(Path::new(p));
+        assert_eq!(
+            opt("/opt/homebrew/Caskroom/deepdrivecleaner/0.1.0/deepdrivecleaner"),
+            Some(PathBuf::from("/opt/homebrew/bin/deepdrivecleaner"))
+        );
+        assert_eq!(
+            opt("/opt/homebrew/Cellar/deepdrivecleaner/0.1.0/bin/deepdrivecleaner"),
+            Some(PathBuf::from("/opt/homebrew/opt/deepdrivecleaner/bin/deepdrivecleaner"))
+        );
+        assert_eq!(
+            opt("/usr/local/Cellar/deepdrivecleaner/0.1.0_1/bin/ddc"),
+            Some(PathBuf::from("/usr/local/opt/deepdrivecleaner/bin/ddc")),
+            "another prefix, a revision suffix"
+        );
+        assert_eq!(opt("/Users/me/.cargo/bin/deepdrivecleaner"), None);
+        assert_eq!(opt("/opt/homebrew/Cellar/deepdrivecleaner/bin/deepdrivecleaner"), None, "no version");
+        assert_eq!(opt("/opt/homebrew/Cellar/deepdrivecleaner/0.1.0/libexec/deepdrivecleaner"), None);
+    }
+
+    #[test]
+    fn a_cask_binary_is_scheduled_through_its_bin_link() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let (exe, link) = cask(&root, "0.1.0");
+
+        install(&AgentSpec { exe: exe.clone(), ..spec(&root) }, &root, 501, &FakeLaunchctl::default()).unwrap();
+
+        let text = std::fs::read_to_string(plist_path(&root)).unwrap();
+        assert_eq!(installed_program(&text), Some(link.clone()));
+        assert_eq!(program_state(&link, Some(&exe)), ProgramState::Current);
+    }
+
+    #[test]
+    fn a_homebrew_keg_is_scheduled_through_its_opt_link() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let exe = keg(&root, "0.1.0");
+        let opt = link_opt(&root, "0.1.0");
+
+        install(&AgentSpec { exe, ..spec(&root) }, &root, 501, &FakeLaunchctl::default()).unwrap();
+
+        let text = std::fs::read_to_string(plist_path(&root)).unwrap();
+        assert_eq!(installed_program(&text), Some(opt));
+    }
+
+    #[test]
+    fn other_locations_are_scheduled_by_their_own_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let no_link = keg(&root.join("a"), "0.1.0");
+        let other_version = keg(&root.join("b"), "0.1.0");
+        keg(&root.join("b"), "0.0.9");
+        link_opt(&root.join("b"), "0.0.9");
+        let dangling = keg(&root.join("c"), "0.1.0");
+        link_opt(&root.join("c"), "0.2.0");
+        let plain = root.join("d/bin/deepdrivecleaner");
+        std::fs::create_dir_all(plain.parent().unwrap()).unwrap();
+        std::fs::write(&plain, "binary").unwrap();
+
+        let (old_cask, _) = cask(&root.join("f"), "0.0.9");
+        let other_cask = root.join("f/Caskroom/deepdrivecleaner/0.1.0/deepdrivecleaner");
+        std::fs::create_dir_all(other_cask.parent().unwrap()).unwrap();
+        std::fs::write(&other_cask, "binary").unwrap();
+        let (gone_cask, _) = cask(&root.join("g"), "0.1.0");
+        let dangling_cask = root.join("g/Caskroom/deepdrivecleaner/0.2.0/deepdrivecleaner");
+        std::fs::create_dir_all(dangling_cask.parent().unwrap()).unwrap();
+        std::fs::write(&dangling_cask, "binary").unwrap();
+        std::fs::rename(&gone_cask, root.join("g/moved")).unwrap();
+        let unlinked_cask = root.join("e/Caskroom/deepdrivecleaner/0.1.0/deepdrivecleaner");
+        std::fs::create_dir_all(unlinked_cask.parent().unwrap()).unwrap();
+        std::fs::write(&unlinked_cask, "binary").unwrap();
+
+        assert_eq!(scheduled_program(&old_cask), root.join("f/bin/deepdrivecleaner"), "the link leads to 0.0.9");
+        for exe in [no_link, other_version, dangling, plain, unlinked_cask, other_cask, dangling_cask] {
+            assert_eq!(scheduled_program(&exe), exe);
+        }
+    }
+
+    #[test]
+    fn status_recognizes_the_opt_path_as_this_binary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let exe = keg(&root.join("a"), "0.1.0");
+        let opt = link_opt(&root.join("a"), "0.1.0");
+        let newer = keg(&root.join("b"), "0.1.0");
+        keg(&root.join("b"), "0.0.9");
+        let stale = link_opt(&root.join("b"), "0.0.9");
+
+        assert_eq!(program_state(&opt, Some(&exe)), ProgramState::Current);
+        assert_eq!(program_state(&stale, Some(&newer)), ProgramState::Other);
+        assert_eq!(program_state(&root.join("gone"), Some(&exe)), ProgramState::Missing);
     }
 
     #[test]

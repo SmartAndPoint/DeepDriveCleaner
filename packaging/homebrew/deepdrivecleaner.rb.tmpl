@@ -1,0 +1,50 @@
+# Rendered by scripts/publish-release.sh — do not edit in the tap by hand.
+# Only the version and the checksum are substituted at publish time; everything
+# else is the contract and changes here, in the source repository.
+cask "deepdrivecleaner" do
+  version "__VERSION__"
+  sha256 "__SHA256__"
+
+  url "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v#{version}/deepdrivecleaner-#{version}-aarch64-apple-darwin.tar.gz"
+  name "DeepDriveCleaner"
+  desc "Find and safely clean disk space taken by developer tools and projects"
+  homepage "https://github.com/SmartAndPoint/DeepDriveCleaner"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  # A cask, not a formula: the binary is prebuilt (signed with the SmartAndPoint
+  # Developer ID and notarized), and Homebrew treats a formula without a bottle as
+  # a source build. Apple Silicon only: every test and measurement ran there.
+  depends_on arch: :arm64
+
+  # One binary under two names, so a Full Disk Access grant covers `ddc` too.
+  binary "deepdrivecleaner"
+  binary "deepdrivecleaner", target: "ddc"
+
+  # No `uninstall` stanza: Homebrew runs it on every upgrade too, and the
+  # background scan should survive upgrades. `--zap` removes it.
+  zap launchctl: "com.smartandpoint.deepdrivecleaner",
+      trash:     [
+        "~/Library/Application Support/DeepDriveCleaner",
+        "~/Library/LaunchAgents/com.smartandpoint.deepdrivecleaner.plist",
+        "~/Library/Logs/DeepDriveCleaner",
+      ]
+
+  caveats <<~EOS
+    To scan all of ~/Library, add the binary to Full Disk Access:
+      System Settings -> Privacy & Security -> Full Disk Access -> +
+      (press Shift-Cmd-G in the file picker and paste the path)
+      #{staged_path}/deepdrivecleaner
+    macOS ties the permission to that path, and every version lives in its own
+    directory: after `brew upgrade`, remove the old entry and add the new one.
+
+    To scan daily in the background and get a notification when a lot can be freed:
+      ddc schedule install
+    The schedule keeps working across `brew upgrade`. Before `brew uninstall`, run
+      ddc schedule uninstall
+    or uninstall with `brew uninstall --zap`.
+  EOS
+end

@@ -6,3 +6,7 @@ __pycache__/
 # Coverage data from the reference machine lists personal folder names: it stays local.
 /bench/baseline-*.tsv
 /bench/devartifacts-*.txt
+
+# Release builds and the maintainer's local signing settings.
+/dist/
+.env

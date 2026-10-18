@@ -1,0 +1,98 @@
+#!/bin/bash
+# Builds the release tarball that scripts/publish-release.sh publishes:
+# release build -> Developer ID signature -> Apple notarization -> tarball.
+#
+# Signed with the SmartAndPoint Developer ID, as GrammarHelper is. The designated
+# requirement of such a signature is the identifier plus the team, so macOS keeps a
+# Full Disk Access grant when a newer signed build replaces this one; an ad-hoc
+# signature is matched by its exact hash and loses the grant on every build.
+# DDC_SIGN_IDENTITY and NOTARY_PROFILE come from .env, which is never committed.
+set -euo pipefail
+
+TARGET=aarch64-apple-darwin
+IDENTIFIER=com.smartandpoint.deepdrivecleaner
+TEAM_ID=8MSDJTBW2D
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"                                # rustup reads rust-toolchain.toml from here
+export PATH="$HOME/.cargo/bin:$PATH"     # Homebrew's Rust may shadow rustup
+CARGO="$HOME/.cargo/bin/cargo"
+DIST="$ROOT/dist"
+
+fail() { printf '\033[0;31m❌ %s\033[0m\n' "$1" >&2; exit 1; }
+step() { printf '\033[0;34m→ %s\033[0m\n' "$1"; }
+
+# First, so a failed run leaves nothing scripts/publish-release.sh could pick up.
+[ "$DIST" = "$ROOT/dist" ] || fail "unexpected dist directory: $DIST"
+rm -rf "$DIST"
+
+if [ -f .env ]; then set -a; . ./.env; set +a; fi
+[ -n "${DDC_SIGN_IDENTITY:-}" ] || fail "DDC_SIGN_IDENTITY is not set (.env): a release is signed with the Developer ID"
+[[ "$DDC_SIGN_IDENTITY" =~ ^[0-9A-Fa-f]{40}$ ]] \
+    || fail "DDC_SIGN_IDENTITY must be the certificate's SHA-1 (security find-identity -v -p codesigning)"
+[ -n "${NOTARY_PROFILE:-}" ] || fail "NOTARY_PROFILE is not set (.env)"
+# A tarball built from uncommitted code could not be rebuilt from its tag.
+[ -z "$(git status --porcelain)" ] || fail "the tree is not clean (untracked files count): commit first"
+
+VERSION="$("$CARGO" pkgid -p ddc-cli | sed 's/.*[#@]//')"
+ASSET="deepdrivecleaner-$VERSION-$TARGET.tar.gz"
+
+step "Building $VERSION for $TARGET"
+# The remap keeps the maintainer's home directory out of the public binary.
+RUSTFLAGS="--remap-path-prefix=$HOME=~" "$CARGO" build --release --locked --target "$TARGET" -p ddc-cli
+BIN="$ROOT/target/$TARGET/release/deepdrivecleaner"
+[ "$(lipo -archs "$BIN")" = "arm64" ] || fail "not an arm64-only binary: $(lipo -archs "$BIN")"
+[ "$("$BIN" --version)" = "deepdrivecleaner $VERSION" ] || fail "the binary reports '$("$BIN" --version)'"
+if strings "$BIN" | grep -F "$HOME" >/dev/null; then fail "the binary still contains $HOME"; fi
+
+STAGE="$DIST/stage"
+mkdir -p "$STAGE"
+cp "$BIN" "$STAGE/deepdrivecleaner"
+xattr -c "$STAGE/deepdrivecleaner"
+
+step "Signing with $IDENTIFIER (team $TEAM_ID)"
+codesign --force --timestamp --options runtime --identifier "$IDENTIFIER" \
+    --sign "$DDC_SIGN_IDENTITY" "$STAGE/deepdrivecleaner"
+codesign --verify --strict --verbose=2 "$STAGE/deepdrivecleaner"
+codesign -dv "$STAGE/deepdrivecleaner" 2>&1 | grep "^TeamIdentifier=$TEAM_ID$" >/dev/null \
+    || fail "not signed by team $TEAM_ID"
+
+step "Notarizing (waits for Apple)"
+ditto -c -k "$STAGE/deepdrivecleaner" "$DIST/notarize.zip"
+xcrun notarytool submit "$DIST/notarize.zip" --keychain-profile "$NOTARY_PROFILE" \
+    --wait --timeout 900s --output-format json > "$DIST/notary.json" || true
+if ! grep -qE '"status" *: *"Accepted"' "$DIST/notary.json"; then
+    cat "$DIST/notary.json" >&2
+    ID="$(sed -n 's/.*"id" *: *"\([^"]*\)".*/\1/p' "$DIST/notary.json")"
+    [ -n "$ID" ] && { xcrun notarytool log "$ID" --keychain-profile "$NOTARY_PROFILE" >&2 || true; }
+    fail "notarization was not accepted"
+fi
+rm -f "$DIST/notarize.zip"
+# A bare binary cannot be stapled: Gatekeeper looks the ticket up online. `spctl
+# --type execute` rejects every command-line tool ("does not seem to be an app");
+# this is the check `brew audit` applies to cask binaries. The ticket can reach the
+# lookup service some time after notarytool reports Accepted, so it is retried
+# (every 20 s, five minutes by default) rather than failing a whole notarization round.
+ATTEMPTS="${NOTARY_CHECK_ATTEMPTS:-15}"
+ATTEMPT=1
+until NOTARY_CHECK="$(codesign --verify -R="notarized" --check-notarization "$STAGE/deepdrivecleaner" 2>&1)"; do
+    [ "$ATTEMPT" -lt "$ATTEMPTS" ] || { echo "$NOTARY_CHECK" >&2; fail "Apple does not report the binary as notarized"; }
+    step "The ticket is not visible yet; check $((ATTEMPT + 1))/$ATTEMPTS in 20 s"
+    ATTEMPT=$((ATTEMPT + 1))
+    sleep 20
+done
+
+step "Packing $ASSET"
+cp LICENSE.md README.md "$STAGE/"
+# No extended attributes, no AppleDouble files, no local user in the archive.
+COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata --uid 0 --gid 0 --uname root --gname wheel \
+    -czf "$DIST/$ASSET" -C "$STAGE" deepdrivecleaner LICENSE.md README.md
+LISTING="$(tar -tzf "$DIST/$ASSET" | LC_ALL=C sort | tr '\n' ' ')"
+[ "$LISTING" = "LICENSE.md README.md deepdrivecleaner " ] || fail "unexpected tarball contents: $LISTING"
+shasum -a 256 "$DIST/$ASSET" | awk '{print $1}' > "$DIST/$ASSET.sha256"
+git rev-parse HEAD > "$DIST/BUILD_COMMIT"
+rm -rf "$STAGE"
+
+printf '\033[0;32m✅ %s\033[0m\n' "$DIST/$ASSET"
+echo "   sha256 $(cat "$DIST/$ASSET.sha256")"
+echo "   next: scripts/publish-release.sh --dry-run"

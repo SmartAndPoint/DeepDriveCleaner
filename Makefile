@@ -3,7 +3,7 @@
 CARGO := $(HOME)/.cargo/bin/cargo
 export PATH := $(HOME)/.cargo/bin:$(PATH)
 
-.PHONY: build fmt fmt-check clippy test check release install
+.PHONY: build fmt fmt-check clippy test check release install dist
 
 build:
 	$(CARGO) build --workspace
@@ -30,3 +30,8 @@ release:
 install:
 	$(CARGO) install --path crates/ddc-cli --locked
 	ln -sf "$(HOME)/.cargo/bin/deepdrivecleaner" "$(HOME)/.cargo/bin/ddc"
+
+# Signed, notarized release tarball in dist/ (needs .env with DDC_SIGN_IDENTITY and
+# NOTARY_PROFILE); publish it with scripts/publish-release.sh.
+dist: check
+	./scripts/build-dist.sh
