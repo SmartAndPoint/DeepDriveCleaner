@@ -10,3 +10,9 @@ __pycache__/
 # Release builds and the maintainer's local signing settings.
 /dist/
 .env
+
+# App builds (scripts/build-app.sh), Swift package builds and Xcode user state.
+/build/
+.build/
+.swiftpm/
+xcuserdata/

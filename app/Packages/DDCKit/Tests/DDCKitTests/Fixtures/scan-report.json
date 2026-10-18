@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "ddc_version": "0.1.0",
+  "generated_at": "2026-10-18T11:02:13Z",
+  "duration_ms": 4,
+  "home": "/Users/example",
+  "scan_roots": [
+    "/Users/example"
+  ],
+  "full_disk_access": false,
+  "min_age_days": 14,
+  "totals": {
+    "scanned_bytes": 139264,
+    "files": 5,
+    "dirs": 8,
+    "unowned_bytes": 8192,
+    "classes": [
+      {
+        "class": "safe",
+        "count": 1,
+        "bytes": 90112,
+        "selected_count": 1,
+        "selected_bytes": 90112
+      },
+      {
+        "class": "rebuildable",
+        "count": 1,
+        "bytes": 32768,
+        "selected_count": 1,
+        "selected_bytes": 32768
+      },
+      {
+        "class": "review",
+        "count": 0,
+        "bytes": 0,
+        "selected_count": 0,
+        "selected_bytes": 0
+      },
+      {
+        "class": "user-data",
+        "count": 1,
+        "bytes": 8192,
+        "selected_count": 0,
+        "selected_bytes": 0
+      }
+    ],
+    "selected_bytes": 122880,
+    "selected_reclaimable_bytes": 122880
+  },
+  "findings": [
+    {
+      "path": "/Users/example/.npm/_cacache",
+      "rule": "cache.npm",
+      "category": "package-cache",
+      "class": "safe",
+      "rule_class": "safe",
+      "removal": "delete",
+      "bytes": 90112,
+      "shared_bytes": 0,
+      "files": 1,
+      "dirs": 2,
+      "incomplete": false,
+      "selected": true,
+      "notes": [],
+      "hint": "",
+      "dev": 16777232,
+      "ino": 339569701,
+      "parent_dev": 16777232,
+      "parent_ino": 339569700
+    },
+    {
+      "path": "/Users/example/p/node_modules",
+      "rule": "node.node_modules",
+      "category": "project-artifact",
+      "class": "rebuildable",
+      "rule_class": "rebuildable",
+      "removal": "delete",
+      "bytes": 32768,
+      "shared_bytes": 0,
+      "files": 1,
+      "dirs": 2,
+      "incomplete": false,
+      "project": {
+        "root": "/Users/example/p",
+        "last_activity": "2025-12-31T19:00:00Z",
+        "idle_days": 290,
+        "has_lockfile": true
+      },
+      "selected": true,
+      "notes": [],
+      "hint": "recreate: npm ci / pnpm install / yarn install",
+      "dev": 16777232,
+      "ino": 339569697,
+      "parent_dev": 16777232,
+      "parent_ino": 339569694
+    },
+    {
+      "path": "/Users/example/Pictures",
+      "rule": "user.pictures",
+      "category": "personal",
+      "class": "user-data",
+      "rule_class": "user-data",
+      "removal": "none",
+      "bytes": 8192,
+      "shared_bytes": 0,
+      "files": 1,
+      "dirs": 1,
+      "incomplete": false,
+      "selected": false,
+      "not_selected": {
+        "reason": "user-data"
+      },
+      "notes": [],
+      "hint": "",
+      "dev": 16777232,
+      "ino": 339569704,
+      "parent_dev": 16777232,
+      "parent_ino": 339569693
+    }
+  ],
+  "large_files": [],
+  "inaccessible": [],
+  "errors_total": 0,
+  "skipped": [],
+  "skipped_total": 0,
+  "cancelled": false
+}

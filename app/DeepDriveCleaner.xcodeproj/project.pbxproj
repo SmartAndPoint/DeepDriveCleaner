@@ -1,0 +1,305 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		DDC0000000000000000000B1 /* DDCKit in Frameworks */ = {isa = PBXBuildFile; productRef = DDC00000000000000000003B /* DDCKit */; };
+		DDC0000000000000000000B2 /* com.smartandpoint.deepdrivecleaner.scheduler.plist in Copy Launch Agents */ = {isa = PBXBuildFile; fileRef = DDC0000000000000000000F2 /* com.smartandpoint.deepdrivecleaner.scheduler.plist */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		DDC0000000000000000000C1 /* Copy Launch Agents */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Library/LaunchAgents;
+			dstSubfolderSpec = 1;
+			files = (
+				DDC0000000000000000000B2 /* com.smartandpoint.deepdrivecleaner.scheduler.plist in Copy Launch Agents */,
+			);
+			name = "Copy Launch Agents";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		DDC0000000000000000000F1 /* DeepDriveCleaner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DeepDriveCleaner.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DDC0000000000000000000F2 /* com.smartandpoint.deepdrivecleaner.scheduler.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = com.smartandpoint.deepdrivecleaner.scheduler.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		DDC00000000000000000005A /* Exceptions for "DeepDriveCleaner" folder in "DeepDriveCleaner" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = DDC00000000000000000004A /* DeepDriveCleaner */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		DDC0000000000000000000E2 /* DeepDriveCleaner */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				DDC00000000000000000005A /* Exceptions for "DeepDriveCleaner" folder in "DeepDriveCleaner" target */,
+			);
+			path = DeepDriveCleaner;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		DDC00000000000000000001B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DDC0000000000000000000B1 /* DDCKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		DDC0000000000000000000E1 = {
+			isa = PBXGroup;
+			children = (
+				DDC0000000000000000000E2 /* DeepDriveCleaner */,
+				DDC0000000000000000000E3 /* LaunchAgents */,
+				DDC0000000000000000000E4 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		DDC0000000000000000000E3 /* LaunchAgents */ = {
+			isa = PBXGroup;
+			children = (
+				DDC0000000000000000000F2 /* com.smartandpoint.deepdrivecleaner.scheduler.plist */,
+			);
+			path = LaunchAgents;
+			sourceTree = "<group>";
+		};
+		DDC0000000000000000000E4 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				DDC0000000000000000000F1 /* DeepDriveCleaner.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		DDC00000000000000000004A /* DeepDriveCleaner */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DDC00000000000000000002B /* Build configuration list for PBXNativeTarget "DeepDriveCleaner" */;
+			buildPhases = (
+				DDC00000000000000000001A /* Sources */,
+				DDC00000000000000000001B /* Frameworks */,
+				DDC00000000000000000001C /* Resources */,
+				DDC0000000000000000000C1 /* Copy Launch Agents */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				DDC0000000000000000000E2 /* DeepDriveCleaner */,
+			);
+			name = DeepDriveCleaner;
+			packageProductDependencies = (
+				DDC00000000000000000003B /* DDCKit */,
+			);
+			productName = DeepDriveCleaner;
+			productReference = DDC0000000000000000000F1 /* DeepDriveCleaner.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DDC0000000000000000000A1 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2710;
+				LastUpgradeCheck = 2710;
+				TargetAttributes = {
+					DDC00000000000000000004A = {
+						CreatedOnToolsVersion = 27.1;
+					};
+				};
+			};
+			buildConfigurationList = DDC00000000000000000002A /* Build configuration list for PBXProject "DeepDriveCleaner" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = DDC0000000000000000000E1;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				DDC00000000000000000003A /* XCLocalSwiftPackageReference "Packages/DDCKit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = DDC0000000000000000000E4 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				DDC00000000000000000004A /* DeepDriveCleaner */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		DDC00000000000000000001C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		DDC00000000000000000001A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		DDC0000000000000000000D1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		DDC0000000000000000000D2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		DDC0000000000000000000D3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8MSDJTBW2D;
+				ENABLE_DEBUG_DYLIB = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DeepDriveCleaner/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.smartandpoint.deepdrivecleaner;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		DDC0000000000000000000D4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8MSDJTBW2D;
+				ENABLE_DEBUG_DYLIB = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DeepDriveCleaner/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.smartandpoint.deepdrivecleaner;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		DDC00000000000000000002A /* Build configuration list for PBXProject "DeepDriveCleaner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DDC0000000000000000000D1 /* Debug */,
+				DDC0000000000000000000D2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DDC00000000000000000002B /* Build configuration list for PBXNativeTarget "DeepDriveCleaner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DDC0000000000000000000D3 /* Debug */,
+				DDC0000000000000000000D4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		DDC00000000000000000003A /* XCLocalSwiftPackageReference "Packages/DDCKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/DDCKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		DDC00000000000000000003B /* DDCKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DDCKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = DDC0000000000000000000A1 /* Project object */;
+}
