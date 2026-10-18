@@ -9,7 +9,7 @@ use std::path::{Component, Path, PathBuf};
 use super::SkipReason;
 use crate::env::Env;
 use crate::plan::PlanItem;
-use crate::rules::{Catalog, KEEP_MARKER, PROTECTED_IN_HOME, PROTECTED_SYSTEM};
+use crate::rules::{Catalog, KEEP_MARKER, PROTECTED_IN_HOME, PROTECTED_SYSTEM, owns};
 use crate::sys::fsops::DirFd;
 use crate::sys::procs::ProcInfo;
 
@@ -36,7 +36,10 @@ pub struct Guard<'a> {
     protected_ids: HashSet<(u64, u64)>,
     /// Directories containing a keep marker inside planned findings.
     markers: Vec<PathBuf>,
-    procs: Vec<ProcInfo>,
+    /// Per process inside an app bundle: its pid, the bundle name, and the
+    /// executable's own name, which still names a renamed bundle (`Chrome.app`
+    /// runs `Google Chrome`, `Xcode16.app` runs `Xcode`).
+    apps: Vec<(i32, String, String)>,
     /// Per process: absolute paths it uses, and first components of relative
     /// paths whose base (cwd) is unknown.
     uses: Vec<Uses>,
@@ -75,7 +78,7 @@ impl<'a> Guard<'a> {
             protected_ids,
             markers,
             uses: procs.iter().map(uses).collect(),
-            procs,
+            apps: procs.iter().filter_map(|p| Some((p.pid, p.app_bundle()?, p.name.clone()))).collect(),
         }
     }
 
@@ -135,9 +138,10 @@ impl<'a> Guard<'a> {
             return Err(SkipReason::Kept);
         }
         if let Some(rule) = self.catalog.by_id(&f.rule)
-            && let Some(p) = self.procs.iter().find(|p| rule.owners.iter().any(|o| p.name.starts_with(o)))
+            && let Some((pid, app, _)) =
+                self.apps.iter().find(|(_, app, exe)| rule.owners.iter().any(|o| owns(o, app) || owns(o, exe)))
         {
-            return Err(SkipReason::OwnerRunning { pid: p.pid, name: p.name.clone() });
+            return Err(SkipReason::OwnerRunning { pid: *pid, name: app.clone() });
         }
         if let Some(reason) = in_use(path, &self.uses) {
             return Err(reason);

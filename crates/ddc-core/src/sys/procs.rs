@@ -3,7 +3,7 @@
 use std::ffi::{CStr, OsStr, OsString};
 use std::mem::{MaybeUninit, size_of};
 use std::os::unix::ffi::OsStrExt as _;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use libc::{c_int, c_void};
 
@@ -19,6 +19,32 @@ pub struct ProcInfo {
     pub cwd: Option<PathBuf>,
     /// `VIRTUAL_ENV` / `CONDA_PREFIX` from the environment, when readable.
     pub env_prefixes: Vec<PathBuf>,
+}
+
+impl ProcInfo {
+    /// The app this process belongs to, as its bundle name (`Cursor` for
+    /// `Cursor.app`); see [`app_bundle`]. A relative executable path is joined
+    /// with the working directory; without either, `None`.
+    pub fn app_bundle(&self) -> Option<String> {
+        let exe = self.exe.as_deref()?;
+        if exe.is_absolute() { app_bundle(exe) } else { app_bundle(&self.cwd.as_deref()?.join(exe)) }
+    }
+}
+
+/// The outermost `<Name>.app` in an executable path, when the executable lies in
+/// that bundle's `Contents/MacOS` or `Contents/Frameworks`. Every app keeps its main
+/// binary in `Contents/MacOS`; Electron and Chrome helpers live under
+/// `Contents/Frameworks`. Tools shipped inside an app but run on their own (Xcode's
+/// `clangd` under `Contents/Developer`) and system XPC services are not the app.
+pub fn app_bundle(exe: &Path) -> Option<String> {
+    let mut parts = exe.components().filter_map(|c| match c {
+        Component::Normal(s) => Some(s),
+        _ => None,
+    });
+    let name = parts.find_map(|c| c.to_str()?.strip_suffix(".app"))?;
+    let inside = (parts.next()?, parts.next()?);
+    (!name.is_empty() && inside.0 == "Contents" && (inside.1 == "MacOS" || inside.1 == "Frameworks"))
+        .then(|| name.to_owned())
 }
 
 /// Real user id of this process.
@@ -175,6 +201,62 @@ mod tests {
         assert_eq!(info.name, "python");
         assert_eq!(info.args, vec![OsString::from("python"), OsString::from("app.py")]);
         assert_eq!(info.env_prefixes, vec![PathBuf::from("/p/.venv")]);
+    }
+
+    #[test]
+    fn app_bundle_is_the_outermost_app_running_from_macos_or_frameworks() {
+        let bundle = |exe: &str| app_bundle(Path::new(exe));
+        assert_eq!(bundle("/Applications/Cursor.app/Contents/MacOS/Cursor").as_deref(), Some("Cursor"));
+        assert_eq!(bundle("/Applications/Windsurf.app/Contents/MacOS/Electron").as_deref(), Some("Windsurf"));
+        assert_eq!(
+            bundle("/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Renderer).app/Contents/MacOS/Code Helper (Renderer)")
+                .as_deref(),
+            Some("Visual Studio Code")
+        );
+        assert_eq!(
+            bundle(
+                "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/141.0/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)"
+            )
+            .as_deref(),
+            Some("Google Chrome")
+        );
+        assert_eq!(
+            bundle("/Applications/Firefox.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container")
+                .as_deref(),
+            Some("Firefox")
+        );
+        assert_eq!(
+            bundle("/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app/Contents/MacOS/Adobe Photoshop 2025")
+                .as_deref(),
+            Some("Adobe Photoshop 2025")
+        );
+        assert_eq!(
+            bundle("/private/var/folders/x/T/AppTranslocation/0A1B/d/Cursor.app/Contents/MacOS/Cursor").as_deref(),
+            Some("Cursor")
+        );
+        assert_eq!(
+            bundle("/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clangd"),
+            None
+        );
+        assert_eq!(
+            bundle(
+                "/System/Library/PrivateFrameworks/TextInputUIMacHelper.framework/Versions/A/XPCServices/CursorUIViewService.xpc/Contents/MacOS/CursorUIViewService"
+            ),
+            None
+        );
+        assert_eq!(bundle("/Applications/Claude.app/Contents/Helpers/disclaimer"), None);
+        assert_eq!(bundle("/usr/bin/python3"), None);
+    }
+
+    #[test]
+    fn a_relative_executable_needs_the_working_directory() {
+        let relative =
+            ProcInfo { exe: Some(PathBuf::from("./Cursor.app/Contents/MacOS/Cursor")), ..ProcInfo::default() };
+        assert_eq!(relative.app_bundle(), None);
+        let with_cwd = ProcInfo { cwd: Some(PathBuf::from("/Users/u/Applications")), ..relative };
+        assert_eq!(with_cwd.app_bundle().as_deref(), Some("Cursor"));
+        let named_only = ProcInfo { name: "Cursor".into(), ..ProcInfo::default() };
+        assert_eq!(named_only.app_bundle(), None);
     }
 
     #[test]

@@ -13,19 +13,20 @@ const JS_BUILD: &[&str] = &[".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-
 const GRADLE: &[&str] = &["build.gradle", "build.gradle.kts"];
 const GRADLE_ANY: &[&str] = &["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"];
 const NONE: &[&str] = &[];
+/// App bundles of the JetBrains IDEs; editions match too (`PyCharm CE`, `IntelliJ IDEA Ultimate`).
 const JETBRAINS: &[&str] = &[
-    "idea",
-    "pycharm",
-    "webstorm",
-    "goland",
-    "clion",
-    "rustrover",
-    "datagrip",
-    "rider",
-    "phpstorm",
-    "rubymine",
-    "dataspell",
-    "fleet",
+    "IntelliJ IDEA",
+    "PyCharm",
+    "WebStorm",
+    "GoLand",
+    "CLion",
+    "RustRover",
+    "DataGrip",
+    "Rider",
+    "PhpStorm",
+    "RubyMine",
+    "DataSpell",
+    "Fleet",
 ];
 
 const fn rule(
@@ -429,10 +430,11 @@ pub static RULES: &[Rule] = &[
             Matcher::KnownChildren("Library/Application Support/JetBrains"),
         )
     },
+    // One rule per editor, so a running VS Code does not hold back Cursor's caches.
     Rule {
-        owners: &["Code", "Electron", "Cursor", "Windsurf"],
+        owners: &["Visual Studio Code"],
         ..rule(
-            "ide.editor-cache",
+            "ide.vscode-cache",
             Ide,
             Safe,
             Removal::Delete,
@@ -442,11 +444,33 @@ pub static RULES: &[Rule] = &[
                 "Library/Application Support/Code/CachedExtensionVSIXs",
                 "Library/Application Support/Code/GPUCache",
                 "Library/Application Support/Code/logs",
+            ]),
+        )
+    },
+    Rule {
+        owners: &["Cursor"],
+        ..rule(
+            "ide.cursor-cache",
+            Ide,
+            Safe,
+            Removal::Delete,
+            Matcher::KnownPaths(&[
                 "Library/Application Support/Cursor/Cache",
                 "Library/Application Support/Cursor/CachedData",
                 "Library/Application Support/Cursor/CachedExtensionVSIXs",
                 "Library/Application Support/Cursor/GPUCache",
                 "Library/Application Support/Cursor/logs",
+            ]),
+        )
+    },
+    Rule {
+        owners: &["Windsurf"],
+        ..rule(
+            "ide.windsurf-cache",
+            Ide,
+            Safe,
+            Removal::Delete,
+            Matcher::KnownPaths(&[
                 "Library/Application Support/Windsurf/Cache",
                 "Library/Application Support/Windsurf/CachedData",
                 "Library/Application Support/Windsurf/CachedExtensionVSIXs",
@@ -491,7 +515,7 @@ pub static RULES: &[Rule] = &[
         )
     },
     Rule {
-        owners: &["firefox"],
+        owners: &["Firefox"],
         ..rule("app.firefox-cache", AppCache, Safe, Removal::Delete, Matcher::KnownPaths(&["Library/Caches/Firefox"]))
     },
     Rule {

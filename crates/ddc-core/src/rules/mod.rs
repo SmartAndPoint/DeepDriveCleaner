@@ -19,8 +19,16 @@ pub use visitor::{KEEP_MARKER, LARGE_FILE_BYTES, Pins, RuleVisitor};
 use crate::class::{Category, Removal, RiskClass};
 use crate::scan::Tag;
 
-/// Name prefix of a process that owns a cache (checked before cleaning).
-pub type OwnerProcess = &'static str;
+/// An app that owns a cache, by its bundle name (`Cursor` for `Cursor.app`): while
+/// a process of that app runs, its caches are skipped (ADR §5). Matched by [`owns`].
+pub type OwnerApp = &'static str;
+
+/// `owner` names the app bundle `bundle`: the same name, or that name followed by a
+/// character that is not a letter or digit, so editions and versions count
+/// (`Adobe Photoshop 2025`, `Xcode-beta`, `PyCharm CE`) while `CursorFoo` does not.
+pub fn owns(owner: OwnerApp, bundle: &str) -> bool {
+    bundle.strip_prefix(owner).is_some_and(|rest| rest.chars().next().is_none_or(|c| !c.is_alphanumeric()))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Matcher {
@@ -63,7 +71,7 @@ pub struct Rule {
     /// Environments: `rebuildable` only when one of these exists in the
     /// project (`*` matches any text). `None` = not lock-gated.
     pub lockfiles: Option<&'static [&'static str]>,
-    pub owners: &'static [OwnerProcess],
+    pub owners: &'static [OwnerApp],
     /// How to get it back, shown in plans.
     pub hint: &'static str,
     /// Shown in reports. Unlisted rules only stop other rules from matching inside.

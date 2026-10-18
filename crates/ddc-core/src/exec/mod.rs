@@ -53,6 +53,7 @@ pub enum SkipReason {
         pid: i32,
         name: String,
     },
+    /// An app that owns the item is running; `name` is its bundle name.
     OwnerRunning {
         pid: i32,
         name: String,

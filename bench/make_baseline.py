@@ -136,9 +136,9 @@ def known():
         ("Library/Group Containers/6N38VWS5BX.ru.keepcoder.Telegram", "user.telegram", "user-data"),
         ("Library/Group Containers/group.net.whatsapp.WhatsApp.shared", "user.whatsapp", "user-data"),
     ]
-    for app in ("Code", "Cursor", "Windsurf"):
+    for app, rule in (("Code", "ide.vscode-cache"), ("Cursor", "ide.cursor-cache"), ("Windsurf", "ide.windsurf-cache")):
         for c in ("Cache", "CachedData", "CachedExtensionVSIXs", "GPUCache", "logs"):
-            rows.append((f"Library/Application Support/{app}/{c}", "ide.editor-cache", "safe"))
+            rows.append((f"Library/Application Support/{app}/{c}", rule, "safe"))
         rows.append((f"Library/Application Support/{app}/User/workspaceStorage", "ide.workspace-storage", "user-data"))
     pinned = project_pins()
     nvm = sorted(glob.glob(H + "/.nvm/versions/node/*"), key=lambda d: version_key(os.path.basename(d)))

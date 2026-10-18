@@ -22,7 +22,7 @@ use ddc_core::exec::{
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{Plan, PlanOptions, build_plan};
 use ddc_core::report::{self, ScanOptions};
-use ddc_core::rules::Catalog;
+use ddc_core::rules::{Catalog, RULES, owns};
 use ddc_core::scan::{Progress, WalkOptions};
 use ddc_core::sys::procs::ProcInfo;
 
@@ -436,12 +436,148 @@ fn running_owner_process_skips_its_cache() {
     let cache = fx.t.dir("Library/Caches/com.spotify.client");
     fx.t.file("Library/Caches/com.spotify.client/data", 1000);
     let plan = fx.plan();
-    let spotify = ProcInfo { pid: 4242, name: "Spotify".into(), ..ProcInfo::default() };
+    let spotify = app_process(4242, "/Applications/Spotify.app/Contents/MacOS/Spotify");
 
     let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe] };
     let (r, _) = fx.run(&plan, consent, &FakeCommands::default(), &FakeProcs(vec![spotify]));
 
     assert_eq!(outcome(&r, &cache), &Outcome::Skipped(SkipReason::OwnerRunning { pid: 4242, name: "Spotify".into() }));
+}
+
+fn app_process(pid: i32, exe: &str) -> ProcInfo {
+    let exe = PathBuf::from(exe);
+    ProcInfo {
+        pid,
+        name: exe.file_name().unwrap().to_string_lossy().into_owned(),
+        exe: Some(exe),
+        ..ProcInfo::default()
+    }
+}
+
+#[test]
+fn an_owner_is_an_app_bundle_not_a_process_name() {
+    let fx = Fx::new();
+    let cursor = fx.t.dir("Library/Application Support/Cursor/Cache");
+    fx.t.file("Library/Application Support/Cursor/Cache/data", 1000);
+    let firefox = fx.t.dir("Library/Caches/Firefox");
+    fx.t.file("Library/Caches/Firefox/data", 1000);
+    let derived = fx.t.dir("Library/Developer/Xcode/DerivedData");
+    fx.t.file("Library/Developer/Xcode/DerivedData/data", 1000);
+    let plan = fx.plan();
+    let procs = FakeProcs(vec![
+        // macOS's text-cursor service is not Cursor, a tool inside Xcode is not Xcode,
+        // a bundle that merely starts with "Cursor" is another app, and a bare name proves nothing.
+        app_process(
+            1508,
+            "/System/Library/PrivateFrameworks/TextInputUIMacHelper.framework/Versions/A/XPCServices/CursorUIViewService.xpc/Contents/MacOS/CursorUIViewService",
+        ),
+        app_process(
+            51258,
+            "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clangd",
+        ),
+        app_process(77, "/Applications/CursorFoo.app/Contents/MacOS/CursorFoo"),
+        ProcInfo { pid: 88, name: "Firefox".into(), ..ProcInfo::default() },
+    ]);
+
+    let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe] };
+    let (r, _) = fx.run(&plan, consent, &FakeCommands::default(), &procs);
+
+    assert_eq!(outcome(&r, &cursor), &Outcome::Deleted);
+    assert_eq!(outcome(&r, &firefox), &Outcome::Deleted);
+    assert_eq!(outcome(&r, &derived), &Outcome::Deleted);
+}
+
+#[test]
+fn a_running_editor_holds_back_only_its_own_caches() {
+    let fx = Fx::new();
+    let cursor = fx.t.dir("Library/Application Support/Cursor/GPUCache");
+    fx.t.file("Library/Application Support/Cursor/GPUCache/data", 1000);
+    let code = fx.t.dir("Library/Application Support/Code/GPUCache");
+    fx.t.file("Library/Application Support/Code/GPUCache/data", 1000);
+    let photoshop = fx.t.dir("Library/Caches/Adobe Camera Raw 2");
+    fx.t.file("Library/Caches/Adobe Camera Raw 2/data", 1000);
+    let plan = fx.plan();
+    let procs = FakeProcs(vec![
+        app_process(
+            501,
+            "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper (GPU).app/Contents/MacOS/Cursor Helper (GPU)",
+        ),
+        app_process(
+            502,
+            "/Applications/Adobe Photoshop 2025/Adobe Photoshop 2025.app/Contents/MacOS/Adobe Photoshop 2025",
+        ),
+    ]);
+
+    let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe] };
+    let (r, _) = fx.run(&plan, consent, &FakeCommands::default(), &procs);
+
+    assert_eq!(outcome(&r, &cursor), &Outcome::Skipped(SkipReason::OwnerRunning { pid: 501, name: "Cursor".into() }));
+    assert_eq!(outcome(&r, &code), &Outcome::Deleted);
+    assert_eq!(
+        outcome(&r, &photoshop),
+        &Outcome::Skipped(SkipReason::OwnerRunning { pid: 502, name: "Adobe Photoshop 2025".into() })
+    );
+}
+
+#[test]
+fn no_system_process_owns_a_cache() {
+    // On the live process table: nothing Apple ships may hold back a cache, the way
+    // CursorUIViewService once held back every editor's.
+    let system: Vec<ProcInfo> = SystemProcesses
+        .processes()
+        .into_iter()
+        .filter(|p| {
+            p.exe.as_deref().is_some_and(|e| {
+                (e.starts_with("/System") && !e.starts_with("/System/Volumes"))
+                    || e.starts_with("/usr")
+                    || e.starts_with("/Library/Apple")
+            })
+        })
+        .collect();
+    if system.is_empty() {
+        eprintln!("skipped: no system process with a readable executable path");
+        return;
+    }
+    let mut bundled = 0;
+    for p in &system {
+        let Some(app) = p.app_bundle() else { continue };
+        bundled += 1;
+        for rule in RULES {
+            assert!(
+                !rule.owners.iter().any(|o| owns(o, &app) || owns(o, &p.name)),
+                "{} ({:?}) would hold back {}",
+                app,
+                p.exe,
+                rule.id
+            );
+        }
+    }
+    if bundled == 0 {
+        eprintln!("skipped: no system process runs from an app bundle");
+    }
+}
+
+#[test]
+fn a_renamed_bundle_is_recognised_by_its_executable() {
+    let fx = Fx::new();
+    let chrome = fx.t.dir("Library/Caches/Google/Chrome");
+    fx.t.file("Library/Caches/Google/Chrome/data", 1000);
+    let derived = fx.t.dir("Library/Developer/Xcode/DerivedData");
+    fx.t.file("Library/Developer/Xcode/DerivedData/data", 1000);
+    let plan = fx.plan();
+    let procs = FakeProcs(vec![
+        app_process(
+            601,
+            "/Applications/Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/141.0/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)",
+        ),
+        app_process(602, "/Applications/Xcode16.app/Contents/MacOS/Xcode"),
+    ]);
+
+    let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe] };
+    let (r, _) = fx.run(&plan, consent, &FakeCommands::default(), &procs);
+
+    assert_eq!(outcome(&r, &chrome), &Outcome::Skipped(SkipReason::OwnerRunning { pid: 601, name: "Chrome".into() }));
+    assert_eq!(outcome(&r, &derived), &Outcome::Skipped(SkipReason::OwnerRunning { pid: 602, name: "Xcode16".into() }));
 }
 
 #[test]
