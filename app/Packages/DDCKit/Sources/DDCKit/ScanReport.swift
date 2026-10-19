@@ -4,7 +4,9 @@ import Foundation
 /// `crates/ddc-core/src/model.rs`, schema in `docs/scan.schema.json`).
 ///
 /// The schema version is read first: a report of another version is
-/// unreadable as a whole, never half-decoded.
+/// unreadable as a whole, never half-decoded. Fields the CLI leaves out when
+/// empty (`volumes`, `ignored`, the ignored totals) decode as their defaults,
+/// so a report of the 0.1.0 CLI still reads.
 public struct ScanReport: Decodable, Sendable, Equatable {
     /// `SCHEMA_VERSION` of the CLI this app embeds.
     public static let schemaVersion = 1
@@ -15,14 +17,42 @@ public struct ScanReport: Decodable, Sendable, Equatable {
 
     public let schemaVersion: Int
     public let ddcVersion: String
+    /// When the scan started (RFC 3339).
     public let generatedAt: String
     public let durationMs: UInt64
+    public let home: String
+    public let scanRoots: [String]
+    /// Whether the CLI that wrote the report could read TCC.db: a fact about
+    /// that scan, not about the app now (the app probes for itself).
     public let fullDiskAccess: Bool
+    public let volumes: [Volume]
     public let minAgeDays: UInt64
     public let totals: Totals
     public let findings: [Finding]
     public let errorsTotal: UInt64
     public let cancelled: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, ddcVersion, generatedAt, durationMs, home, scanRoots, fullDiskAccess, volumes
+        case minAgeDays, totals, findings, errorsTotal, cancelled
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        ddcVersion = try c.decode(String.self, forKey: .ddcVersion)
+        generatedAt = try c.decode(String.self, forKey: .generatedAt)
+        durationMs = try c.decode(UInt64.self, forKey: .durationMs)
+        home = try c.decode(String.self, forKey: .home)
+        scanRoots = try c.decode([String].self, forKey: .scanRoots)
+        fullDiskAccess = try c.decode(Bool.self, forKey: .fullDiskAccess)
+        volumes = try c.decodeIfPresent([Volume].self, forKey: .volumes) ?? []
+        minAgeDays = try c.decode(UInt64.self, forKey: .minAgeDays)
+        totals = try c.decode(Totals.self, forKey: .totals)
+        findings = try c.decode([Finding].self, forKey: .findings)
+        errorsTotal = try c.decode(UInt64.self, forKey: .errorsTotal)
+        cancelled = try c.decode(Bool.self, forKey: .cancelled)
+    }
 
     public struct Totals: Decodable, Sendable, Equatable {
         public let scannedBytes: UInt64
@@ -31,6 +61,24 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         public let classes: [ClassTotal]
         public let selectedBytes: UInt64
         public let selectedReclaimableBytes: UInt64
+        public let ignoredCount: UInt64
+        public let ignoredBytes: UInt64
+
+        private enum CodingKeys: String, CodingKey {
+            case scannedBytes, files, dirs, classes, selectedBytes, selectedReclaimableBytes, ignoredCount, ignoredBytes
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            scannedBytes = try c.decode(UInt64.self, forKey: .scannedBytes)
+            files = try c.decode(UInt64.self, forKey: .files)
+            dirs = try c.decode(UInt64.self, forKey: .dirs)
+            classes = try c.decode([ClassTotal].self, forKey: .classes)
+            selectedBytes = try c.decode(UInt64.self, forKey: .selectedBytes)
+            selectedReclaimableBytes = try c.decode(UInt64.self, forKey: .selectedReclaimableBytes)
+            ignoredCount = try c.decodeIfPresent(UInt64.self, forKey: .ignoredCount) ?? 0
+            ignoredBytes = try c.decodeIfPresent(UInt64.self, forKey: .ignoredBytes) ?? 0
+        }
     }
 
     public struct ClassTotal: Decodable, Sendable, Equatable {
@@ -41,25 +89,102 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         public let selectedBytes: UInt64
     }
 
+    public struct Volume: Decodable, Sendable, Equatable {
+        public let mountPoint: String
+        public let roots: [String]
+        public let freeBytes: UInt64
+        public let totalBytes: UInt64
+    }
+
     public struct Finding: Decodable, Sendable, Equatable {
         public let path: String
         public let rule: String
         public let `class`: RiskClass
         public let bytes: UInt64
+        /// APFS clones shared with nothing outside the finding; `bytes` when absent.
+        public let privateBytes: UInt64?
+        public let project: Project?
         public let selected: Bool
+        /// Why the default selection leaves it out; kept for `ignored` findings.
+        public let notSelected: NotSelected?
+        /// Its type is switched off, or it is under the minimum size (`settings.json`).
+        public let ignored: Bool
+
+        /// What deleting it frees, as the CLI's `Finding::reclaimable_bytes`.
+        public var reclaimableBytes: UInt64 { privateBytes ?? bytes }
+
+        private enum CodingKeys: String, CodingKey {
+            case path, rule, `class`, bytes, privateBytes, project, selected, notSelected, ignored
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            path = try c.decode(String.self, forKey: .path)
+            rule = try c.decode(String.self, forKey: .rule)
+            `class` = try c.decode(RiskClass.self, forKey: .class)
+            bytes = try c.decode(UInt64.self, forKey: .bytes)
+            privateBytes = try c.decodeIfPresent(UInt64.self, forKey: .privateBytes)
+            project = try c.decodeIfPresent(Project.self, forKey: .project)
+            selected = try c.decode(Bool.self, forKey: .selected)
+            notSelected = try c.decodeIfPresent(NotSelected.self, forKey: .notSelected)
+            ignored = try c.decodeIfPresent(Bool.self, forKey: .ignored) ?? false
+        }
     }
 
-    public enum RiskClass: String, Decodable, Sendable {
+    public struct Project: Decodable, Sendable, Equatable {
+        public let root: String
+        public let idleDays: UInt64?
+        public let hasLockfile: Bool?
+    }
+
+    /// The CLI's `NotSelected`, tagged by `reason`. A reason this app does not
+    /// know is a decoding error: a new one comes with a new schema version.
+    public enum NotSelected: Decodable, Sendable, Equatable {
+        case review
+        case userData
+        case activeProject(idleDays: UInt64)
+        case unknownActivity
+
+        private enum CodingKeys: String, CodingKey {
+            case reason, idleDays
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            switch try c.decode(String.self, forKey: .reason) {
+            case "review": self = .review
+            case "user-data": self = .userData
+            case "active-project": self = .activeProject(idleDays: try c.decode(UInt64.self, forKey: .idleDays))
+            case "unknown-activity": self = .unknownActivity
+            case let other:
+                throw DecodingError.dataCorruptedError(forKey: .reason, in: c, debugDescription: "unknown reason \(other)")
+            }
+        }
+    }
+
+    public enum RiskClass: String, Decodable, Sendable, CaseIterable {
         case safe, rebuildable, review
         case userData = "user-data"
     }
 
     public static func read(_ data: Data) throws -> ScanReport {
-        struct Header: Decodable { let schemaVersion: Int }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let version = try decoder.decode(Header.self, from: data).schemaVersion
+        let decoder = JSONDecoder.snakeCase
+        let version = try decoder.decode(VersionHeader.self, from: data).schemaVersion
         guard version == schemaVersion else { throw ReadError.otherSchema(version) }
         return try decoder.decode(ScanReport.self, from: data)
+    }
+}
+
+/// The first thing read from every versioned JSON the CLI writes.
+struct VersionHeader: Decodable {
+    let schemaVersion: Int
+}
+
+extension JSONDecoder {
+    /// The CLI writes snake_case keys.
+    static var snakeCase: JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return decoder
     }
 }

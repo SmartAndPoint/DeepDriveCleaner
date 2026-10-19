@@ -1,5 +1,16 @@
 import Foundation
 
+/// What the app's models need of `CLIRunner`, so tests can give them a fake.
+public protocol CLIRunning: Sendable {
+    func run(
+        _ kind: CLIRunner.Kind,
+        _ arguments: [String],
+        stderrLine: (@Sendable (String) -> Void)?
+    ) async -> CLIRunner.Result
+}
+
+extension CLIRunner: CLIRunning {}
+
 /// The one way the app runs the embedded CLI (ADR §1).
 ///
 /// Runs never overlap: the CLI takes a lock, and two of its processes racing for
@@ -17,6 +28,12 @@ public actor CLIRunner {
         public let stdout: Data
         /// The last lines of stderr, for the log when a run fails.
         public let stderrTail: [String]
+
+        public init(outcome: RunOutcome, stdout: Data, stderrTail: [String]) {
+            self.outcome = outcome
+            self.stdout = stdout
+            self.stderrTail = stderrTail
+        }
     }
 
     /// stderr lines kept in `Result.stderrTail`.

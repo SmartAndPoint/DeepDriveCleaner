@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import DDCKit
 import ServiceManagement
 import UserNotifications
 
@@ -9,12 +10,18 @@ import UserNotifications
 enum DebugMenu {
     static let agentPlist = "com.smartandpoint.deepdrivecleaner.scheduler.plist"
 
-    static func item() -> NSMenuItem {
+    static func item(model: PopoverModel) -> NSMenuItem {
         let menu = NSMenu()
         menu.addItem(ClosureMenuItem("Register Scheduler Agent", handler: registerAgent))
         menu.addItem(ClosureMenuItem("Unregister Scheduler Agent", handler: unregisterAgent))
         menu.addItem(ClosureMenuItem("Probe Full Disk Access", handler: probeFullDiskAccess))
         menu.addItem(ClosureMenuItem("Post Test Notification", handler: postTestNotification))
+        // The badge has no other trigger until "Background scan and notifications in the app".
+        menu.addItem(ClosureMenuItem("Set Attention Badge") { model.notificationPosted() })
+        menu.addItem(ClosureMenuItem("Clear Attention Badge") {
+            AppPreferences().clearBadge()
+            Task { await model.refresh() }
+        })
         menu.addItem(ClosureMenuItem("Show app.log in Finder") { NSWorkspace.shared.activateFileViewerSelecting([AppLog.url]) })
         let item = NSMenuItem(title: "Debug", action: nil, keyEquivalent: "")
         item.submenu = menu
@@ -43,18 +50,14 @@ enum DebugMenu {
         }
     }
 
-    /// Opens the per-user TCC database read-only, as the CLI's `full_disk_access`
-    /// does, and logs the errno: `EPERM` means no access, `ENOENT` means no file,
-    /// and then a `false` from the CLI proves nothing about attribution.
+    /// The popover's probe, logged with its errno: `EPERM` means no access,
+    /// `ENOENT` means no file, and then a `false` from the CLI proves nothing
+    /// about attribution.
     private static func probeFullDiskAccess() {
-        let path = FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: "Library/Application Support/com.apple.TCC/TCC.db").path
-        let fd = open(path, O_RDONLY)
-        if fd >= 0 {
-            close(fd)
+        switch FullDiskAccessProbe(path: AppDelegate.tccDatabase).check() {
+        case .granted:
             AppLog.write("probe: TCC.db opened: Full Disk Access is granted to this app")
-        } else {
-            let code = errno
+        case .missing(let code):
             AppLog.write("probe: TCC.db not opened: errno \(code) (\(String(cString: strerror(code))))")
         }
     }

@@ -1,0 +1,694 @@
+{
+  "schema_version": 1,
+  "groups": [
+    "Python environments",
+    "node_modules",
+    "Build outputs",
+    "Package caches",
+    "IDE caches",
+    "Xcode data",
+    "App caches",
+    "Old toolchains",
+    "ML models",
+    "VM and container images",
+    "Interrupted cleanups",
+    "Your data"
+  ],
+  "rules": [
+    {
+      "id": "user.kept",
+      "group": "Your data",
+      "category": "personal",
+      "class": "user-data",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "ddc.tombstone",
+      "group": "Interrupted cleanups",
+      "category": "project-artifact",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "macos.app-bundle",
+      "group": "Your data",
+      "category": "personal",
+      "class": "user-data",
+      "removal": "none",
+      "listed": false,
+      "switchable": false
+    },
+    {
+      "id": "node.global-packages",
+      "group": "Your data",
+      "category": "project-artifact",
+      "class": "user-data",
+      "removal": "none",
+      "listed": false,
+      "switchable": false
+    },
+    {
+      "id": "python.venv",
+      "group": "Python environments",
+      "category": "project-artifact",
+      "class": "rebuildable",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "python.tox",
+      "group": "Python environments",
+      "category": "project-artifact",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "python.pycache",
+      "group": "Build outputs",
+      "category": "project-artifact",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "python.tool-cache",
+      "group": "Build outputs",
+      "category": "project-artifact",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "node.node_modules",
+      "group": "node_modules",
+      "category": "project-artifact",
+      "class": "rebuildable",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "node.node_modules-orphan",
+      "group": "node_modules",
+      "category": "project-artifact",
+      "class": "review",
+      "removal": "trash",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "js.build-cache",
+      "group": "Build outputs",
+      "category": "project-artifact",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "rust.target",
+      "group": "Build outputs",
+      "category": "project-artifact",
+      "class": "rebuildable",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "maven.target",
+      "group": "Build outputs",
+      "category": "project-artifact",
+      "class": "rebuildable",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "gradle.build",
+      "group": "Build outputs",
+      "category": "project-artifact",
+      "class": "rebuildable",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "gradle.project-cache",
+      "group": "Build outputs",
+      "category": "project-artifact",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cmake.build",
+      "group": "Build outputs",
+      "category": "project-artifact",
+      "class": "rebuildable",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cocoapods.pods",
+      "group": "Build outputs",
+      "category": "project-artifact",
+      "class": "rebuildable",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cache.npm",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cache.yarn",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cache.bun",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cache.pnpm",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cache.uv",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "safe",
+      "removal": "native",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cache.pip",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cache.poetry",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cache.homebrew",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cache.go-build",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "safe",
+      "removal": "native",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cache.go-mod",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "safe",
+      "removal": "native",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cache.cargo",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cache.gradle",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "repo.maven",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "review",
+      "removal": "trash",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cache.cocoapods",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "browsers.playwright",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "review",
+      "removal": "trash",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "browsers.puppeteer",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "review",
+      "removal": "trash",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "browsers.cypress",
+      "group": "Package caches",
+      "category": "package-cache",
+      "class": "review",
+      "removal": "trash",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "xcode.derived-data",
+      "group": "Xcode data",
+      "category": "xcode",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "xcode.simulator-caches",
+      "group": "Xcode data",
+      "category": "xcode",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "xcode.device-support",
+      "group": "Xcode data",
+      "category": "xcode",
+      "class": "review",
+      "removal": "trash",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "xcode.archives",
+      "group": "Your data",
+      "category": "xcode",
+      "class": "user-data",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "vm.docker-desktop",
+      "group": "VM and container images",
+      "category": "vm-container",
+      "class": "review",
+      "removal": "native-only",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "vm.podman",
+      "group": "VM and container images",
+      "category": "vm-container",
+      "class": "review",
+      "removal": "native-only",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "vm.colima",
+      "group": "VM and container images",
+      "category": "vm-container",
+      "class": "review",
+      "removal": "native-only",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "vm.lima",
+      "group": "VM and container images",
+      "category": "vm-container",
+      "class": "review",
+      "removal": "native-only",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "vm.orbstack",
+      "group": "VM and container images",
+      "category": "vm-container",
+      "class": "review",
+      "removal": "native-only",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "vm.rancher-desktop",
+      "group": "VM and container images",
+      "category": "vm-container",
+      "class": "review",
+      "removal": "native-only",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "cache.colima",
+      "group": "VM and container images",
+      "category": "package-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "toolchain.nvm",
+      "group": "Old toolchains",
+      "category": "toolchain",
+      "class": "review",
+      "removal": "trash",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "toolchain.pyenv",
+      "group": "Old toolchains",
+      "category": "toolchain",
+      "class": "review",
+      "removal": "native",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "toolchain.rustup",
+      "group": "Old toolchains",
+      "category": "toolchain",
+      "class": "review",
+      "removal": "native",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "model.ollama",
+      "group": "ML models",
+      "category": "ml-model",
+      "class": "review",
+      "removal": "trash",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "model.huggingface",
+      "group": "ML models",
+      "category": "ml-model",
+      "class": "review",
+      "removal": "trash",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "model.lmstudio",
+      "group": "ML models",
+      "category": "ml-model",
+      "class": "review",
+      "removal": "trash",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "model.torch",
+      "group": "ML models",
+      "category": "ml-model",
+      "class": "review",
+      "removal": "trash",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "ide.jetbrains-cache",
+      "group": "IDE caches",
+      "category": "ide",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "ide.jetbrains-old-data",
+      "group": "IDE caches",
+      "category": "ide",
+      "class": "review",
+      "removal": "trash",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "ide.vscode-cache",
+      "group": "IDE caches",
+      "category": "ide",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "ide.cursor-cache",
+      "group": "IDE caches",
+      "category": "ide",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "ide.windsurf-cache",
+      "group": "IDE caches",
+      "category": "ide",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "ide.workspace-storage",
+      "group": "Your data",
+      "category": "ide",
+      "class": "user-data",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "app.chrome-cache",
+      "group": "App caches",
+      "category": "app-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "app.brave-cache",
+      "group": "App caches",
+      "category": "app-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "app.firefox-cache",
+      "group": "App caches",
+      "category": "app-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "app.spotify-cache",
+      "group": "App caches",
+      "category": "app-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "app.slack-cache",
+      "group": "App caches",
+      "category": "app-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "app.adobe-camera-raw-cache",
+      "group": "App caches",
+      "category": "app-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "trash",
+      "group": "Your data",
+      "category": "trash",
+      "class": "review",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "user.pictures",
+      "group": "Your data",
+      "category": "personal",
+      "class": "user-data",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "user.movies",
+      "group": "Your data",
+      "category": "personal",
+      "class": "user-data",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "user.music",
+      "group": "Your data",
+      "category": "personal",
+      "class": "user-data",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "user.downloads",
+      "group": "Your data",
+      "category": "personal",
+      "class": "user-data",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "user.ios-backups",
+      "group": "Your data",
+      "category": "personal",
+      "class": "user-data",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "user.imazing-backups",
+      "group": "Your data",
+      "category": "personal",
+      "class": "user-data",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "user.telegram",
+      "group": "Your data",
+      "category": "personal",
+      "class": "user-data",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "user.whatsapp",
+      "group": "Your data",
+      "category": "personal",
+      "class": "user-data",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "user.cloud",
+      "group": "Your data",
+      "category": "personal",
+      "class": "user-data",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "generic.cachedir-tag",
+      "group": "App caches",
+      "category": "generic-cache",
+      "class": "review",
+      "removal": "trash",
+      "listed": true,
+      "switchable": true
+    }
+  ]
+}

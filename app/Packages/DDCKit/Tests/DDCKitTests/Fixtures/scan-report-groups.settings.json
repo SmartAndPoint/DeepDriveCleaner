@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "disabled_rules": [
+    "cache.pip"
+  ],
+  "min_size": 65536,
+  "notify_threshold": 1048576
+}

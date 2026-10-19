@@ -1,42 +1,67 @@
 import AppKit
+import DDCKit
 import SwiftUI
 
 /// The menu bar icon: a left click toggles the popover, a right click (or a
-/// control-click) shows the menu.
+/// control-click) shows the menu. The icon follows the model's `iconState`.
 ///
 /// The menu is set on the status item only while it is open: a status item
 /// whose `menu` is set ignores its button's action, so the popover would
 /// never open (GrammarHelper keeps it set and has no popover).
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
-    private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private let menu = NSMenu()
+    private let model: PopoverModel
+    private var icon: IconState?
+    private var arcTimer: Timer?
+    private var arcAngle: CGFloat = 0
+    private var refreshTimer: Timer?
 
-    init(scanNow: @escaping @MainActor () -> Void, openSettings: @escaping @MainActor () -> Void) {
+    init(model: PopoverModel, openSettings: @escaping @MainActor () -> Void, openPrivacy: @escaping @MainActor () -> Void) {
+        self.model = model
         super.init()
         if let button = item.button {
-            button.image = Self.glyph()
-            button.setAccessibilityLabel("DeepDriveCleaner")
             button.target = self
             button.action = #selector(clicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: PopoverView(scanNow: { [weak self] in
-            self?.popover.performClose(nil)
-            scanNow()
-        }))
+        let view = PopoverView(
+            model: model,
+            openSettings: { [weak self] in
+                self?.popover.performClose(nil)
+                openSettings()
+            },
+            openPrivacy: { [weak self] in
+                self?.popover.performClose(nil)
+                openPrivacy()
+            }
+        )
+        let hosting = NSHostingController(rootView: view)
+        // The popover takes the height of the state it shows.
+        hosting.sizingOptions = .preferredContentSize
+        popover.contentViewController = hosting
 
-        menu.addItem(ClosureMenuItem("Scan now", handler: scanNow))
+        menu.addItem(ClosureMenuItem("Scan now") { Task { await model.scanNow() } })
         menu.addItem(ClosureMenuItem("Settings…", key: ",", handler: openSettings))
         #if DEBUG
         menu.addItem(.separator())
-        menu.addItem(DebugMenu.item())
+        menu.addItem(DebugMenu.item(model: model))
         #endif
         menu.addItem(.separator())
         menu.addItem(ClosureMenuItem("Quit DeepDriveCleaner", key: "q") { NSApp.terminate(nil) })
         menu.delegate = self
+
+        followIcon()
+        // A scheduled scan or a terminal `ddc scan` may write a new report, and
+        // "2 h ago" ages: look once a minute.
+        let timer = Timer(timeInterval: 60, repeats: true) { _ in
+            Task { @MainActor in await model.refresh() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        refreshTimer = timer
     }
 
     @objc private func clicked(_ sender: NSStatusBarButton) {
@@ -48,8 +73,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         } else if popover.isShown {
             popover.performClose(nil)
         } else {
+            Task { await model.refresh() }
             NSApp.activate()
             popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+            // The popover's window focuses its first button (the gear) when it
+            // opens; nothing should look selected until the user tabs.
+            popover.contentViewController?.view.window?.makeFirstResponder(nil)
         }
     }
 
@@ -57,15 +86,55 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         item.menu = nil
     }
 
-    /// The drive glyph as an 18 pt template image, tinted by the menu bar.
-    private static func glyph() -> NSImage {
-        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
-            guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            DriveGlyph.draw(in: context, rect: rect, color: NSColor.black.cgColor)
-            return true
+    // MARK: - The icon
+
+    /// Applies the model's icon state, and again whenever it changes.
+    private func followIcon() {
+        let state = withObservationTracking {
+            model.iconState
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.followIcon() }
         }
-        image.isTemplate = true
-        image.accessibilityDescription = "DeepDriveCleaner"
-        return image
+        guard state != icon else { return }
+        icon = state
+        draw()
+        if state.inner == .arc { startArc() } else { stopArc() }
+    }
+
+    private func draw() {
+        guard let icon, let button = item.button else { return }
+        button.image = StatusIcon.image(icon, arcAngle: arcAngle)
+        button.setAccessibilityLabel(icon.accessibility)
+        if let label = icon.label {
+            button.imagePosition = .imageLeading
+            button.attributedTitle = NSAttributedString(
+                string: label,
+                attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)]
+            )
+        } else {
+            button.imagePosition = .imageOnly
+            button.title = ""
+        }
+    }
+
+    /// The arc turns only while the CLI runs; in `.common` mode so it keeps
+    /// turning while a menu is open.
+    private func startArc() {
+        guard arcTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.arcAngle -= .pi / 6
+                self.draw()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        arcTimer = timer
+    }
+
+    private func stopArc() {
+        arcTimer?.invalidate()
+        arcTimer = nil
+        arcAngle = 0
     }
 }

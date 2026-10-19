@@ -6,10 +6,17 @@ import UserNotifications
 /// to `LaunchMode`, and applies what it decides (ADR §5).
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    /// The per-user TCC database: it opens only with Full Disk Access, which is
+    /// how the app and the CLI both tell. Built here only, never in DDCKit, so
+    /// no test ever touches it.
+    static let tccDatabase = FileManager.default.homeDirectoryForCurrentUser
+        .appending(path: "Library/Application Support/com.apple.TCC/TCC.db")
+
     private var launchMode = LaunchMode()
     private var statusItem: StatusItemController?
     private lazy var settings = SettingsWindowController()
-    private var runner: CLIRunner?
+    private let router = ReviewRouterStub()
+    private var model: PopoverModel?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Before launch ends, so a notification response that launched the app arrives.
@@ -17,14 +24,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
-        AppLog.write("launch \(version) \(Bundle.main.bundlePath) arguments: \(CommandLine.arguments.dropFirst())")
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        AppLog.write("launch \(version ?? "?") \(Bundle.main.bundlePath) arguments: \(CommandLine.arguments.dropFirst())")
+        var runner: CLIRunner?
         do {
             let cli = try HelperLocator.cli(bundleURL: Bundle.main.bundleURL, mainExecutable: Bundle.main.executableURL)
             runner = CLIRunner(executable: cli)
         } catch {
             AppLog.write("the embedded CLI is unavailable: \(error)")
         }
+        // In every launch mode, so a promoted scheduled instance shows its running scan.
+        model = PopoverModel(
+            runner: runner,
+            data: .current(),
+            probe: FullDiskAccessProbe(path: Self.tccDatabase),
+            preferences: AppPreferences(),
+            router: router,
+            // The due function arrives with "Background scan and notifications in the app".
+            nextScan: { nil },
+            // The build script keeps the app's version equal to its CLI's.
+            appVersion: version,
+            log: { AppLog.write($0) }
+        )
         apply(launchMode.handle(.launched(arguments: CommandLine.arguments)))
     }
 
@@ -42,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidBecomeActive(_ notification: Notification) {
         AppLog.write("activate in \(launchMode.mode) mode")
         apply(launchMode.handle(.activate))
+        if let model { Task { await model.refresh() } }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
@@ -61,6 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // MARK: - Effects
 
     private func apply(_ effects: [LaunchMode.Effect]) {
+        guard let model else { return }
         for effect in effects {
             switch effect {
             case .showStatusItem:
@@ -68,13 +91,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // `open -j` launches the scheduled instance hidden.
                 if NSApp.isHidden { NSApp.unhideWithoutActivation() }
                 statusItem = StatusItemController(
-                    scanNow: { [weak self] in self?.scanNow() },
-                    openSettings: { [weak self] in self?.settings.show() }
+                    model: model,
+                    openSettings: { [weak self] in self?.settings.show() },
+                    openPrivacy: { Self.openFullDiskAccessSettings() }
                 )
                 AppLog.write("status item shown")
+                Task { await model.start() }
             case .startScheduledWork:
+                // Unconditional until the due function of "Background scan and
+                // notifications in the app" decides whether a scan is due.
                 Task {
-                    await scan(reason: "scheduled")
+                    await model.scanNow()
                     apply(launchMode.handle(.workFinished))
                 }
             case .scanIfDue:
@@ -105,31 +132,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.terminate(nil)
     }
 
-    // MARK: - Scans
+    // MARK: - System Settings
 
-    func scanNow() {
-        Task { await scan(reason: "Scan now") }
+    /// Privacy & Security → Full Disk Access. The anchor's form changed with
+    /// System Settings; the manual check on macOS 26 tells which one it honours.
+    static func openFullDiskAccessSettings() {
+        let candidates = [
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles",
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension",
+        ]
+        for candidate in candidates {
+            if let url = URL(string: candidate), NSWorkspace.shared.open(url) {
+                AppLog.write("opened \(candidate)")
+                return
+            }
+        }
+        AppLog.write("could not open the Full Disk Access settings")
     }
+}
 
-    private func scan(reason: String) async {
-        guard let runner else {
-            AppLog.write("scan (\(reason)) skipped: no embedded CLI")
-            return
-        }
-        AppLog.write("scan (\(reason)) started")
-        let result = await runner.run(.scan, ["scan", "--json"])
-        guard result.outcome == .done else {
-            AppLog.write("scan (\(reason)) ended \(result.outcome); stderr: \(result.stderrTail.suffix(5).joined(separator: " | "))")
-            return
-        }
-        do {
-            let report = try ScanReport.read(result.stdout)
-            AppLog.write(
-                "scan (\(reason)) done: full_disk_access=\(report.fullDiskAccess), \(report.totals.files) files in \(report.durationMs) ms, "
-                    + "\(report.findings.count) findings, \(report.errorsTotal) unreadable"
-            )
-        } catch {
-            AppLog.write("scan (\(reason)) report unreadable: \(error)")
-        }
+/// The review seam until "Review and clean window" builds the window: it
+/// opens nothing, so the popover says the window arrives in a later build.
+@MainActor
+final class ReviewRouterStub: ReviewRouting {
+    func open(_ request: ReviewRequest) -> Bool {
+        AppLog.write("review requested (group \(request.group ?? "all"), confirm \(request.confirm)): no Review window yet")
+        return false
     }
 }
