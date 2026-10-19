@@ -57,6 +57,25 @@ struct PopoverModelTests {
         #expect(model.loadedReport?.findings.count == 11)
     }
 
+    @Test("during a clean the CLI's rescan is not loaded; after it, the next refresh loads what is on disk")
+    func noReloadDuringClean() async throws {
+        try data.write(lastScan: try Fixture.data("scan-report"))
+        let model = try makeModel(runner: nil, data: data, defaults: defaults)
+        await model.start()
+        model.setCleaning(true)
+        #expect(model.iconState.inner == .arc)
+        #expect(model.subtitle == "Clean in progress")
+
+        try data.write(lastScan: try Fixture.data("scan-report-groups"))
+        try FileManager.default.setAttributes([.modificationDate: Date.now.addingTimeInterval(60)], ofItemAtPath: data.directory.lastScan.path)
+        await model.refresh()
+        #expect(model.loadedReport?.findings.count == 3, "the state before the clean is not shown")
+
+        model.setCleaning(false)
+        await model.refresh()
+        #expect(model.loadedReport?.findings.count == 11)
+    }
+
     @Test("a report with nothing to free shows Nothing found to clean and no biggest finds")
     func nothingFound() async throws {
         try data.write(lastScan: try Fixture.edited("scan-report-groups") { $0["findings"] = [[String: Any]]() })
@@ -194,7 +213,7 @@ struct PopoverModelTests {
             ReviewRequest(group: "node_modules", classes: [.safe, .rebuildable], confirm: false),
             ReviewRequest(group: nil, classes: [.rebuildable], confirm: true),
         ])
-        #expect(model.notices.map(\.text) == ["The Review window arrives in a later build."])
+        #expect(model.notices.map(\.text) == ["The Review window could not open."])
     }
 
     @Test("the attention badge is set by a posted notification, survives a relaunch, and clears only when a Review window opens")

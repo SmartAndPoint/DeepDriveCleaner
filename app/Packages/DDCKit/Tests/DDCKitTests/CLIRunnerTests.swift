@@ -82,16 +82,64 @@ struct CLIRunnerTests {
         #expect(result.outcome == outcome)
     }
 
-    @Test("cancel sends SIGTERM to the running CLI")
-    func cancel() async throws {
+    @Test("stdout lines reach the callback while the run goes on, and all of stdout is still returned")
+    func stdoutLines() async throws {
         let fake = try FakeCLI()
         let runner = CLIRunner(executable: fake.executable)
+        try fake.put("dry-run.jsonl", Data("one\ntwo\nthree\n".utf8))
+        try fake.open("dry-run.gated")
+        try fake.put("list.json", Data("{}".utf8))
+        let lines = Lines()
+        let started = Counter()
 
-        async let scan = runner.run(.scan, ["wait", "never"])
+        async let run = runner.run(
+            .dryRun,
+            ["clean", "--items", fake.directory.appending(path: "list.json").path, "--dry-run", "--json"],
+            options: CLIRunner.Options(stdoutLine: { lines.append($0) }, onStart: { started.increment() })
+        )
+        try fake.open("line-0")
+        for _ in 0..<500 where lines.all.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(lines.all == ["one"], "while the CLI waits for line-1")
+        #expect(started.count == 1)
+        try fake.open("line-1")
+        try fake.open("line-2")
+        let result = await run
+        #expect(lines.all == ["one", "two", "three"])
+        #expect(String(decoding: result.stdout, as: UTF8.self) == "one\ntwo\nthree\n")
+    }
+
+    @Test("cancelling a waiting run's ticket: it never starts, and the run ahead of it goes on")
+    func cancelQueuedTicket() async throws {
+        let fake = try FakeCLI()
+        let runner = CLIRunner(executable: fake.executable)
+        let ticket = CLIRunner.Ticket()
+
+        async let scan = runner.run(.scan, ["wait", "scan"])
+        try await fake.waitForStart("wait scan")
+        async let clean = runner.run(.clean, ["exit", "0"], options: CLIRunner.Options(ticket: ticket))
+        try await Task.sleep(for: .milliseconds(50))
+        await runner.cancel(ticket)
+        try fake.open("scan")
+
+        #expect(await scan.outcome == .done)
+        let cancelled = await clean
+        #expect(cancelled.outcome == .cancelled && cancelled.stdout.isEmpty)
+        #expect(try fake.runs().filter { $0.event == "start" }.map(\.args) == ["wait scan"])
+    }
+
+    @Test("cancelling a running run's ticket sends SIGTERM to it only")
+    func cancelRunningTicket() async throws {
+        let fake = try FakeCLI()
+        let runner = CLIRunner(executable: fake.executable)
+        let ticket = CLIRunner.Ticket()
+
+        async let run = runner.run(.clean, ["wait", "never"], options: CLIRunner.Options(ticket: ticket))
         try await fake.waitForStart("wait never")
-        await runner.cancel()
-
-        #expect(await scan.outcome == .cancelled)
+        await runner.cancel(CLIRunner.Ticket())  // another run's ticket: no effect
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(try fake.runs().filter { $0.event == "end" }.isEmpty)
+        await runner.cancel(ticket)
+        #expect(await run.outcome == .cancelled)
     }
 
     @Test("a signal nobody sent is a crash, not a cancel")

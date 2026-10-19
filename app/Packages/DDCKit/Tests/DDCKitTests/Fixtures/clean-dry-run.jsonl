@@ -1,0 +1,7 @@
+{"type":"item","path":"/Users/example/.npm/_cacache","rule":"cache.npm","class":"safe","action":"delete","bytes":901120,"prediction":"would-delete"}
+{"type":"item","path":"/Users/example/Library/Caches/Google/Chrome","rule":"app.chrome-cache","class":"safe","action":"delete","prediction":"would-skip","reason":"owner-running","pid":4242,"name":"Google Chrome"}
+{"type":"item","path":"/Users/example/p1/node_modules","rule":"node.node_modules","class":"rebuildable","action":"delete","bytes":602112,"prediction":"would-delete"}
+{"type":"item","path":"/Users/example/py1/.venv","rule":"python.venv","class":"rebuildable","action":"delete","bytes":507904,"prediction":"would-delete"}
+{"type":"item","path":"/Users/example/r1/target","rule":"rust.target","class":"rebuildable","action":"delete","bytes":352256,"prediction":"would-delete"}
+{"type":"item","path":"/Users/example/.ollama/models","rule":"model.ollama","class":"review","action":"trash","bytes":700416,"prediction":"would-trash"}
+{"type":"summary","items":6,"would_delete":4,"would_trash":1,"would_run":0,"would_skip":1,"bytes":3063808}

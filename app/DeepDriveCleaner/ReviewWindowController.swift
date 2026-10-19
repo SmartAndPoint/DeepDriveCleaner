@@ -1,0 +1,39 @@
+import AppKit
+import DDCKit
+import SwiftUI
+
+/// The Review and clean window (artboards 4 to 6). Closing it never stops a
+/// clean: the clean lives in `ReviewModel`, and the sheet comes back with
+/// its state when the window opens again.
+@MainActor
+final class ReviewWindowController {
+    private var window: NSWindow?
+    private var keyObserver: NSObjectProtocol?
+
+    /// Shows the window for `model`; the model's `present`.
+    func show(_ model: ReviewModel) -> Bool {
+        if window == nil {
+            let hosting = NSHostingController(rootView: ReviewView(model: model, close: { [weak self] in self?.window?.performClose(nil) }))
+            let window = NSWindow(contentViewController: hosting)
+            window.title = "Review and clean"
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            window.setContentSize(NSSize(width: 1040, height: 700))
+            window.contentMinSize = NSSize(width: 820, height: 520)
+            window.isReleasedWhenClosed = false
+            window.setFrameAutosaveName("ReviewWindow")
+            if !window.setFrameUsingName("ReviewWindow") { window.center() }
+            // A type switched off in Settings applies when the user comes back.
+            keyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: window,
+                queue: .main
+            ) { _ in
+                MainActor.assumeIsolated { model.refreshSettings() }
+            }
+            self.window = window
+        }
+        NSApp.activate()
+        window?.makeKeyAndOrderFront(nil)
+        return window != nil
+    }
+}

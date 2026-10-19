@@ -10,7 +10,7 @@ public enum RunOutcome: Sendable, Equatable {
     case refused
     /// Exit 75 (`EX_TEMPFAIL`): another scan or clean holds the lock.
     case busy
-    /// Ended by the SIGTERM of `CLIRunner.cancel()`.
+    /// Ended by the SIGTERM of `CLIRunner.cancel(_:)`.
     case cancelled
     /// Ended by a signal nobody sent on purpose (a crash, an abort, the kernel).
     case crashed(signal: Int32)

@@ -71,13 +71,9 @@ public struct ReportSummary: Sendable, Equatable {
         rules: RuleList?,
         top: Int = 4
     ) -> ReportSummary {
-        let decided: [(finding: ScanReport.Finding, selected: Bool)] = report.findings.compactMap { finding in
-            let ignored = settings.map { isIgnored(finding, by: $0) } ?? finding.ignored
-            if ignored { return nil }
-            let selected = settings == nil ? finding.selected : finding.notSelected == nil
-            return (finding, selected)
-        }
-        let ignored = report.findings.filter { finding in settings.map { isIgnored(finding, by: $0) } ?? finding.ignored }
+        let decisions = report.findings.map { (finding: $0, decision: decide($0, settings: settings)) }
+        let decided = decisions.filter { !$0.decision.ignored }.map { (finding: $0.finding, selected: $0.decision.selected) }
+        let ignored = decisions.filter(\.decision.ignored).map(\.finding)
 
         let classes = ScanReport.RiskClass.allCases.map { riskClass in
             let of = decided.filter { $0.finding.class == riskClass }
@@ -124,6 +120,16 @@ public struct ReportSummary: Sendable, Equatable {
             topGroups: topGroups,
             threshold: settings?.threshold ?? SharedSettings.defaultThreshold
         )
+    }
+
+    /// The one decision of what a finding is under the current settings: the
+    /// popover's totals and the Review window's starting selection both use
+    /// it, so "Selected to clean" is the window's selection. `settings` nil:
+    /// the report's own flags stand.
+    public static func decide(_ finding: ScanReport.Finding, settings: SharedSettings?) -> (ignored: Bool, selected: Bool) {
+        let ignored = settings.map { isIgnored(finding, by: $0) } ?? finding.ignored
+        if ignored { return (true, false) }
+        return (false, settings == nil ? finding.selected : finding.notSelected == nil)
     }
 
     /// `finding()` in `report/mod.rs`: switched off, or strictly under the minimum size.

@@ -16,9 +16,21 @@ public struct ReviewRequest: Sendable, Equatable {
     }
 }
 
-/// The seam to the Review window, which "Review and clean window" builds.
+/// The seam to the Review window ("Review and clean window").
 @MainActor
 public protocol ReviewRouting: AnyObject {
     /// Whether a Review window really opened (the attention badge clears only then).
     func open(_ request: ReviewRequest) -> Bool
+}
+
+/// The report and the rules the Review window opens on; the popover hands
+/// over what it shows. The window reads `settings.json` itself.
+public struct ReviewSnapshot: Sendable, Equatable {
+    public let report: ScanReport
+    public let rules: RuleList?
+
+    public init(report: ScanReport, rules: RuleList?) {
+        self.report = report
+        self.rules = rules
+    }
 }

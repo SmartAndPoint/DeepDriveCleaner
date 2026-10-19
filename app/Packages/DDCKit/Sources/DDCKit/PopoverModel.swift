@@ -47,6 +47,8 @@ public final class PopoverModel {
     public private(set) var settings: SharedSettings?
     public private(set) var rules: RuleList?
     public private(set) var scan: ScanProgress?
+    /// A clean of the Review window, or the rescan after it, is in flight.
+    public private(set) var cleaning = false
     public private(set) var fullDiskAccess: FullDiskAccess = .granted
     public private(set) var notices: [Notice] = []
     public private(set) var now: Date
@@ -139,6 +141,7 @@ public final class PopoverModel {
 
     /// "Last scan 2 h ago · 5.5 M files in 39.6 s".
     public var subtitle: String {
+        if cleaning { return "Clean in progress" }
         if scan != nil { return "Scan in progress" }
         switch report {
         case .loading: return ""
@@ -171,6 +174,7 @@ public final class PopoverModel {
     public var iconState: IconState {
         IconState.make(
             busy: scan != nil,
+            cleaning: cleaning,
             reclaimable: summary?.reclaimable,
             threshold: threshold,
             showSize: showSize,
@@ -204,7 +208,8 @@ public final class PopoverModel {
         probeAccess()
         readPreferences()
         if DataDirectory.modified(data.settings) != settingsModified { loadSettings() }
-        if scan == nil, DataDirectory.modified(data.lastScan) != reportModified { await loadReport() }
+        // During a clean the CLI's rescan replaces the file; the scan after the clean shows it.
+        if scan == nil, !cleaning, DataDirectory.modified(data.lastScan) != reportModified { await loadReport() }
     }
 
     private func probeAccess() {
@@ -340,8 +345,18 @@ public final class PopoverModel {
             badgePending = false
             clearNotice("review")
         } else {
-            setNotice("review", "The Review window arrives in a later build.")
+            setNotice("review", "The Review window could not open.")
         }
+    }
+
+    /// The Review window's clean started or ended, its rescan included.
+    public func setCleaning(_ on: Bool) {
+        cleaning = on
+    }
+
+    /// What the Review window opens on: the report and the rules this popover shows now.
+    public var snapshot: ReviewSnapshot? {
+        loadedReport.map { ReviewSnapshot(report: $0, rules: rules) }
     }
 
     /// A notification was posted ("Background scan and notifications in the app").

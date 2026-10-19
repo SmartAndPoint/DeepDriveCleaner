@@ -9,17 +9,27 @@ import Synchronization
 /// - `exit <status>`: exit with that status;
 /// - `flood`: 1 MiB to stderr, then 1 MiB to stdout, 64-byte lines;
 /// - `report <file>`: print the file;
-/// - `crash`: kill itself with SIGABRT.
+/// - `crash`: kill itself with SIGABRT;
+/// - `clean --items <file> [--dry-run] --json`: copies the list to
+///   `items-<n>.json`. The dry run prints `dry-run.jsonl`, waiting for gate
+///   `line-<i>` before line `i` when `dry-run.gated` exists, and exits with
+///   `dry-run.exit` when that exists. The clean waits for `clean-start`, then
+///   copies `rescan.json` over `lastScan` as the CLI saves its rescan, waits
+///   for `clean-go`, and exits with `clean.exit` when that exists, else prints
+///   `clean-report.json`; with `clean.crash` it kills itself with SIGABRT
+///   there instead. With `clean.trap`, SIGTERM prints the report and
+///   then ends the script by the signal, as the CLI's handler does.
 /// Gates replace sleeps, so the tests order runs without timing assumptions.
 /// The directory is removed when the fake goes away.
-final class FakeCLI {
+final class FakeCLI: Sendable {
     let directory: URL
     let executable: URL
     let log: URL
 
     static let floodLines = 16_384  // 64-byte lines: 1 MiB per stream
 
-    init() throws {
+    /// `lastScan`: the file a clean replaces, as the CLI saves its rescan.
+    init(lastScan: URL? = nil) throws {
         directory = FileManager.default.temporaryDirectory.appending(path: "ddckit-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         executable = directory.appending(path: "deepdrivecleaner")
@@ -29,14 +39,36 @@ final class FakeCLI {
             #!/bin/sh
             log='\(log.path)'
             gates='\(directory.path)'
+            last='\(lastScan?.path ?? "")'
             echo "start $$ $*" >> "$log"
+            gate() { while [ ! -e "$gates/$1" ]; do sleep 0.01; done; }
             case "$1" in
-              wait) while [ ! -e "$gates/$2" ]; do sleep 0.01; done ;;
+              wait) gate "$2" ;;
               exit) echo "end $$ $*" >> "$log"; exit "$2" ;;
               flood) yes \(line63("e")) | head -n \(Self.floodLines) >&2
                      yes \(line63("o")) | head -n \(Self.floodLines) ;;
               report) cat "$2" ;;
               crash) kill -ABRT $$ ;;
+              clean)
+                n=$(ls "$gates" | grep -c '^items-')
+                cp "$3" "$gates/items-$n.json"
+                if [ "$4" = "--dry-run" ]; then
+                  i=0
+                  while IFS= read -r line; do
+                    [ -e "$gates/dry-run.gated" ] && gate "line-$i"
+                    printf '%s\\n' "$line"
+                    i=$((i + 1))
+                  done < "$gates/dry-run.jsonl"
+                  if [ -e "$gates/dry-run.exit" ]; then echo "end $$ $*" >> "$log"; exit "$(cat "$gates/dry-run.exit")"; fi
+                else
+                  [ -e "$gates/clean.trap" ] && trap 'cat "$gates/clean-report.json"; echo "end $$ $*" >> "$log"; trap - TERM; kill -TERM $$' TERM
+                  gate clean-start
+                  [ -e "$gates/rescan.json" ] && cp "$gates/rescan.json" "$last"
+                  gate clean-go
+                  [ -e "$gates/clean.crash" ] && kill -ABRT $$
+                  if [ -e "$gates/clean.exit" ]; then echo "end $$ $*" >> "$log"; exit "$(cat "$gates/clean.exit")"; fi
+                  cat "$gates/clean-report.json"
+                fi ;;
             esac
             echo "end $$ $*" >> "$log"
             """
@@ -50,6 +82,18 @@ final class FakeCLI {
 
     func open(_ gate: String) throws {
         try Data().write(to: directory.appending(path: gate))
+    }
+
+    /// Puts `data` in the fake's directory as `name` (a reply it replays).
+    func put(_ name: String, _ data: Data) throws {
+        try data.write(to: directory.appending(path: name))
+    }
+
+    /// The item lists the fake was given, in order.
+    func lists() throws -> [Data] {
+        try (0..<100).map { directory.appending(path: "items-\($0).json") }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            .map { try Data(contentsOf: $0) }
     }
 
     /// The log's lines as (event, pid, arguments).
@@ -76,4 +120,11 @@ final class Counter: Sendable {
     private let value = Mutex(0)
     func increment() { value.withLock { $0 += 1 } }
     var count: Int { value.withLock { $0 } }
+}
+
+/// Lines the runner's `@Sendable` callbacks collect.
+final class Lines: Sendable {
+    private let value = Mutex<[String]>([])
+    func append(_ line: String) { value.withLock { $0.append(line) } }
+    var all: [String] { value.withLock { $0 } }
 }

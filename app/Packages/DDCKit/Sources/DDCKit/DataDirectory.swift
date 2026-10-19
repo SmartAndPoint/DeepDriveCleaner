@@ -6,9 +6,14 @@ import Foundation
 /// variable; it inherits it, as the CLI it starts does.
 public struct DataDirectory: Sendable, Equatable {
     public let url: URL
+    /// Where the CLI writes `actions.jsonl`: `<data>/logs` when the data
+    /// directory is given, else `~/Library/Logs/DeepDriveCleaner`.
+    public let logs: URL
 
-    public init(url: URL) {
+    /// `logs` defaults to `<url>/logs`, as with `DDC_DATA_DIR`.
+    public init(url: URL, logs: URL? = nil) {
         self.url = url
+        self.logs = logs ?? url.appending(path: "logs", directoryHint: .isDirectory)
     }
 
     public static func current(
@@ -18,8 +23,14 @@ public struct DataDirectory: Sendable, Equatable {
         if let dir = environment["DDC_DATA_DIR"], !dir.isEmpty {
             return DataDirectory(url: URL(filePath: dir, directoryHint: .isDirectory))
         }
-        return DataDirectory(url: home.appending(path: "Library/Application Support/DeepDriveCleaner", directoryHint: .isDirectory))
+        return DataDirectory(
+            url: home.appending(path: "Library/Application Support/DeepDriveCleaner", directoryHint: .isDirectory),
+            logs: home.appending(path: "Library/Logs/DeepDriveCleaner", directoryHint: .isDirectory)
+        )
     }
+
+    /// The action journal every clean records each item in.
+    public var journal: URL { logs.appending(path: "actions.jsonl") }
 
     public var lastScan: URL { url.appending(path: "last-scan.json") }
     public var settings: URL { url.appending(path: "settings.json") }

@@ -12,6 +12,7 @@ public final class AppPreferences {
     public static let showSizeKey = "ShowSizeNextToIcon"
     public static let showBadgeKey = "ShowMenuBarBadge"
     public static let badgePendingKey = "AttentionBadgePending"
+    public static let deletePermanentlyKey = "DeleteReviewItemsPermanently"
 
     private let defaults: UserDefaults
 
@@ -19,13 +20,17 @@ public final class AppPreferences {
         self.defaults = defaults
         // The size is off by default (owner, 2026-10-19): next to the icon it reads as
         // a second total beside the popover's "Selected to clean".
-        defaults.register(defaults: [Self.showSizeKey: false, Self.showBadgeKey: true])
+        defaults.register(defaults: [Self.showSizeKey: false, Self.showBadgeKey: true, Self.deletePermanentlyKey: false])
     }
 
     /// "Show the size you can free next to the icon".
     public var showSize: Bool { defaults.bool(forKey: Self.showSizeKey) }
     /// "Show a badge on the menu bar icon".
     public var showBadge: Bool { defaults.bool(forKey: Self.showBadgeKey) }
+
+    /// "Delete review items instead of moving them to the Trash": where each
+    /// `review` item's Delete permanently starts in the confirmation sheet.
+    public var deleteReviewPermanently: Bool { defaults.bool(forKey: Self.deletePermanentlyKey) }
 
     /// A notification was posted and the Review window has not opened since.
     public var badgePending: Bool { defaults.bool(forKey: Self.badgePendingKey) }

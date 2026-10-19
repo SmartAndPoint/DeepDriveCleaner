@@ -35,6 +35,39 @@ public enum Wording {
         return "\(seconds / 60) min \(seconds % 60) s"
     }
 
+    /// "2,007": a count of items, grouped as the canvas writes it.
+    public static func number(_ n: Int) -> String {
+        n.formatted(.number.grouping(.automatic).locale(Locale(identifier: "en_US")))
+    }
+
+    /// "1 item", "2,007 items".
+    public static func items(_ n: Int, _ noun: String = "item") -> String {
+        "\(number(n)) \(n == 1 ? noun : noun + "s")"
+    }
+
+    /// "Spotify", "Spotify and Chrome", "Spotify, Chrome and Brave".
+    public static func list(_ words: [String]) -> String {
+        guard let last = words.last else { return "" }
+        if words.count == 1 { return last }
+        return words.dropLast().joined(separator: ", ") + " and " + last
+    }
+
+    /// `render::tilde` in `crates/ddc-cli/src/render.rs`: `/Users/me/x` → `~/x`,
+    /// control characters escaped so a crafted name cannot disguise itself.
+    public static func tilde(_ path: String, home: String) -> String {
+        let shown: String
+        if path == home {
+            shown = "~"
+        } else if !home.isEmpty, path.hasPrefix(home.hasSuffix("/") ? home : home + "/") {
+            shown = "~/" + path.dropFirst(home.hasSuffix("/") ? home.count : home.count + 1)
+        } else {
+            shown = path
+        }
+        return shown.unicodeScalars.map { scalar in
+            scalar.properties.generalCategory == .control ? scalar.escaped(asASCII: true) : String(scalar)
+        }.joined()
+    }
+
     /// "17 s", "2 min 5 s": the running scan's elapsed time.
     public static func elapsed(_ interval: TimeInterval) -> String {
         let seconds = max(0, Int(interval))

@@ -14,6 +14,11 @@ enum Fixture {
         try Data(contentsOf: url(name))
     }
 
+    /// A fixture that is not JSON (`clean-dry-run.jsonl`).
+    static func url(_ name: String, extension ext: String) throws -> URL {
+        try #require(Bundle.module.url(forResource: name, withExtension: ext, subdirectory: "Fixtures"))
+    }
+
     /// The recorded report of a synthetic home (`scan-report-groups.json`):
     /// 11 findings in 7 groups, 3 of them ignored by its settings file.
     static func groupsReport() throws -> ScanReport {
@@ -107,6 +112,7 @@ final class FakeRouter: ReviewRouting {
 /// test can act while it runs.
 actor FakeRunner: CLIRunning {
     private(set) var calls: [CLIRunner.Kind] = []
+    private(set) var arguments: [[String]] = []
     private var scanResult: CLIRunner.Result
     private var rulesResult: CLIRunner.Result
     private var gate: CheckedContinuation<Void, Never>?
@@ -123,11 +129,15 @@ actor FakeRunner: CLIRunning {
         CLIRunner.Result(outcome: .done, stdout: stdout, stderrTail: [])
     }
 
-    func run(_ kind: CLIRunner.Kind, _ arguments: [String], stderrLine: (@Sendable (String) -> Void)?) async -> CLIRunner.Result {
+    func run(_ kind: CLIRunner.Kind, _ arguments: [String], options: CLIRunner.Options) async -> CLIRunner.Result {
         calls.append(kind)
+        self.arguments.append(arguments)
         switch kind {
         case .rules:
             return rulesResult
+        case .dryRun, .clean:
+            // The review tests that run these use `FakeCLI`; here they only count.
+            return CLIRunner.Result(outcome: .done, stdout: Data(), stderrTail: [])
         default:
             if blocks && !released {
                 await withCheckedContinuation { gate = $0 }
@@ -135,6 +145,8 @@ actor FakeRunner: CLIRunning {
             return scanResult
         }
     }
+
+    func cancel(_ ticket: CLIRunner.Ticket) async {}
 
     func count(_ kind: CLIRunner.Kind) -> Int {
         calls.filter { $0 == kind }.count

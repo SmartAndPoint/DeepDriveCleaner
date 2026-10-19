@@ -99,7 +99,14 @@ public struct ScanReport: Decodable, Sendable, Equatable {
     public struct Finding: Decodable, Sendable, Equatable {
         public let path: String
         public let rule: String
+        /// The effective class: lower than `ruleClass` when a note downgrades it.
         public let `class`: RiskClass
+        public let ruleClass: RiskClass
+        /// The effective method: a `delete` rule downgraded to review reads `trash`.
+        public let removal: Removal
+        /// The directory's identity at scan time; `clean --items` matches it.
+        public let dev: UInt64
+        public let ino: UInt64
         public let bytes: UInt64
         /// APFS clones shared with nothing outside the finding; `bytes` when absent.
         public let privateBytes: UInt64?
@@ -109,12 +116,18 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         public let notSelected: NotSelected?
         /// Its type is switched off, or it is under the minimum size (`settings.json`).
         public let ignored: Bool
+        public let notes: [Note]
+        /// How to get it back.
+        public let hint: String
+        /// Part of it could not be read; its sizes are lower bounds.
+        public let incomplete: Bool
 
         /// What deleting it frees, as the CLI's `Finding::reclaimable_bytes`.
         public var reclaimableBytes: UInt64 { privateBytes ?? bytes }
 
         private enum CodingKeys: String, CodingKey {
-            case path, rule, `class`, bytes, privateBytes, project, selected, notSelected, ignored
+            case path, rule, `class`, ruleClass, removal, dev, ino, bytes, privateBytes, project, selected, notSelected, ignored
+            case notes, hint, incomplete
         }
 
         public init(from decoder: any Decoder) throws {
@@ -122,12 +135,19 @@ public struct ScanReport: Decodable, Sendable, Equatable {
             path = try c.decode(String.self, forKey: .path)
             rule = try c.decode(String.self, forKey: .rule)
             `class` = try c.decode(RiskClass.self, forKey: .class)
+            ruleClass = try c.decode(RiskClass.self, forKey: .ruleClass)
+            removal = try c.decode(Removal.self, forKey: .removal)
+            dev = try c.decode(UInt64.self, forKey: .dev)
+            ino = try c.decode(UInt64.self, forKey: .ino)
             bytes = try c.decode(UInt64.self, forKey: .bytes)
             privateBytes = try c.decodeIfPresent(UInt64.self, forKey: .privateBytes)
             project = try c.decodeIfPresent(Project.self, forKey: .project)
             selected = try c.decode(Bool.self, forKey: .selected)
             notSelected = try c.decodeIfPresent(NotSelected.self, forKey: .notSelected)
             ignored = try c.decodeIfPresent(Bool.self, forKey: .ignored) ?? false
+            notes = try c.decode([Note].self, forKey: .notes)
+            hint = try c.decode(String.self, forKey: .hint)
+            incomplete = try c.decode(Bool.self, forKey: .incomplete)
         }
     }
 
@@ -135,6 +155,23 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         public let root: String
         public let idleDays: UInt64?
         public let hasLockfile: Bool?
+        /// The latest activity (RFC 3339): git, manifests, lock files.
+        public let lastActivity: String?
+    }
+
+    /// The CLI's `RemovalKind`. An unknown value is a decoding error.
+    public enum Removal: String, Decodable, Sendable, CaseIterable {
+        case delete, trash, native
+        case nativeOnly = "native-only"
+        case none
+    }
+
+    /// The CLI's `Note`. An unknown value is a decoding error.
+    public enum Note: String, Decodable, Sendable, CaseIterable {
+        case noLockfile = "no-lockfile"
+        case appOwned = "app-owned"
+        case keptByMarker = "kept-by-marker"
+        case excluded
     }
 
     /// The CLI's `NotSelected`, tagged by `reason`. A reason this app does not
@@ -162,7 +199,7 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         }
     }
 
-    public enum RiskClass: String, Decodable, Sendable, CaseIterable {
+    public enum RiskClass: String, Codable, Sendable, CaseIterable {
         case safe, rebuildable, review
         case userData = "user-data"
     }

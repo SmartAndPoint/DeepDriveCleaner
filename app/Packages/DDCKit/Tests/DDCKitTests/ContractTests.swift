@@ -100,18 +100,100 @@ struct ContractTests {
         #expect(UInt64(max.1) == SharedSettings.maxMinAgeDays)
     }
 
-    @Test("no source but CLIRunner.swift names the clean run kind")
+    @Test("only CleanRun.swift runs a clean or its dry run, and only the sheet's Clean action starts one")
     func cleanHasOneOwner() throws {
+        let sources = try appSources()
+        func files(_ pattern: Regex<Substring>) -> Set<String> {
+            Set(sources.filter { $0.value.contains(pattern) }.map(\.key))
+        }
+        func count(_ pattern: Regex<Substring>, in file: String) -> Int {
+            sources[file]?.matches(of: pattern).count ?? 0
+        }
+        #expect(files(/\.clean\b/).isSubset(of: ["CLIRunner.swift", "CleanRun.swift"]), "the popover never cleans (ADR §7)")
+        #expect(files(/\.dryRun\b/).isSubset(of: ["CLIRunner.swift", "CleanRun.swift"]))
+        #expect(count(/\.clean\b/, in: "CleanRun.swift") == 1)
+        #expect(files(/"--items"/) == ["CleanRun.swift"])
+        #expect(files(/cleanConfirmedItems\(/) == ["CleanRun.swift", "ConfirmSheet.swift"])
+        #expect(count(/func cleanConfirmedItems\(/, in: "CleanRun.swift") == 1)
+        #expect(count(/cleanConfirmedItems\(/, in: "CleanRun.swift") == 1, "its definition only")
+        #expect(count(/cleanConfirmedItems\(/, in: "ConfirmSheet.swift") == 1, "the sheet's Clean action")
+    }
+
+    @Test("the item list, the clean report and the keep marker are the CLI's")
+    func cleanContracts() throws {
+        let plan = try rustSource("crates/ddc-core/src/plan.rs")
+        let listed = try #require(plan.firstMatch(of: /pub const LISTED_SCHEMA_VERSION: u32 = (\d+);/))
+        #expect(Int(listed.1) == ItemList.schemaVersion)
+        let report = try rustSource("crates/ddc-core/src/exec/report.rs")
+        let clean = try #require(report.firstMatch(of: /pub const CLEAN_SCHEMA_VERSION: u32 = (\d+);/))
+        #expect(Int(clean.1) == CleanReport.schemaVersion)
+        let visitor = try rustSource("crates/ddc-core/src/rules/visitor.rs")
+        let marker = try #require(visitor.firstMatch(of: /pub const KEEP_MARKER: &str = "([^"]+)";/))
+        #expect(String(marker.1) == KeepMarker.name)
+    }
+
+    @Test("every enum value the schemas list is one the app decodes")
+    func schemaEnums() throws {
+        let clean = try schema("clean")
+        #expect(Set(try values(clean, "SkipReason", key: "reason")) == Set(SkipReason.tags))
+        #expect(SkipReason.tags.count == 18)
+        #expect(Set(try values(clean, "ActionKind")) == Set(ListedAction.allCases.map(\.rawValue)))
+        let scan = try schema("scan")
+        #expect(Set(try values(scan, "RemovalKind")) == Set(ScanReport.Removal.allCases.map(\.rawValue)))
+        #expect(Set(try values(scan, "Note")) == Set(ScanReport.Note.allCases.map(\.rawValue)))
+        #expect(Set(try values(scan, "RiskClass")) == Set(ScanReport.RiskClass.allCases.map(\.rawValue)))
+    }
+
+    @Test("every skip reason decodes and reads as text")
+    func skipReasonsHaveText() throws {
+        for tag in SkipReason.tags {
+            let line = #"{"type":"item","path":"/Users/example/x","rule":"cache.npm","class":"safe","action":"delete","prediction":"would-skip","reason":"\#(tag)","pid":7,"name":"node","program":"go"}"#
+            guard case .item(let item) = try PreflightLine.read(line), case .wouldSkip(let reason) = item.prediction else {
+                Issue.record("\(tag) did not decode as a skip")
+                continue
+            }
+            #expect(!CleanWording.reason(reason).isEmpty)
+            #expect(CleanWording.willSkip(reason).hasSuffix("will be skipped"))
+        }
+        #expect(throws: (any Error).self) {
+            try PreflightLine.read(#"{"type":"item","path":"/x","rule":"r","class":"safe","action":"delete","prediction":"would-skip","reason":"new-reason"}"#)
+        }
+    }
+
+    // MARK: - Parts
+
+    /// The app's Swift sources, comment lines stripped, by file name.
+    private func appSources() throws -> [String: String] {
         let root = repositoryRoot()
-        let dirs = ["app/DeepDriveCleaner", "app/Packages/DDCKit/Sources/DDCKit"]
-        var offenders: [String] = []
-        for dir in dirs {
-            let files = try FileManager.default.contentsOfDirectory(atPath: root.appending(path: dir).path)
-            for file in files where file.hasSuffix(".swift") && file != "CLIRunner.swift" {
+        var sources: [String: String] = [:]
+        for dir in ["app/DeepDriveCleaner", "app/Packages/DDCKit/Sources/DDCKit"] {
+            for file in try FileManager.default.contentsOfDirectory(atPath: root.appending(path: dir).path) where file.hasSuffix(".swift") {
                 let text = try String(contentsOf: root.appending(path: "\(dir)/\(file)"), encoding: .utf8)
-                if text.contains(/\.clean\b/) { offenders.append(file) }
+                sources[file] = text.split(separator: "\n", omittingEmptySubsequences: false)
+                    .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                    .joined(separator: "\n")
             }
         }
-        #expect(offenders.isEmpty, "the popover never cleans (ADR §7)")
+        return sources
+    }
+
+    private func schema(_ name: String) throws -> [String: Any] {
+        let data = try Data(contentsOf: repositoryRoot().appending(path: "docs/\(name).schema.json"))
+        return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    /// The string values a `$defs` entry allows: its `enum`s and `const`s, or
+    /// with `key`, the `const` of that property in each `oneOf` branch.
+    private func values(_ schema: [String: Any], _ name: String, key: String? = nil) throws -> [String] {
+        let defs = try #require(schema["$defs"] as? [String: Any])
+        let def = try #require(defs[name] as? [String: Any])
+        let branches = (def["oneOf"] as? [[String: Any]]) ?? [def]
+        return branches.flatMap { branch -> [String] in
+            if let key {
+                let property = (branch["properties"] as? [String: Any])?[key] as? [String: Any]
+                return (property?["const"] as? String).map { [$0] } ?? []
+            }
+            return (branch["enum"] as? [String] ?? []) + ((branch["const"] as? String).map { [$0] } ?? [])
+        }
     }
 }

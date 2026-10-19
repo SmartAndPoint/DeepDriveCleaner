@@ -15,7 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var launchMode = LaunchMode()
     private var statusItem: StatusItemController?
     private lazy var settings = SettingsWindowController()
-    private let router = ReviewRouterStub()
+    private let reviewWindow = ReviewWindowController()
+    private var review: ReviewModel?
     private var model: PopoverModel?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -33,13 +34,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } catch {
             AppLog.write("the embedded CLI is unavailable: \(error)")
         }
+        let data = DataDirectory.current()
+        let preferences = AppPreferences()
+        // The window opens on what the popover shows, and its clean turns the
+        // popover's icon; the popover is its router.
+        let review = ReviewModel(
+            runner: runner,
+            data: data,
+            preferences: preferences,
+            snapshot: { [weak self] in self?.model?.snapshot },
+            present: { [weak self] in
+                guard let self, let review = self.review else { return false }
+                return self.reviewWindow.show(review)
+            },
+            setBusy: { [weak self] in self?.model?.setCleaning($0) },
+            rescan: { [weak self] in await self?.model?.scanNow() },
+            log: { AppLog.write($0) }
+        )
+        self.review = review
         // In every launch mode, so a promoted scheduled instance shows its running scan.
         model = PopoverModel(
             runner: runner,
-            data: .current(),
+            data: data,
             probe: FullDiskAccessProbe(path: Self.tccDatabase),
-            preferences: AppPreferences(),
-            router: router,
+            preferences: preferences,
+            router: review,
             // The due function arrives with "Background scan and notifications in the app".
             nextScan: { nil },
             // The build script keeps the app's version equal to its CLI's.
@@ -47,6 +66,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             log: { AppLog.write($0) }
         )
         apply(launchMode.handle(.launched(arguments: CommandLine.arguments)))
+    }
+
+    /// Quit during a clean stops it after the current item, then quits: the
+    /// CLI is a child process and would go on cleaning unwatched.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let review, review.prepareToQuit({ NSApp.reply(toApplicationShouldTerminate: true) }) else { return .terminateNow }
+        AppLog.write("quit during a clean: stopping it after the current item")
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -149,15 +176,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         AppLog.write("could not open the Full Disk Access settings")
-    }
-}
-
-/// The review seam until "Review and clean window" builds the window: it
-/// opens nothing, so the popover says the window arrives in a later build.
-@MainActor
-final class ReviewRouterStub: ReviewRouting {
-    func open(_ request: ReviewRequest) -> Bool {
-        AppLog.write("review requested (group \(request.group ?? "all"), confirm \(request.confirm)): no Review window yet")
-        return false
     }
 }

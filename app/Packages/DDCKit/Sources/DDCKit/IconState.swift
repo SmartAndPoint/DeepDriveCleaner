@@ -24,10 +24,12 @@ public struct IconState: Sendable, Equatable {
     public let label: String?
     public let accessibility: String
 
-    /// - `busy`: a scan (or, later, a clean) is in flight.
+    /// - `busy`: a scan is in flight.
+    /// - `cleaning`: a clean, or the rescan after it, is in flight (story "Review and clean window").
     /// - `reclaimable`: what the default selection frees, nil without a report.
     public static func make(
         busy: Bool,
+        cleaning: Bool = false,
         reclaimable: UInt64?,
         threshold: UInt64,
         showSize: Bool,
@@ -41,11 +43,11 @@ public struct IconState: Sendable, Equatable {
             else if badgePending && showBadge { .badge }
             else if over { .dot }
             else { .none }
-        let inner: Inner = busy ? .arc : (mark == .none ? .dot : .none)
+        let inner: Inner = busy || cleaning ? .arc : (mark == .none ? .dot : .none)
         let label = over && showSize ? reclaimable.map(ByteSize.human) : nil
 
         var words = ["DeepDriveCleaner"]
-        if busy { words.append("scanning") }
+        if cleaning { words.append("cleaning") } else if busy { words.append("scanning") }
         switch mark {
         case .alert: words.append("needs Full Disk Access")
         case .badge: words.append("new results to review")

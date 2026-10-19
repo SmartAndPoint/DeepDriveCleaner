@@ -60,4 +60,14 @@ struct IconStateTests {
         )
         #expect(state.accessibility == "DeepDriveCleaner, scanning, needs Full Disk Access, 10.0 GiB can be freed")
     }
+
+    @Test("a clean in flight turns the arc and is named as a clean")
+    func cleaning() {
+        let state = IconState.make(
+            busy: false, cleaning: true, reclaimable: 0, threshold: Self.threshold, showSize: false,
+            fullDiskAccess: true, badgePending: false, showBadge: true
+        )
+        #expect(state.inner == .arc)
+        #expect(state.accessibility == "DeepDriveCleaner, cleaning")
+    }
 }
