@@ -41,8 +41,8 @@ pub struct Decision {
     /// Null exactly when `notify` is false; `low-disk` wins when both apply.
     pub reason: Option<NotifyReason>,
     /// The volume the decision is about: the one under 10 % free with
-    /// something selected on it, also when the snooze or the repeat rule holds
-    /// the notification back; otherwise the first scan root's.
+    /// something selected on it (when the low-disk check is on), also while a
+    /// snooze holds the notification back; otherwise the first scan root's.
     pub volume: Option<PathBuf>,
     /// What the default selection frees on all volumes together (estimate).
     pub reclaimable: u64,

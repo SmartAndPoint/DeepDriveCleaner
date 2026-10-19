@@ -82,8 +82,9 @@ pub struct Config {
 }
 
 /// Notify when a volume is under 10 % free and something on it can be freed,
-/// or when the reclaimable size reaches the threshold. Not while snoozed;
-/// repeat only after ≥ 20 % growth or after a week.
+/// or when the reclaimable size reaches the threshold. Not while snoozed. The
+/// threshold repeats only after ≥ 20 % growth or after a week; a volume low on
+/// space notifies at every scan until it is cleaned or snoozed.
 pub fn decide(f: &Facts, cfg: &Config, state: &NotifyState) -> Decision {
     // Low on space where `ddc clean` can help; the fullest such volume.
     let low = f
@@ -104,7 +105,7 @@ pub fn decide(f: &Facts, cfg: &Config, state: &NotifyState) -> Decision {
                 || (state.last_bytes > 0 && f.reclaimable.saturating_mul(5) >= state.last_bytes.saturating_mul(6))
         }
     };
-    let notify = reason.is_some() && !snoozed && repeat;
+    let notify = reason.is_some() && !snoozed && (low.is_some() || repeat);
     let about = low.or_else(|| f.first_root.and_then(|i| f.volumes.get(i)));
     Decision {
         notify,
@@ -166,8 +167,8 @@ fn save(env: &Env, state: &NotifyState) -> io::Result<()> {
     store::write_atomic(&state_path(env), &json).map(|_| ())
 }
 
-/// A notification of `bytes` was shown at `now`: repeats wait for growth or a
-/// week, and any snooze is over.
+/// A notification of `bytes` was shown at `now`: threshold repeats wait for
+/// growth or a week, and any snooze is over.
 pub fn ack(env: &Env, bytes: u64, now: u64) -> io::Result<()> {
     save(env, &NotifyState { last_at: Some(now), last_bytes: bytes, snooze_until: None })
 }
@@ -244,15 +245,37 @@ mod tests {
     }
 
     #[test]
-    fn repeats_only_after_growth_or_a_week() {
+    fn the_threshold_repeats_only_after_growth_or_a_week() {
         let last = NotifyState { last_at: Some(NOW - 86_400), last_bytes: 20 * G, snooze_until: None };
         assert!(!notifies(&facts(21 * G, 500 * G, 1000 * G), &last), "5 % growth, 1 day");
         assert!(notifies(&facts(24 * G, 500 * G, 1000 * G), &last), "20 % growth");
         let old = NotifyState { last_at: Some(NOW - 8 * 86_400), ..last };
         assert!(notifies(&facts(20 * G, 500 * G, 1000 * G), &old), "a week later");
         let empty = NotifyState { last_at: Some(NOW - 86_400), last_bytes: 0, snooze_until: None };
-        assert!(!notifies(&facts(G, 50 * G, 1000 * G), &empty), "low on space, 1 day after a zero baseline");
+        assert!(!notifies(&facts(20 * G, 500 * G, 1000 * G), &empty), "1 day after a zero baseline");
         assert!(!notifies(&facts(0, 50 * G, 1000 * G), &NotifyState::default()), "nothing to clean");
+    }
+
+    #[test]
+    fn low_disk_notifies_at_every_scan_until_snoozed() {
+        let last = NotifyState { last_at: Some(NOW - 86_400), last_bytes: 20 * G, snooze_until: None };
+        assert!(notifies(&facts(20 * G, 50 * G, 1000 * G), &last), "a day later, nothing grew, still almost full");
+        assert!(notifies(&facts(G, 50 * G, 1000 * G), &last), "less to free than last time");
+        let snoozed = NotifyState { snooze_until: Some(NOW + 60), ..last };
+        assert!(!notifies(&facts(20 * G, 50 * G, 1000 * G), &snoozed), "Remind me tomorrow holds it back");
+
+        let off = Config { low_disk: false, ..ON };
+        assert!(!decide(&facts(20 * G, 50 * G, 1000 * G), &off, &last).notify, "switched off: the threshold's rule");
+        let nothing_on_the_low_one = Facts {
+            reclaimable: 20 * G,
+            volumes: vec![
+                volume("/System/Volumes/Data", 500 * G, 1000 * G, 20 * G),
+                volume("/Volumes/Work", 8, 100, 0),
+            ],
+            first_root: Some(0),
+            now: NOW,
+        };
+        assert!(!notifies(&nothing_on_the_low_one, &last), "a low volume with nothing to clean lifts no rule");
     }
 
     #[test]

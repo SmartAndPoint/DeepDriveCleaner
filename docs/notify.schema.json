@@ -87,7 +87,7 @@
           "minimum": 0
         },
         "volume": {
-          "description": "The volume the decision is about: the one under 10 % free with\nsomething selected on it, also when the snooze or the repeat rule holds\nthe notification back; otherwise the first scan root's.",
+          "description": "The volume the decision is about: the one under 10 % free with\nsomething selected on it (when the low-disk check is on), also while a\nsnooze holds the notification back; otherwise the first scan root's.",
           "type": [
             "string",
             "null"
