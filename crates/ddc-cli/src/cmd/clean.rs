@@ -7,7 +7,7 @@ use std::time::Duration;
 use anyhow::Context as _;
 use ddc_core::class::{Category, RiskClass};
 use ddc_core::env::Env;
-use ddc_core::exec::{self, Consent, FileJournal, Ports, SystemCommands, SystemProcesses, SystemTrash};
+use ddc_core::exec::{self, Consent, ExecOptions, FileJournal, Ports, SystemCommands, SystemProcesses, SystemTrash};
 use ddc_core::plan::{PlanOptions, build_plan};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
@@ -15,6 +15,7 @@ use ddc_core::scan::{Progress, WalkOptions};
 use ddc_core::store::{self, LockMode};
 
 use crate::cli::{CategoryArg, ClassArg, CleanArgs};
+use crate::exit;
 use crate::progress;
 use crate::prompt::{self, Decision};
 use crate::render::{self, Style};
@@ -22,16 +23,19 @@ use crate::render::{self, Style};
 pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
     if ddc_core::sys::procs::is_root() {
         eprintln!("ddc clean: refusing to run as root; run it as your user");
-        return Ok(ExitCode::from(2));
+        return Ok(ExitCode::from(exit::REFUSED));
+    }
+    if let Some(items) = &args.items {
+        return super::clean_items::run(&args, items);
     }
     if args.yes && args.classes.contains(&ClassArg::Review) {
         eprintln!("ddc clean: --yes cannot include --class review: review items need an interactive confirmation");
-        return Ok(ExitCode::from(2));
+        return Ok(ExitCode::from(exit::REFUSED));
     }
     let interactive = !args.yes && !args.dry_run;
     if interactive && !std::io::stdin().is_terminal() {
         eprintln!("ddc clean: confirmation needs a terminal; use --dry-run to preview or --yes for safe items");
-        return Ok(ExitCode::from(2));
+        return Ok(ExitCode::from(exit::REFUSED));
     }
     let env = Env::from_process(args.data_dir.clone())?;
     let _lock = store::try_lock(&env, LockMode::Exclusive)?;
@@ -95,14 +99,22 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
 
     let mut journal = FileJournal::open(&env).context("cannot open the action journal")?;
     let journal_path = journal.path.clone();
+    // Ctrl-C now stops the clean after the current item and still reaches a
+    // tool running in its own process group.
+    let cancel = ddc_core::sys::signals::install().context("cannot install the signal handler")?;
     let result = exec::execute(
         &env,
         &catalog,
         &plan,
         &consent,
         Ports { commands: &commands, trash: &SystemTrash, procs: &SystemProcesses, journal: &mut journal },
+        &ExecOptions { cancel },
     )?;
     prompt::print_result(&mut out, &result, &scanned.home, &journal_path, &style)?;
+    out.flush()?;
+    if let Some(sig) = ddc_core::sys::signals::received() {
+        ddc_core::sys::signals::reraise(sig);
+    }
     let failed = result.items.iter().any(|i| matches!(i.outcome, exec::Outcome::Failed { .. }));
     Ok(if failed { ExitCode::FAILURE } else { ExitCode::SUCCESS })
 }

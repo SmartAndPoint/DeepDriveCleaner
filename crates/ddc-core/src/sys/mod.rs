@@ -7,6 +7,7 @@ pub mod fsops;
 pub mod iopolicy;
 pub mod procs;
 pub mod rlimit;
+pub mod signals;
 pub mod statfs;
 
 use std::io;

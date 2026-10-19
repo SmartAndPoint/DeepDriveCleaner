@@ -6,14 +6,19 @@ mod delete;
 pub mod guard;
 mod journal;
 mod native;
+pub mod preflight;
+pub mod report;
 pub mod system;
 
+use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use serde::Serialize;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 pub use journal::{FileJournal, Journal, JournalEntry, MemoryJournal};
 pub use native::CommandResult;
@@ -26,8 +31,8 @@ use crate::rules::{Catalog, KEEP_MARKER};
 use crate::scan::{self, EntryMeta, OwnerKind, Progress, Tag, Visitor, WalkOptions};
 use crate::sys::procs::ProcInfo;
 
-/// Why an item was left alone. Serialized into the journal.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// Why an item was left alone. Serialized into the journal and the clean report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "reason", rename_all = "kebab-case")]
 pub enum SkipReason {
     Missing,
@@ -70,14 +75,20 @@ pub enum SkipReason {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "outcome", rename_all = "kebab-case")]
 pub enum Outcome {
     Deleted,
     Trashed,
-    Native { commands: Vec<CommandResult> },
+    Native {
+        commands: Vec<CommandResult>,
+    },
     Skipped(SkipReason),
-    Failed { error: String },
+    Failed {
+        error: String,
+    },
+    /// Left by a cancel before it started; never journaled.
+    NotRun,
 }
 
 #[derive(Debug, Clone)]
@@ -93,11 +104,20 @@ pub struct ItemReport {
 #[derive(Debug, Clone, Default)]
 pub struct ExecReport {
     pub items: Vec<ItemReport>,
-    /// Bytes available on the home volume before and after (APFS frees asynchronously).
-    pub free_before: Option<u64>,
-    pub free_after: Option<u64>,
+    /// Free space of each volume an item lives on, before and after (APFS frees asynchronously).
+    pub volumes: Vec<VolumeSpace>,
     /// Local Time Machine snapshots hold deleted blocks until the system thins them.
     pub local_snapshots: usize,
+    /// A cancel stopped the run; the items it left are `NotRun`.
+    pub cancelled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct VolumeSpace {
+    pub mount_point: PathBuf,
+    /// Bytes available to the user.
+    pub free_before: u64,
+    pub free_after: u64,
 }
 
 impl ExecReport {
@@ -136,6 +156,9 @@ pub enum Consent {
     /// `--yes`: only default-selected items of these classes; never `review`
     /// or `native-only`.
     AssumeYes { classes: Vec<RiskClass> },
+    /// `--items`: the user confirmed exactly these items in the app's sheet;
+    /// interactive consent (ADR "Menu bar app: Swift shell over the ddc CLI", §7).
+    Listed,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -158,12 +181,35 @@ pub struct Ports<'a> {
 /// Native cleanup commands may take long (Go module cache); then they are killed.
 pub const NATIVE_TIMEOUT: Duration = Duration::from_secs(600);
 
+/// How a run is steered from outside.
+#[derive(Debug, Clone, Copy)]
+pub struct ExecOptions<'a> {
+    /// Set by a signal handler (or a test): the run stops before the next item
+    /// and before any fallback, and leaves the remaining items `NotRun`.
+    pub cancel: &'a AtomicBool,
+}
+
+static NEVER: AtomicBool = AtomicBool::new(false);
+
+impl Default for ExecOptions<'_> {
+    fn default() -> Self {
+        Self { cancel: &NEVER }
+    }
+}
+
+impl ExecOptions<'_> {
+    fn cancelled(&self) -> bool {
+        self.cancel.load(Ordering::SeqCst)
+    }
+}
+
 pub fn execute(
     env: &Env,
     catalog: &Catalog,
     plan: &Plan,
     consent: &Consent,
     ports: Ports<'_>,
+    opts: &ExecOptions<'_>,
 ) -> Result<ExecReport, ExecError> {
     if crate::sys::procs::is_root() {
         return Err(ExecError::Root);
@@ -174,26 +220,29 @@ pub fn execute(
         return Err(ExecError::ReviewWithYes);
     }
     let chosen: Vec<&PlanItem> = plan.items.iter().filter(|i| i.selected).collect();
-    let mut report = ExecReport {
-        local_snapshots: local_snapshots(ports.commands),
-        free_before: free_bytes(env),
-        ..ExecReport::default()
-    };
-    let markers = keep_markers(chosen.iter().map(|i| i.finding.path.clone()).collect());
+    let volumes = volumes_of(&chosen, env);
+    let mut report = ExecReport { local_snapshots: local_snapshots(ports.commands), ..ExecReport::default() };
+    let markers = keep_markers(chosen.iter().map(|i| i.finding.path.clone()).collect(), opts);
     let guard = guard::Guard::new(env, catalog, &plan.roots, markers, ports.procs.processes());
 
     for item in chosen {
-        let outcome = if !allowed(item, consent) {
+        let outcome = if opts.cancelled() {
+            Outcome::NotRun
+        } else if !allowed(item, consent) {
             Outcome::Skipped(SkipReason::NeedsConfirmation)
         } else if let Err(reason) = action_allowed(item, catalog) {
             Outcome::Skipped(reason)
         } else {
             match guard.check(item) {
                 Err(reason) => Outcome::Skipped(reason),
-                Ok(verified) => act(item, &verified, &ports),
+                Ok(verified) => act(item, &verified, &ports, opts),
             }
         };
-        ports.journal.record(&JournalEntry::new(item, &outcome))?;
+        if outcome == Outcome::NotRun {
+            report.cancelled = true;
+        } else {
+            ports.journal.record(&JournalEntry::new(item, &outcome))?;
+        }
         report.items.push(ItemReport {
             path: item.finding.path.clone(),
             rule: item.finding.rule.clone(),
@@ -203,13 +252,19 @@ pub fn execute(
             outcome,
         });
     }
-    report.free_after = free_bytes(env);
+    report.volumes = volumes
+        .into_iter()
+        .filter_map(|(mount_point, free_before)| {
+            let free_after = crate::sys::statfs::statfs(&mount_point).ok()?.available_bytes;
+            Some(VolumeSpace { mount_point, free_before, free_after })
+        })
+        .collect();
     Ok(report)
 }
 
 fn allowed(item: &PlanItem, consent: &Consent) -> bool {
     match consent {
-        Consent::Interactive => true,
+        Consent::Interactive | Consent::Listed => true,
         Consent::AssumeYes { classes } => {
             item.default_selected
                 && classes.contains(&item.finding.class)
@@ -233,16 +288,22 @@ fn action_allowed(item: &PlanItem, catalog: &Catalog) -> Result<(), SkipReason> 
         // `--permanent` turns Trash into delete.
         (Removal::Trash, Action::Trash | Action::Delete { .. }) => true,
         (Removal::Native { cmd, fallback }, Action::Native { cmd: c, fallback: f }) => cmd == c && fallback == f,
-        (Removal::NativeOnly(cmds), Action::NativeOnly(c)) => cmds == c,
+        // An empty command list runs nothing and must never read as "ran tools".
+        (Removal::NativeOnly(cmds), Action::NativeOnly(c)) => cmds == c && !c.is_empty(),
         _ => false,
     };
     if ok { Ok(()) } else { Err(SkipReason::ActionNotAllowed) }
 }
 
-fn act(item: &PlanItem, v: &guard::Verified, ports: &Ports<'_>) -> Outcome {
+fn act(item: &PlanItem, v: &guard::Verified, ports: &Ports<'_>, opts: &ExecOptions<'_>) -> Outcome {
     let path = item.finding.path.as_path();
     // Anything slow (a probe subprocess) may have run: re-check before acting.
     let fallback = |fb: Fallback| {
+        // A probe killed by a forwarded signal fails like a location mismatch:
+        // a cancel must stop here, never turn into the fallback's delete.
+        if opts.cancelled() {
+            return Outcome::NotRun;
+        }
         if !v.unchanged() {
             return Outcome::Skipped(SkipReason::ChangedSinceScan);
         }
@@ -255,21 +316,26 @@ fn act(item: &PlanItem, v: &guard::Verified, ports: &Ports<'_>) -> Outcome {
     match item.action {
         Action::Delete { make_writable } => delete::remove(v, path, make_writable),
         Action::Trash => trash(ports, v, path),
-        Action::Native { cmd, fallback: fb } => match native::run(&cmd, path, ports.commands) {
+        Action::Native { cmd, fallback: fb } => match native::run(&cmd, path, ports.commands, opts) {
             native::Native::Ran(result) => Outcome::Native { commands: vec![result] },
+            native::Native::Cancelled => Outcome::NotRun,
             native::Native::Unavailable | native::Native::LocationMismatch => fallback(fb),
         },
         Action::NativeOnly(cmds) => {
             let mut results = Vec::new();
             for cmd in cmds {
-                match native::run(cmd, path, ports.commands) {
+                if opts.cancelled() {
+                    break;
+                }
+                match native::run(cmd, path, ports.commands, opts) {
                     native::Native::Ran(result) => results.push(result),
-                    _ => {
+                    native::Native::Cancelled => break,
+                    native::Native::Unavailable | native::Native::LocationMismatch => {
                         return Outcome::Skipped(SkipReason::NativeUnavailable { program: cmd.program.to_owned() });
                     }
                 }
             }
-            Outcome::Native { commands: results }
+            if results.is_empty() { Outcome::NotRun } else { Outcome::Native { commands: results } }
         }
     }
 }
@@ -284,8 +350,18 @@ fn trash(ports: &Ports<'_>, v: &guard::Verified, path: &Path) -> Outcome {
     }
 }
 
-fn free_bytes(env: &Env) -> Option<u64> {
-    crate::sys::statfs::statfs(env.home()).ok().map(|s| s.available_bytes)
+/// The volumes the items live on, with their free space now (the home
+/// volume when nothing is chosen).
+fn volumes_of(chosen: &[&PlanItem], env: &Env) -> BTreeMap<PathBuf, u64> {
+    let mut paths: Vec<&Path> = chosen.iter().map(|i| i.finding.path.as_path()).collect();
+    if paths.is_empty() {
+        paths.push(env.home());
+    }
+    paths
+        .into_iter()
+        .filter_map(|p| crate::sys::statfs::statfs(p).ok())
+        .map(|st| (st.mount_point, st.available_bytes))
+        .collect()
 }
 
 /// Number of local Time Machine snapshots (they keep deleted blocks).
@@ -300,7 +376,7 @@ pub fn local_snapshots(commands: &dyn CommandRunner) -> usize {
 /// Walks everything about to be cleaned, collecting directories that hold a
 /// keep marker at any depth. Fails closed: a target whose walk fails (or that
 /// is no longer a real directory) is reported as kept itself.
-fn keep_markers(targets: Vec<PathBuf>) -> Vec<PathBuf> {
+fn keep_markers(targets: Vec<PathBuf>, opts: &ExecOptions<'_>) -> Vec<PathBuf> {
     struct Markers(Mutex<Vec<PathBuf>>);
     impl Visitor for Markers {
         fn wants_private(&self, _: &scan::DirCtx<'_>, _: Tag) -> bool {
@@ -314,6 +390,9 @@ fn keep_markers(targets: Vec<PathBuf>) -> Vec<PathBuf> {
     }
     let markers = Markers(Mutex::new(Vec::new()));
     for target in targets {
+        if opts.cancelled() {
+            break; // every item is then `NotRun`
+        }
         if !std::fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir()) {
             continue; // missing or swapped: the guard skips it anyway
         }

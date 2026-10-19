@@ -205,7 +205,7 @@ pub fn interactive(
     Ok(if yes(ask(&mut input, w, &question)?) { Decision::Proceed } else { Decision::Abort })
 }
 
-fn reason(r: &SkipReason) -> String {
+pub fn reason(r: &SkipReason) -> String {
     match r {
         SkipReason::InUse { pid, name } => format!("in use by {name} (pid {pid})"),
         SkipReason::InUseUnknownCwd { pid, name } => format!("possibly in use by {name} (pid {pid})"),
@@ -244,8 +244,17 @@ pub fn print_result(w: &mut impl Write, r: &ExecReport, home: &Path, journal: &P
         count(&|o| matches!(o, Outcome::Skipped(_))),
         count(&|o| matches!(o, Outcome::Failed { .. })),
     )?;
-    if let (Some(before), Some(after)) = (r.free_before, r.free_after) {
-        writeln!(w, "Free space: {} → {} (APFS may take a moment to reclaim)", human(before), human(after))?;
+    if r.cancelled {
+        writeln!(w, "Cancelled: {} items were not started.", count(&|o| matches!(o, Outcome::NotRun)))?;
+    }
+    for v in &r.volumes {
+        let on = if r.volumes.len() > 1 { format!(" on {}", v.mount_point.display()) } else { String::new() };
+        writeln!(
+            w,
+            "Free space{on}: {} → {} (APFS may take a moment to reclaim)",
+            human(v.free_before),
+            human(v.free_after)
+        )?;
     }
     for item in &r.items {
         match &item.outcome {

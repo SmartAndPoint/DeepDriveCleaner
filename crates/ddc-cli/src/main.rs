@@ -2,6 +2,7 @@
 
 mod cli;
 mod cmd;
+mod exit;
 mod launchd;
 mod notify;
 mod progress;
@@ -20,7 +21,10 @@ fn main() -> ExitCode {
         Ok(code) => code,
         Err(err) => {
             eprintln!("ddc: {err:#}");
-            ExitCode::FAILURE
+            let busy = err
+                .downcast_ref::<ddc_core::store::LockError>()
+                .is_some_and(|e| matches!(e, ddc_core::store::LockError::Busy(_)));
+            if busy { ExitCode::from(exit::BUSY) } else { ExitCode::FAILURE }
         }
     }
 }

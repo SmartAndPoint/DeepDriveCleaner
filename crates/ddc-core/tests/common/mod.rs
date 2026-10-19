@@ -2,6 +2,8 @@
 //! temp dir and never inside the real `$HOME`.
 #![allow(dead_code)]
 
+pub mod fakes;
+
 use std::cell::RefCell;
 use std::fs::{self, File};
 use std::io::Write as _;

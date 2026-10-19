@@ -4,19 +4,20 @@
 use std::path::Path;
 use std::time::Duration;
 
-use serde::Serialize;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
-use super::{CommandRunner, NATIVE_TIMEOUT};
+use super::{CommandRunner, ExecOptions, NATIVE_TIMEOUT};
 use crate::class::{LocationCompare, NativeCommand};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CommandResult {
     pub program: String,
     pub args: Vec<String>,
     pub success: bool,
     pub code: Option<i32>,
     /// Last part of the command's output, for the journal.
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub output: String,
 }
 
@@ -30,9 +31,11 @@ pub(super) enum Native {
     Ran(CommandResult),
     Unavailable,
     LocationMismatch,
+    /// A cancel arrived after the location probe: the command was not started.
+    Cancelled,
 }
 
-pub(super) fn run(cmd: &NativeCommand, target: &Path, commands: &dyn CommandRunner) -> Native {
+pub(super) fn run(cmd: &NativeCommand, target: &Path, commands: &dyn CommandRunner, opts: &ExecOptions<'_>) -> Native {
     let Some(exe) = commands.find(cmd.program) else { return Native::Unavailable };
     if let Some(probe) = cmd.location {
         let Some(probe_exe) = commands.find(probe.program) else { return Native::Unavailable };
@@ -44,6 +47,9 @@ pub(super) fn run(cmd: &NativeCommand, target: &Path, commands: &dyn CommandRunn
                 LocationCompare::Equals => r == target,
                 LocationCompare::Contains => target.starts_with(&r) && target != r,
             });
+        if opts.cancelled() {
+            return Native::Cancelled;
+        }
         if !matches {
             return Native::LocationMismatch;
         }

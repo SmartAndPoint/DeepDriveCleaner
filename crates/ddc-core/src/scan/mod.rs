@@ -14,7 +14,7 @@ use std::time::Duration;
 
 pub use progress::{Progress, ProgressSnapshot};
 pub use reader::{DirListing, DirReader, EntryKind, EntryMeta, ReadError, ReadErrorKind, StdReader};
-pub use walker::walk;
+pub use walker::{walk, walk_with_reader};
 
 /// Rule identifier chosen by the visitor (opaque to the walker).
 pub type Tag = u32;

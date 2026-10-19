@@ -1,8 +1,11 @@
 //! `ddc scan` end to end with a temporary HOME and data directory.
 
 use std::fs;
+use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
+
+use ddc_core::sys::signals::kill_group;
 
 fn ddc(home: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
@@ -105,4 +108,39 @@ fn human_report_orders_findings_by_size() {
     let pos = |needle: &str| text.find(needle).unwrap_or_else(|| panic!("{needle:?} missing in:\n{text}"));
     assert!(pos("~/big/__pycache__") < pos("~/mid/__pycache__"));
     assert!(pos("~/mid/__pycache__") < pos("~/small/__pycache__"));
+}
+
+#[test]
+fn sigterm_before_the_scan_finishes_leaves_the_saved_scan_untouched() {
+    let (tmp, home) = fixture();
+    let data = tmp.path().join("data");
+    fs::create_dir_all(&data).unwrap();
+    let saved = br#"{"schema_version":1,"seeded":true}"#;
+    fs::write(data.join("last-scan.json"), saved).unwrap();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
+        .env_clear()
+        .env("HOME", &home)
+        .env("PATH", "")
+        .args(["scan", "--json", "--data-dir", data.to_str().unwrap()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    // Stopped at once, so the walk cannot finish before the SIGTERM arrives.
+    let group = i32::try_from(child.id()).unwrap();
+    kill_group(group, libc::SIGSTOP);
+    kill_group(group, libc::SIGTERM);
+    kill_group(group, libc::SIGCONT);
+    let status = child.wait().unwrap();
+
+    assert_eq!(status.signal(), Some(libc::SIGTERM), "a scan has no handler: the default action ends it");
+    assert_eq!(fs::read(data.join("last-scan.json")).unwrap(), saved);
+    let leftovers: Vec<_> = fs::read_dir(&data)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with(".last-scan.json.tmp-"))
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
 }

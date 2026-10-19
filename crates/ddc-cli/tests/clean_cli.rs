@@ -147,7 +147,21 @@ fn clean_does_not_start_while_the_lock_is_held() {
 
     let out = ddc(&fx.home, &["clean", "--yes", "--data-dir", fx.data_arg()]);
 
-    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(75), "a held lock exits 75 (EX_TEMPFAIL)");
     assert!(String::from_utf8_lossy(&out.stderr).contains("another ddc scan or clean is running"));
     assert!(fx.home.join("q/__pycache__").exists());
+}
+
+#[test]
+fn scan_does_not_start_while_a_clean_holds_the_lock() {
+    let fx = Fx::new();
+    let env = Env::with_paths(&fx.home, &fx.data, &fx.data.join("logs"), SystemTime::now()).unwrap();
+    // A clean holds the lock exclusively; scans share it with each other.
+    let _held = store::try_lock(&env, LockMode::Exclusive).unwrap();
+
+    let out = ddc(&fx.home, &["scan", "--json", "--data-dir", fx.data_arg()]);
+
+    assert_eq!(out.status.code(), Some(75));
+    assert!(out.stdout.is_empty());
+    assert!(!fx.data.join("last-scan.json").exists());
 }

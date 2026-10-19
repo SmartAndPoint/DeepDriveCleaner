@@ -67,24 +67,45 @@ pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> 
             rule = kept;
             notes.push(Note::KeptByMarker);
         }
-        let mut class = rule.class;
-        let project_root = (rule.category == Category::ProjectArtifact && rule.id != KEPT)
-            .then(|| project_root(&owner.path, &out.roots.iter().map(|r| r.path.as_path()).collect::<Vec<_>>(), home));
-        let has_lockfile = rule.lockfiles.map(|locks| {
-            let parent = owner.path.parent();
-            [parent, project_root.as_deref()].into_iter().flatten().any(|dir| dir_has_any(dir, locks))
-        });
-        if class == RiskClass::Rebuildable && app_owned(&owner.path, home) {
-            class = RiskClass::Review;
-            notes.push(Note::AppOwned);
-        }
-        if class == RiskClass::Rebuildable && has_lockfile == Some(false) {
-            class = RiskClass::Review;
-            notes.push(Note::NoLockfile);
-        }
+        let roots: Vec<&Path> = out.roots.iter().map(|r| r.path.as_path()).collect();
+        let (class, project_root, has_lockfile) = downgraded(rule, &owner.path, &roots, home, &mut notes);
         found.push(Classified { rule, owner: owner.clone(), class, notes, project_root, has_lockfile });
     }
     found
+}
+
+/// The class `classify` gives a finding of `rule` at `path` without a walk:
+/// the app-owned and lock-file downgrades. Pins, ancestor claims and keep
+/// markers need the walk (story "CLI: clean an explicit item list": the dry run).
+pub fn effective_class(rule: &Rule, path: &Path, roots: &[&Path], home: &Path) -> RiskClass {
+    downgraded(rule, path, roots, home, &mut Vec::new()).0
+}
+
+/// The rule's class after the downgrades, the project root and whether a
+/// lock file was found; the notes explain each downgrade.
+fn downgraded(
+    rule: &Rule,
+    path: &Path,
+    roots: &[&Path],
+    home: &Path,
+    notes: &mut Vec<Note>,
+) -> (RiskClass, Option<PathBuf>, Option<bool>) {
+    let mut class = rule.class;
+    let project_root =
+        (rule.category == Category::ProjectArtifact && rule.id != KEPT).then(|| project_root(path, roots, home));
+    let has_lockfile = rule.lockfiles.map(|locks| {
+        let parent = path.parent();
+        [parent, project_root.as_deref()].into_iter().flatten().any(|dir| dir_has_any(dir, locks))
+    });
+    if class == RiskClass::Rebuildable && app_owned(path, home) {
+        class = RiskClass::Review;
+        notes.push(Note::AppOwned);
+    }
+    if class == RiskClass::Rebuildable && has_lockfile == Some(false) {
+        class = RiskClass::Review;
+        notes.push(Note::NoLockfile);
+    }
+    (class, project_root, has_lockfile)
 }
 
 /// Nearest ancestor of the artifact's parent with `.git` (directory or

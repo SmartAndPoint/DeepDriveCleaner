@@ -1,0 +1,782 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CleanReport",
+  "type": "object",
+  "properties": {
+    "cancelled": {
+      "description": "A signal stopped the run; the items it left are `not-run`.",
+      "type": "boolean"
+    },
+    "ddc_version": {
+      "type": "string"
+    },
+    "failed": {
+      "description": "Items that `failed`, or whose tool command failed.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "items": {
+      "description": "In the order of the list.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CleanItem"
+      }
+    },
+    "journal": {
+      "description": "The action journal every started item was recorded in.",
+      "type": "string"
+    },
+    "local_snapshots": {
+      "description": "Local Time Machine snapshots keep deleted blocks until macOS thins them.",
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "volumes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/VolumeSpace"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "ddc_version",
+    "cancelled",
+    "items",
+    "failed",
+    "volumes",
+    "local_snapshots",
+    "journal"
+  ],
+  "$defs": {
+    "ActionKind": {
+      "description": "An action as the app and the clean report name it.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "delete",
+            "trash"
+          ]
+        },
+        {
+          "description": "The tool's own command, or the rule's fallback where the tool is missing\nor reports another location.",
+          "type": "string",
+          "const": "native"
+        },
+        {
+          "description": "Only the tool's commands.",
+          "type": "string",
+          "const": "native-only"
+        }
+      ]
+    },
+    "CleanItem": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ActionKind"
+        },
+        "bytes": {
+          "description": "Allocated bytes the fresh scan measured; absent when the item was\nrefused before it was run.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "class": {
+          "$ref": "#/$defs/RiskClass"
+        },
+        "dev": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "ino": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "path": {
+          "type": "string"
+        },
+        "permanent": {
+          "type": "boolean"
+        },
+        "rule": {
+          "type": "string"
+        }
+      },
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "const": "deleted"
+            }
+          },
+          "required": [
+            "outcome"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "const": "trashed"
+            }
+          },
+          "required": [
+            "outcome"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "commands": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/CommandResult"
+              }
+            },
+            "outcome": {
+              "type": "string",
+              "const": "native"
+            }
+          },
+          "required": [
+            "outcome",
+            "commands"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "const": "skipped"
+            }
+          },
+          "$ref": "#/$defs/SkipReason",
+          "required": [
+            "outcome"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "error": {
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string",
+              "const": "failed"
+            }
+          },
+          "required": [
+            "outcome",
+            "error"
+          ]
+        },
+        {
+          "description": "Left by a cancel before it started; never journaled.",
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "const": "not-run"
+            }
+          },
+          "required": [
+            "outcome"
+          ]
+        }
+      ],
+      "required": [
+        "path",
+        "dev",
+        "ino",
+        "rule",
+        "class",
+        "action"
+      ]
+    },
+    "CommandResult": {
+      "type": "object",
+      "properties": {
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "code": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "output": {
+          "description": "Last part of the command's output, for the journal.",
+          "type": "string"
+        },
+        "program": {
+          "type": "string"
+        },
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "program",
+        "args",
+        "success"
+      ]
+    },
+    "ListedItem": {
+      "description": "One finding of the reviewed scan, as the app shows it.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "The effective action: a `review` item deleted permanently is `delete`.",
+          "$ref": "#/$defs/ActionKind"
+        },
+        "class": {
+          "$ref": "#/$defs/RiskClass"
+        },
+        "dev": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "ino": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "path": {
+          "description": "Absolute and normalised; compared byte for byte, never resolved.",
+          "type": "string"
+        },
+        "permanent": {
+          "description": "Delete a `review` item instead of moving it to the Trash. Required on,\nand only allowed on, a `review` item listed as `delete`.",
+          "type": "boolean"
+        },
+        "rule": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "dev",
+        "ino",
+        "rule",
+        "class",
+        "action"
+      ]
+    },
+    "ListedItems": {
+      "description": "`clean --items`: the items the user confirmed in the app (ADR \"Menu bar\napp: Swift shell over the ddc CLI\", §6 item 1). The list is the selection:\nno class filter, no default selection, no prompt (§7).",
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ListedItem"
+          }
+        },
+        "schema_version": {
+          "description": "[`LISTED_SCHEMA_VERSION`].",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "items"
+      ]
+    },
+    "PreflightItem": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ActionKind"
+        },
+        "bytes": {
+          "description": "Allocated bytes now; absent when the item was not walked.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "class": {
+          "$ref": "#/$defs/RiskClass"
+        },
+        "path": {
+          "type": "string"
+        },
+        "rule": {
+          "type": "string"
+        }
+      },
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "prediction": {
+              "type": "string",
+              "const": "would-delete"
+            }
+          },
+          "required": [
+            "prediction"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "prediction": {
+              "type": "string",
+              "const": "would-trash"
+            }
+          },
+          "required": [
+            "prediction"
+          ]
+        },
+        {
+          "description": "The tool's command (installed now; the clean checks its location).",
+          "type": "object",
+          "properties": {
+            "prediction": {
+              "type": "string",
+              "const": "would-run"
+            }
+          },
+          "required": [
+            "prediction"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "prediction": {
+              "type": "string",
+              "const": "would-skip"
+            }
+          },
+          "$ref": "#/$defs/SkipReason",
+          "required": [
+            "prediction"
+          ]
+        }
+      ],
+      "required": [
+        "path",
+        "rule",
+        "class",
+        "action"
+      ]
+    },
+    "PreflightLine": {
+      "description": "One line of the dry run's output (JSON Lines, one per item, then the summary).",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "item"
+            }
+          },
+          "$ref": "#/$defs/PreflightItem",
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "summary"
+            }
+          },
+          "$ref": "#/$defs/PreflightSummary",
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    },
+    "PreflightSummary": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Bytes of the items not predicted as skipped.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "items": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "would_delete": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "would_run": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "would_skip": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "would_trash": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "would_delete",
+        "would_trash",
+        "would_run",
+        "would_skip",
+        "bytes"
+      ]
+    },
+    "RiskClass": {
+      "oneOf": [
+        {
+          "description": "Cache that refills itself.",
+          "type": "string",
+          "const": "safe"
+        },
+        {
+          "description": "Project artifact restored by install (from a lock file) or by a build.",
+          "type": "string",
+          "const": "rebuildable"
+        },
+        {
+          "description": "Expensive to restore, or restorability is uncertain.",
+          "type": "string",
+          "const": "review"
+        },
+        {
+          "description": "The user's data: reported, never planned.",
+          "type": "string",
+          "const": "user-data"
+        }
+      ]
+    },
+    "SkipReason": {
+      "description": "Why an item was left alone. Serialized into the journal and the clean report.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "missing"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "not-a-directory"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "symlink"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "Same path, different directory than the scan saw.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "changed-since-scan"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A symlink or another directory now sits above the finding.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "parent-changed"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "The rule's marker no longer matches.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "rule-mismatch"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "outside-scan-roots"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "scan-root"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "protected"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "project-root"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "`.ddc-keep` in it or above it.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "kept"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "pid": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "reason": {
+              "type": "string",
+              "const": "in-use"
+            }
+          },
+          "required": [
+            "reason",
+            "pid",
+            "name"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "pid": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "reason": {
+              "type": "string",
+              "const": "in-use-unknown-cwd"
+            }
+          },
+          "required": [
+            "reason",
+            "pid",
+            "name"
+          ]
+        },
+        {
+          "description": "An app that owns the item is running; `name` is its bundle name.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "pid": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "reason": {
+              "type": "string",
+              "const": "owner-running"
+            }
+          },
+          "required": [
+            "reason",
+            "pid",
+            "name"
+          ]
+        },
+        {
+          "description": "`review` and `native-only` items need an interactive confirmation.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "needs-confirmation"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "The plan asks for a method the rule does not allow (user data,\nreport-only, a VM runtime with anything but its prune commands).",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "action-not-allowed"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "Part of it could not be read or another filesystem is mounted inside.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "incomplete"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "program": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "const": "native-unavailable"
+            }
+          },
+          "required": [
+            "reason",
+            "program"
+          ]
+        }
+      ]
+    },
+    "VolumeSpace": {
+      "type": "object",
+      "properties": {
+        "free_after": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "free_before": {
+          "description": "Bytes available to the user.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "mount_point": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mount_point",
+        "free_before",
+        "free_after"
+      ]
+    }
+  }
+}

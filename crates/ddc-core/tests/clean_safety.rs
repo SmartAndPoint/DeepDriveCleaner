@@ -4,20 +4,18 @@
 
 mod common;
 
-use std::cell::RefCell;
-use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::{Duration, SystemTime};
 
 use common::TreeBuilder;
+use common::fakes::{FakeCommands, FakeProcs, FakeTrash, app_process};
 use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
 use ddc_core::exec::{
-    self, CmdOutput, CommandRunner, Consent, ExecError, ExecReport, MemoryJournal, Outcome, Ports, ProcessTable,
-    SkipReason, SystemProcesses, Trasher,
+    self, Consent, ExecError, ExecOptions, ExecReport, MemoryJournal, Outcome, Ports, ProcessTable, SkipReason,
+    SystemProcesses,
 };
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{Plan, PlanOptions, build_plan};
@@ -27,55 +25,6 @@ use ddc_core::scan::{Progress, WalkOptions};
 use ddc_core::sys::procs::ProcInfo;
 
 const DAY: Duration = Duration::from_secs(86_400);
-
-#[derive(Default)]
-struct FakeCommands {
-    tools: HashMap<&'static str, (bool, String)>,
-    calls: RefCell<Vec<String>>,
-    /// Runs on every call (to simulate the world changing during a command).
-    on_run: Option<Box<dyn Fn()>>,
-}
-
-impl FakeCommands {
-    /// A tool that exits with `success` and prints `stdout` for every call.
-    fn with(mut self, program: &'static str, success: bool, stdout: &str) -> Self {
-        self.tools.insert(program, (success, stdout.to_owned()));
-        self
-    }
-}
-
-impl CommandRunner for FakeCommands {
-    fn find(&self, program: &str) -> Option<PathBuf> {
-        self.tools.contains_key(program).then(|| PathBuf::from("/fake/bin").join(program))
-    }
-    fn run(&self, exe: &Path, args: &[String], _: Duration) -> io::Result<CmdOutput> {
-        let name = exe.file_name().unwrap().to_str().unwrap();
-        self.calls.borrow_mut().push(format!("{name} {}", args.join(" ")));
-        if let Some(hook) = &self.on_run {
-            hook();
-        }
-        let (success, stdout) = self.tools[name].clone();
-        Ok(CmdOutput { success, code: Some(i32::from(!success)), stdout, stderr: String::new() })
-    }
-}
-
-/// Moves into a directory of the test tree instead of the real Trash.
-struct FakeTrash(PathBuf);
-
-impl Trasher for FakeTrash {
-    fn trash(&self, path: &Path) -> io::Result<()> {
-        fs::create_dir_all(&self.0)?;
-        fs::rename(path, self.0.join(path.file_name().unwrap()))
-    }
-}
-
-struct FakeProcs(Vec<ProcInfo>);
-
-impl ProcessTable for FakeProcs {
-    fn processes(&self) -> Vec<ProcInfo> {
-        self.0.clone()
-    }
-}
 
 struct Fx {
     t: TreeBuilder,
@@ -142,6 +91,7 @@ impl Fx {
             plan,
             &consent,
             Ports { commands, trash: &trash, procs, journal: &mut journal },
+            &ExecOptions::default(),
         )
         .unwrap();
         (report, journal)
@@ -281,6 +231,7 @@ fn assume_yes_never_touches_review_and_rejects_review_class() {
             procs: &FakeProcs(vec![]),
             journal: &mut journal,
         },
+        &ExecOptions::default(),
     )
     .unwrap_err();
     assert!(matches!(err, ExecError::ReviewWithYes));
@@ -442,16 +393,6 @@ fn running_owner_process_skips_its_cache() {
     let (r, _) = fx.run(&plan, consent, &FakeCommands::default(), &FakeProcs(vec![spotify]));
 
     assert_eq!(outcome(&r, &cache), &Outcome::Skipped(SkipReason::OwnerRunning { pid: 4242, name: "Spotify".into() }));
-}
-
-fn app_process(pid: i32, exe: &str) -> ProcInfo {
-    let exe = PathBuf::from(exe);
-    ProcInfo {
-        pid,
-        name: exe.file_name().unwrap().to_string_lossy().into_owned(),
-        exe: Some(exe),
-        ..ProcInfo::default()
-    }
 }
 
 #[test]

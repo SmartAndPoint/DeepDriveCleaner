@@ -2,6 +2,7 @@
 
 mod background;
 mod clean;
+mod clean_items;
 mod diag;
 mod du;
 mod scan;

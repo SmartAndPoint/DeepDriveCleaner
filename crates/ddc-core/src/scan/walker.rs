@@ -86,16 +86,28 @@ pub fn walk(
     opts: &WalkOptions,
     progress: &Progress,
 ) -> Result<WalkOutput, WalkSetupError> {
+    let reader: &dyn DirReader = match opts.reader {
+        ReaderKind::Bulk => &BulkReader,
+        ReaderKind::Std => &StdReader,
+    };
+    walk_with_reader(roots, visitor, opts, progress, reader)
+}
+
+/// [`walk`] through a given reader (`opts.reader` is ignored), so a test can
+/// see every directory the walk opens.
+pub fn walk_with_reader(
+    roots: &[PathBuf],
+    visitor: &dyn Visitor,
+    opts: &WalkOptions,
+    progress: &Progress,
+    reader: &dyn DirReader,
+) -> Result<WalkOutput, WalkSetupError> {
     let started = Instant::now();
     let roots = normalize_roots(roots)?;
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(opts.threads.unwrap_or(0))
         .thread_name(|i| format!("ddc-walk-{i}"))
         .build()?;
-    let reader: &dyn DirReader = match opts.reader {
-        ReaderKind::Bulk => &BulkReader,
-        ReaderKind::Std => &StdReader,
-    };
     let sh = Shared {
         reader,
         visitor,

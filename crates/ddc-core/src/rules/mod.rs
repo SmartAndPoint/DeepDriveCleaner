@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 pub use catalog::RULES;
-pub use classify::{Classified, Note, classify};
+pub use classify::{Classified, Note, classify, effective_class};
 pub use visitor::{KEEP_MARKER, LARGE_FILE_BYTES, Pins, RuleVisitor};
 
 use crate::class::{Category, Removal, RiskClass};

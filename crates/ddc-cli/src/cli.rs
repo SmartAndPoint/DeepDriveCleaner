@@ -120,6 +120,14 @@ pub struct CleanArgs {
     /// Where the last scan, the lock and the logs live.
     #[arg(long, value_name = "DIR")]
     pub data_dir: Option<PathBuf>,
+    /// Clean exactly the items in this JSON list (`-` reads stdin): a selection
+    /// confirmed elsewhere, such as the Mac app's sheet. Rescans and re-checks
+    /// every item; with --dry-run, only predicts each one without a rescan.
+    #[arg(long, value_name = "FILE", conflicts_with_all = ["permanent", "yes", "classes", "categories", "min_size"])]
+    pub items: Option<PathBuf>,
+    /// With --items: the report as JSON (with --dry-run, one JSON line per item).
+    #[arg(long, requires = "items")]
+    pub json: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
