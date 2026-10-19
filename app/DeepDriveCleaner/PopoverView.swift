@@ -90,6 +90,11 @@ struct PopoverView: View {
                     TimelineView(.periodic(from: scan.started, by: 1)) { context in
                         Text("Scanning… \(Wording.elapsed(context.date.timeIntervalSince(scan.started)))")
                     }
+                } else if model.paused {
+                    HStack(spacing: 4) {
+                        Text("Scans paused")
+                        Button("Resume") { model.setPaused(false) }.buttonStyle(.link)
+                    }
                 } else {
                     Button("Scan now") { Task { await model.scanNow() } }
                         .buttonStyle(.link)

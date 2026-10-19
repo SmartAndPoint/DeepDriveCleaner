@@ -1,7 +1,10 @@
 import Foundation
 import Synchronization
 
-/// A stand-in for `deepdrivecleaner`, written to a temporary directory per test.
+/// A stand-in for `deepdrivecleaner`: a temporary directory per test, whose
+/// `deepdrivecleaner` is a link to one shared script. macOS checks a newly
+/// written executable on its first launch (about 0.6 s, one at a time), so a
+/// fresh script per test made the parallel suite's first runs take seconds.
 ///
 /// Every run appends `start <pid> <args>` and `end <pid> <args>` to a log.
 /// Commands (the first argument):
@@ -34,19 +37,28 @@ final class FakeCLI: Sendable {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         executable = directory.appending(path: "deepdrivecleaner")
         log = directory.appending(path: "runs.log")
+        try FileManager.default.createSymbolicLink(at: executable, withDestinationURL: try Self.script.get())
+        if let lastScan { try put("last-scan-path", Data(lastScan.path.utf8)) }
+    }
+
+    /// The shared script, in a directory named after its text: written once
+    /// per version, so macOS checks it once, and two checkouts never run each
+    /// other's. `$0` is the test's link: the script finds its directory, and
+    /// with it the log and the gates.
+    private static let script = Result<URL, any Error> {
         let line63 = { (c: Character) in String(repeating: c, count: 63) }
         let script = """
             #!/bin/sh
-            log='\(log.path)'
-            gates='\(directory.path)'
-            last='\(lastScan?.path ?? "")'
+            gates=$(dirname "$0")
+            log="$gates/runs.log"
+            last=$(cat "$gates/last-scan-path" 2>/dev/null)
             echo "start $$ $*" >> "$log"
             gate() { while [ ! -e "$gates/$1" ]; do sleep 0.01; done; }
             case "$1" in
               wait) gate "$2" ;;
               exit) echo "end $$ $*" >> "$log"; exit "$2" ;;
-              flood) yes \(line63("e")) | head -n \(Self.floodLines) >&2
-                     yes \(line63("o")) | head -n \(Self.floodLines) ;;
+              flood) yes \(line63("e")) | head -n \(FakeCLI.floodLines) >&2
+                     yes \(line63("o")) | head -n \(FakeCLI.floodLines) ;;
               report) cat "$2" ;;
               crash) kill -ABRT $$ ;;
               clean)
@@ -72,8 +84,15 @@ final class FakeCLI: Sendable {
             esac
             echo "end $$ $*" >> "$log"
             """
-        try script.write(to: executable, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        // FNV-1a: stable across runs, unlike `Hasher`.
+        let hash = script.utf8.reduce(UInt64(0xcbf2_9ce4_8422_2325)) { ($0 ^ UInt64($1)) &* 0x0000_0100_0000_01b3 }
+        let url = FileManager.default.temporaryDirectory.appending(path: "ddckit-fake-cli-\(String(hash, radix: 16))/deepdrivecleaner")
+        if !FileManager.default.isExecutableFile(atPath: url.path) {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try script.write(to: url, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+        return url
     }
 
     deinit {

@@ -13,6 +13,7 @@ public final class AppPreferences {
     public static let showBadgeKey = "ShowMenuBarBadge"
     public static let badgePendingKey = "AttentionBadgePending"
     public static let deletePermanentlyKey = "DeleteReviewItemsPermanently"
+    public static let scansPausedKey = "ScansPaused"
 
     private let defaults: UserDefaults
 
@@ -31,6 +32,13 @@ public final class AppPreferences {
     /// "Delete review items instead of moving them to the Trash": where each
     /// `review` item's Delete permanently starts in the confirmation sheet.
     public var deleteReviewPermanently: Bool { defaults.bool(forKey: Self.deletePermanentlyKey) }
+
+    /// Pause in the menu: no scan starts until Resume, scheduled ones included.
+    public var scansPaused: Bool { defaults.bool(forKey: Self.scansPausedKey) }
+
+    public func setScansPaused(_ on: Bool) {
+        defaults.set(on, forKey: Self.scansPausedKey)
+    }
 
     /// A notification was posted and the Review window has not opened since.
     public var badgePending: Bool { defaults.bool(forKey: Self.badgePendingKey) }

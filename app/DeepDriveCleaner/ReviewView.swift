@@ -32,7 +32,11 @@ struct ReviewView: View {
                 VStack(spacing: 8) {
                     Text("No scan yet").font(.system(size: 20, weight: .semibold))
                     Text("Scan from the menu bar first; the findings show here.").foregroundStyle(.secondary)
-                    Button("Scan now") { Task { await model.scanAgain() } }.disabled(model.rescanning != nil)
+                    if model.scansPaused {
+                        Text("Scans are paused. Resume them from the menu bar icon.").foregroundStyle(.secondary)
+                    } else {
+                        Button("Scan now") { Task { await model.scanAgain() } }.disabled(model.rescanning != nil)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -77,8 +81,14 @@ struct ReviewView: View {
             .padding(.vertical, 5)
             .frame(width: 260)
             .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 7))
-            Button("Scan again") { Task { await model.scanAgain() } }
-                .disabled(model.rescanning != nil || model.isCleaning)
+            if model.scansPaused {
+                Text("Scans paused")
+                    .foregroundStyle(.secondary)
+                    .help("Resume them from the menu bar icon.")
+            } else {
+                Button("Scan again") { Task { await model.scanAgain() } }
+                    .disabled(model.rescanning != nil || model.isCleaning)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

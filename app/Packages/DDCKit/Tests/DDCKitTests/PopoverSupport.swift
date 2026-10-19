@@ -148,6 +148,11 @@ actor FakeRunner: CLIRunning {
 
     func cancel(_ ticket: CLIRunner.Ticket) async {}
 
+    /// What the next scans return.
+    func reply(scan: CLIRunner.Result) {
+        scanResult = scan
+    }
+
     func count(_ kind: CLIRunner.Kind) -> Int {
         calls.filter { $0 == kind }.count
     }

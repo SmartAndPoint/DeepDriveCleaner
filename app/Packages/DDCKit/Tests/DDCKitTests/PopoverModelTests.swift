@@ -131,6 +131,7 @@ struct PopoverModelTests {
         await model.start()
         await model.scanNow()
         #expect(model.notices.map(\.text) == ["A clean is running; scan again when it ends."])
+        #expect(model.attention.isEmpty, "a held lock is no failure: no warning")
     }
 
     @Test("a report of another schema version could not be read, and Scan now stays")
@@ -173,14 +174,15 @@ struct PopoverModelTests {
         let missing = try makeModel(runner: nil, data: data, defaults: defaults, probeGranted: false)
         await missing.start()
         #expect(!missing.fullDiskAccess.isGranted)
-        #expect(missing.iconState.mark == .alert)
+        #expect(missing.iconState.mark == .warning)
+        #expect(missing.attention.first == .fullDiskAccess)
         #expect(missing.withoutAccessNote == nil, "the report itself had access")
 
         try data.write(lastScan: try Fixture.data("scan-report-groups"))
         let granted = try makeModel(runner: nil, data: data, defaults: defaults, probeGranted: true)
         await granted.start()
         #expect(granted.fullDiskAccess.isGranted)
-        #expect(granted.iconState.mark != .alert)
+        #expect(!granted.attention.contains(.fullDiskAccess))
         #expect(granted.withoutAccessNote == "This scan ran without Full Disk Access; part of ~/Library was not read.")
         #expect(granted.content == .nothingWorthCleaning, "the note shows in this state too")
     }
@@ -219,7 +221,7 @@ struct PopoverModelTests {
     @Test("the attention badge is set by a posted notification, survives a relaunch, and clears only when a Review window opens")
     func badge() async throws {
         let router = FakeRouter()
-        let model = try makeModel(runner: nil, data: data, defaults: defaults, router: router)
+        let model = try makeModel(runner: FakeRunner(scan: FakeRunner.done(Data())), data: data, defaults: defaults, router: router)
         model.notificationPosted()
         #expect(model.iconState.mark == .badge)
 
@@ -246,15 +248,70 @@ struct PopoverModelTests {
         model.includeRebuildable = false
         #expect(model.selectedToClean == 0 && selected > 0)
         #expect(model.iconState.label == label)
-        #expect(model.iconState.mark == .dot)
+    }
+
+    @Test("Pause stops Scan now and scheduled scans without a runner call, survives a relaunch, and Resume undoes it")
+    func pause() async throws {
+        let runner = FakeRunner(scan: FakeRunner.done(try Fixture.data("scan-report-groups")))
+        let model = try makeModel(runner: runner, data: data, defaults: defaults)
+        model.setPaused(true)
+        #expect(!model.canScan)
+        #expect(model.iconState.dimmed)
+        await model.scanNow()  // the popover's button, the menu and the scheduled path all come here
+        #expect(await runner.count(.scan) == 0)
+        await model.scanAfterClean()  // part of the clean
+        #expect(await runner.count(.scan) == 1)
+
+        let relaunched = try makeModel(runner: runner, data: data, defaults: defaults)
+        #expect(relaunched.paused && !relaunched.canScan)
+        await relaunched.scanNow()  // as a `--scheduled` launch does
+        #expect(await runner.count(.scan) == 1)
+        relaunched.setPaused(false)
+        #expect(relaunched.canScan && !relaunched.iconState.dimmed)
+        await relaunched.scanNow()
+        #expect(await runner.count(.scan) == 2)
+    }
+
+    @Test("each attention cause shows the warning: a failed scan, an unreadable report or settings, a missing CLI; a failed scan's lasts until its notice is dismissed or the next scan starts")
+    func attention() async throws {
+        let failing = FakeRunner(scan: CLIRunner.Result(outcome: .error(status: 1), stdout: Data(), stderrTail: ["ddc: boom"]))
+        let model = try makeModel(runner: failing, data: data, defaults: defaults)
+        await model.start()
+        #expect(model.iconState.mark == .none)
+        await model.scanNow()
+        #expect(model.attention == [.scanFailed])
+        #expect(model.iconState.mark == .warning)
+        model.dismiss(try #require(model.notices.first))
+        #expect(model.attention.isEmpty)
+        await model.scanNow()
+        #expect(model.attention == [.scanFailed])
+        await failing.reply(scan: FakeRunner.done(try Fixture.data("scan-report-groups")))
+        await model.scanNow()
+        #expect(model.attention.isEmpty && model.iconState.mark == .none)
+
+        try data.write(lastScan: Data(#"{"schema_version": 9}"#.utf8))
+        try data.write(settings: #"{"schema_version": 1, "show_badge": true}"#)
+        let unreadable = try makeModel(runner: FakeRunner(scan: FakeRunner.done(Data())), data: data, defaults: defaults)
+        await unreadable.start()
+        #expect(unreadable.attention == [.unreadableReport, .unreadableSettings])
+        // The settings warning lasts until the file reads, not until its notice goes.
+        for notice in unreadable.notices { unreadable.dismiss(notice) }
+        #expect(unreadable.attention == [.unreadableReport, .unreadableSettings])
+        try data.write(settings: #"{"schema_version": 1}"#)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 60)], ofItemAtPath: data.directory.settings.path)
+        await unreadable.refresh()
+        #expect(unreadable.attention == [.unreadableReport])
+
+        let noCLI = try makeModel(runner: nil, data: data, defaults: defaults)
+        #expect(noCLI.attention.contains(.missingCLI))
     }
 
     @Test("with the badge preference off the badge is never drawn")
     func badgeOff() async throws {
         defaults.defaults.set(false, forKey: AppPreferences.showBadgeKey)
-        let model = try makeModel(runner: nil, data: data, defaults: defaults)
+        let model = try makeModel(runner: FakeRunner(scan: FakeRunner.done(Data())), data: data, defaults: defaults)
         model.notificationPosted()
-        #expect(model.iconState.mark != .badge)
+        #expect(model.iconState.mark == .none)
     }
 
     @Test("the size preference comes from UserDefaults and is off by default")

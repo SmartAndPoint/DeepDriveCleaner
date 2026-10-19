@@ -88,6 +88,7 @@ public final class ReviewModel: ReviewRouting {
     @ObservationIgnored let present: @MainActor () -> Bool
     @ObservationIgnored let setBusy: @MainActor (Bool) -> Void
     @ObservationIgnored let rescan: @MainActor () async -> Void
+    @ObservationIgnored let paused: @MainActor () -> Bool
     @ObservationIgnored let temporaryDirectory: URL
     @ObservationIgnored let pollInterval: Duration
     @ObservationIgnored let clock: @MainActor () -> Date
@@ -110,7 +111,9 @@ public final class ReviewModel: ReviewRouting {
     ///   window reads `settings.json` itself, so a change applies at once.
     /// - `present`: shows the window; false when it could not.
     /// - `setBusy`: the icon's busy input while a clean and the rescan after it run.
-    /// - `rescan`: the popover's Scan now.
+    /// - `rescan`: the popover's scan, which runs while paused: it follows a
+    ///   clean, and Scan again checks `paused` first.
+    /// - `paused`: scans are paused from the menu bar.
     public init(
         runner: (any CLIRunning)?,
         data: DataDirectory,
@@ -119,6 +122,7 @@ public final class ReviewModel: ReviewRouting {
         present: @escaping @MainActor () -> Bool,
         setBusy: @escaping @MainActor (Bool) -> Void = { _ in },
         rescan: @escaping @MainActor () async -> Void = {},
+        paused: @escaping @MainActor () -> Bool = { false },
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         pollInterval: Duration = .milliseconds(200),
         clock: @escaping @MainActor () -> Date = { .now },
@@ -131,6 +135,7 @@ public final class ReviewModel: ReviewRouting {
         self.present = present
         self.setBusy = setBusy
         self.rescan = rescan
+        self.paused = paused
         self.temporaryDirectory = temporaryDirectory
         self.pollInterval = pollInterval
         self.clock = clock
@@ -190,9 +195,12 @@ public final class ReviewModel: ReviewRouting {
         reload()
     }
 
+    /// Scans are paused from the menu bar: Scan again starts nothing.
+    public var scansPaused: Bool { paused() }
+
     /// Scan again, from the window's header.
     public func scanAgain() async {
-        guard rescanning == nil, !isCleaning else { return }
+        guard rescanning == nil, !isCleaning, !scansPaused else { return }
         rescanning = .requested
         await rescan()
         rescanning = nil

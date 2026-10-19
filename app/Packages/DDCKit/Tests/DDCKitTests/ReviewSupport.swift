@@ -49,6 +49,7 @@ final class ReviewEvents {
     var busy: [Bool] = []
     var rescans = 0
     var presented = 0
+    var paused = false
     /// While set, a rescan waits until `finishRescan()`.
     var holdRescan = false
     private var held: CheckedContinuation<Void, Never>?
@@ -85,6 +86,7 @@ func makeReview(
         },
         setBusy: { events.busy.append($0) },
         rescan: { await events.rescan() },
+        paused: { events.paused },
         temporaryDirectory: data.url,
         pollInterval: .milliseconds(20),
         clock: clock

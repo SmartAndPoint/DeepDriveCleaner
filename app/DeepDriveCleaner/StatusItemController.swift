@@ -18,6 +18,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var arcTimer: Timer?
     private var arcAngle: CGFloat = 0
     private var refreshTimer: Timer?
+    private var scanItem: NSMenuItem?
+    private var pauseItem: NSMenuItem?
 
     init(model: PopoverModel, openSettings: @escaping @MainActor () -> Void, openPrivacy: @escaping @MainActor () -> Void) {
         self.model = model
@@ -44,8 +46,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         hosting.sizingOptions = .preferredContentSize
         popover.contentViewController = hosting
 
-        menu.addItem(ClosureMenuItem("Scan now") { Task { await model.scanNow() } })
+        let scanItem = ClosureMenuItem("Scan now") { Task { await model.scanNow() } }
+        let pauseItem = ClosureMenuItem("Pause scans") { model.setPaused(!model.paused) }
+        menu.addItem(scanItem)
+        menu.addItem(pauseItem)
         menu.addItem(ClosureMenuItem("Settings…", key: ",", handler: openSettings))
+        self.scanItem = scanItem
+        self.pauseItem = pauseItem
+        // Scan now is off while paused; the titles follow the model in `menuWillOpen`.
+        menu.autoenablesItems = false
         #if DEBUG
         menu.addItem(.separator())
         menu.addItem(DebugMenu.item(model: model))
@@ -73,13 +82,25 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         } else if popover.isShown {
             popover.performClose(nil)
         } else {
-            Task { await model.refresh() }
-            NSApp.activate()
-            popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-            // The popover's window focuses its first button (the gear) when it
-            // opens; nothing should look selected until the user tabs.
-            popover.contentViewController?.view.window?.makeFirstResponder(nil)
+            showPopover()
         }
+    }
+
+    /// Opens the popover under the icon; also where the Review window's Close returns.
+    func showPopover() {
+        guard let button = item.button, !popover.isShown else { return }
+        Task { await model.refresh() }
+        NSApp.activate()
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        // The popover's window focuses its first button (the gear) when it
+        // opens; nothing should look selected until the user tabs.
+        popover.contentViewController?.view.window?.makeFirstResponder(nil)
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        pauseItem?.title = model.paused ? "Resume scans" : "Pause scans"
+        scanItem?.isEnabled = model.canScan
+        scanItem?.title = model.paused ? "Scan now (paused)" : "Scan now"
     }
 
     func menuDidClose(_ menu: NSMenu) {

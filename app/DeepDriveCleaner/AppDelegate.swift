@@ -48,7 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return self.reviewWindow.show(review)
             },
             setBusy: { [weak self] in self?.model?.setCleaning($0) },
-            rescan: { [weak self] in await self?.model?.scanNow() },
+            rescan: { [weak self] in await self?.model?.scanAfterClean() },
+            paused: { [weak self] in self?.model?.paused ?? false },
             log: { AppLog.write($0) }
         )
         self.review = review
@@ -117,16 +118,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 guard statusItem == nil else { continue }
                 // `open -j` launches the scheduled instance hidden.
                 if NSApp.isHidden { NSApp.unhideWithoutActivation() }
-                statusItem = StatusItemController(
+                let statusItem = StatusItemController(
                     model: model,
                     openSettings: { [weak self] in self?.settings.show() },
                     openPrivacy: { Self.openFullDiskAccessSettings() }
                 )
+                self.statusItem = statusItem
+                reviewWindow.returnToPopover = { [weak statusItem] in statusItem?.showPopover() }
                 AppLog.write("status item shown")
                 Task { await model.start() }
             case .startScheduledWork:
-                // Unconditional until the due function of "Background scan and
-                // notifications in the app" decides whether a scan is due.
+                // Skipped while paused (inside `scanNow`); otherwise unconditional
+                // until the due function of "Background scan and notifications
+                // in the app" decides whether a scan is due.
                 Task {
                     await model.scanNow()
                     apply(launchMode.handle(.workFinished))

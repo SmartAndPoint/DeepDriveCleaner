@@ -49,6 +49,8 @@ public final class PopoverModel {
     public private(set) var scan: ScanProgress?
     /// A clean of the Review window, or the rescan after it, is in flight.
     public private(set) var cleaning = false
+    /// Pause in the menu: scans wait for Resume.
+    public private(set) var paused = false
     public private(set) var fullDiskAccess: FullDiskAccess = .granted
     public private(set) var notices: [Notice] = []
     public private(set) var now: Date
@@ -70,6 +72,8 @@ public final class PopoverModel {
     @ObservationIgnored private let appVersion: String?
     @ObservationIgnored private var reportModified: Date?
     @ObservationIgnored private var settingsModified: Date?
+    /// `settings.json` did not read; the warning lasts until it does, whatever its notice.
+    private var settingsUnreadable = false
     @ObservationIgnored private var scanTask: Task<Void, Never>?
     @ObservationIgnored private var started = false
 
@@ -102,7 +106,8 @@ public final class PopoverModel {
 
     // MARK: - What the popover shows
 
-    public var canScan: Bool { runner != nil }
+    /// Not without the CLI, and not while paused.
+    public var canScan: Bool { runner != nil && !paused }
 
     public var included: Set<ScanReport.RiskClass> {
         var classes: Set<ScanReport.RiskClass> = []
@@ -175,13 +180,27 @@ public final class PopoverModel {
         IconState.make(
             busy: scan != nil,
             cleaning: cleaning,
+            paused: paused,
+            attention: attention,
             reclaimable: summary?.reclaimable,
             threshold: threshold,
             showSize: showSize,
-            fullDiskAccess: fullDiskAccess.isGranted,
             badgePending: badgePending,
             showBadge: showBadge
         )
+    }
+
+    /// What needs the user: the icon's warning. Each cause lasts as long as
+    /// its source: the probe, the CLI, a failed scan's notice (until it is
+    /// dismissed or the next scan starts), the report, the settings.
+    public var attention: [IconState.Attention] {
+        var causes: [IconState.Attention] = []
+        if !fullDiskAccess.isGranted { causes.append(.fullDiskAccess) }
+        if runner == nil { causes.append(.missingCLI) }
+        if notices.contains(where: { $0.id == "scan" }) { causes.append(.scanFailed) }
+        if case .unreadable = report { causes.append(.unreadableReport) }
+        if settingsUnreadable { causes.append(.unreadableSettings) }
+        return causes
     }
 
     // MARK: - Loading
@@ -217,6 +236,7 @@ public final class PopoverModel {
     }
 
     private func readPreferences() {
+        paused = preferences.scansPaused
         showSize = preferences.showSize
         showBadge = preferences.showBadge
         badgePending = preferences.badgePending
@@ -226,9 +246,11 @@ public final class PopoverModel {
         settingsModified = DataDirectory.modified(data.settings)
         do {
             settings = try SharedSettings.read(at: data.settings)
+            settingsUnreadable = false
             clearNotice("settings")
         } catch {
             settings = nil
+            settingsUnreadable = true
             switch error {
             case .malformed(_, let reason):
                 setNotice("settings", "settings.json could not be read (\(reason)); the scan's own selection is shown.")
@@ -285,11 +307,25 @@ public final class PopoverModel {
     // MARK: - Scan now
 
     /// One scan at a time: a second request while one runs waits for it and
-    /// asks the runner nothing. The popover, the right-click menu and the
-    /// scheduled path all come here.
+    /// asks the runner nothing. The popover, the right-click menu, the Review
+    /// window's Scan again and the scheduled path all come here; while paused
+    /// none of them starts a scan.
     public func scanNow() async {
+        await scan(whilePaused: false)
+    }
+
+    /// The rescan after a clean: part of the clean, so it runs while paused too.
+    public func scanAfterClean() async {
+        await scan(whilePaused: true)
+    }
+
+    private func scan(whilePaused: Bool) async {
         if let scanTask {
             await scanTask.value
+            return
+        }
+        guard whilePaused || !paused else {
+            log("scan skipped: scans are paused")
             return
         }
         guard let runner else {
@@ -304,6 +340,7 @@ public final class PopoverModel {
 
     private func runScan(_ runner: any CLIRunning) async {
         clearNotice("scan")
+        clearNotice("busy")
         scan = ScanProgress(started: clock(), files: nil)
         log("scan started")
         let result = await runner.run(.scan, ["scan", "--json"], stderrLine: nil)
@@ -312,7 +349,8 @@ public final class PopoverModel {
         if let message = CLIFailure.message(result.outcome, stderrTail: result.stderrTail) {
             // The last report stays on screen: the CLI replaces the file only on success.
             scan = nil
-            setNotice("scan", message)
+            // A clean holding the lock is no failure: its notice, without the warning.
+            setNotice(result.outcome == .busy ? "busy" : "scan", message)
             log("scan ended \(result.outcome): \(result.stderrTail.suffix(3).joined(separator: " | "))")
             return
         }
@@ -347,6 +385,15 @@ public final class PopoverModel {
         } else {
             setNotice("review", "The Review window could not open.")
         }
+    }
+
+    /// Pause or Resume from the menu: while paused, no scan starts, neither
+    /// Scan now nor a scheduled one; a scan already running finishes. Kept in
+    /// `UserDefaults`, so a relaunch and a `--scheduled` instance see it.
+    public func setPaused(_ on: Bool) {
+        preferences.setScansPaused(on)
+        paused = on
+        log(on ? "scans paused" : "scans resumed")
     }
 
     /// The Review window's clean started or ended, its rescan included.

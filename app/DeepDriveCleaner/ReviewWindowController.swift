@@ -9,11 +9,16 @@ import SwiftUI
 final class ReviewWindowController {
     private var window: NSWindow?
     private var keyObserver: NSObjectProtocol?
+    /// The Close button returns to the popover the user came from.
+    var returnToPopover: (() -> Void)?
 
     /// Shows the window for `model`; the model's `present`.
     func show(_ model: ReviewModel) -> Bool {
         if window == nil {
-            let hosting = NSHostingController(rootView: ReviewView(model: model, close: { [weak self] in self?.window?.performClose(nil) }))
+            let hosting = NSHostingController(rootView: ReviewView(model: model, close: { [weak self] in
+                self?.window?.performClose(nil)
+                self?.returnToPopover?()
+            }))
             let window = NSWindow(contentViewController: hosting)
             window.title = "Review and clean"
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]

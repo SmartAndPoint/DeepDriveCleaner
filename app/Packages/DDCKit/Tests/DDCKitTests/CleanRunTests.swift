@@ -177,6 +177,22 @@ struct CleanRunTests {
         #expect(review.isSelected(chrome))
     }
 
+    @Test("while scans are paused Scan again starts nothing, and a clean still asks for its rescan")
+    func whilePaused() async throws {
+        events.paused = true
+        #expect(review.scansPaused)
+        await review.scanAgain()
+        #expect(events.rescans == 0 && review.rescanning == nil)
+
+        try fake.put("rescan.json", Fixture.data("scan-report-groups"))
+        try await checkedSheet()
+        review.cleanConfirmedItems()
+        try fake.open("clean-start")
+        try fake.open("clean-go")
+        try await until("the rescan") { events.busy == [true, false] }
+        #expect(events.rescans == 1)
+    }
+
     @Test("each warning appears on its item as its dry-run line arrives")
     func delayedLines() async throws {
         try fake.open("dry-run.gated")
