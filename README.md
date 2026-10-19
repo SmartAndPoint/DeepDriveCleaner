@@ -45,7 +45,26 @@ This installs `~/.cargo/bin/deepdrivecleaner` and a `ddc` symlink to it. A local
 | `ddc scan [PATH…]` | Read-only. Scans your home folder (or the given paths) and prints findings grouped by risk class and category, largest first. `--json` prints the report in a versioned schema ([`docs/scan.schema.json`](docs/scan.schema.json)). |
 | `ddc clean --dry-run` | Scans again and prints the cleanup plan without changing anything. |
 | `ddc clean` | Scans again, shows the plan, lets you toggle groups and items, asks for confirmation, then cleans only what you confirmed. |
-| `ddc schedule install` | Installs a LaunchAgent that scans daily (or `--interval weekly`) and sends a notification when more than `--threshold` (default 10G) can be freed. The background scan **never deletes anything**. `ddc schedule status` and `ddc schedule uninstall` do what they say. |
+| `ddc clean --items FILE` | Cleans exactly the items in a JSON list (`-` reads stdin), such as the ones a sheet in the Mac app confirmed; every item is checked again first. `--json` prints the result ([`docs/clean.schema.json`](docs/clean.schema.json)); `--dry-run` predicts each item without a rescan. |
+| `ddc rules` | Lists the rules by group: what each type is and whether `settings.json` can switch it off. `--json` follows [`docs/rules.schema.json`](docs/rules.schema.json). |
+| `ddc schedule install` | Installs a LaunchAgent that scans daily (or `--interval weekly`) and sends a notification when more than `--threshold` (default: the settings' threshold, else 10G) can be freed, or when a scanned disk is under 10 % free with something on it to clean. The background scan **never deletes anything**. It refuses while the Mac app runs the scheduled scan. `ddc schedule status` and `ddc schedule uninstall` do what they say. |
+
+Exit codes: 0 done, 1 error, 2 refused, 75 another scan or clean is running. Ctrl-C during a clean stops it after the current item; a tool it runs gets the Ctrl-C too.
+
+### Settings
+
+`~/Library/Application Support/DeepDriveCleaner/settings.json` holds what the Mac app's Settings and the terminal share ([`docs/settings.schema.json`](docs/settings.schema.json)). Every field is optional except `schema_version`:
+
+| Field | Meaning | Flag that wins over it |
+|---|---|---|
+| `roots` | Absolute folders to scan; empty means your home folder. A folder that does not exist, such as an unplugged disk, is skipped with a note. | `PATH…` |
+| `excludes` | Absolute folders never touched, reported as user data. | `--exclude` |
+| `min_age_days` | Idle days before a project's artifacts are selected (default 14). | `--min-age` |
+| `disabled_rules` | Rule ids from `ddc rules` switched off: their findings are reported as ignored and never selected or counted. | none |
+| `min_size` | Bytes: smaller findings are ignored. `clean --min-size` filters the plan on top of it, so the larger of the two applies. | none |
+| `notify_threshold`, `notify_low_disk` | When the background scan notifies (default 10G, and low disk on). | `--threshold` |
+
+`--exclude` replaces the excludes from the file. When that would leave a folder from the file unprotected, ddc names it first: `ddc clean` asks in a terminal and refuses without one; `ddc scan` and `ddc clean --dry-run` only warn, since they change nothing. A malformed file is an error that names it.
 
 ### Risk classes
 

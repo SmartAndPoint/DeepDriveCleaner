@@ -6,7 +6,6 @@
 use std::io::{IsTerminal as _, Read as _, Write as _};
 use std::path::Path;
 use std::process::ExitCode;
-use std::time::Duration;
 
 use anyhow::Context as _;
 use ddc_core::env::Env;
@@ -20,6 +19,7 @@ use ddc_core::plan::{ListedItems, plan_listed};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
 use ddc_core::scan::{Progress, WalkOptions};
+use ddc_core::settings::ScanFlags;
 use ddc_core::store::{self, LockMode};
 use ddc_core::sys::bulk::BulkReader;
 use ddc_core::sys::signals;
@@ -39,20 +39,23 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
         Err(e) => return refuse(&e.to_string()),
     };
     let env = Env::from_process(args.data_dir.clone())?;
+    let resolved = super::resolve(
+        &env,
+        ScanFlags { paths: args.paths.clone(), excludes: args.exclude.clone(), min_age_days: args.min_age },
+    )?;
+    super::note_missing(&resolved.missing);
+    // Nobody can be asked here; the dry run refuses too, so the sheet predicts the clean.
+    if !resolved.dropped_excludes.is_empty() {
+        return refuse(&prompt::dropped_excludes(&resolved.dropped_excludes, env.home()));
+    }
     let catalog = Catalog::builtin(env.home());
     if args.dry_run {
-        return dry_run(args, &env, &catalog, &list);
+        return dry_run(args, &env, &catalog, &list, &resolved.options);
     }
 
     let _lock = store::try_lock(&env, LockMode::Exclusive)?;
     // The full rescan: only a whole-tree walk sees toolchain pins and new claims above an item.
-    let opts = ScanOptions {
-        roots: args.paths.clone(),
-        excludes: args.exclude.clone(),
-        min_age: Duration::from_secs(args.min_age * 86_400),
-        walk: WalkOptions::default(),
-        ..ScanOptions::default()
-    };
+    let opts = ScanOptions { walk: WalkOptions::default(), ..resolved.options };
     let scan_progress = Progress::default();
     let scanned = progress::with_spinner(&scan_progress, "scanning", || report::scan(&env, &opts, &scan_progress))?;
     store::write_last_scan(&env, &scanned).context("cannot save the scan report")?;
@@ -110,13 +113,19 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
 
 /// One JSON line per item as its checks finish, then a summary line. Read-only:
 /// no rescan, no walk outside the listed items, no Trash, journal or tool run.
-fn dry_run(args: &CleanArgs, env: &Env, catalog: &Catalog, list: &ListedItems) -> anyhow::Result<ExitCode> {
+fn dry_run(
+    args: &CleanArgs,
+    env: &Env,
+    catalog: &Catalog,
+    list: &ListedItems,
+    opts: &ScanOptions,
+) -> anyhow::Result<ExitCode> {
     let _lock = store::try_lock(env, LockMode::Shared)?;
     let commands = SystemCommands::new(env);
     let ports = PreflightPorts { commands: &commands, procs: &SystemProcesses, reader: &BulkReader };
     let mut out = std::io::stdout().lock();
     let home = env.home().to_path_buf();
-    preflight::preflight(env, catalog, &args.paths, &args.exclude, &list.items, &ports, &mut |line| {
+    preflight::preflight(env, catalog, &opts.roots, &opts.excludes, &list.items, &ports, &mut |line| {
         if args.json {
             serde_json::to_writer(&mut out, line)?;
             writeln!(out)?;

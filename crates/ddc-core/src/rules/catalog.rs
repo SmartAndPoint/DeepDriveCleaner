@@ -2,7 +2,7 @@
 //! "Detection rule catalog" (epic DDC-001) and `bench/make_baseline.py`.
 //! Order matters for specialized rules: the first match wins.
 
-use super::{Clones, Matcher, Rule};
+use super::{Clones, Matcher, Rule, TOMBSTONE};
 use crate::class::Category::*;
 use crate::class::RiskClass::*;
 use crate::class::{Fallback, LocationCompare, LocationProbe, NativeCommand, Removal};
@@ -91,7 +91,7 @@ pub static RULES: &[Rule] = &[
     // ---- project artifacts (specialized, in match order) -----------------
     Rule {
         hint: "left by an interrupted ddc clean",
-        ..rule("ddc.tombstone", ProjectArtifact, Safe, Removal::Delete, Matcher::NameContains(".ddc-deleting-"))
+        ..rule(TOMBSTONE, ProjectArtifact, Safe, Removal::Delete, Matcher::NameContains(".ddc-deleting-"))
     },
     // App bundles are sealed: rules never apply inside (`.app/Contents/Resources/node_modules`).
     Rule {

@@ -202,6 +202,20 @@ fn listed_items_are_cleaned_and_a_swapped_or_user_data_one_is_refused() {
 }
 
 #[test]
+fn a_listed_item_of_a_switched_off_type_is_still_cleaned() {
+    let fx = Fx::new();
+    let list = fx.list(&["q/__pycache__"]);
+    // Switched off after the review: the list is the user's confirmation.
+    fs::write(fx.data.join("settings.json"), r#"{"schema_version": 1, "disabled_rules": ["python.pycache"]}"#).unwrap();
+
+    let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--json"]).output().unwrap();
+
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(outcome(&report(&out.stdout), &fx.path("q/__pycache__")), &Outcome::Deleted);
+    assert!(!fx.path("q/__pycache__").exists());
+}
+
+#[test]
 fn the_report_round_trips_names_the_volume_and_a_failed_item_still_exits_0() {
     let fx = Fx::new();
     let list = fx.list(&["q/__pycache__"]);

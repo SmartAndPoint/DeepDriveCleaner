@@ -81,6 +81,13 @@
     },
     "totals": {
       "$ref": "#/$defs/Totals"
+    },
+    "volumes": {
+      "description": "The volume of each scan root, once per volume. Absent when no volume\ncould be read.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Volume"
+      }
     }
   },
   "required": [
@@ -196,6 +203,10 @@
           "description": "How to get it back.",
           "type": "string"
         },
+        "ignored": {
+          "description": "Hidden by `settings.json`: its rule is switched off, or it is under\n`min_size`. Never selected and in no total; `not_selected` is unchanged.",
+          "type": "boolean"
+        },
         "incomplete": {
           "description": "Some content could not be read or was skipped; sizes are lower bounds.",
           "type": "boolean"
@@ -206,6 +217,7 @@
           "minimum": 0
         },
         "not_selected": {
+          "description": "Why it is not selected by default. An ignored finding keeps the reason\nit would have had, so a type switched back on applies at once.",
           "anyOf": [
             {
               "$ref": "#/$defs/NotSelected"
@@ -543,6 +555,17 @@
           "format": "uint64",
           "minimum": 0
         },
+        "ignored_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "ignored_count": {
+          "description": "Findings `settings.json` hides ([`Finding::ignored`]); they are in no\nclass total above.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
         "scanned_bytes": {
           "description": "Allocated bytes under the scan roots, each inode once.",
           "type": "integer",
@@ -576,6 +599,38 @@
         "classes",
         "selected_bytes",
         "selected_reclaimable_bytes"
+      ]
+    },
+    "Volume": {
+      "type": "object",
+      "properties": {
+        "free_bytes": {
+          "description": "Bytes available to an unprivileged user.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "mount_point": {
+          "type": "string"
+        },
+        "roots": {
+          "description": "The scan roots on this volume; the walk never crosses into another,\nso every finding under them lies on it.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "total_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "mount_point",
+        "roots",
+        "free_bytes",
+        "total_bytes"
       ]
     }
   }

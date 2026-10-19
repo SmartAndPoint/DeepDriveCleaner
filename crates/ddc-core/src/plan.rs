@@ -113,12 +113,14 @@ pub struct PlanOptions {
     pub permanent: bool,
 }
 
-/// User data, report-only rules and the scan roots themselves never enter a plan.
+/// User data, report-only rules, findings `settings.json` hides and the scan
+/// roots themselves never enter a plan.
 pub fn build_plan(report: &ScanReport, catalog: &Catalog, opts: &PlanOptions) -> Plan {
     let items = report
         .findings
         .iter()
         .filter(|f| f.class != RiskClass::UserData)
+        .filter(|f| !f.ignored)
         .filter(|f| !report.scan_roots.contains(&f.path))
         .filter(|f| opts.classes.is_empty() || opts.classes.contains(&f.class))
         .filter(|f| opts.categories.is_empty() || opts.categories.contains(&f.category))

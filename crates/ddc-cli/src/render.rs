@@ -66,6 +66,9 @@ pub fn use_color(is_terminal: bool, no_color: bool) -> bool {
 
 fn status(f: &Finding) -> String {
     let mut parts = Vec::new();
+    if f.ignored {
+        parts.push("ignored".to_owned());
+    }
     if let Some(p) = f.private_bytes.filter(|p| *p + f.bytes / 10 < f.bytes) {
         parts.push(format!("frees ≥ {}", human(p)));
     }
@@ -134,7 +137,8 @@ pub fn report(w: &mut impl Write, r: &ScanReport, style: &Style) -> io::Result<(
     )?;
 
     for class in RiskClass::ALL {
-        let of: Vec<&Finding> = r.findings.iter().filter(|f| f.class == class).collect();
+        // Hidden by settings.json: counted on one line at the end, as in the totals.
+        let of: Vec<&Finding> = r.findings.iter().filter(|f| f.class == class && !f.ignored).collect();
         if of.is_empty() {
             continue;
         }
@@ -167,6 +171,30 @@ pub fn report(w: &mut impl Write, r: &ScanReport, style: &Style) -> io::Result<(
                     w,
                     "    {}",
                     style.dim(&format!("… {} more, {} (--all shows them)", items.len() - shown, human(rest)))
+                )?;
+            }
+        }
+    }
+
+    let ignored: Vec<&Finding> = r.findings.iter().filter(|f| f.ignored).collect();
+    if !ignored.is_empty() {
+        writeln!(w)?;
+        writeln!(
+            w,
+            "{} {} items ignored by settings.json ({}): switched-off types or under the minimum size.",
+            style.dim("note:"),
+            ignored.len(),
+            human(r.totals.ignored_bytes)
+        )?;
+        if style.all {
+            for f in ignored {
+                writeln!(
+                    w,
+                    "    · {:>10}  {}  {}  {}",
+                    human(f.bytes),
+                    tilde(&f.path, home),
+                    style.dim(&f.rule),
+                    style.dim(&status(f))
                 )?;
             }
         }

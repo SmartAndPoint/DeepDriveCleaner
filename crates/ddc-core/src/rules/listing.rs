@@ -1,0 +1,167 @@
+//! `ddc rules --json`: every rule with its group, the source of the app's
+//! Types settings (ADR "Menu bar app: Swift shell over the ddc CLI", §6 item 8).
+//! Schema: `docs/rules.schema.json`.
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+use super::{KEPT, RULES, Rule, TOMBSTONE};
+use crate::class::{Category, RiskClass};
+use crate::model::RemovalKind;
+use crate::plan::action_for;
+
+/// Version of [`RuleList`]; the scan report has its own.
+pub const RULES_SCHEMA_VERSION: u32 = 1;
+
+/// Every rule id in exactly one group, in the order of the Types settings:
+/// the design canvas's ten, then two without a switch.
+pub const GROUPS: &[(&str, &[&str])] = &[
+    ("Python environments", &["python.venv", "python.tox"]),
+    ("node_modules", &["node.node_modules", "node.node_modules-orphan"]),
+    (
+        "Build outputs",
+        &[
+            "rust.target",
+            "maven.target",
+            "gradle.build",
+            "gradle.project-cache",
+            "cmake.build",
+            "js.build-cache",
+            "python.pycache",
+            "python.tool-cache",
+            "cocoapods.pods",
+        ],
+    ),
+    (
+        "Package caches",
+        &[
+            "cache.npm",
+            "cache.yarn",
+            "cache.bun",
+            "cache.pnpm",
+            "cache.uv",
+            "cache.pip",
+            "cache.poetry",
+            "cache.homebrew",
+            "cache.go-build",
+            "cache.go-mod",
+            "cache.cargo",
+            "cache.gradle",
+            "cache.cocoapods",
+            "repo.maven",
+            "browsers.playwright",
+            "browsers.puppeteer",
+            "browsers.cypress",
+        ],
+    ),
+    (
+        "IDE caches",
+        &[
+            "ide.jetbrains-cache",
+            "ide.jetbrains-old-data",
+            "ide.vscode-cache",
+            "ide.cursor-cache",
+            "ide.windsurf-cache",
+        ],
+    ),
+    ("Xcode data", &["xcode.derived-data", "xcode.simulator-caches", "xcode.device-support"]),
+    (
+        "App caches",
+        &[
+            "app.chrome-cache",
+            "app.brave-cache",
+            "app.firefox-cache",
+            "app.spotify-cache",
+            "app.slack-cache",
+            "app.adobe-camera-raw-cache",
+            "generic.cachedir-tag",
+        ],
+    ),
+    ("Old toolchains", &["toolchain.nvm", "toolchain.pyenv", "toolchain.rustup"]),
+    ("ML models", &["model.ollama", "model.huggingface", "model.lmstudio", "model.torch"]),
+    (
+        "VM and container images",
+        &[
+            "vm.docker-desktop",
+            "vm.podman",
+            "vm.colima",
+            "vm.lima",
+            "vm.orbstack",
+            "vm.rancher-desktop",
+            "cache.colima",
+        ],
+    ),
+    ("Interrupted cleanups", &[TOMBSTONE]),
+    (
+        "Your data",
+        &[
+            KEPT,
+            "user.pictures",
+            "user.movies",
+            "user.music",
+            "user.downloads",
+            "user.ios-backups",
+            "user.imazing-backups",
+            "user.telegram",
+            "user.whatsapp",
+            "user.cloud",
+            "trash",
+            "xcode.archives",
+            "ide.workspace-storage",
+            "macos.app-bundle",
+            "node.global-packages",
+        ],
+    ),
+];
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RuleList {
+    pub schema_version: u32,
+    /// Group labels in display order.
+    pub groups: Vec<String>,
+    pub rules: Vec<RuleInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RuleInfo {
+    pub id: String,
+    pub group: String,
+    pub category: Category,
+    pub class: RiskClass,
+    pub removal: RemovalKind,
+    /// Shown in reports; unlisted rules only stop other rules from matching inside.
+    pub listed: bool,
+    /// The Types settings may switch it off (`disabled_rules`). False for
+    /// ddc's own leftovers and for rules ddc never acts on.
+    pub switchable: bool,
+}
+
+/// The group of a rule id; `None` for an id in no group.
+pub fn group_of(id: &str) -> Option<&'static str> {
+    GROUPS.iter().find(|(_, ids)| ids.contains(&id)).map(|(label, _)| *label)
+}
+
+pub fn switchable(rule: &Rule) -> bool {
+    rule.id != TOMBSTONE && action_for(rule, rule.class, false).is_some()
+}
+
+impl RuleList {
+    pub fn builtin() -> Self {
+        Self {
+            schema_version: RULES_SCHEMA_VERSION,
+            groups: GROUPS.iter().map(|(label, _)| (*label).to_owned()).collect(),
+            rules: RULES
+                .iter()
+                .map(|r| RuleInfo {
+                    id: r.id.to_owned(),
+                    group: group_of(r.id).unwrap_or_default().to_owned(),
+                    category: r.category,
+                    class: r.class,
+                    removal: (&r.removal).into(),
+                    listed: r.listed,
+                    switchable: switchable(r),
+                })
+                .collect(),
+        }
+    }
+}

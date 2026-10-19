@@ -1,10 +1,11 @@
 //! `scan`: walk + rules + project activity + default selection → [`ScanReport`].
 
 pub mod project;
+pub mod volumes;
 
 use std::cmp::Reverse;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::class::{Removal, RiskClass};
@@ -13,8 +14,9 @@ use crate::model::{
     ClassTotal, Finding, Inaccessible, LargeFile, NotSelected, Project, RemovalKind, SCHEMA_VERSION, ScanReport,
     SkippedPath, Totals,
 };
-use crate::rules::{Catalog, Classified, RuleVisitor, classify};
+use crate::rules::{Catalog, Classified, RuleVisitor, TOMBSTONE, classify};
 use crate::scan::{self, Progress, ReadErrorKind, WalkOptions, WalkSetupError};
+use volumes::{StatFs, SystemStatFs};
 
 pub const DEFAULT_MIN_AGE: Duration = Duration::from_secs(14 * 86_400);
 
@@ -26,6 +28,10 @@ pub struct ScanOptions {
     pub excludes: Vec<PathBuf>,
     /// `rebuildable` findings idle at least this long are selected by default.
     pub min_age: Duration,
+    /// Rules switched off in `settings.json`: their findings are `ignored`.
+    pub disabled_rules: Vec<String>,
+    /// Findings smaller than this are `ignored` (`settings.json`'s `min_size`).
+    pub min_size: u64,
     /// Files at least this large outside findings are listed.
     pub large_file_bytes: u64,
     /// Directories that are not even opened (background scans skip TCC areas).
@@ -39,6 +45,8 @@ impl Default for ScanOptions {
             roots: Vec::new(),
             excludes: Vec::new(),
             min_age: DEFAULT_MIN_AGE,
+            disabled_rules: Vec::new(),
+            min_size: 0,
             large_file_bytes: crate::rules::LARGE_FILE_BYTES,
             skip: Vec::new(),
             walk: WalkOptions::default(),
@@ -59,6 +67,16 @@ pub enum ScanError {
 }
 
 pub fn scan(env: &Env, opts: &ScanOptions, progress: &Progress) -> Result<ScanReport, ScanError> {
+    scan_with(env, opts, progress, &SystemStatFs)
+}
+
+/// [`scan`] with the volume statistics read through `statfs`.
+pub fn scan_with(
+    env: &Env,
+    opts: &ScanOptions,
+    progress: &Progress,
+    statfs: &dyn StatFs,
+) -> Result<ScanReport, ScanError> {
     let started = Instant::now();
     let roots = if opts.roots.is_empty() { vec![env.home().to_path_buf()] } else { opts.roots.clone() };
     let excludes = opts
@@ -72,8 +90,7 @@ pub fn scan(env: &Env, opts: &ScanOptions, progress: &Progress) -> Result<ScanRe
         .with_skips(opts.skip.clone());
     let out = scan::walk(&roots, &visitor, &opts.walk, progress)?;
 
-    let mut findings: Vec<Finding> =
-        classify(&out, &visitor).iter().map(|c| finding(c, env.now(), opts.min_age)).collect();
+    let mut findings: Vec<Finding> = classify(&out, &visitor).iter().map(|c| finding(c, env.now(), opts)).collect();
     findings
         .sort_by(|a, b| a.class.cmp(&b.class).then(Reverse(a.bytes).cmp(&Reverse(b.bytes))).then(a.path.cmp(&b.path)));
 
@@ -86,6 +103,7 @@ pub fn scan(env: &Env, opts: &ScanOptions, progress: &Progress) -> Result<ScanRe
         .map(|e| Inaccessible { path: e.path.clone(), error: e.error.to_string() })
         .collect();
     let skipped = out.skipped.iter().map(|s| SkippedPath { path: s.path.clone(), reason: s.reason }).collect();
+    let roots: Vec<&Path> = out.roots.iter().map(|r| r.path.as_path()).collect();
 
     Ok(ScanReport {
         schema_version: SCHEMA_VERSION,
@@ -95,6 +113,7 @@ pub fn scan(env: &Env, opts: &ScanOptions, progress: &Progress) -> Result<ScanRe
         home: env.home().to_path_buf(),
         scan_roots: out.roots.iter().map(|r| r.path.clone()).collect(),
         full_disk_access: full_disk_access(env),
+        volumes: volumes::volumes(&roots, statfs),
         min_age_days: opts.min_age.as_secs() / 86_400,
         totals,
         findings,
@@ -107,7 +126,8 @@ pub fn scan(env: &Env, opts: &ScanOptions, progress: &Progress) -> Result<ScanRe
     })
 }
 
-fn finding(c: &Classified, now: SystemTime, min_age: Duration) -> Finding {
+fn finding(c: &Classified, now: SystemTime, opts: &ScanOptions) -> Finding {
+    let min_age = opts.min_age;
     // Activity of the project root and of the artifact's own directory: a
     // fresh manifest next to the artifact counts even under a stale git root.
     let last = c.project_root.as_deref().and_then(|root| {
@@ -130,6 +150,10 @@ fn finding(c: &Classified, now: SystemTime, min_age: Duration) -> Finding {
         RiskClass::Review => Some(NotSelected::Review),
         RiskClass::UserData => Some(NotSelected::UserData),
     };
+    // ddc's own leftovers of an interrupted clean are never hidden: they
+    // would stay on disk for good.
+    let ignored =
+        c.rule.id != TOMBSTONE && (opts.disabled_rules.iter().any(|r| r == c.rule.id) || c.owner.bytes < opts.min_size);
     Finding {
         path: c.owner.path.clone(),
         rule: c.rule.id.to_owned(),
@@ -139,11 +163,7 @@ fn finding(c: &Classified, now: SystemTime, min_age: Duration) -> Finding {
         // The effective method: a `delete` rule downgraded to review goes to the Trash (ADR §1).
         removal: match c.rule.removal {
             Removal::Delete if c.class == RiskClass::Review => RemovalKind::Trash,
-            Removal::Delete => RemovalKind::Delete,
-            Removal::Trash => RemovalKind::Trash,
-            Removal::Native { .. } => RemovalKind::Native,
-            Removal::NativeOnly(_) => RemovalKind::NativeOnly,
-            Removal::None => RemovalKind::None,
+            ref removal => removal.into(),
         },
         bytes: c.owner.bytes,
         shared_bytes: c.owner.shared_bytes,
@@ -152,8 +172,9 @@ fn finding(c: &Classified, now: SystemTime, min_age: Duration) -> Finding {
         dirs: c.owner.dirs,
         incomplete: c.owner.incomplete(),
         project,
-        selected: not_selected.is_none(),
+        selected: not_selected.is_none() && !ignored,
         not_selected,
+        ignored,
         notes: c.notes.clone(),
         hint: c.rule.hint.to_owned(),
         dev: c.owner.dev,
@@ -172,10 +193,11 @@ fn totals(findings: &[Finding], out: &scan::WalkOutput) -> Totals {
         .filter(|o| o.kind == scan::OwnerKind::Claim && !findings.iter().any(|f| f.path == o.path))
         .map(|o| o.bytes)
         .sum();
+    let (ignored, shown): (Vec<&Finding>, Vec<&Finding>) = findings.iter().partition(|f| f.ignored);
     let classes = RiskClass::ALL
         .iter()
         .map(|&class| {
-            let of: Vec<&Finding> = findings.iter().filter(|f| f.class == class).collect();
+            let of: Vec<&Finding> = shown.iter().copied().filter(|f| f.class == class).collect();
             let selected: Vec<&&Finding> = of.iter().filter(|f| f.selected).collect();
             ClassTotal {
                 class,
@@ -186,7 +208,7 @@ fn totals(findings: &[Finding], out: &scan::WalkOutput) -> Totals {
             }
         })
         .collect();
-    let selected = findings.iter().filter(|f| f.selected);
+    let selected = shown.iter().copied().filter(|f| f.selected);
     Totals {
         scanned_bytes: out.total_bytes,
         files: out.roots.iter().map(|r| r.files).sum(),
@@ -195,6 +217,8 @@ fn totals(findings: &[Finding], out: &scan::WalkOutput) -> Totals {
         classes,
         selected_bytes: selected.clone().map(|f| f.bytes).sum(),
         selected_reclaimable_bytes: selected.map(Finding::reclaimable_bytes).sum(),
+        ignored_count: ignored.len() as u64,
+        ignored_bytes: ignored.iter().map(|f| f.bytes).sum(),
     }
 }
 

@@ -2,33 +2,39 @@
 
 use std::io::{IsTerminal as _, Write as _};
 use std::process::ExitCode;
-use std::time::Duration;
 
 use anyhow::Context as _;
 use ddc_core::env::Env;
+use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::scan::{Progress, WalkOptions};
+use ddc_core::settings::ScanFlags;
 use ddc_core::store::{self, LockMode};
 
 use crate::cli::ScanArgs;
-use crate::{progress, render};
+use crate::{notify, progress, prompt, render};
 
 pub fn run(args: ScanArgs) -> anyhow::Result<ExitCode> {
     if args.background {
-        return super::background::run(&args);
+        return super::background::run(&args, &notify::Osascript, &SystemStatFs);
     }
     let env = Env::from_process(args.data_dir.clone())?;
+    let resolved =
+        super::resolve(&env, ScanFlags { paths: args.paths, excludes: args.exclude, min_age_days: args.min_age })?;
+    super::note_missing(&resolved.missing);
+    // A scan changes nothing: a dropped protection is only worth a warning.
+    if !resolved.dropped_excludes.is_empty() {
+        eprintln!("ddc: {}", prompt::dropped_excludes(&resolved.dropped_excludes, env.home()));
+    }
     let _lock = store::try_lock(&env, LockMode::Shared)?;
-    let opts = ScanOptions {
-        roots: args.paths,
-        excludes: args.exclude,
-        min_age: Duration::from_secs(args.min_age * 86_400),
-        walk: WalkOptions { threads: args.threads, ..WalkOptions::default() },
-        ..ScanOptions::default()
-    };
+    let opts =
+        ScanOptions { walk: WalkOptions { threads: args.threads, ..WalkOptions::default() }, ..resolved.options };
     let progress = Progress::default();
     let report = progress::with_spinner(&progress, "scanning", || report::scan(&env, &opts, &progress))?;
     store::write_last_scan(&env, &report).context("cannot save the scan report")?;
+    for root in report.scan_roots.iter().filter(|r| !report.volumes.iter().any(|v| v.roots.contains(r))) {
+        eprintln!("ddc: no volume information for {}; its free space is unknown", root.display());
+    }
 
     let mut stdout = std::io::stdout().lock();
     let written = if args.json {

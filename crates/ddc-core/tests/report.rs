@@ -1,16 +1,21 @@
 mod common;
 
 use std::fs::File;
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use common::TreeBuilder;
 use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
 use ddc_core::model::{NotSelected, ScanReport};
+use ddc_core::plan::{PlanOptions, build_plan};
+use ddc_core::report::volumes::StatFs;
 use ddc_core::report::{self, ScanOptions};
+use ddc_core::rules::Catalog;
 use ddc_core::scan::{Progress, WalkOptions};
 use ddc_core::store;
+use ddc_core::sys::statfs::VolumeStats;
 
 const DAY: Duration = Duration::from_secs(86_400);
 
@@ -33,13 +38,16 @@ impl Fixture {
         Env::with_paths(self.tree.root(), self.data.path(), &self.data.path().join("logs"), self.now).unwrap()
     }
 
-    fn scan(&self) -> ScanReport {
-        let opts = ScanOptions {
+    fn opts(&self) -> ScanOptions {
+        ScanOptions {
             large_file_bytes: 1 << 20,
             walk: WalkOptions { threads: Some(4), ..WalkOptions::default() },
             ..ScanOptions::default()
-        };
-        report::scan(&self.env(), &opts, &Progress::default()).unwrap()
+        }
+    }
+
+    fn scan(&self) -> ScanReport {
+        report::scan(&self.env(), &self.opts(), &Progress::default()).unwrap()
     }
 
     fn ago(&self, days: u64) -> SystemTime {
@@ -161,6 +169,8 @@ fn two_scans_give_the_same_report() {
     for r in [&mut a, &mut b] {
         r.generated_at.clear();
         r.duration_ms = 0;
+        // Live free space moves between the two scans.
+        r.volumes.iter_mut().for_each(|v| v.free_bytes = 0);
     }
     assert_eq!(a, b);
 }
@@ -177,6 +187,97 @@ fn last_scan_is_written_atomically() {
     assert_eq!(names, vec![store::LAST_SCAN.to_owned()], "no temp files left");
     assert_eq!(path, fx.data.path().join(store::LAST_SCAN));
     assert_eq!(store::read_last_scan(&fx.env()).unwrap(), Some(r));
+}
+
+#[test]
+fn ignored_findings_keep_their_reason_and_leave_the_totals_and_the_plan() {
+    let fx = populated();
+    let t = &fx.tree;
+    t.file("cm/.ddc-deleting-1234/leftover.o", 1000);
+    let opts = ScanOptions { disabled_rules: vec!["cache.uv".into()], min_size: 30_000, ..fx.opts() };
+
+    let r = report::scan(&fx.env(), &opts, &Progress::default()).unwrap();
+
+    let uv = find(&r, t, ".cache/uv");
+    assert_eq!((uv.ignored, uv.selected, uv.not_selected), (true, false, None), "a switched-off type");
+    let nm = find(&r, t, "new/node_modules");
+    assert!(nm.ignored && !nm.selected, "under min_size");
+    assert_eq!(nm.not_selected, Some(NotSelected::ActiveProject { idle_days: 2 }), "keeps its reason");
+    let venv = find(&r, t, "old/.venv");
+    assert!(!venv.ignored && venv.selected, "over min_size");
+    let tombstone = find(&r, t, "cm/.ddc-deleting-1234");
+    assert!(!tombstone.ignored && tombstone.selected, "ddc's own leftover is never hidden");
+
+    let ignored: Vec<_> = r.findings.iter().filter(|f| f.ignored).collect();
+    assert_eq!(r.totals.ignored_count, ignored.len() as u64);
+    assert_eq!(r.totals.ignored_bytes, ignored.iter().map(|f| f.bytes).sum::<u64>());
+    let class_bytes: u64 = r.totals.classes.iter().map(|c| c.bytes).sum();
+    assert_eq!(class_bytes + r.totals.ignored_bytes, r.findings.iter().map(|f| f.bytes).sum::<u64>());
+    assert_eq!(r.totals.selected_bytes, venv.bytes + tombstone.bytes);
+
+    let plan = build_plan(&r, &Catalog::builtin(t.root()), &PlanOptions::default());
+    assert!(plan.items.iter().all(|i| !i.finding.ignored), "a plan never holds an ignored finding");
+    assert!(plan.items.iter().any(|i| i.finding.path == tombstone.path));
+}
+
+#[test]
+fn a_report_without_the_new_fields_still_decodes_and_they_stay_optional() {
+    let mut json = serde_json::to_value(populated().scan()).unwrap();
+    let obj = json.as_object_mut().unwrap();
+    obj.remove("volumes");
+    for f in obj["findings"].as_array_mut().unwrap() {
+        f.as_object_mut().unwrap().remove("ignored");
+    }
+    serde_json::from_value::<ScanReport>(json).expect("a 0.1.0 report decodes");
+
+    let schema = serde_json::to_value(schemars::schema_for!(ScanReport)).unwrap();
+    let required = |v: &serde_json::Value| -> Vec<String> {
+        v["required"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_owned()).collect()
+    };
+    assert!(!required(&schema).contains(&"volumes".to_owned()));
+    assert!(!required(&schema["$defs"]["Finding"]).contains(&"ignored".to_owned()));
+    let totals = required(&schema["$defs"]["Totals"]);
+    assert!(!totals.contains(&"ignored_count".to_owned()) && !totals.contains(&"ignored_bytes".to_owned()));
+    assert_eq!(ddc_core::model::SCHEMA_VERSION, 1);
+}
+
+/// Roots under `v2/` live on a second volume; `gone/` cannot be read.
+struct TwoVolumes(PathBuf);
+
+impl StatFs for TwoVolumes {
+    fn statfs(&self, path: &Path) -> io::Result<VolumeStats> {
+        let (mount, free) = if path.starts_with(self.0.join("gone")) {
+            return Err(io::Error::from(io::ErrorKind::NotFound));
+        } else if path.starts_with(self.0.join("v2")) {
+            ("/Volumes/Two", 5)
+        } else {
+            ("/System/Volumes/Data", 50)
+        };
+        Ok(VolumeStats { fs_type: "apfs".into(), mount_point: mount.into(), available_bytes: free, total_bytes: 100 })
+    }
+}
+
+#[test]
+fn volumes_list_each_volume_once_with_its_roots() {
+    let fx = Fixture::new();
+    let t = &fx.tree;
+    for d in ["a", "b", "v2/c", "gone"] {
+        t.dir(d);
+    }
+    let opts = ScanOptions { roots: ["a", "b", "v2/c", "gone"].map(|d| t.path(d)).to_vec(), ..fx.opts() };
+
+    let r = report::scan_with(&fx.env(), &opts, &Progress::default(), &TwoVolumes(t.root().to_path_buf())).unwrap();
+
+    let got: Vec<(&Path, Vec<PathBuf>, u64)> =
+        r.volumes.iter().map(|v| (v.mount_point.as_path(), v.roots.clone(), v.free_bytes)).collect();
+    assert_eq!(
+        got,
+        [
+            (Path::new("/System/Volumes/Data"), vec![t.path("a"), t.path("b")], 50),
+            (Path::new("/Volumes/Two"), vec![t.path("v2/c")], 5),
+        ],
+        "one entry per volume; the unreadable one is left out"
+    );
 }
 
 #[test]

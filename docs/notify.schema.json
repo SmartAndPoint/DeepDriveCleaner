@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NotifyReport",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "oneOf": [
+    {
+      "description": "The scan ran and `last-scan.json` holds its report.",
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "scanned"
+        }
+      },
+      "$ref": "#/$defs/Decision",
+      "required": [
+        "status"
+      ]
+    },
+    {
+      "description": "Nothing was scanned.",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/SkipCause"
+        },
+        "status": {
+          "type": "string",
+          "const": "skipped"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ]
+    }
+  ],
+  "required": [
+    "schema_version"
+  ],
+  "$defs": {
+    "Decision": {
+      "description": "The optional fields are always written, as null when absent.",
+      "type": "object",
+      "properties": {
+        "free": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "notify": {
+          "type": "boolean"
+        },
+        "reason": {
+          "description": "Null exactly when `notify` is false; `low-disk` wins when both apply.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NotifyReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reclaimable": {
+          "description": "What the default selection frees on all volumes together (estimate).",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "total": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "volume": {
+          "description": "The volume the decision is about: the one under 10 % free with\nsomething selected on it, also when the snooze or the repeat rule holds\nthe notification back; otherwise the first scan root's.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "notify",
+        "reclaimable"
+      ]
+    },
+    "NotifyReason": {
+      "oneOf": [
+        {
+          "description": "At least the threshold can be freed.",
+          "type": "string",
+          "const": "threshold"
+        },
+        {
+          "description": "A volume is under 10 % free and something on it can be freed.",
+          "type": "string",
+          "const": "low-disk"
+        }
+      ]
+    },
+    "SkipCause": {
+      "oneOf": [
+        {
+          "description": "A clean held the lock.",
+          "type": "string",
+          "const": "busy"
+        }
+      ]
+    }
+  }
+}

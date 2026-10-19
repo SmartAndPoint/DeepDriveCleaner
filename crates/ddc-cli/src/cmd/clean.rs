@@ -2,7 +2,6 @@
 
 use std::io::{IsTerminal as _, Write as _};
 use std::process::ExitCode;
-use std::time::Duration;
 
 use anyhow::Context as _;
 use ddc_core::class::{Category, RiskClass};
@@ -12,6 +11,7 @@ use ddc_core::plan::{PlanOptions, build_plan};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
 use ddc_core::scan::{Progress, WalkOptions};
+use ddc_core::settings::ScanFlags;
 use ddc_core::store::{self, LockMode};
 
 use crate::cli::{CategoryArg, ClassArg, CleanArgs};
@@ -32,21 +32,43 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
         eprintln!("ddc clean: --yes cannot include --class review: review items need an interactive confirmation");
         return Ok(ExitCode::from(exit::REFUSED));
     }
+    let env = Env::from_process(args.data_dir.clone())?;
+    let resolved = super::resolve(
+        &env,
+        ScanFlags { paths: args.paths.clone(), excludes: args.exclude.clone(), min_age_days: args.min_age },
+    )?;
+    super::note_missing(&resolved.missing);
+    let dropped = &resolved.dropped_excludes;
+    // Nobody to ask: a refusal names the folders the --exclude would drop, too.
+    let unprotected =
+        if dropped.is_empty() { String::new() } else { format!("; {}", prompt::dropped_excludes(dropped, env.home())) };
     let interactive = !args.yes && !args.dry_run;
     if interactive && !std::io::stdin().is_terminal() {
-        eprintln!("ddc clean: confirmation needs a terminal; use --dry-run to preview or --yes for safe items");
+        eprintln!(
+            "ddc clean: confirmation needs a terminal; use --dry-run to preview or --yes for safe items{unprotected}"
+        );
         return Ok(ExitCode::from(exit::REFUSED));
     }
-    let env = Env::from_process(args.data_dir.clone())?;
+    // Asked before the lock and the scan: a declined answer leaves no trace.
+    if !dropped.is_empty() {
+        if args.dry_run {
+            eprintln!("ddc clean: {}", prompt::dropped_excludes(dropped, env.home()));
+        } else if !std::io::stdin().is_terminal() {
+            eprintln!("ddc clean: name them in --exclude too, or confirm in a terminal{unprotected}");
+            return Ok(ExitCode::from(exit::REFUSED));
+        } else if !prompt::confirm_dropped_excludes(
+            dropped,
+            env.home(),
+            std::io::stdin().lock(),
+            &mut std::io::stdout(),
+        )? {
+            println!("Nothing was changed.");
+            return Ok(ExitCode::SUCCESS);
+        }
+    }
     let _lock = store::try_lock(&env, LockMode::Exclusive)?;
 
-    let opts = ScanOptions {
-        roots: args.paths.clone(),
-        excludes: args.exclude.clone(),
-        min_age: Duration::from_secs(args.min_age * 86_400),
-        walk: WalkOptions::default(),
-        ..ScanOptions::default()
-    };
+    let opts = ScanOptions { walk: WalkOptions::default(), ..resolved.options };
     let scan_progress = Progress::default();
     let scanned = progress::with_spinner(&scan_progress, "scanning", || report::scan(&env, &opts, &scan_progress))?;
     store::write_last_scan(&env, &scanned).context("cannot save the scan report")?;

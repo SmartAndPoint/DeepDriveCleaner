@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Settings",
+  "description": "Unknown keys are refused: app-only preferences never belong here, and an\nunknown key may be a protection this CLI does not know about.",
+  "type": "object",
+  "properties": {
+    "disabled_rules": {
+      "description": "Rule ids switched off in the Types settings: their findings are\n`ignored`. Unknown ids are inert, so a renamed rule breaks nothing.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "excludes": {
+      "description": "Absolute folders never touched (\"Never touch these folders\"): reported\nas `user.kept`, never cleaned.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "min_age_days": {
+      "description": "`rebuildable` findings idle at least this long are selected by default.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
+    "min_size": {
+      "description": "Bytes: smaller findings are `ignored`.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
+    "notify_low_disk": {
+      "description": "Also notify when a scanned volume is under 10 % free (default: true).",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "notify_threshold": {
+      "description": "Bytes: the background scan notifies from this much.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
+    "roots": {
+      "description": "Absolute folders to scan; empty means the home folder.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "scheduler": {
+      "description": "Who runs the scheduled scan (ADR §5).",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SchedulerRecord"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema_version"
+  ],
+  "$defs": {
+    "SchedulerOwner": {
+      "type": "string",
+      "enum": [
+        "app"
+      ]
+    },
+    "SchedulerRecord": {
+      "type": "object",
+      "properties": {
+        "app": {
+          "description": "The app bundle that registered the scheduler agent.",
+          "type": "string"
+        },
+        "by": {
+          "$ref": "#/$defs/SchedulerOwner"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "by",
+        "app"
+      ]
+    }
+  }
+}

@@ -1,6 +1,7 @@
 //! Command-line definition.
 
 use std::path::PathBuf;
+use std::time::UNIX_EPOCH;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
@@ -21,10 +22,18 @@ pub enum Command {
     Scan(ScanArgs),
     /// Scan, show a cleanup plan and clean what you confirm.
     Clean(CleanArgs),
+    /// List the rules by group: what each type is and whether settings.json can switch it off.
+    Rules(RulesArgs),
     /// Scan in the background on a schedule and notify; never deletes anything.
     Schedule {
         #[command(subcommand)]
         action: ScheduleAction,
+    },
+    /// Record what the Mac app did with a notification (the app's own calls).
+    #[command(hide = true)]
+    Notify {
+        #[command(subcommand)]
+        action: NotifyAction,
     },
     /// Measure allocated size like `du -skx` (diagnostics and benchmarks).
     #[command(hide = true)]
@@ -47,9 +56,10 @@ pub struct ScanArgs {
     /// Never touch this path: it is reported as protected (repeatable).
     #[arg(long, value_name = "PATH")]
     pub exclude: Vec<PathBuf>,
-    /// Projects untouched for at least this many days are selected for cleanup.
-    #[arg(long, value_name = "DAYS", default_value_t = 14, value_parser = clap::value_parser!(u64).range(0..=3650))]
-    pub min_age: u64,
+    /// Projects untouched for at least this many days are selected for cleanup
+    /// (default: settings.json, else 14).
+    #[arg(long, value_name = "DAYS", value_parser = clap::value_parser!(u64).range(0..=3650))]
+    pub min_age: Option<u64>,
     /// Where the last scan and the lock live (default: ~/Library/Application Support/DeepDriveCleaner).
     #[arg(long, value_name = "DIR")]
     pub data_dir: Option<PathBuf>,
@@ -62,9 +72,46 @@ pub struct ScanArgs {
     /// Background mode: do not show a notification.
     #[arg(long, hide = true)]
     pub no_notify: bool,
-    /// Background mode: notify when at least this much can be freed.
-    #[arg(long, hide = true, value_name = "SIZE", value_parser = parse_size, default_value = "10G")]
-    pub threshold: u64,
+    /// Background mode: print the notify decision (docs/notify.schema.json)
+    /// instead of notifying; the app shows it and records it with `notify ack`.
+    #[arg(long, hide = true, value_enum, value_name = "FORMAT", requires = "background", conflicts_with = "no_notify")]
+    pub notify: Option<NotifyFormat>,
+    /// Background mode: notify when at least this much can be freed (default:
+    /// settings.json, else 10G).
+    #[arg(long, hide = true, value_name = "SIZE", value_parser = parse_size)]
+    pub threshold: Option<u64>,
+}
+
+#[derive(Debug, Args)]
+pub struct RulesArgs {
+    /// Print the rules as JSON (schema: docs/rules.schema.json).
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum NotifyAction {
+    /// A notification for this many reclaimable bytes was shown now.
+    Ack {
+        #[arg(long, value_name = "BYTES")]
+        bytes: u64,
+        #[arg(long, value_name = "DIR")]
+        data_dir: Option<PathBuf>,
+    },
+    /// No notification from scans that start before this time ("Remind me tomorrow").
+    Snooze {
+        /// RFC 3339 in UTC, such as 2026-10-20T09:00:00Z.
+        #[arg(long, value_name = "TIME", value_parser = parse_utc)]
+        until: u64,
+        #[arg(long, value_name = "DIR")]
+        data_dir: Option<PathBuf>,
+    },
+}
+
+/// RFC 3339 in UTC (`Z`), as Unix seconds.
+fn parse_utc(s: &str) -> Result<u64, String> {
+    let at = humantime::parse_rfc3339(s).map_err(|e| format!("{e} (expected UTC such as 2026-10-20T09:00:00Z)"))?;
+    at.duration_since(UNIX_EPOCH).map(|d| d.as_secs()).map_err(|e| e.to_string())
 }
 
 #[derive(Debug, Subcommand)]
@@ -73,14 +120,20 @@ pub enum ScheduleAction {
     Install {
         #[arg(long, value_enum, default_value_t = IntervalArg::Daily)]
         interval: IntervalArg,
-        /// Notify when at least this much can be freed (or free space is below 10%).
-        #[arg(long, value_name = "SIZE", value_parser = parse_size, default_value = "10G")]
-        threshold: u64,
+        /// Notify when at least this much can be freed, or free space is below 10%
+        /// (default: settings.json, else 10G).
+        #[arg(long, value_name = "SIZE", value_parser = parse_size)]
+        threshold: Option<u64>,
     },
     /// Remove the LaunchAgent.
     Uninstall,
     /// Show whether the agent is installed, loaded and current.
     Status,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum NotifyFormat {
+    Json,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -102,9 +155,10 @@ pub struct CleanArgs {
     /// Skip findings smaller than this (e.g. 100M, 2G).
     #[arg(long, value_name = "SIZE", value_parser = parse_size)]
     pub min_size: Option<u64>,
-    /// Projects untouched for at least this many days are selected.
-    #[arg(long, value_name = "DAYS", default_value_t = 14, value_parser = clap::value_parser!(u64).range(0..=3650))]
-    pub min_age: u64,
+    /// Projects untouched for at least this many days are selected (default:
+    /// settings.json, else 14).
+    #[arg(long, value_name = "DAYS", value_parser = clap::value_parser!(u64).range(0..=3650))]
+    pub min_age: Option<u64>,
     /// Show the plan and exit without changing anything.
     #[arg(long)]
     pub dry_run: bool,

@@ -204,6 +204,7 @@ fn planned(item: &ListedItem, rule: &crate::rules::Rule, class: RiskClass) -> Pl
         project: None,
         selected: true,
         not_selected: None,
+        ignored: false,
         notes: Vec::new(),
         hint: String::new(),
         dev: item.dev,

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ddc_core::class::Fallback;
 use ddc_core::class::RiskClass;
@@ -109,6 +109,27 @@ fn ask(input: &mut impl BufRead, w: &mut impl Write, question: &str) -> io::Resu
     w.flush()?;
     let mut line = String::new();
     Ok((input.read_line(&mut line)? > 0).then(|| line.trim().to_owned()))
+}
+
+/// `--exclude` replaces the folders `settings.json` protects: names those it
+/// would no longer protect and asks before going on.
+pub fn confirm_dropped_excludes(
+    dropped: &[PathBuf],
+    home: &Path,
+    mut input: impl BufRead,
+    w: &mut impl Write,
+) -> io::Result<bool> {
+    writeln!(w, "--exclude replaces the folders settings.json protects; these would no longer be protected:")?;
+    for path in dropped {
+        writeln!(w, "  {}", tilde(path, home))?;
+    }
+    Ok(yes(ask(&mut input, w, "Go on without protecting them? [y/N] ")?))
+}
+
+/// The dropped folders on one line, for a warning or a refusal.
+pub fn dropped_excludes(dropped: &[PathBuf], home: &Path) -> String {
+    let names: Vec<String> = dropped.iter().map(|p| tilde(p, home)).collect();
+    format!("--exclude replaces the folders settings.json protects; no longer protected: {}", names.join(", "))
 }
 
 fn yes(answer: Option<String>) -> bool {
@@ -305,6 +326,7 @@ mod tests {
                 project: None,
                 selected,
                 not_selected: None,
+                ignored: false,
                 notes: vec![],
                 hint: String::new(),
                 dev: 1,

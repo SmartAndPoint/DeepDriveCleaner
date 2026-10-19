@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RuleList",
+  "type": "object",
+  "properties": {
+    "groups": {
+      "description": "Group labels in display order.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RuleInfo"
+      }
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "schema_version",
+    "groups",
+    "rules"
+  ],
+  "$defs": {
+    "Category": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "project-artifact",
+            "package-cache",
+            "xcode",
+            "vm-container",
+            "toolchain",
+            "ml-model",
+            "ide",
+            "app-cache",
+            "trash",
+            "generic-cache"
+          ]
+        },
+        {
+          "description": "Photos, backups, downloads, messengers.",
+          "type": "string",
+          "const": "personal"
+        }
+      ]
+    },
+    "RemovalKind": {
+      "type": "string",
+      "enum": [
+        "delete",
+        "trash",
+        "native",
+        "native-only",
+        "none"
+      ]
+    },
+    "RiskClass": {
+      "oneOf": [
+        {
+          "description": "Cache that refills itself.",
+          "type": "string",
+          "const": "safe"
+        },
+        {
+          "description": "Project artifact restored by install (from a lock file) or by a build.",
+          "type": "string",
+          "const": "rebuildable"
+        },
+        {
+          "description": "Expensive to restore, or restorability is uncertain.",
+          "type": "string",
+          "const": "review"
+        },
+        {
+          "description": "The user's data: reported, never planned.",
+          "type": "string",
+          "const": "user-data"
+        }
+      ]
+    },
+    "RuleInfo": {
+      "type": "object",
+      "properties": {
+        "category": {
+          "$ref": "#/$defs/Category"
+        },
+        "class": {
+          "$ref": "#/$defs/RiskClass"
+        },
+        "group": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "listed": {
+          "description": "Shown in reports; unlisted rules only stop other rules from matching inside.",
+          "type": "boolean"
+        },
+        "removal": {
+          "$ref": "#/$defs/RemovalKind"
+        },
+        "switchable": {
+          "description": "The Types settings may switch it off (`disabled_rules`). False for\nddc's own leftovers and for rules ddc never acts on.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "group",
+        "category",
+        "class",
+        "removal",
+        "listed",
+        "switchable"
+      ]
+    }
+  }
+}

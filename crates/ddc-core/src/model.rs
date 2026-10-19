@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::class::{Category, RiskClass};
+use crate::class::{Category, Removal, RiskClass};
 use crate::rules::Note;
 use crate::scan::SkipReason;
 
@@ -26,6 +26,10 @@ pub struct ScanReport {
     /// Whether the scanning process could read TCC-protected data. Without it
     /// parts of `~/Library` are unreadable and listed in `inaccessible`.
     pub full_disk_access: bool,
+    /// The volume of each scan root, once per volume. Absent when no volume
+    /// could be read.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub volumes: Vec<Volume>,
     /// `rebuildable` findings idle at least this long are selected by default.
     pub min_age_days: u64,
     pub totals: Totals,
@@ -57,6 +61,27 @@ pub struct Totals {
     /// size where clones are expected and measured (uv, pnpm), allocated size
     /// elsewhere (no clones expected there).
     pub selected_reclaimable_bytes: u64,
+    /// Findings `settings.json` hides ([`Finding::ignored`]); they are in no
+    /// class total above.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ignored_count: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ignored_bytes: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Volume {
+    pub mount_point: PathBuf,
+    /// The scan roots on this volume; the walk never crosses into another,
+    /// so every finding under them lies on it.
+    pub roots: Vec<PathBuf>,
+    /// Bytes available to an unprivileged user.
+    pub free_bytes: u64,
+    pub total_bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -76,6 +101,19 @@ pub enum RemovalKind {
     Native,
     NativeOnly,
     None,
+}
+
+impl From<&Removal> for RemovalKind {
+    /// The rule's own method; a finding downgraded to review may differ (see `removal`).
+    fn from(removal: &Removal) -> Self {
+        match removal {
+            Removal::Delete => RemovalKind::Delete,
+            Removal::Trash => RemovalKind::Trash,
+            Removal::Native { .. } => RemovalKind::Native,
+            Removal::NativeOnly(_) => RemovalKind::NativeOnly,
+            Removal::None => RemovalKind::None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -104,8 +142,14 @@ pub struct Finding {
     pub project: Option<Project>,
     /// Selected by default in a cleanup plan.
     pub selected: bool,
+    /// Why it is not selected by default. An ignored finding keeps the reason
+    /// it would have had, so a type switched back on applies at once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub not_selected: Option<NotSelected>,
+    /// Hidden by `settings.json`: its rule is switched off, or it is under
+    /// `min_size`. Never selected and in no total; `not_selected` is unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ignored: bool,
     pub notes: Vec<Note>,
     /// How to get it back.
     pub hint: String,

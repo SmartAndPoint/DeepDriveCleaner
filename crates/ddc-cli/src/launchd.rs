@@ -7,13 +7,26 @@ use std::process::Command;
 use crate::cli::IntervalArg;
 
 pub const LABEL: &str = "com.smartandpoint.deepdrivecleaner";
+/// The Mac app's bundle id: the same string as [`LABEL`], a different meaning.
+pub const APP_BUNDLE_ID: &str = "com.smartandpoint.deepdrivecleaner";
 
 #[derive(Debug, Clone)]
 pub struct AgentSpec {
     pub exe: PathBuf,
     pub interval: IntervalArg,
-    pub threshold: u64,
+    /// Written only when given, so `notify_threshold` in settings.json applies otherwise.
+    pub threshold: Option<u64>,
     pub log_dir: PathBuf,
+    /// Lists the agent under this app in Login Items (`AssociatedBundleIdentifiers`).
+    pub associated_bundle: Option<&'static str>,
+}
+
+/// The app bundle a binary in `X.app/Contents/Helpers/` belongs to.
+pub fn app_bundle_of(exe: &Path) -> Option<PathBuf> {
+    let helpers = exe.parent().filter(|p| p.file_name().is_some_and(|n| n == "Helpers"))?;
+    let contents = helpers.parent().filter(|p| p.file_name().is_some_and(|n| n == "Contents"))?;
+    let app = contents.parent().filter(|p| p.extension().is_some_and(|e| e == "app"))?;
+    Some(app.to_path_buf())
 }
 
 pub fn plist_path(home: &Path) -> PathBuf {
@@ -25,14 +38,20 @@ fn xml(s: &str) -> String {
 }
 
 pub fn plist(spec: &AgentSpec) -> String {
-    let args = [
-        spec.exe.to_string_lossy().into_owned(),
-        "scan".into(),
-        "--background".into(),
-        "--threshold".into(),
-        spec.threshold.to_string(),
-    ];
+    let mut args = vec![spec.exe.to_string_lossy().into_owned(), "scan".into(), "--background".into()];
+    if let Some(threshold) = spec.threshold {
+        args.extend(["--threshold".into(), threshold.to_string()]);
+    }
     let args: String = args.iter().map(|a| format!("\n        <string>{}</string>", xml(a))).collect();
+    let associated = spec
+        .associated_bundle
+        .map(|id| {
+            format!(
+                "\n    <key>AssociatedBundleIdentifiers</key>\n    <array>\n        <string>{}</string>\n    </array>",
+                xml(id)
+            )
+        })
+        .unwrap_or_default();
     let schedule = match spec.interval {
         IntervalArg::Daily => "<key>Hour</key><integer>11</integer><key>Minute</key><integer>30</integer>",
         IntervalArg::Weekly => {
@@ -66,7 +85,7 @@ pub fn plist(spec: &AgentSpec) -> String {
     <key>StandardOutPath</key>
     <string>{out}</string>
     <key>StandardErrorPath</key>
-    <string>{err}</string>
+    <string>{err}</string>{associated}
 </dict>
 </plist>
 "#
@@ -216,15 +235,20 @@ pub fn uninstall(home: &Path, uid: u32, lc: &dyn Launchctl) -> anyhow::Result<bo
     Ok(existed)
 }
 
+/// A launchctl that only remembers what it loaded: no test ever runs the real
+/// one (the owner's installed agent has the same label).
 #[cfg(test)]
-mod tests {
+pub(crate) mod fake {
     use std::cell::RefCell;
     use std::collections::HashSet;
+    use std::io;
+    use std::path::Path;
 
-    use super::*;
+    use super::{LABEL, Launchctl};
 
+    /// Loaded targets; `true` makes every bootout fail.
     #[derive(Default)]
-    struct FakeLaunchctl(RefCell<HashSet<String>>, bool);
+    pub(crate) struct FakeLaunchctl(pub RefCell<HashSet<String>>, pub bool);
 
     impl Launchctl for FakeLaunchctl {
         fn bootout(&self, target: &str) -> io::Result<bool> {
@@ -245,27 +269,56 @@ mod tests {
             self.0.borrow().contains(target)
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+
+    use super::fake::FakeLaunchctl;
+    use super::*;
 
     fn spec(dir: &Path) -> AgentSpec {
         AgentSpec {
             exe: PathBuf::from("/Users/me/.cargo/bin/deepdrivecleaner & <tools>"),
             interval: IntervalArg::Daily,
-            threshold: 10 << 30,
+            threshold: Some(10 << 30),
             log_dir: dir.join("logs"),
+            associated_bundle: None,
         }
     }
 
     #[test]
     fn generated_plist_passes_plutil() {
         let tmp = tempfile::tempdir().unwrap();
-        for interval in [IntervalArg::Daily, IntervalArg::Weekly] {
+        let in_app = AgentSpec { threshold: None, associated_bundle: Some(APP_BUNDLE_ID), ..spec(tmp.path()) };
+        for s in [spec(tmp.path()), AgentSpec { interval: IntervalArg::Weekly, ..spec(tmp.path()) }, in_app] {
             let path = tmp.path().join("agent.plist");
-            std::fs::write(&path, plist(&AgentSpec { interval, ..spec(tmp.path()) })).unwrap();
+            std::fs::write(&path, plist(&s)).unwrap();
             let out = Command::new("/usr/bin/plutil").arg("-lint").arg(&path).output().unwrap();
             assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
         }
         let text = plist(&spec(tmp.path()));
         assert_eq!(installed_program(&text), Some(PathBuf::from("/Users/me/.cargo/bin/deepdrivecleaner & <tools>")));
+    }
+
+    #[test]
+    fn an_agent_installed_from_the_app_is_listed_under_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let text = plist(&AgentSpec { threshold: None, associated_bundle: Some(APP_BUNDLE_ID), ..spec(tmp.path()) });
+        assert!(text.contains(
+            "<key>AssociatedBundleIdentifiers</key>\n    <array>\n        <string>com.smartandpoint.deepdrivecleaner</string>"
+        ));
+        assert!(!text.contains("--threshold"), "without the flag, settings.json's threshold applies");
+        assert!(!plist(&spec(tmp.path())).contains("AssociatedBundleIdentifiers"));
+
+        let app = |exe: &str| app_bundle_of(Path::new(exe));
+        assert_eq!(
+            app("/Applications/DeepDriveCleaner.app/Contents/Helpers/deepdrivecleaner"),
+            Some(PathBuf::from("/Applications/DeepDriveCleaner.app"))
+        );
+        assert_eq!(app("/opt/homebrew/bin/deepdrivecleaner"), None);
+        assert_eq!(app("/Applications/Other.app/Contents/MacOS/deepdrivecleaner"), None);
     }
 
     #[test]

@@ -562,6 +562,50 @@ fn excluding_a_cloud_folder_still_never_traverses_it() {
     s.absent(&t, "Library/CloudStorage");
 }
 
+/// Every rule sits in exactly one group of the Types settings. A new rule
+/// without a group fails here.
+#[test]
+fn every_rule_has_a_group() {
+    use ddc_core::rules::listing::{GROUPS, RuleList, group_of};
+    for rule in RULES {
+        let groups = GROUPS.iter().filter(|(_, ids)| ids.contains(&rule.id)).count();
+        assert_eq!(groups, 1, "{} is in {groups} groups", rule.id);
+    }
+    for (label, ids) in GROUPS {
+        assert!(!ids.is_empty(), "{label} is empty");
+        for id in *ids {
+            assert!(RULES.iter().any(|r| r.id == *id), "{label} names an unknown rule {id}");
+        }
+    }
+    let list = RuleList::builtin();
+    assert_eq!(
+        list.rules.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+        RULES.iter().map(|r| r.id).collect::<Vec<_>>()
+    );
+    let fixed: Vec<&str> = list.rules.iter().filter(|r| !r.switchable).map(|r| r.group.as_str()).collect();
+    assert!(
+        fixed.iter().all(|g| ["Your data", "Interrupted cleanups", "VM and container images"].contains(g)),
+        "only user data, ddc's leftovers and tool-only runtimes have no switch: {fixed:?}"
+    );
+    assert!(!list.rules.iter().find(|r| r.id == "ddc.tombstone").unwrap().switchable);
+    assert!(!list.rules.iter().find(|r| r.id == "vm.colima").unwrap().switchable, "a tool-only rule with no command");
+    assert!(list.rules.iter().find(|r| r.id == "cache.npm").unwrap().switchable);
+    assert_eq!(group_of("cache.colima"), Some("VM and container images"));
+}
+
+#[test]
+#[allow(clippy::disallowed_methods)] // DDC_UPDATE_SCHEMA regenerates the committed file
+fn committed_rules_schema_is_current() {
+    let schema =
+        serde_json::to_string_pretty(&schemars::schema_for!(ddc_core::rules::listing::RuleList)).unwrap() + "\n";
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/rules.schema.json");
+    if std::env::var_os("DDC_UPDATE_SCHEMA").is_some() {
+        std::fs::write(&path, &schema).unwrap();
+    }
+    let committed = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(committed == schema, "docs/rules.schema.json is stale: run DDC_UPDATE_SCHEMA=1 cargo test");
+}
+
 /// Every rule in the catalog has a fixture: a minimal tree that must produce
 /// exactly that rule (or nothing, for unlisted rules). A new rule without a
 /// fixture fails here.

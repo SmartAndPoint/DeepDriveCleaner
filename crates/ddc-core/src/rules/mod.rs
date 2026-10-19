@@ -5,6 +5,7 @@
 
 mod catalog;
 mod classify;
+pub mod listing;
 mod matcher;
 mod toolchain;
 mod visitor;
@@ -95,6 +96,8 @@ pub enum Clones {
 
 /// Id of the synthetic rule for user-protected paths.
 pub const KEPT: &str = "user.kept";
+/// What an interrupted clean leaves behind (`.ddc-deleting-*`).
+pub const TOMBSTONE: &str = "ddc.tombstone";
 
 /// Directories (relative to `$HOME`) that are never a finding nor deleted
 /// themselves (ADR "Cleanup safety model", §6).

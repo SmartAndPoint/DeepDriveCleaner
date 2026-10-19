@@ -8,6 +8,7 @@ use std::process::{Command, Output};
 use std::time::SystemTime;
 
 use ddc_core::env::Env;
+use ddc_core::notify::{Decision, NotifyReason, NotifyReport, NotifyStatus, SkipCause};
 use ddc_core::store::{self, LockMode};
 
 fn ddc(home: &Path, args: &[&str]) -> Output {
@@ -120,4 +121,56 @@ fn background_scan_steps_aside_while_the_lock_is_held() {
     assert!(out.status.success());
     assert!(!data.join("last-scan.json").exists(), "no scan while cleaning");
     assert!(fs::read_to_string(data.join("logs/background.log")).unwrap().contains("skipped"));
+
+    let json = ddc(&home, &["scan", "--background", "--notify", "json", "--data-dir", data.to_str().unwrap()]);
+    assert_eq!(json.status.code(), Some(0), "never 75: the app's scheduled run just steps aside");
+    let report: NotifyReport = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(report, NotifyReport { schema_version: 1, status: NotifyStatus::Skipped { reason: SkipCause::Busy } });
+    assert!(!data.join("last-scan.json").exists());
+}
+
+/// `--notify json` with the low-disk check off: a live disk may itself be low.
+fn decide(home: &Path, data: &Path, threshold: &str) -> Decision {
+    let out = ddc(
+        home,
+        &["scan", "--background", "--notify", "json", "--threshold", threshold, "--data-dir", data.to_str().unwrap()],
+    );
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    match serde_json::from_slice::<NotifyReport>(&out.stdout).unwrap() {
+        NotifyReport { schema_version: 1, status: NotifyStatus::Scanned(d) } => d,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn notify_json_prints_the_decision_and_leaves_the_state_alone() {
+    let (_tmp, home, data) = tree();
+    fs::create_dir_all(&data).unwrap();
+    fs::write(data.join("settings.json"), r#"{"schema_version": 1, "notify_low_disk": false}"#).unwrap();
+    let state = br#"{"last_at": 1, "last_bytes": 1}"#;
+    fs::write(data.join("notify-state.json"), state).unwrap();
+
+    let over = decide(&home, &data, "1K");
+    assert_eq!((over.notify, over.reason), (true, Some(NotifyReason::Threshold)));
+    assert!(over.reclaimable > 0 && over.volume.is_some() && over.free.is_some());
+
+    let under = decide(&home, &data, "100G");
+    assert_eq!((under.notify, under.reason), (false, None));
+
+    assert_eq!(fs::read(data.join("notify-state.json")).unwrap(), state, "byte-identical: the app records it");
+}
+
+#[test]
+fn switched_off_types_never_reach_the_notify_decision() {
+    let (_tmp, home, data) = tree();
+    fs::create_dir_all(&data).unwrap();
+    fs::write(
+        data.join("settings.json"),
+        r#"{"schema_version": 1, "notify_low_disk": false, "disabled_rules": ["cache.npm", "python.pycache"]}"#,
+    )
+    .unwrap();
+
+    let d = decide(&home, &data, "1K");
+
+    assert_eq!((d.notify, d.reclaimable), (false, 0));
 }
