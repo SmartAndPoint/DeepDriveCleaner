@@ -4,8 +4,10 @@
 //   build/icons app/DeepDriveCleaner/Assets.xcassets/AppIcon.appiconset
 //
 // `make icons` runs both. The drive is the status item's glyph (DriveGlyph.swift),
-// white on a blue tile. The tile fills Apple's icon shape on the 824/1024 grid, so
-// macOS 26 does not put the icon on a grey tile of its own.
+// white on a dark tile inside a ring of the four class colours: option B, "Class
+// ring", of the design canvas's app icon board (the owner's choice, 2026-10-20).
+// The tile fills Apple's icon shape on the 824/1024 grid, so macOS 26 does not put
+// the icon on a grey tile of its own.
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -39,22 +41,31 @@ func icon(pixels: Int) -> CGImage {
     context.saveGState()
     context.setShadow(offset: CGSize(width: 0, height: -10), blur: 20, color: CGColor(gray: 0, alpha: 0.3))
     context.addPath(shape)
-    context.setFillColor(color(0x2459B8))
+    context.setFillColor(color(0x1C2026))
     context.fillPath()
     context.restoreGState()
-    context.saveGState()
-    context.addPath(shape)
-    context.clip()
-    let gradient = CGGradient(colorsSpace: space, colors: [color(0x3D7BE0), color(0x1B4596)] as CFArray, locations: [0, 1])!
-    context.drawLinearGradient(gradient, start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 100), options: [])
-    context.restoreGState()
 
-    // The glyph: 600 pt wide; thicker strokes at small sizes keep it visible.
-    let glyph = CGRect(x: 212, y: 212, width: 600, height: 600)
-    let unitPixels = 600 / 16 * scale
-    DriveGlyph.draw(
-        in: context, rect: glyph, color: CGColor(gray: 1, alpha: 1),
-        lineWidth: max(DriveGlyph.lineWidth, 1.6 / unitPixels))
+    // The ring: from the top, clockwise, safe, rebuildable, review and user data,
+    // as lengths along its 290-pt radius (the canvas's dash array), with butt ends.
+    context.setLineWidth(64)
+    context.setLineCap(.butt)
+    for (hex, start, length) in [
+        (0x34B37A, 0.0, 437.3), (0x4C86E8, 473.8, 200.4), (0xE08A2C, 710.6, 364.4), (0x8E9299, 1111.5, 674.2),
+    ] as [(UInt32, CGFloat, CGFloat)] {
+        let radius: CGFloat = 290
+        context.addArc(
+            center: CGPoint(x: 512, y: 512), radius: radius,
+            startAngle: .pi / 2 - start / radius, endAngle: .pi / 2 - (start + length) / radius, clockwise: true)
+        context.setStrokeColor(color(hex))
+        context.strokePath()
+    }
+
+    // The glyph: 300 pt wide, at the board's 1.6 units (heavier than the status
+    // item's 1.4, for a glyph half the old size); at least a pixel of stroke at
+    // small sizes keeps it visible.
+    let glyph = CGRect(x: 362, y: 362, width: 300, height: 300)
+    let unitPixels = 300 / 16 * scale
+    DriveGlyph.draw(in: context, rect: glyph, color: CGColor(gray: 1, alpha: 1), lineWidth: max(1.6, 1 / unitPixels))
     return context.makeImage()!
 }
 
