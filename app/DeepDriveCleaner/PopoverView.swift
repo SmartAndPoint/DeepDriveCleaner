@@ -404,12 +404,47 @@ enum ReportClassStyle {
     }
 
     static func name(_ riskClass: ScanReport.RiskClass) -> String {
+        CleanWording.className(riskClass)
+    }
+
+    /// The Review sidebar's class section (board 9, `tint`): its background,
+    /// its picked entry and its heading, each with a dark-mode value.
+    static func sectionTint(_ riskClass: ScanReport.RiskClass) -> Color {
+        let (light, dark) = bases(riskClass)
+        return dynamic(light.withAlphaComponent(riskClass == .userData ? 0.08 : 0.07), dark.withAlphaComponent(0.14))
+    }
+
+    static func selectedTint(_ riskClass: ScanReport.RiskClass) -> Color {
+        let (light, dark) = bases(riskClass)
+        return dynamic(light.withAlphaComponent(riskClass == .userData ? 0.18 : 0.16), dark.withAlphaComponent(0.28))
+    }
+
+    static func ink(_ riskClass: ScanReport.RiskClass) -> Color {
         switch riskClass {
-        case .safe: "Safe"
-        case .rebuildable: "Rebuildable"
-        case .review: "Review"
-        case .userData: "User data"
+        case .safe: dynamic(hex(0x1A6A43), hex(0x86E0B2))
+        case .rebuildable: dynamic(hex(0x2457AD), hex(0xAFC9F7))
+        case .review: dynamic(hex(0x8A4700), hex(0xF6C38F))
+        case .userData: dynamic(hex(0x55555A), hex(0xC7C7CC))
         }
+    }
+
+    private static func bases(_ riskClass: ScanReport.RiskClass) -> (light: NSColor, dark: NSColor) {
+        switch riskClass {
+        case .safe: (hex(0x1F7A4D), hex(0x3DBF7F))
+        case .rebuildable: (hex(0x2A64C5), hex(0x5B8FEA))
+        case .review: (hex(0xB45F06), hex(0xE08A2E))
+        case .userData: (hex(0x787880), hex(0x8E8E93))
+        }
+    }
+
+    private static func hex(_ value: Int) -> NSColor {
+        NSColor(srgbRed: CGFloat(value >> 16 & 0xFF) / 255, green: CGFloat(value >> 8 & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+    }
+
+    private static func dynamic(_ light: NSColor, _ dark: NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+        })
     }
 }
 

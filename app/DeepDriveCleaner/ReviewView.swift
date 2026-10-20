@@ -24,7 +24,7 @@ struct ReviewView: View {
             }
             if let items = model.items {
                 HStack(spacing: 0) {
-                    Sidebar(model: model, items: items).frame(width: 260)
+                    Sidebar(model: model, items: items).frame(width: 330)
                     Divider()
                     content(items)
                 }
@@ -41,7 +41,7 @@ struct ReviewView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             Divider()
-            footer
+            SelectionFooter(model: model, close: close)
         }
         .frame(minWidth: 820, minHeight: 520)
         .sheet(isPresented: Binding(get: { model.sheet != nil }, set: { if !$0 { model.closeSheet() } })) {
@@ -106,12 +106,19 @@ struct ReviewView: View {
             ItemsView(model: model, items: items)
         }
     }
+}
 
-    private var footer: some View {
+/// The selection and Clean N items…: its own view, so a tick redraws it and
+/// not the window around it.
+private struct SelectionFooter: View {
+    @Bindable var model: ReviewModel
+    let close: () -> Void
+
+    var body: some View {
         let rows = model.selectedRows
         let review = rows.filter { $0.riskClass == .review }.count
         var sub = ["frees about \(ByteSize.human(model.selectedReclaimable))"]
-        if review > 0 { sub.append("\(Wording.items(review, "review item")) go to the Trash or run their tool") }
+        if review > 0 { sub.append("\(Wording.items(review, "review item")) \(review == 1 ? "goes to the Trash or runs its tool" : "go to the Trash or run their tool")") }
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(Wording.items(rows.count)) selected · \(ByteSize.human(model.selectedBytes))")
@@ -134,126 +141,97 @@ struct ReviewView: View {
 
 // MARK: - Sidebar
 
+/// Classes and their groups, largest first, on the window's own background;
+/// each class a tinted section (board 9, `tint`).
 private struct Sidebar: View {
     @Bindable var model: ReviewModel
     let items: ReviewItems
 
     var body: some View {
-        List(selection: Binding(get: { model.entry }, set: { entry in
-            model.entry = entry
-            if entry != nil { model.mode = .groups }
-        })) {
-            ForEach(items.sidebar, id: \.riskClass) { section in
-                Section {
-                    ForEach(section.entries, id: \.self) { entry in
-                        HStack {
-                            Text(entry.group).lineLimit(1)
-                            Spacer(minLength: 6)
-                            Text(label(entry)).font(.system(size: 12)).foregroundStyle(.secondary).monospacedDigit()
+        let sections = items.sidebar
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(sections, id: \.riskClass) { section in
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 6) {
+                            RoundedRectangle(cornerRadius: 2).fill(ReportClassStyle.color(section.riskClass)).frame(width: 8, height: 8)
+                            Text(ReportClassStyle.name(section.riskClass))
+                                .textCase(.uppercase)
+                                .font(.system(size: 11, weight: .bold))
+                                .tracking(0.6)
+                                .foregroundStyle(ReportClassStyle.ink(section.riskClass))
                         }
-                        .tag(entry)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 6)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(.isHeader)
+                        ForEach(section.entries, id: \.self) { entry in
+                            SidebarEntry(model: model, entry: entry)
+                        }
+                        if section.riskClass == .userData {
+                            Text("Downloads, media, backups and folders you protect. Shown, never cleaned.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 8)
+                                .padding(.top, 6)
+                        }
                     }
-                } header: {
-                    HStack(spacing: 6) {
-                        RoundedRectangle(cornerRadius: 2).fill(ReportClassStyle.color(section.riskClass)).frame(width: 8, height: 8)
-                        Text(ReportClassStyle.name(section.riskClass))
-                    }
-                } footer: {
-                    if section.riskClass == .userData {
-                        Text("Downloads, media, backups and folders you protect. Shown, never cleaned.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
+                    .padding(EdgeInsets(top: 8, leading: 6, bottom: 6, trailing: 6))
+                    .background(ReportClassStyle.sectionTint(section.riskClass), in: RoundedRectangle(cornerRadius: 10))
                 }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 14)
         }
-        .listStyle(.sidebar)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .focusable()
+        .onMoveCommand { move($0, in: sections.flatMap(\.entries)) }
     }
 
-    /// "9.2 of 13.1 GiB" when part of the group is selected.
-    private func label(_ entry: ReviewItems.Entry) -> String {
-        let rows = items.rows(in: entry)
-        let total = rows.reduce(0) { $0 + $1.finding.bytes }
-        let selected = rows.filter { model.isSelected($0.id) }.reduce(0) { $0 + $1.finding.bytes }
-        if selected == 0 || selected == total { return ByteSize.human(total) }
-        return "\(ByteSize.human(selected)) of \(ByteSize.human(total))"
+    /// Up and down walk the entries, as the list did.
+    private func move(_ direction: MoveCommandDirection, in entries: [ReviewItems.Entry]) {
+        guard !entries.isEmpty else { return }
+        let index = model.entry.flatMap(entries.firstIndex(of:))
+        let next: Int
+        switch direction {
+        case .up: next = max((index ?? entries.count) - 1, 0)
+        case .down: next = min((index ?? -1) + 1, entries.count - 1)
+        default: return
+        }
+        model.entry = entries[next]
+        model.mode = .groups
     }
 }
 
-// MARK: - Groups
-
-/// One group of one class: its rules, each with its items.
-private struct GroupView: View {
+/// A group in the sidebar, "9.2 of 13.1 GiB" when part of it is selected.
+private struct SidebarEntry: View {
     @Bindable var model: ReviewModel
-    let items: ReviewItems
     let entry: ReviewItems.Entry
 
     var body: some View {
-        let rows = items.rows(in: entry).filter { items.matches($0, model.query) }
-        let byRule = Dictionary(grouping: rows, by: { $0.finding.rule })
-        let rules = byRule.keys.sorted { a, b in
-            let (x, y) = (byRule[a]!.reduce(0) { $0 + $1.finding.bytes }, byRule[b]!.reduce(0) { $0 + $1.finding.bytes })
-            return x != y ? x > y : a < b
-        }
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.group).font(.system(size: 17, weight: .semibold))
-                    Text(blurb).font(.system(size: 12)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Text(ByteSize.human(rows.reduce(0) { $0 + $1.finding.bytes })).font(.system(size: 15, weight: .semibold)).monospacedDigit()
+        let picked = model.entry == entry
+        Button {
+            model.entry = entry
+            model.mode = .groups
+        } label: {
+            HStack(spacing: 8) {
+                Text(entry.group).font(.system(size: 13, weight: picked ? .semibold : .regular)).lineLimit(1)
+                Spacer(minLength: 6)
+                // Darker than .secondary: 4.5:1 on the picked tint too.
+                Text(model.amount(of: entry)).font(.system(size: 12)).foregroundStyle(Color.primary.opacity(0.72)).monospacedDigit().lineLimit(1)
+                    .fixedSize()
             }
-            .padding(16)
-            Divider()
-            List {
-                ForEach(rules, id: \.self) { rule in
-                    let members = byRule[rule]!.sorted { $0.finding.bytes > $1.finding.bytes }
-                    Section {
-                        ForEach(members) { row in
-                            ItemRow(model: model, row: row, home: items.report.home)
-                        }
-                    } header: {
-                        RuleHeader(model: model, rule: rule, rows: members)
-                    }
-                }
-            }
-            .listStyle(.inset)
+            .padding(.horizontal, 8)
+            .frame(minHeight: 32)
+            .background(picked ? ReportClassStyle.selectedTint(entry.riskClass) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+            .contentShape(Rectangle())
         }
-    }
-
-    private var blurb: String {
-        switch entry.riskClass {
-        case .safe: "Caches that refill on the next install or build. Cleaned with the tool's own command when it has one."
-        case .rebuildable: "Environments and build folders of projects untouched for a while that have a lock file."
-        case .review: "Expensive to restore, or restorability is uncertain. Not selected by default; they go to the Trash."
-        case .userData: "Your data. Shown, never cleaned."
-        }
-    }
-}
-
-/// A rule's line: one checkbox for all its selectable items.
-private struct RuleHeader: View {
-    @Bindable var model: ReviewModel
-    let rule: String
-    let rows: [ReviewItems.Row]
-
-    var body: some View {
-        let selectable = rows.filter(\.selectable)
-        let selected = selectable.filter { model.isSelected($0.id) }.count
-        let state: CheckState = selected == 0 ? .off : (selected == selectable.count ? .on : .mixed)
-        HStack(spacing: 10) {
-            CheckBox(state: state, enabled: !selectable.isEmpty, label: "Select all of \(rule)") {
-                model.set(selectable.map(\.id), selected: state != .on)
-            }
-            Text(rule).font(.system(size: 13, weight: .semibold))
-            Text("\(Wording.items(rows.count, "folder")) · \(rows.first?.action.map(CleanWording.action) ?? "report only")")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text(ByteSize.human(rows.reduce(0) { $0 + $1.finding.bytes })).font(.system(size: 12, weight: .semibold)).monospacedDigit()
-        }
-        .padding(.vertical, 2)
+        .buttonStyle(.plain)
+        // A group can sit in two classes: say which.
+        .accessibilityLabel("\(entry.group), \(ReportClassStyle.name(entry.riskClass))")
+        .accessibilityValue(model.amount(of: entry))
+        .accessibilityAddTraits(picked ? .isSelected : [])
     }
 }
 
@@ -283,21 +261,38 @@ private struct ItemsView: View {
     }
 }
 
-private struct ItemRow: View {
+/// A finding's row. The Items view shows its full line; the Groups view
+/// passes the path relative to its folder and the row's own facts, and a
+/// one-item rule its title above them.
+struct ItemRow: View {
     @Bindable var model: ReviewModel
     let row: ReviewItems.Row
     let home: String
+    var heading: (title: String, subtitle: String)?
+    var shown: String?
+    var detail: String?
     @State private var confirmProtect = false
 
     var body: some View {
         let path = Wording.tilde(row.finding.path, home: home)
+        let second = detail ?? secondLine
+        // In the Groups view a lock the heading states is not repeated, nor coloured.
+        let warns = detail == nil ? row.lock != nil : CleanWording.ownLock(row) != nil
         HStack(spacing: 10) {
             CheckBox(state: model.isSelected(row.id) ? .on : .off, enabled: row.selectable, label: "Select \(path)") {
                 model.toggle(row.id)
             }
             VStack(alignment: .leading, spacing: 1) {
-                Text(path).font(.system(size: 13)).lineLimit(1).truncationMode(.middle)
-                Text(secondLine).font(.system(size: 11)).foregroundStyle(row.lock == nil ? .secondary : ReportClassStyle.review).lineLimit(1)
+                if let heading {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(heading.title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                        Text(heading.subtitle).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Text(shown ?? path).font(.system(size: 13)).lineLimit(1).truncationMode(.middle)
+                if !second.isEmpty {
+                    Text(second).font(.system(size: 11)).foregroundStyle(warns ? ReportClassStyle.review : .secondary).lineLimit(1)
+                }
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 1) {
@@ -338,8 +333,6 @@ private struct ItemRow: View {
 }
 
 // MARK: - Parts
-
-enum CheckState { case on, off, mixed }
 
 /// A checkbox with a mixed state, drawn from SF Symbols so it reads the same
 /// in a list row and a section header.

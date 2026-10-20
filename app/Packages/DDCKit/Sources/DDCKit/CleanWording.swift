@@ -91,6 +91,64 @@ public enum CleanWording {
 }
 
 extension CleanWording {
+    public static func className(_ riskClass: ScanReport.RiskClass) -> String {
+        switch riskClass {
+        case .safe: "Safe"
+        case .rebuildable: "Rebuildable"
+        case .review: "Review"
+        case .userData: "User data"
+        }
+    }
+
+    /// What a class means, at the top of each of its groups.
+    public static func classBlurb(_ riskClass: ScanReport.RiskClass) -> String {
+        switch riskClass {
+        case .safe: "Caches that refill on the next install or build. Cleaned with the tool's own command when it has one."
+        case .rebuildable: "Environments and build folders of projects untouched for a while that have a lock file."
+        case .review: "Expensive to restore, or restorability is uncertain. Not selected by default."
+        case .userData: "Your data. Shown, never cleaned."
+        }
+    }
+
+    /// A finding's way back, as a sentence; nil when it has none.
+    public static func hint(_ hint: String) -> String? {
+        hint.isEmpty ? nil : hint.prefix(1).uppercased() + hint.dropFirst()
+    }
+
+    /// What the clean does with rows of one rule: their action, else why none.
+    public static func actionText(_ rows: [ReviewItems.Row]) -> String {
+        if let action = rows.lazy.compactMap(\.action).first { return Self.action(action) }
+        return rows.contains { $0.lock == .noAction } ? ReviewItems.Lock.noAction.text : "Report only"
+    }
+
+    /// A row's own facts in the Groups view: its rule, action, class and way
+    /// back are said once on its heading, and so are the notes in `shared`.
+    public static func ownDetail(_ row: ReviewItems.Row, omitting shared: Set<ScanReport.Note>) -> String {
+        var parts: [String] = []
+        if let lock = ownLock(row) { parts.append(lock.text) }
+        let finding = row.finding
+        // Board 9 shows it on review rows too; an active project says "Active" instead.
+        if let days = finding.project?.idleDays {
+            if case .activeProject? = finding.notSelected {} else { parts.append("Untouched \(days) \(days == 1 ? "day" : "days")") }
+        }
+        if row.lock == nil || row.lock == .protected, let reason = finding.notSelected {
+            switch reason {
+            case .activeProject, .unknownActivity: parts.append(notSelected(reason))
+            case .review, .userData: break
+            }
+        }
+        parts += finding.notes.filter { !shared.contains($0) }.map(note)
+        if finding.incomplete { parts.append("Part of it could not be read; it may be skipped") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// The lock a row states in the Groups view: user data and "no command"
+    /// are said once, by the class and the heading.
+    public static func ownLock(_ row: ReviewItems.Row) -> ReviewItems.Lock? {
+        guard let lock = row.lock, lock != .userData, lock != .noAction else { return nil }
+        return lock
+    }
+
     /// A row's second line in the Review window: why it is, or is not,
     /// selected, and what the user should know before cleaning it.
     public static func detail(_ row: ReviewItems.Row) -> String {

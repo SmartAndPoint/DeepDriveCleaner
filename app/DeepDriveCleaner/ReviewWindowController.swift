@@ -9,6 +9,7 @@ import SwiftUI
 final class ReviewWindowController {
     private var window: NSWindow?
     private var keyObserver: NSObjectProtocol?
+    private var closeObserver: NSObjectProtocol?
     /// The Close button returns to the popover the user came from.
     var returnToPopover: (() -> Void)?
 
@@ -34,6 +35,14 @@ final class ReviewWindowController {
                 queue: .main
             ) { _ in
                 MainActor.assumeIsolated { model.refreshSettings() }
+            }
+            // Folded subgroups open again next time.
+            closeObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: window,
+                queue: .main
+            ) { _ in
+                MainActor.assumeIsolated { model.windowClosed() }
             }
             self.window = window
         }

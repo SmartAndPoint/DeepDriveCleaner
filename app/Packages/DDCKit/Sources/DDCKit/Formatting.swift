@@ -63,9 +63,24 @@ public enum Wording {
         } else {
             shown = path
         }
-        return shown.unicodeScalars.map { scalar in
+        return escaped(shown)
+    }
+
+    /// Control characters escaped, so a crafted name cannot disguise itself.
+    public static func escaped(_ text: String) -> String {
+        text.unicodeScalars.map { scalar in
             scalar.properties.generalCategory == .control ? scalar.escaped(asASCII: true) : String(scalar)
         }.joined()
+    }
+
+    /// "9.2 of 13.1 GiB", the unit said once when both share it, when part is
+    /// selected; else the total, also when both round to the same text.
+    public static func amount(selected: UInt64, total: UInt64) -> String {
+        let (part, whole) = (ByteSize.human(selected), ByteSize.human(total))
+        if selected == 0 || part == whole { return whole }
+        let unit = { (text: String) in text.split(separator: " ").last.map(String.init) ?? "" }
+        let shown = unit(part) == unit(whole) ? String(part.dropLast(unit(part).count + 1)) : part
+        return "\(shown) of \(whole)"
     }
 
     /// "17 s", "2 min 5 s": the running scan's elapsed time.

@@ -111,12 +111,22 @@ public struct ReviewItems: Sendable, Equatable {
         public let group: String
     }
 
-    /// The classes in their order, each with its groups in `rules --json` order.
+    /// The classes in their order, each with its groups largest first (story
+    /// "Review window: sorted sidebar, Select all and folder groups"), ties in
+    /// `rules --json` order. By total, never by the selection, so an entry
+    /// does not move while the user ticks.
     public var sidebar: [(riskClass: ScanReport.RiskClass, entries: [Entry])] {
         ScanReport.RiskClass.allCases.compactMap { riskClass in
             let groups = Set(rows.filter { $0.riskClass == riskClass && $0.lock != .typeOff && $0.lock != .underMinimumSize }.map(\.group))
             guard !groups.isEmpty else { return nil }
-            let entries = groupOrder.filter(groups.contains).map { Entry(riskClass: riskClass, group: $0) }
+            let ordered = groupOrder.filter(groups.contains).map { Entry(riskClass: riskClass, group: $0) }
+            var totals: [Entry: UInt64] = [:]
+            for entry in ordered { totals[entry] = total(entry) }
+            // Equal totals keep `rules --json` order.
+            let entries = ordered.enumerated().sorted { a, b in
+                let (x, y) = (totals[a.element] ?? 0, totals[b.element] ?? 0)
+                return x != y ? x > y : a.offset < b.offset
+            }.map(\.element)
             return (riskClass, entries)
         }
     }

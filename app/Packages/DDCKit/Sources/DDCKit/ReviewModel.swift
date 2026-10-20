@@ -63,6 +63,8 @@ public final class ReviewModel: ReviewRouting {
     public var entry: ReviewItems.Entry?
     public var query = ""
     public var sort: ReviewItems.Sort = .size
+    /// Folded subgroups of the Groups view, while the window stays open.
+    public var collapsed: Set<GroupLayout.Key> = []
     /// Non-nil while the confirmation sheet shows.
     public internal(set) var sheet: Sheet?
     public internal(set) var notice: String?
@@ -270,6 +272,44 @@ public final class ReviewModel: ReviewRouting {
     public var selectedRows: [ReviewItems.Row] {
         guard let items else { return [] }
         return selection.sorted().compactMap { items.row($0) }
+    }
+
+    /// Off, mixed or on over the selectable rows of `ids`: Select all and
+    /// a subgroup's heading. Off when none of them can be selected.
+    public func checkState(_ ids: [Int]) -> CheckState {
+        guard let items else { return .off }
+        let selectable = ids.filter { items.row($0)?.selectable == true }
+        let selected = selectable.filter(selection.contains).count
+        return selected == 0 ? .off : (selected == selectable.count ? .on : .mixed)
+    }
+
+    /// Whether any of `ids` can be selected: the checkbox is off otherwise.
+    public func canSelect(_ ids: [Int]) -> Bool {
+        ids.contains { items?.row($0)?.selectable == true }
+    }
+
+    /// Select all, or a heading: selects every selectable row of `ids`
+    /// unless all are selected, then clears them. Locked rows never change.
+    public func toggleAll(_ ids: [Int]) {
+        set(ids, selected: checkState(ids) != .on)
+    }
+
+    /// The sidebar's and the group header's "selected of total".
+    public func amount(of entry: ReviewItems.Entry) -> String {
+        guard let items else { return "" }
+        let rows = items.rows(in: entry)
+        let selected = rows.filter { selection.contains($0.id) }.reduce(0) { $0 + $1.finding.bytes }
+        return Wording.amount(selected: selected, total: rows.reduce(0) { $0 + $1.finding.bytes })
+    }
+
+    /// A subgroup's heading: folds it or opens it again.
+    public func toggleCollapsed(_ key: GroupLayout.Key) {
+        if collapsed.contains(key) { collapsed.remove(key) } else { collapsed.insert(key) }
+    }
+
+    /// The window closed: every subgroup opens again next time.
+    public func windowClosed() {
+        collapsed = []
     }
 
     public var selectedBytes: UInt64 { selectedRows.reduce(0) { $0 + $1.finding.bytes } }
