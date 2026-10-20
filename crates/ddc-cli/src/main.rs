@@ -2,6 +2,7 @@
 
 mod cli;
 mod cmd;
+mod disclaimer;
 mod exit;
 mod launchd;
 mod notify;
@@ -15,7 +16,12 @@ use std::process::ExitCode;
 use clap::Parser as _;
 
 fn main() -> ExitCode {
-    let cli = cli::Cli::parse();
+    // `try_parse`, so help and usage errors get the warning too; `--version` does not.
+    let parsed = cli::Cli::try_parse();
+    if !matches!(&parsed, Err(e) if e.kind() == clap::error::ErrorKind::DisplayVersion) {
+        disclaimer::warn_if_terminal();
+    }
+    let cli = parsed.unwrap_or_else(|e| e.exit());
     init_process();
     match cmd::run(cli) {
         Ok(code) => code,

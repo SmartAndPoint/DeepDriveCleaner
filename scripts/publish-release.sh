@@ -1,14 +1,15 @@
 #!/bin/bash
-# Publishes the tarball that `make dist` built and points the Homebrew cask at it.
+# Publishes the two assets `make dist` built and points the Homebrew cask at the app.
 #
 # Two repositories, in this order and no other (the same contract as GrammarHelper's
 # publish script):
-#   1. SmartAndPoint/DeepDriveCleaner — release v<version> with the tarball, its tag
-#      created at the built commit
+#   1. SmartAndPoint/DeepDriveCleaner — release v<version> with the app zip (the
+#      cask's) and the CLI tarball (for a manual install), its tag created at the
+#      built commit
 #   2. SmartAndPoint/homebrew-tap     — Casks/deepdrivecleaner.rb
 # A cask that names an asset which does not exist yet breaks `brew install` for
 # everyone who already ran `brew update`; a release nobody points at yet breaks
-# nothing. So the asset goes first.
+# nothing. So the assets go first.
 #
 # The version is read from Cargo.toml and never passed in: a hand-typed version is
 # how the cask and the binary drift apart.
@@ -19,6 +20,9 @@ TAP_REPO="SmartAndPoint/homebrew-tap"
 CASK_PATH="Casks/deepdrivecleaner.rb"
 TARGET=aarch64-apple-darwin
 TEAM_ID=8MSDJTBW2D
+APP_ID=com.smartandpoint.deepdrivecleaner
+CLI_ID=com.smartandpoint.deepdrivecleaner.cli
+MIN_MACOS=26.0   # the cask's `depends_on macos: :tahoe`
 GIT_NAME="Evgenii Konev"
 GIT_EMAIL="ekonev@smartandpoint.com"
 
@@ -45,7 +49,8 @@ gh auth status >/dev/null 2>&1 || fail "gh is not authenticated (gh auth login)"
 
 VERSION="$("$CARGO" pkgid -p ddc-cli | sed 's/.*[#@]//')"
 TAG="v$VERSION"
-ASSET="deepdrivecleaner-$VERSION-$TARGET.tar.gz"
+TARBALL_NAME="deepdrivecleaner-$VERSION-$TARGET.tar.gz"
+ZIP_NAME="DeepDriveCleaner-$VERSION.zip"
 [ -f "$ROOT/docs/releases/$VERSION.md" ] || fail "docs/releases/$VERSION.md missing: the release notes start there"
 
 # The tag is created at the built commit, so it must be public: HEAD on origin/main.
@@ -68,10 +73,15 @@ remote_tag_commit() {
         '$2 == peeled { p = $1 } $2 != peeled && $1 != "" { t = $1 } END { print (p != "" ? p : t) }'
 }
 
+# The digest GitHub reports for asset $1 of release $TAG, empty when it has none.
+remote_digest() {
+    gh release view "$TAG" --repo "$REPO" --json assets --jq ".assets[] | select(.name==\"$1\") | .digest // empty"
+}
+
 # Republishing a version silently would leave users on a cask whose sha256 no
 # longer matches what they download, so an existing release is never replaced. It is
-# a half-finished publish (the asset went up, the cask did not): resume at the cask
-# with the asset the release already holds. That asset is downloaded rather than
+# a half-finished publish (the assets went up, the cask did not): resume at the cask
+# with the assets the release already holds. They are downloaded rather than
 # taken from dist/, which a `make dist` after the release would have rebuilt, and a
 # rebuild never reproduces the published digest (signature timestamp, tar mtimes).
 # A failed read is not "no release": only gh's "release not found" is.
@@ -83,33 +93,40 @@ else
     fail "could not read release $TAG: $IS_DRAFT"
 fi
 if [ "$RELEASE_EXISTS" = 1 ]; then
-    ASSET_NAME="$(gh release view "$TAG" --repo "$REPO" \
-        --json assets --jq ".assets[] | select(.name==\"$ASSET\") | .name")" || fail "could not read release $TAG"
-    if [ -z "$ASSET_NAME" ] && [ "$IS_DRAFT" = true ]; then
+    NAMES="$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')" \
+        || fail "could not read release $TAG"
+    for NAME in "$ZIP_NAME" "$TARBALL_NAME"; do
+        grep -qxF "$NAME" <<<"$NAMES" && continue
         # gh deletes its own draft when an upload fails; this one was left by hand or by a failed cleanup.
-        fail "release $TAG is a draft without $ASSET: inspect it with 'gh release view $TAG --repo $REPO', remove it with 'gh release delete $TAG --repo $REPO --cleanup-tag --yes', then rerun"
-    fi
-    [ -n "$ASSET_NAME" ] \
-        || fail "release $TAG is published but holds no $ASSET: inspect it with 'gh release view $TAG --repo $REPO' — a cask may already point at it, so do not delete it"
-    REMOTE_DIGEST="$(gh release view "$TAG" --repo "$REPO" \
-        --json assets --jq ".assets[] | select(.name==\"$ASSET\") | .digest // empty")" || fail "could not read release $TAG"
-    [ -n "$REMOTE_DIGEST" ] || fail "GitHub reports no digest for $ASSET in release $TAG yet — rerun later"
-    step "Release $TAG exists — resuming at the cask with its asset"
-    gh release download "$TAG" --repo "$REPO" --pattern "$ASSET" --dir "$WORK" \
-        || fail "could not download $ASSET from release $TAG"
-    TARBALL="$WORK/$ASSET"
+        [ "$IS_DRAFT" = true ] \
+            && fail "release $TAG is a draft without $NAME: inspect it with 'gh release view $TAG --repo $REPO', remove it with 'gh release delete $TAG --repo $REPO --cleanup-tag --yes', then rerun"
+        fail "release $TAG is published but holds no $NAME: inspect it with 'gh release view $TAG --repo $REPO' — a cask may already point at it, so do not delete it"
+    done
+    ZIP_DIGEST="$(remote_digest "$ZIP_NAME")" || fail "could not read release $TAG"
+    TARBALL_DIGEST="$(remote_digest "$TARBALL_NAME")" || fail "could not read release $TAG"
+    [ -n "$ZIP_DIGEST" ] && [ -n "$TARBALL_DIGEST" ] \
+        || fail "GitHub reports no digest for an asset of release $TAG yet — rerun later"
+    step "Release $TAG exists — resuming at the cask with its assets"
+    gh release download "$TAG" --repo "$REPO" --pattern "$ZIP_NAME" --pattern "$TARBALL_NAME" --dir "$WORK" \
+        || fail "could not download the assets of release $TAG"
+    ZIP="$WORK/$ZIP_NAME"
+    TARBALL="$WORK/$TARBALL_NAME"
     BUILD_SHA="$(remote_tag_commit)"
     [ -n "$BUILD_SHA" ] || fail "release $TAG exists but origin has no tag $TAG"
     # Resuming may run from a later commit, but only one that changes nothing in the
-    # binary: a cask fix is a commit.
+    # assets: a cask fix is a commit.
     git merge-base --is-ancestor "$BUILD_SHA" HEAD || fail "HEAD does not descend from $TAG ($BUILD_SHA)"
     CHANGED="$(git diff --no-renames --name-only "$BUILD_SHA" HEAD \
         | grep -v -E '^(packaging/homebrew/|scripts/publish-release\.sh$)' || true)"
     [ -z "$CHANGED" ] || fail "since $TAG, files outside the cask changed: $CHANGED — bump the version"
 else
-    # A new release is cut from HEAD, with the tarball `make dist` built from it.
-    TARBALL="$ROOT/dist/$ASSET"
-    [ -f "$TARBALL" ] || fail "$ASSET not found — run 'make dist' first"
+    # A new release is cut from HEAD, with the assets `make dist` built from it (it
+    # builds the zip only beside a tarball of the same commit).
+    ZIP="$ROOT/dist/$ZIP_NAME"
+    TARBALL="$ROOT/dist/$TARBALL_NAME"
+    for FILE in "$ZIP" "$TARBALL"; do
+        [ -f "$FILE" ] || fail "$(basename "$FILE") not found — run 'make dist' first"
+    done
     BUILD_SHA="$(cat "$ROOT/dist/BUILD_COMMIT" 2>/dev/null || true)"
     [ -n "$BUILD_SHA" ] || fail "dist/BUILD_COMMIT missing — run 'make dist' again"
     [ "$BUILD_SHA" = "$HEAD_SHA" ] || fail "dist/ was built from another commit — run 'make dist' again"
@@ -118,44 +135,83 @@ else
     [ -z "$STRAY_TAG" ] || fail "tag $TAG already exists on origin without a release — delete it or bump the version"
 fi
 
-# Integrity before anything from the tarball runs: digest, then signature, then the binary.
-SHA256="$(shasum -a 256 "$TARBALL" | awk '{print $1}')"
-step "sha256 $SHA256"
+# Integrity before anything from the assets runs: digest, then contents, then
+# signatures, then the binaries. Nothing here opens the app.
+ZIP_SHA="$(shasum -a 256 "$ZIP" | awk '{print $1}')"
+TARBALL_SHA="$(shasum -a 256 "$TARBALL" | awk '{print $1}')"
+step "sha256 $ZIP_SHA  $ZIP_NAME"
+step "sha256 $TARBALL_SHA  $TARBALL_NAME"
 if [ "$RELEASE_EXISTS" = 1 ]; then
-    [ "$REMOTE_DIGEST" = "sha256:$SHA256" ] || fail "the downloaded $ASSET does not match the release's digest $REMOTE_DIGEST"
+    [ "$ZIP_DIGEST" = "sha256:$ZIP_SHA" ] || fail "the downloaded $ZIP_NAME does not match the release's digest $ZIP_DIGEST"
+    [ "$TARBALL_DIGEST" = "sha256:$TARBALL_SHA" ] \
+        || fail "the downloaded $TARBALL_NAME does not match the release's digest $TARBALL_DIGEST"
 fi
+
+# A signed command-line tool $1 ($2 in messages) of this version, signed as $CLI_ID.
+check_cli() {
+    local bin="$1" what="$2" info
+    codesign --verify --strict "$bin" || fail "$what fails codesign --verify"
+    info="$(codesign -dv "$bin" 2>&1)" || fail "codesign cannot read the signature of $what"
+    grep -qxF "Identifier=$CLI_ID" <<<"$info" || fail "$what is not signed as $CLI_ID"
+    grep -qxF "TeamIdentifier=$TEAM_ID" <<<"$info" || fail "$what is not signed by team $TEAM_ID"
+    [ "$("$bin" --version)" = "deepdrivecleaner $VERSION" ] || fail "$what is not $VERSION"
+}
+
 step "Checking what the tarball holds"
+LISTING="$(tar -tzf "$TARBALL" | LC_ALL=C sort | tr '\n' ' ')" || fail "cannot list $TARBALL_NAME"
+[ "$LISTING" = "DISCLAIMER.md LICENSE.md README.md deepdrivecleaner " ] || fail "unexpected tarball contents: $LISTING"
 mkdir "$WORK/unpacked"
 tar -xzf "$TARBALL" -C "$WORK/unpacked"
-BIN="$WORK/unpacked/deepdrivecleaner"
-codesign --verify --strict "$BIN" || fail "the tarball's binary fails codesign --verify"
-codesign -dv "$BIN" 2>&1 | grep "^TeamIdentifier=$TEAM_ID$" >/dev/null \
-    || fail "the tarball's binary is not signed by team $TEAM_ID"
-[ "$("$BIN" --version)" = "deepdrivecleaner $VERSION" ] || fail "the tarball's binary is not $VERSION"
+check_cli "$WORK/unpacked/deepdrivecleaner" "the tarball's binary"
+
+step "Checking what the zip holds"
+TOP="$(unzip -Z1 "$ZIP" | sed 's|/.*||' | LC_ALL=C sort -u | tr '\n' ' ')" || fail "cannot list $ZIP_NAME"
+[ "$TOP" = "DeepDriveCleaner.app " ] || fail "the zip should hold DeepDriveCleaner.app alone, not: $TOP"
+mkdir "$WORK/app"
+ditto -x -k "$ZIP" "$WORK/app"
+APP="$WORK/app/DeepDriveCleaner.app"
+codesign --verify --deep --strict "$APP" || fail "the app fails codesign --verify --deep"
+APP_INFO="$(codesign -dv "$APP" 2>&1)" || fail "codesign cannot read the app's signature"
+grep -qxF "Identifier=$APP_ID" <<<"$APP_INFO" || fail "the app is not signed as $APP_ID"
+grep -qxF "TeamIdentifier=$TEAM_ID" <<<"$APP_INFO" || fail "the app is not signed by team $TEAM_ID"
+xcrun stapler validate -q "$APP" || fail "the app has no valid stapled notarization ticket"
+plist() { plutil -extract "$1" raw -o - "$APP/Contents/Info.plist"; }
+[ "$(plist CFBundleShortVersionString)" = "$VERSION" ] || fail "the app is $(plist CFBundleShortVersionString), not $VERSION"
+[ "$(plist CFBundleIdentifier)" = "$APP_ID" ] || fail "the app's bundle id is $(plist CFBundleIdentifier), not $APP_ID"
+[ "$(plist LSMinimumSystemVersion)" = "$MIN_MACOS" ] \
+    || fail "the app needs macOS $(plist LSMinimumSystemVersion), the cask says $MIN_MACOS"
+for DOC in LICENSE.md DISCLAIMER.md; do
+    cmp -s "$APP/Contents/Resources/$DOC" "$ROOT/$DOC" || fail "the app's $DOC is missing or differs from the repository's"
+done
+check_cli "$APP/Contents/Helpers/deepdrivecleaner" "the app's command-line tool"
 
 # ── Release notes and cask ────────────────────────────────────────────────
 NOTES="$WORK/release-notes.md"
 {
     cat "$ROOT/docs/releases/$VERSION.md"
     echo
-    echo "## Install (Apple Silicon)"
+    echo "## Install (Apple Silicon, macOS 26)"
     echo
     echo '```'
     echo "brew install --cask smartandpoint/tap/deepdrivecleaner"
     echo '```'
     echo
+    echo "\`$ZIP_NAME\` is the app the cask installs. \`$TARBALL_NAME\` is the command-line tool alone, for a manual install."
+    echo
     echo "## Build"
     echo
     echo "- Commit: \`$BUILD_SHA\`"
     echo "- Toolchain: \`$("$HOME/.cargo/bin/rustc" --version)\`"
-    echo "- Command: \`RUSTFLAGS=\"--remap-path-prefix=\$HOME=~\" cargo build --release --locked --target $TARGET -p ddc-cli\`"
-    echo "- Signed with the SmartAndPoint Developer ID (team \`$TEAM_ID\`) and notarized by Apple"
-    echo "- SHA-256 of \`$ASSET\`: \`$SHA256\`"
+    echo "- Command-line tool: \`RUSTFLAGS=\"--remap-path-prefix=\$HOME=~\" cargo build --release --locked --target $TARGET -p ddc-cli\`"
+    echo "- App: \`scripts/build-app.sh --dist\` (Release, the command-line tool in \`Contents/Helpers\`)"
+    echo "- Signed with the SmartAndPoint Developer ID (team \`$TEAM_ID\`): the app as \`$APP_ID\`, the command-line tool as \`$CLI_ID\`. Notarized by Apple; the app's ticket is stapled"
+    echo "- SHA-256 of \`$ZIP_NAME\`: \`$ZIP_SHA\`"
+    echo "- SHA-256 of \`$TARBALL_NAME\`: \`$TARBALL_SHA\`"
 } > "$NOTES"
 
 mkdir -p "$WORK/Casks"   # under Casks/, `brew style` applies the cask cops
 CASK="$WORK/Casks/deepdrivecleaner.rb"
-sed -e "s/__VERSION__/$VERSION/g" -e "s/__SHA256__/$SHA256/g" "$TEMPLATE" > "$CASK"
+sed -e "s/__VERSION__/$VERSION/g" -e "s/__SHA256__/$ZIP_SHA/g" "$TEMPLATE" > "$CASK"
 if grep -qE '__[A-Z0-9]+__' "$CASK"; then fail "template placeholders left unsubstituted"; fi
 ruby -c "$CASK" >/dev/null || fail "the rendered cask is not valid Ruby"
 HOMEBREW_NO_AUTO_UPDATE=1 brew style "$CASK" || fail "brew style offenses in the rendered cask"
@@ -172,10 +228,14 @@ else
     TAP_STATE="update"
 fi
 
-printf '\033[0;32mPublishing %s\033[0m  (%s)\n' "$VERSION" "$ASSET"
+printf '\033[0;32mPublishing %s\033[0m  (%s, %s)\n' "$VERSION" "$ZIP_NAME" "$TARBALL_NAME"
 if [ "$DRY_RUN" = 1 ]; then
     echo "── release ──"
-    if [ "$RELEASE_EXISTS" = 1 ]; then echo "exists: resume at the cask"; else echo "would create $TAG at $BUILD_SHA"; fi
+    if [ "$RELEASE_EXISTS" = 1 ]; then
+        echo "exists: resume at the cask"
+    else
+        echo "would create $TAG at $BUILD_SHA with $ZIP_NAME and $TARBALL_NAME"
+    fi
     echo "── tap $TAP_REPO ──"
     case "$TAP_STATE" in
         create)  echo "would create $CASK_PATH" ;;
@@ -191,12 +251,14 @@ fi
 # ── 1. Release ───────────────────────────────────────────────────────────────
 if [ "$RELEASE_EXISTS" = 0 ]; then
     step "Creating $TAG at $BUILD_SHA"
-    gh release create "$TAG" "$TARBALL" --repo "$REPO" --target "$BUILD_SHA" \
+    gh release create "$TAG" "$ZIP" "$TARBALL" --repo "$REPO" --target "$BUILD_SHA" \
         --title "DeepDriveCleaner $VERSION" --notes-file "$NOTES"
-    REMOTE_DIGEST="$(gh release view "$TAG" --repo "$REPO" \
-        --json assets --jq ".assets[] | select(.name==\"$ASSET\") | .digest")"
-    [ "$REMOTE_DIGEST" = "sha256:$SHA256" ] \
-        || fail "the uploaded asset's digest is '${REMOTE_DIGEST:-empty}' — the release exists; check it before rerunning"
+    ZIP_DIGEST="$(remote_digest "$ZIP_NAME")" || ZIP_DIGEST=""
+    [ "$ZIP_DIGEST" = "sha256:$ZIP_SHA" ] \
+        || fail "the uploaded $ZIP_NAME's digest is '${ZIP_DIGEST:-empty}' — the release exists; check it before rerunning"
+    TARBALL_DIGEST="$(remote_digest "$TARBALL_NAME")" || TARBALL_DIGEST=""
+    [ "$TARBALL_DIGEST" = "sha256:$TARBALL_SHA" ] \
+        || fail "the uploaded $TARBALL_NAME's digest is '${TARBALL_DIGEST:-empty}' — the release exists; check it before rerunning"
     REMOTE_TAG_SHA="$(remote_tag_commit)"
     [ "$REMOTE_TAG_SHA" = "$BUILD_SHA" ] \
         || fail "tag $TAG on origin points at '${REMOTE_TAG_SHA:-nothing}', not at the built commit $BUILD_SHA — the release exists; check it before rerunning"

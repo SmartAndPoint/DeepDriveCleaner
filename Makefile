@@ -31,10 +31,12 @@ install:
 	$(CARGO) install --path crates/ddc-cli --locked
 	ln -sf "$(HOME)/.cargo/bin/deepdrivecleaner" "$(HOME)/.cargo/bin/ddc"
 
-# Signed, notarized release tarball in dist/ (needs .env with DDC_SIGN_IDENTITY and
-# NOTARY_PROFILE); publish it with scripts/publish-release.sh.
-dist: check
+# Both release assets in dist/, from one commit (needs .env with DDC_SIGN_IDENTITY and
+# NOTARY_PROFILE): the signed, notarized CLI tarball, then the notarized, stapled app
+# zip. Publish them with scripts/publish-release.sh.
+dist: check app-test
 	./scripts/build-dist.sh
+	./scripts/build-app.sh --dist
 
 # The menu bar app, Debug, signed with the Developer ID (needs DDC_SIGN_IDENTITY in
 # .env): build/Debug/DeepDriveCleaner.app with the release CLI in Contents/Helpers.
@@ -45,10 +47,8 @@ app:
 app-test:
 	cd app/Packages/DDCKit && swift test
 
-# Notarized, stapled app in dist/DeepDriveCleaner-<version>.zip. Run after `make dist`,
-# which empties dist/ first.
-app-dist: check app-test
-	./scripts/build-app.sh --dist
+# The same as `make dist`, under the name story "App skeleton and build pipeline" used.
+app-dist: dist
 
 # Regenerates the AppIcon set from the status item's glyph (DriveGlyph.swift).
 icons:

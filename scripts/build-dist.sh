@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds the release tarball that scripts/publish-release.sh publishes:
+# Builds the CLI tarball that scripts/publish-release.sh attaches to a release:
 # release build -> Developer ID signature -> Apple notarization -> tarball.
 #
 # Signed with the SmartAndPoint Developer ID, as GrammarHelper is. The designated
@@ -10,7 +10,9 @@
 set -euo pipefail
 
 TARGET=aarch64-apple-darwin
-IDENTIFIER=com.smartandpoint.deepdrivecleaner
+# The app's bundle id is com.smartandpoint.deepdrivecleaner; the CLI, in the app and
+# here, is .cli (ADR "Menu bar app: Swift shell over the ddc CLI", §4).
+IDENTIFIER=com.smartandpoint.deepdrivecleaner.cli
 TEAM_ID=8MSDJTBW2D
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,6 +37,10 @@ if [ -f .env ]; then set -a; . ./.env; set +a; fi
 [ -z "$(git status --porcelain)" ] || fail "the tree is not clean (untracked files count): commit first"
 
 VERSION="$("$CARGO" pkgid -p ddc-cli | sed 's/.*[#@]//')"
+# scripts/build-app.sh --dist refuses this too, but only after this script has
+# spent a notarization round: refuse before it.
+APP_VERSION="$(sed -n 's/^[[:space:]]*MARKETING_VERSION = \(.*\);$/\1/p' app/DeepDriveCleaner.xcodeproj/project.pbxproj | sort -u)"
+[ "$APP_VERSION" = "$VERSION" ] || fail "the app's MARKETING_VERSION ($APP_VERSION) is not the CLI's version ($VERSION)"
 ASSET="deepdrivecleaner-$VERSION-$TARGET.tar.gz"
 
 step "Building $VERSION for $TARGET"
@@ -54,8 +60,9 @@ step "Signing with $IDENTIFIER (team $TEAM_ID)"
 codesign --force --timestamp --options runtime --identifier "$IDENTIFIER" \
     --sign "$DDC_SIGN_IDENTITY" "$STAGE/deepdrivecleaner"
 codesign --verify --strict --verbose=2 "$STAGE/deepdrivecleaner"
-codesign -dv "$STAGE/deepdrivecleaner" 2>&1 | grep "^TeamIdentifier=$TEAM_ID$" >/dev/null \
-    || fail "not signed by team $TEAM_ID"
+SIGNATURE="$(codesign -dv "$STAGE/deepdrivecleaner" 2>&1)" || fail "codesign cannot read the signature"
+grep -qxF "Identifier=$IDENTIFIER" <<<"$SIGNATURE" || fail "not signed as $IDENTIFIER"
+grep -qxF "TeamIdentifier=$TEAM_ID" <<<"$SIGNATURE" || fail "not signed by team $TEAM_ID"
 
 step "Notarizing (waits for Apple)"
 ditto -c -k "$STAGE/deepdrivecleaner" "$DIST/notarize.zip"
@@ -83,16 +90,16 @@ until NOTARY_CHECK="$(codesign --verify -R="notarized" --check-notarization "$ST
 done
 
 step "Packing $ASSET"
-cp LICENSE.md README.md "$STAGE/"
+cp LICENSE.md DISCLAIMER.md README.md "$STAGE/"
 # No extended attributes, no AppleDouble files, no local user in the archive.
 COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata --uid 0 --gid 0 --uname root --gname wheel \
-    -czf "$DIST/$ASSET" -C "$STAGE" deepdrivecleaner LICENSE.md README.md
+    -czf "$DIST/$ASSET" -C "$STAGE" deepdrivecleaner LICENSE.md DISCLAIMER.md README.md
 LISTING="$(tar -tzf "$DIST/$ASSET" | LC_ALL=C sort | tr '\n' ' ')"
-[ "$LISTING" = "LICENSE.md README.md deepdrivecleaner " ] || fail "unexpected tarball contents: $LISTING"
+[ "$LISTING" = "DISCLAIMER.md LICENSE.md README.md deepdrivecleaner " ] || fail "unexpected tarball contents: $LISTING"
 shasum -a 256 "$DIST/$ASSET" | awk '{print $1}' > "$DIST/$ASSET.sha256"
 git rev-parse HEAD > "$DIST/BUILD_COMMIT"
 rm -rf "$STAGE"
 
 printf '\033[0;32m✅ %s\033[0m\n' "$DIST/$ASSET"
 echo "   sha256 $(cat "$DIST/$ASSET.sha256")"
-echo "   next: scripts/publish-release.sh --dry-run"
+echo "   next: scripts/build-app.sh --dist (make dist runs it), then scripts/publish-release.sh --dry-run"

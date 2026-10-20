@@ -11,7 +11,8 @@
 # Never launch or grant a copy Xcode ran (Cmd-R): its ad-hoc signature replaces the
 # requirement TCC stores, and the signed build then reads as not granted.
 #
-# scripts/build-dist.sh empties dist/ first, so `make dist` runs before `make app-dist`.
+# `make dist` runs scripts/build-dist.sh first: it empties dist/ and writes
+# dist/BUILD_COMMIT, and the zip is built only beside a tarball of the same commit.
 # DDC_SIGN_IDENTITY and NOTARY_PROFILE come from .env, which is never committed.
 set -euo pipefail
 
@@ -46,6 +47,10 @@ if [ "$DIST" = 1 ]; then
     # A zip built from uncommitted code could not be rebuilt from its tag.
     [ -z "$(git status --porcelain)" ] || fail "the tree is not clean (untracked files count): commit first"
     [ "$APP_VERSION" = "$VERSION" ] || fail "the app's MARKETING_VERSION ($APP_VERSION) is not the CLI's version ($VERSION)"
+    # Both release assets come from one commit; scripts/publish-release.sh checks
+    # BUILD_COMMIT against HEAD for both.
+    [ "$(cat dist/BUILD_COMMIT 2>/dev/null || true)" = "$(git rev-parse HEAD)" ] \
+        || fail "dist/BUILD_COMMIT is not HEAD: run scripts/build-dist.sh first (make dist runs both)"
 fi
 
 # Signs one piece of code and checks it carries the identifier and the team.
@@ -56,8 +61,8 @@ sign_code() {
     codesign --force "$TIMESTAMP" --options runtime --identifier "$identifier" --sign "$DDC_SIGN_IDENTITY" "$path"
     local info
     info="$(codesign -dv "$path" 2>&1)"
-    grep -qx "Identifier=$identifier" <<<"$info" || fail "$path is not signed as $identifier"
-    grep -qx "TeamIdentifier=$TEAM_ID" <<<"$info" || fail "$path is not signed by team $TEAM_ID"
+    grep -qxF "Identifier=$identifier" <<<"$info" || fail "$path is not signed as $identifier"
+    grep -qxF "TeamIdentifier=$TEAM_ID" <<<"$info" || fail "$path is not signed by team $TEAM_ID"
 }
 
 # Retries a command every 20 s (15 times by default): a notarization ticket can
@@ -92,6 +97,8 @@ ditto "build/DerivedData/Build/Products/$CONFIG/DeepDriveCleaner.app" "$APP"
 # deepdrivecleaner and DeepDriveCleaner are the same name.
 mkdir -p "$APP/Contents/Helpers"
 cp "$CLI" "$APP/Contents/Helpers/deepdrivecleaner"
+# The license and the disclaimer travel with the app: a cask install has no other copy.
+cp LICENSE.md DISCLAIMER.md "$APP/Contents/Resources/"
 xattr -cr "$APP"
 
 step "Signing with the Developer ID (team $TEAM_ID)"
