@@ -8,6 +8,11 @@
 //! and native tools are only looked up, never run. The clean itself still
 //! rescans and re-checks; pins only a whole-tree walk sees may skip an item
 //! this predicted, and a tool reporting another location runs the fallback.
+//!
+//! A picked entry of the user's own folders gets the clean's entry checks
+//! instead (safety ADR, amendment of 2026-10-20), with its lock derived as
+//! the scan derives it. Without a scan the dry run cannot see that a child
+//! of Downloads became another rule's finding; the clean skips it then.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -22,8 +27,12 @@ use crate::class::{Fallback, RiskClass};
 use crate::env::Env;
 use crate::model::{Finding, RemovalKind};
 use crate::plan::{Action, ActionKind, ListedItem, PlanItem, action_for};
-use crate::rules::{Catalog, KEEP_MARKER, effective_class};
+use crate::report::backups;
+use crate::rules::entries::{BACKUP_RULE, ENTRY_RULES, EntryFacts, lock_of};
+use crate::rules::{Catalog, KEEP_MARKER, PROTECTED_IN_HOME, Rule, effective_class};
+use crate::scan::reader::SF_DATALESS;
 use crate::scan::{self, DirCtx, DirReader, EntryMeta, OwnerKind, Progress, Tag, Visitor, WalkOptions};
+use crate::sys::fsops::DirFd;
 
 /// One line of the dry run's output (JSON Lines, one per item, then the summary).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -99,11 +108,29 @@ pub fn preflight(
     // covers `.ddc-keep` above an item, the walk below the one inside it.
     let guard = Guard::new(env, catalog, &roots, Vec::new(), ports.procs.processes());
     let root_refs: Vec<&Path> = roots.iter().map(PathBuf::as_path).collect();
+    // Picked entries first, as the clean runs them: an item inside one that
+    // would go to the Trash would be skipped.
+    let entries: Vec<Option<(Option<u64>, Prediction)>> = listed
+        .iter()
+        .map(|item| {
+            (item.class == RiskClass::UserData)
+                .then(|| settle(check_entry(item, catalog, &root_refs, &excludes, &guard, ports, env)))
+        })
+        .collect();
+    let trashed: Vec<&Path> = listed
+        .iter()
+        .zip(&entries)
+        .filter(|(_, e)| matches!(e, Some((_, Prediction::WouldTrash))))
+        .map(|(item, _)| item.path.as_path())
+        .collect();
     let mut summary = PreflightSummary::default();
-    for item in listed {
-        let (bytes, prediction) = match check(item, catalog, &root_refs, &excludes, &guard, ports, env.home()) {
-            Ok((bytes, prediction)) => (Some(bytes), prediction),
-            Err((bytes, reason)) => (bytes, Prediction::WouldSkip(reason)),
+    for (item, entry) in listed.iter().zip(entries) {
+        let (bytes, prediction) = match entry {
+            Some(predicted) => predicted,
+            None if trashed.iter().any(|t| item.path != *t && item.path.starts_with(t)) => {
+                (None, Prediction::WouldSkip(SkipReason::InsideAnotherItem))
+            }
+            None => settle(check(item, catalog, &root_refs, &excludes, &guard, ports, env.home())),
         };
         summary.items += 1;
         match &prediction {
@@ -130,6 +157,13 @@ pub fn preflight(
 
 type Checked = Result<(u64, Prediction), (Option<u64>, SkipReason)>;
 
+fn settle(checked: Checked) -> (Option<u64>, Prediction) {
+    match checked {
+        Ok((bytes, prediction)) => (Some(bytes), prediction),
+        Err((bytes, reason)) => (bytes, Prediction::WouldSkip(reason)),
+    }
+}
+
 fn check(
     item: &ListedItem,
     catalog: &Catalog,
@@ -155,7 +189,8 @@ fn check(
     }
     // Identity, symlinks, rule marker, project root, `.ddc-keep` above, owner
     // and use: all before the walk, so nothing behind a swapped path is read.
-    guard.check(&planned(item, rule, class)).map_err(|reason| (None, reason))?;
+    let action = action_for(rule, class, item.permanent).unwrap_or(Action::Trash);
+    guard.check(&planned(item, rule, class, action)).map_err(|reason| (None, reason))?;
     let walked = walk_item(path, ports.reader).ok_or((None, SkipReason::Incomplete))?;
     if walked.kept {
         return Err((Some(walked.bytes), SkipReason::Kept));
@@ -165,7 +200,7 @@ fn check(
     }
     let prediction = match action {
         Action::Delete { .. } => Prediction::WouldDelete,
-        Action::Trash => Prediction::WouldTrash,
+        Action::Trash | Action::TrashEntry => Prediction::WouldTrash,
         Action::Native { cmd, fallback } => match ports.commands.find(cmd.program) {
             Some(_) => Prediction::WouldRun,
             None => match fallback {
@@ -186,15 +221,110 @@ fn check(
     Ok((walked.bytes, prediction))
 }
 
+/// A picked entry, in the clean's order: the action, the folder itself and
+/// its own protection, the path, the folder, the entry and its identity, its
+/// lock, then the rest of §5 (the guard).
+fn check_entry(
+    item: &ListedItem,
+    catalog: &Catalog,
+    roots: &[&Path],
+    excludes: &[PathBuf],
+    guard: &Guard<'_>,
+    ports: &PreflightPorts<'_>,
+    env: &Env,
+) -> Checked {
+    let path = item.path.as_path();
+    let skip = |reason| Err((None, reason));
+    let Some(rule) = catalog.by_id(&item.rule) else { return skip(SkipReason::RuleMismatch) };
+    if item.action != ActionKind::Trash || item.permanent {
+        return skip(SkipReason::ActionNotAllowed);
+    }
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return skip(SkipReason::ActionNotAllowed);
+    };
+    if catalog.verify(rule, path) {
+        return skip(SkipReason::ActionNotAllowed);
+    }
+    // The whole folder is kept: an exclude at or above it, in a folder the
+    // scan claims whole an exclude anywhere inside, or a marker in it or above.
+    let claimed_whole = rule.id != "user.downloads";
+    if excludes.iter().any(|e| parent.starts_with(e) || (claimed_whole && e.starts_with(parent)))
+        || guard.marker_above(path)
+    {
+        return skip(SkipReason::Kept);
+    }
+    if !roots.iter().any(|r| path.starts_with(r)) {
+        return skip(SkipReason::OutsideScanRoots);
+    }
+    if parent.canonicalize().ok().as_deref() != Some(parent) {
+        return skip(SkipReason::ParentChanged);
+    }
+    if !ENTRY_RULES.contains(&rule.id) || !catalog.verify(rule, parent) {
+        return skip(SkipReason::NotAnEntry);
+    }
+    let Ok(parent_fd) = DirFd::open(parent) else { return skip(SkipReason::ParentChanged) };
+    let st = match parent_fd.stat_child(name) {
+        Ok(st) => st,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return skip(SkipReason::NotAnEntry),
+        Err(_) => return skip(SkipReason::ChangedSinceScan),
+    };
+    if st.is_symlink {
+        return skip(SkipReason::Symlink);
+    }
+    if !(st.is_dir || st.is_file) || st.flags & SF_DATALESS != 0 {
+        return skip(SkipReason::NotAnEntry);
+    }
+    if (st.dev, st.ino) != (item.dev, item.ino) {
+        return skip(SkipReason::ChangedSinceScan);
+    }
+    // A volume mounted at the entry itself: locked, and never walked.
+    let mounted = parent_fd.identity().is_ok_and(|(dev, _)| dev != st.dev);
+    let walked = if mounted {
+        Walked { bytes: 0, kept: false, incomplete: true, other_fs: true }
+    } else if st.is_dir {
+        walk_item(path, ports.reader).unwrap_or(Walked {
+            bytes: st.alloc,
+            kept: false,
+            incomplete: true,
+            other_fs: false,
+        })
+    } else {
+        Walked { bytes: st.alloc, kept: false, incomplete: false, other_fs: false }
+    };
+    let (modified, added) = parent_fd.child_times(name).unwrap_or((None, None));
+    let home = env.home();
+    let facts = EntryFacts {
+        home,
+        rule: rule.id,
+        path,
+        modified,
+        added,
+        now: env.now(),
+        kept: walked.kept
+            || excludes.iter().any(|e| e.starts_with(path))
+            || (st.is_dir && std::fs::symlink_metadata(path.join(KEEP_MARKER)).is_ok()),
+        protected: PROTECTED_IN_HOME.iter().any(|rel| home.join(rel).starts_with(path)),
+        other_volume: walked.other_fs,
+        finished: rule.id == BACKUP_RULE && st.is_dir && backups::finished(path),
+    };
+    if let Some(lock) = lock_of(&facts) {
+        return Err((Some(walked.bytes), SkipReason::EntryLocked { lock }));
+    }
+    guard
+        .check(&planned(item, rule, RiskClass::UserData, Action::TrashEntry))
+        .map_err(|reason| (Some(walked.bytes), reason))?;
+    Ok((walked.bytes, Prediction::WouldTrash))
+}
+
 /// The plan item the guard checks: the listed identity under its rule.
-fn planned(item: &ListedItem, rule: &crate::rules::Rule, class: RiskClass) -> PlanItem {
+fn planned(item: &ListedItem, rule: &Rule, class: RiskClass, action: Action) -> PlanItem {
     let finding = Finding {
         path: item.path.clone(),
         rule: item.rule.clone(),
         category: rule.category,
         class,
         rule_class: rule.class,
-        removal: RemovalKind::Delete,
+        removal: if action == Action::TrashEntry { RemovalKind::Trash } else { RemovalKind::Delete },
         bytes: 0,
         shared_bytes: 0,
         private_bytes: None,
@@ -211,8 +341,8 @@ fn planned(item: &ListedItem, rule: &crate::rules::Rule, class: RiskClass) -> Pl
         ino: item.ino,
         parent_dev: None,
         parent_ino: None,
+        contents: None,
     };
-    let action = action_for(rule, class, item.permanent).unwrap_or(Action::Trash);
     PlanItem { finding, action, default_selected: true, selected: true }
 }
 
@@ -220,6 +350,8 @@ struct Walked {
     bytes: u64,
     kept: bool,
     incomplete: bool,
+    /// Another filesystem is mounted inside.
+    other_fs: bool,
 }
 
 /// Walks one listed item alone: its size, a `.ddc-keep` inside, unreadable parts.
@@ -250,6 +382,7 @@ fn walk_item(path: &Path, reader: &dyn DirReader) -> Option<Walked> {
         bytes: out.total_bytes,
         kept,
         incomplete: out.errors_total > 0 || out.skipped_total > 0 || out.vanished > 0,
+        other_fs: out.skipped.iter().any(|s| matches!(s.reason, scan::SkipReason::OtherFilesystem)),
     })
 }
 

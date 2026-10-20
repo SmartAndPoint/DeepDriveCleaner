@@ -1,6 +1,6 @@
 //! Directory reader on `getattrlistbulk(2)`: one syscall returns a batch of
 //! entries with name, type, inode, device, flags, link count, allocated size
-//! and (on request) the APFS private size. Only the syscalls are `unsafe`;
+//! and, on request, the APFS private size and the modification and added times. Only the syscalls are `unsafe`;
 //! the attribute buffer is parsed with bounds-checked safe code.
 
 use std::cell::RefCell;
@@ -13,14 +13,16 @@ use libc::c_int;
 use crate::scan::reader::{DirListing, DirReader, EntryKind, EntryMeta, ReadError, ReadErrorKind};
 
 // <sys/attr.h>
-const ATTR_BIT_MAP_COUNT: u16 = 5;
+pub(super) const ATTR_BIT_MAP_COUNT: u16 = 5;
 const ATTR_CMN_NAME: u32 = 0x0000_0001;
 const ATTR_CMN_DEVID: u32 = 0x0000_0002;
 const ATTR_CMN_OBJTYPE: u32 = 0x0000_0008;
+pub(super) const ATTR_CMN_MODTIME: u32 = 0x0000_0400;
 const ATTR_CMN_FLAGS: u32 = 0x0004_0000;
 const ATTR_CMN_FILEID: u32 = 0x0200_0000;
+pub(super) const ATTR_CMN_ADDEDTIME: u32 = 0x1000_0000;
 const ATTR_CMN_ERROR: u32 = 0x2000_0000;
-const ATTR_CMN_RETURNED_ATTRS: u32 = 0x8000_0000;
+pub(super) const ATTR_CMN_RETURNED_ATTRS: u32 = 0x8000_0000;
 const ATTR_FILE_LINKCOUNT: u32 = 0x0000_0001;
 const ATTR_FILE_ALLOCSIZE: u32 = 0x0000_0004;
 const ATTR_CMNEXT_PRIVATESIZE: u32 = 0x0000_0008;
@@ -34,14 +36,14 @@ const VLNK: u32 = 5;
 const BUF_LEN: usize = 128 * 1024;
 
 #[repr(C)]
-struct AttrList {
-    bitmapcount: u16,
-    reserved: u16,
-    commonattr: u32,
-    volattr: u32,
-    dirattr: u32,
-    fileattr: u32,
-    forkattr: u32,
+pub(super) struct AttrList {
+    pub bitmapcount: u16,
+    pub reserved: u16,
+    pub commonattr: u32,
+    pub volattr: u32,
+    pub dirattr: u32,
+    pub fileattr: u32,
+    pub forkattr: u32,
 }
 
 unsafe extern "C" {
@@ -75,76 +77,90 @@ pub struct BulkReader;
 
 impl DirReader for BulkReader {
     fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
-        let path = CString::new(dir.as_os_str().as_bytes()).map_err(|_| ReadError::from_errno(libc::EINVAL))?;
-        // Retried on EINTR, as std does: a signal is not an unreadable directory.
-        let raw = loop {
-            // SAFETY: `path` is a valid NUL-terminated string.
-            let raw = unsafe {
-                libc::open(path.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            };
-            if raw >= 0 || super::last_errno() != libc::EINTR {
-                break raw;
-            }
-        };
-        if raw < 0 {
-            return Err(ReadError::from_errno(super::last_errno()));
-        }
-        let fd = Fd(raw);
-
-        // SAFETY: an all-zero `stat` is a valid value; fstat fills it.
-        let mut st: libc::stat = unsafe { std::mem::zeroed() };
-        // SAFETY: `fd` is open and `st` is a valid out-pointer.
-        if unsafe { libc::fstat(fd.0, &mut st) } != 0 {
-            return Err(ReadError::from_errno(super::last_errno()));
-        }
-        // Same widening as std's `MetadataExt::dev()`.
-        let (dev, ino) = (st.st_dev as u64, st.st_ino);
-        if let Some((want_dev, want_ino)) = expect {
-            if dev != want_dev {
-                return Err(ReadError::new(ReadErrorKind::OtherFilesystem, None));
-            }
-            if ino != want_ino {
-                return Err(ReadError::new(ReadErrorKind::Changed, None));
-            }
-        }
-
-        let mut attrs = AttrList {
-            bitmapcount: ATTR_BIT_MAP_COUNT,
-            reserved: 0,
-            commonattr: ATTR_CMN_RETURNED_ATTRS
-                | ATTR_CMN_NAME
-                | ATTR_CMN_ERROR
-                | ATTR_CMN_DEVID
-                | ATTR_CMN_OBJTYPE
-                | ATTR_CMN_FLAGS
-                | ATTR_CMN_FILEID,
-            volattr: 0,
-            dirattr: 0,
-            fileattr: ATTR_FILE_LINKCOUNT | ATTR_FILE_ALLOCSIZE,
-            forkattr: if want_private { ATTR_CMNEXT_PRIVATESIZE } else { 0 },
-        };
-        let options = if want_private { FSOPT_ATTR_CMN_EXTENDED } else { 0 };
-
-        let mut entries = Vec::new();
-        BUF.with(|cell| {
-            let mut buf = cell.borrow_mut();
-            loop {
-                // SAFETY: `fd` is an open directory, `attrs` is a valid attrlist and
-                // `buf` is writable for `buf.len()` bytes.
-                let count = unsafe { getattrlistbulk(fd.0, &mut attrs, buf.as_mut_ptr().cast(), buf.len(), options) };
-                match count {
-                    0 => return Ok(()),
-                    n if n < 0 => match super::last_errno() {
-                        // Interrupted before returning a batch: nothing was consumed, call again.
-                        libc::EINTR => continue,
-                        errno => return Err(ReadError::from_errno(errno)),
-                    },
-                    n => parse_batch(&buf, n as usize, want_private, &mut entries)?,
-                }
-            }
-        })?;
-        Ok(DirListing { dev, ino, entries })
+        list(dir, expect, want_private, false)
     }
+
+    fn read_with_times(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+    ) -> Result<DirListing, ReadError> {
+        list(dir, expect, want_private, true)
+    }
+}
+
+fn list(dir: &Path, expect: Option<(u64, u64)>, want_private: bool, times: bool) -> Result<DirListing, ReadError> {
+    let path = CString::new(dir.as_os_str().as_bytes()).map_err(|_| ReadError::from_errno(libc::EINVAL))?;
+    // Retried on EINTR, as std does: a signal is not an unreadable directory.
+    let raw = loop {
+        // SAFETY: `path` is a valid NUL-terminated string.
+        let raw = unsafe {
+            libc::open(path.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        };
+        if raw >= 0 || super::last_errno() != libc::EINTR {
+            break raw;
+        }
+    };
+    if raw < 0 {
+        return Err(ReadError::from_errno(super::last_errno()));
+    }
+    let fd = Fd(raw);
+
+    // SAFETY: an all-zero `stat` is a valid value; fstat fills it.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: `fd` is open and `st` is a valid out-pointer.
+    if unsafe { libc::fstat(fd.0, &mut st) } != 0 {
+        return Err(ReadError::from_errno(super::last_errno()));
+    }
+    // Same widening as std's `MetadataExt::dev()`.
+    let (dev, ino) = (st.st_dev as u64, st.st_ino);
+    if let Some((want_dev, want_ino)) = expect {
+        if dev != want_dev {
+            return Err(ReadError::new(ReadErrorKind::OtherFilesystem, None));
+        }
+        if ino != want_ino {
+            return Err(ReadError::new(ReadErrorKind::Changed, None));
+        }
+    }
+
+    let mut attrs = AttrList {
+        bitmapcount: ATTR_BIT_MAP_COUNT,
+        reserved: 0,
+        commonattr: ATTR_CMN_RETURNED_ATTRS
+            | ATTR_CMN_NAME
+            | ATTR_CMN_ERROR
+            | ATTR_CMN_DEVID
+            | ATTR_CMN_OBJTYPE
+            | ATTR_CMN_FLAGS
+            | ATTR_CMN_FILEID
+            | if times { ATTR_CMN_MODTIME | ATTR_CMN_ADDEDTIME } else { 0 },
+        volattr: 0,
+        dirattr: 0,
+        fileattr: ATTR_FILE_LINKCOUNT | ATTR_FILE_ALLOCSIZE,
+        forkattr: if want_private { ATTR_CMNEXT_PRIVATESIZE } else { 0 },
+    };
+    let options = if want_private { FSOPT_ATTR_CMN_EXTENDED } else { 0 };
+
+    let mut entries = Vec::new();
+    BUF.with(|cell| {
+        let mut buf = cell.borrow_mut();
+        loop {
+            // SAFETY: `fd` is an open directory, `attrs` is a valid attrlist and
+            // `buf` is writable for `buf.len()` bytes.
+            let count = unsafe { getattrlistbulk(fd.0, &mut attrs, buf.as_mut_ptr().cast(), buf.len(), options) };
+            match count {
+                0 => return Ok(()),
+                n if n < 0 => match super::last_errno() {
+                    // Interrupted before returning a batch: nothing was consumed, call again.
+                    libc::EINTR => continue,
+                    errno => return Err(ReadError::from_errno(errno)),
+                },
+                n => parse_batch(&buf, n as usize, want_private, &mut entries)?,
+            }
+        }
+    })?;
+    Ok(DirListing { dev, ino, entries })
 }
 
 /// Bounds-checked reader over one attribute record.
@@ -170,6 +186,12 @@ impl Cursor<'_> {
     }
     fn i64(&mut self) -> Result<i64, ReadError> {
         self.take::<8>().map(i64::from_ne_bytes)
+    }
+    /// A `struct timespec` (16 bytes): its seconds.
+    fn seconds(&mut self) -> Result<i64, ReadError> {
+        let secs = self.i64()?;
+        let _nanos = self.i64()?;
+        Ok(secs)
     }
 }
 
@@ -213,8 +235,10 @@ fn parse_batch(buf: &[u8], count: usize, want_private: bool, out: &mut Vec<Entry
 
         let dev = if ret_common & ATTR_CMN_DEVID != 0 { c.i32()? as u64 } else { 0 };
         let objtype = if ret_common & ATTR_CMN_OBJTYPE != 0 { c.u32()? } else { 0 };
+        let modified = if ret_common & ATTR_CMN_MODTIME != 0 { Some(c.seconds()?) } else { None };
         let flags = if ret_common & ATTR_CMN_FLAGS != 0 { c.u32()? } else { 0 };
         let ino = if ret_common & ATTR_CMN_FILEID != 0 { c.u64()? } else { 0 };
+        let added = if ret_common & ATTR_CMN_ADDEDTIME != 0 { Some(c.seconds()?) } else { None };
         let nlink = if ret_file & ATTR_FILE_LINKCOUNT != 0 { c.u32()? } else { 1 };
         let alloc = if ret_file & ATTR_FILE_ALLOCSIZE != 0 { c.i64()?.max(0) as u64 } else { 0 };
         let private =
@@ -235,6 +259,8 @@ fn parse_batch(buf: &[u8], count: usize, want_private: bool, out: &mut Vec<Entry
             alloc,
             private,
             error: (error != 0).then_some(error),
+            modified,
+            added,
         });
         start += len;
     }

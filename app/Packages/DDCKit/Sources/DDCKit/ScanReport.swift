@@ -30,11 +30,14 @@ public struct ScanReport: Decodable, Sendable, Equatable {
     public let totals: Totals
     public let findings: [Finding]
     public let errorsTotal: UInt64
+    /// Areas the scan did not enter: the cloud folders, and what a
+    /// background scan skips to avoid a permission prompt.
+    public let skipped: [Skipped]
     public let cancelled: Bool
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, ddcVersion, generatedAt, durationMs, home, scanRoots, fullDiskAccess, volumes
-        case minAgeDays, totals, findings, errorsTotal, cancelled
+        case minAgeDays, totals, findings, errorsTotal, skipped, cancelled
     }
 
     public init(from decoder: any Decoder) throws {
@@ -51,7 +54,19 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         totals = try c.decode(Totals.self, forKey: .totals)
         findings = try c.decode([Finding].self, forKey: .findings)
         errorsTotal = try c.decode(UInt64.self, forKey: .errorsTotal)
+        skipped = try c.decodeIfPresent([Skipped].self, forKey: .skipped) ?? []
         cancelled = try c.decode(Bool.self, forKey: .cancelled)
+    }
+
+    public struct Skipped: Decodable, Sendable, Equatable {
+        public let path: String
+        public let reason: SkipArea
+    }
+
+    /// The scan's `SkipReason`. An unknown value is a decoding error.
+    public enum SkipArea: String, Decodable, Sendable, CaseIterable {
+        case excluded, dataless, changed
+        case otherFilesystem = "other-filesystem"
     }
 
     public struct Totals: Decodable, Sendable, Equatable {
@@ -121,13 +136,15 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         public let hint: String
         /// Part of it could not be read; its sizes are lower bounds.
         public let incomplete: Bool
+        /// What one of the user's own folders holds, to pick from.
+        public let contents: Contents?
 
         /// What deleting it frees, as the CLI's `Finding::reclaimable_bytes`.
         public var reclaimableBytes: UInt64 { privateBytes ?? bytes }
 
         private enum CodingKeys: String, CodingKey {
             case path, rule, `class`, ruleClass, removal, dev, ino, bytes, privateBytes, project, selected, notSelected, ignored
-            case notes, hint, incomplete
+            case notes, hint, incomplete, contents
         }
 
         public init(from decoder: any Decoder) throws {
@@ -148,7 +165,89 @@ public struct ScanReport: Decodable, Sendable, Equatable {
             notes = try c.decode([Note].self, forKey: .notes)
             hint = try c.decode(String.self, forKey: .hint)
             incomplete = try c.decode(Bool.self, forKey: .incomplete)
+            contents = try c.decodeIfPresent(Contents.self, forKey: .contents)
         }
+
+        /// A picked entry as `plan_listed` synthesizes it: its folder's rule,
+        /// class `user-data`, to the Trash.
+        init(entry: FolderEntry, folder: Finding) {
+            path = entry.path
+            rule = folder.rule
+            `class` = .userData
+            ruleClass = folder.ruleClass
+            removal = .trash
+            dev = entry.dev
+            ino = entry.ino
+            bytes = entry.bytes
+            privateBytes = nil
+            project = nil
+            selected = false
+            notSelected = .userData
+            ignored = false
+            notes = []
+            hint = folder.hint
+            incomplete = entry.incomplete
+            contents = nil
+        }
+    }
+
+    /// The direct children of a user-data folder: the largest listed, the rest summed.
+    public struct Contents: Decodable, Sendable, Equatable {
+        /// Largest first.
+        public let entries: [FolderEntry]
+        /// The other children, findings of their own left out.
+        public let restCount: UInt64
+        public let restBytes: UInt64
+    }
+
+    public struct FolderEntry: Decodable, Sendable, Equatable {
+        public enum Kind: String, Decodable, Sendable {
+            case file, folder
+        }
+
+        public let path: String
+        public let kind: Kind
+        /// Allocated bytes, findings inside it included.
+        public let bytes: UInt64
+        public let dev: UInt64
+        public let ino: UInt64
+        /// Last modification (RFC 3339).
+        public let modified: String?
+        /// Why it cannot be picked.
+        public let lock: EntryLock?
+        /// Parts of it could not be read; it can still be picked.
+        public let incomplete: Bool
+        /// Findings of other rules inside it.
+        public let findings: UInt64
+        /// A folder with `.git`: a project.
+        public let git: Bool
+        public let backup: Backup?
+
+        private enum CodingKeys: String, CodingKey {
+            case path, kind, bytes, dev, ino, modified, lock, incomplete, findings, git, backup
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            path = try c.decode(String.self, forKey: .path)
+            kind = try c.decode(Kind.self, forKey: .kind)
+            bytes = try c.decode(UInt64.self, forKey: .bytes)
+            dev = try c.decode(UInt64.self, forKey: .dev)
+            ino = try c.decode(UInt64.self, forKey: .ino)
+            modified = try c.decodeIfPresent(String.self, forKey: .modified)
+            lock = try c.decodeIfPresent(EntryLock.self, forKey: .lock)
+            incomplete = try c.decodeIfPresent(Bool.self, forKey: .incomplete) ?? false
+            findings = try c.decodeIfPresent(UInt64.self, forKey: .findings) ?? 0
+            git = try c.decodeIfPresent(Bool.self, forKey: .git) ?? false
+            backup = try c.decodeIfPresent(Backup.self, forKey: .backup)
+        }
+    }
+
+    /// A device backup's `Info.plist`, where it could be read.
+    public struct Backup: Decodable, Sendable, Equatable {
+        public let deviceName: String?
+        /// RFC 3339.
+        public let lastBackup: String?
     }
 
     public struct Project: Decodable, Sendable, Equatable {
@@ -209,6 +308,41 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         let version = try decoder.decode(VersionHeader.self, from: data).schemaVersion
         guard version == schemaVersion else { throw ReadError.otherSchema(version) }
         return try decoder.decode(ScanReport.self, from: data)
+    }
+}
+
+/// Why an entry of the user's own folders cannot be picked (`EntryLock` in
+/// `crates/ddc-core/src/rules/entries.rs`), in the scan report and the clean
+/// report alike. Tagged by `reason`; an unknown one is a decoding error.
+public enum EntryLock: Decodable, Sendable, Equatable, Hashable {
+    case appManaged(app: String)
+    case kept
+    case protected
+    case otherVolume
+    case recent
+    case partialDownload
+    case unfinishedBackup
+
+    /// Every `reason` value, as the schemas list them.
+    public static let tags = ["app-managed", "kept", "protected", "other-volume", "recent", "partial-download", "unfinished-backup"]
+
+    private enum CodingKeys: String, CodingKey {
+        case reason, app
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        switch try c.decode(String.self, forKey: .reason) {
+        case "app-managed": self = .appManaged(app: try c.decode(String.self, forKey: .app))
+        case "kept": self = .kept
+        case "protected": self = .protected
+        case "other-volume": self = .otherVolume
+        case "recent": self = .recent
+        case "partial-download": self = .partialDownload
+        case "unfinished-backup": self = .unfinishedBackup
+        case let other:
+            throw DecodingError.dataCorruptedError(forKey: .reason, in: c, debugDescription: "unknown lock \(other)")
+        }
     }
 }
 

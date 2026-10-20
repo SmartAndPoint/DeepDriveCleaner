@@ -10,10 +10,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use super::inodes::{Holder, InodeTable};
+use super::reader::EntryMeta;
 use super::reader::{DirReader, EntryKind, ReadError, ReadErrorKind, SF_DATALESS, StdReader};
 use super::{
-    DirCtx, OwnerKind, OwnerResult, Post, Pre, Progress, ReaderKind, RootResult, SkipReason, Skipped, Tag, Visitor,
-    WalkError, WalkOptions, WalkOutput, WalkSetupError,
+    DirCtx, EntryResult, OwnerEntries, OwnerKind, OwnerResult, Post, Pre, Progress, ReaderKind, RootResult, SkipReason,
+    Skipped, Tag, Visitor, WalkError, WalkOptions, WalkOutput, WalkSetupError,
 };
 use crate::sys::bulk::BulkReader;
 
@@ -36,6 +37,18 @@ struct OwnerAcc {
     skipped: AtomicU64,
     /// Exclusive files whose private size was not returned.
     private_missing: AtomicU64,
+}
+
+/// A direct child of an owner that lists entries; deeper tasks inherit it,
+/// across claims inside too, so its size includes them.
+struct EntryAcc {
+    id: usize,
+    owner: usize,
+    meta: EntryMeta,
+    bytes: AtomicU64,
+    errors: AtomicU64,
+    skipped: AtomicU64,
+    other_fs: AtomicU64,
 }
 
 struct RootAcc {
@@ -62,6 +75,7 @@ struct Shared<'a> {
     opts: &'a WalkOptions,
     roots: Vec<RootAcc>,
     owners: Mutex<Vec<Arc<OwnerAcc>>>,
+    entries: Mutex<Vec<Arc<EntryAcc>>>,
     inodes: InodeTable,
     log: Mutex<Log>,
     unowned: AtomicU64,
@@ -75,6 +89,8 @@ struct Task {
     depth: u32,
     root: usize,
     owner: Option<Arc<OwnerAcc>>,
+    /// The listed entry this directory lies in.
+    entry: Option<Arc<EntryAcc>>,
     hooks: bool,
 }
 
@@ -124,6 +140,7 @@ pub fn walk_with_reader(
             })
             .collect(),
         owners: Mutex::new(Vec::new()),
+        entries: Mutex::new(Vec::new()),
         inodes: InodeTable::new(),
         log: Mutex::new(Log::default()),
         unowned: AtomicU64::new(0),
@@ -143,6 +160,7 @@ pub fn walk_with_reader(
                         depth: 0,
                         root: i,
                         owner: None,
+                        entry: None,
                         hooks: true,
                     };
                     let sh = &sh;
@@ -187,8 +205,9 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
     if sh.progress.is_cancelled() {
         return;
     }
-    let Task { dir, expect, parent, depth, root, mut owner, mut hooks } = task;
+    let Task { dir, expect, parent, depth, root, mut owner, entry, mut hooks } = task;
     let name = dir.file_name().unwrap_or(dir.as_os_str());
+    let mut lists = false;
 
     if hooks {
         let ctx = DirCtx { path: &dir, name, depth, dev: expect.0, ino: expect.1, owner: owner_ctx(&owner) };
@@ -200,18 +219,27 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             }
             Pre::Claim(tag) => {
                 let private = sh.visitor.wants_private(&ctx, tag);
+                lists = sh.visitor.lists_entries(&ctx, tag);
                 owner = Some(sh.new_owner(tag, OwnerKind::Claim, &dir, expect, parent, private));
                 hooks = false;
             }
-            Pre::Region(tag) => owner = Some(sh.new_owner(tag, OwnerKind::Region, &dir, expect, parent, false)),
+            Pre::Region(tag) => {
+                lists = sh.visitor.lists_entries(&ctx, tag);
+                owner = Some(sh.new_owner(tag, OwnerKind::Region, &dir, expect, parent, false));
+            }
         }
     }
 
     let want_private = sh.opts.private_everywhere || owner.as_ref().is_some_and(|o| o.want_private);
-    let mut listing = match sh.reader.read(&dir, Some(expect), want_private) {
+    let read = if lists {
+        sh.reader.read_with_times(&dir, Some(expect), want_private)
+    } else {
+        sh.reader.read(&dir, Some(expect), want_private)
+    };
+    let mut listing = match read {
         Ok(listing) => listing,
         Err(err) => {
-            sh.read_failed(dir, err, root, owner.as_deref());
+            sh.read_failed(dir, err, root, owner.as_deref(), entry.as_deref());
             return;
         }
     };
@@ -235,44 +263,61 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             }
             owner = Some(claim);
             hooks = false;
+            // The region's own directory became another finding: no entries.
+            lists = false;
         }
     }
 
+    // One accumulator per direct child, in listing order.
+    let children: Option<Vec<Arc<EntryAcc>>> = match (&owner, lists) {
+        (Some(o), true) => Some(sh.new_entries(o.id, &listing.entries)),
+        _ => None,
+    };
+    let entry_of = |i: usize| children.as_ref().map_or(entry.as_ref(), |c| Some(&c[i]));
+
     let ctx_owner = owner_ctx(&owner);
-    let holder = Holder { root, owner: owner.as_ref().map(|o| o.id) };
+    let owner_id = owner.as_ref().map(|o| o.id);
     let root_dev = sh.roots[root].dev;
     let (mut files, mut bytes, mut private, mut errors) = (0u64, 0u64, 0u64, 0u64);
     let (mut linked_bytes, mut skipped, mut private_missing) = (0u64, 0u64, 0u64);
 
     let here = (listing.dev, listing.ino);
-    for entry in listing.entries {
-        if let Some(errno) = entry.error {
+    for (i, meta) in listing.entries.iter().enumerate() {
+        let within = entry_of(i);
+        // The child's own counts go to its accumulator; deeper ones to the
+        // entry this directory lies in, after the loop.
+        let own = children.as_ref().map(|c| &c[i]);
+        if let Some(errno) = meta.error {
             if errno == libc::ENOENT {
                 skipped += 1;
                 sh.vanished();
             } else {
                 errors += 1;
-                sh.error(dir.join(&entry.name), ReadError::from_errno(errno));
+                sh.error(dir.join(&meta.name), ReadError::from_errno(errno));
             }
             continue;
         }
-        match entry.kind {
+        match meta.kind {
             EntryKind::Dir => {
-                let child = dir.join(&entry.name);
-                if entry.flags & SF_DATALESS != 0 {
+                let child = dir.join(&meta.name);
+                if meta.flags & SF_DATALESS != 0 {
                     skipped += 1;
                     sh.skip(child, SkipReason::Dataless);
-                } else if entry.dev != root_dev {
+                } else if meta.dev != root_dev {
                     skipped += 1;
+                    if let Some(e) = within {
+                        e.other_fs.fetch_add(1, Relaxed);
+                    }
                     sh.skip(child, SkipReason::OtherFilesystem);
                 } else {
                     let task = Task {
                         dir: child,
-                        expect: (entry.dev, entry.ino),
+                        expect: (meta.dev, meta.ino),
                         parent: here,
                         depth: depth + 1,
                         root,
                         owner: owner.clone(),
+                        entry: within.cloned(),
                         hooks,
                     };
                     s.spawn(move |s| visit(s, sh, task));
@@ -280,13 +325,17 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             }
             _ => {
                 files += 1;
-                sh.visitor.on_file(&dir, &entry, ctx_owner);
-                if entry.nlink > 1 && entry.kind == EntryKind::File {
-                    sh.inodes.record(entry.dev, entry.ino, entry.alloc, entry.private, entry.nlink, holder);
-                    linked_bytes += entry.alloc;
+                sh.visitor.on_file(&dir, meta, ctx_owner);
+                if meta.nlink > 1 && meta.kind == EntryKind::File {
+                    let holder = Holder { root, owner: owner_id, entry: within.map(|e| e.id) };
+                    sh.inodes.record(meta.dev, meta.ino, meta.alloc, meta.private, meta.nlink, holder);
+                    linked_bytes += meta.alloc;
                 } else {
-                    bytes += entry.alloc;
-                    match entry.private {
+                    bytes += meta.alloc;
+                    if let Some(e) = own {
+                        e.bytes.fetch_add(meta.alloc, Relaxed);
+                    }
+                    match meta.private {
                         Some(p) => private += p,
                         // Not returned: the owner's lower bound becomes unknown.
                         None => private_missing += 1,
@@ -313,6 +362,11 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         None => {
             sh.unowned.fetch_add(bytes, Relaxed);
         }
+    }
+    if let Some(e) = &entry {
+        e.bytes.fetch_add(bytes, Relaxed);
+        e.errors.fetch_add(errors, Relaxed);
+        e.skipped.fetch_add(skipped, Relaxed);
     }
     sh.progress.add(files, 1, bytes + linked_bytes, errors);
 }
@@ -358,6 +412,26 @@ impl Shared<'_> {
         acc
     }
 
+    fn new_entries(&self, owner: usize, listing: &[EntryMeta]) -> Vec<Arc<EntryAcc>> {
+        let mut entries = lock(&self.entries);
+        listing
+            .iter()
+            .map(|meta| {
+                let acc = Arc::new(EntryAcc {
+                    id: entries.len(),
+                    owner,
+                    meta: meta.clone(),
+                    bytes: AtomicU64::new(0),
+                    errors: AtomicU64::new(0),
+                    skipped: AtomicU64::new(0),
+                    other_fs: AtomicU64::new(0),
+                });
+                entries.push(Arc::clone(&acc));
+                acc
+            })
+            .collect()
+    }
+
     fn error(&self, path: PathBuf, error: ReadError) {
         let mut log = lock(&self.log);
         log.errors_total += 1;
@@ -383,7 +457,14 @@ impl Shared<'_> {
         lock(&self.log).vanished += 1;
     }
 
-    fn read_failed(&self, dir: PathBuf, err: ReadError, root: usize, owner: Option<&OwnerAcc>) {
+    fn read_failed(
+        &self,
+        dir: PathBuf,
+        err: ReadError,
+        root: usize,
+        owner: Option<&OwnerAcc>,
+        entry: Option<&EntryAcc>,
+    ) {
         match err.kind {
             ReadErrorKind::NotFound
             | ReadErrorKind::Dataless
@@ -391,6 +472,10 @@ impl Shared<'_> {
             | ReadErrorKind::OtherFilesystem => {
                 if let Some(o) = owner {
                     o.skipped.fetch_add(1, Relaxed);
+                }
+                if let Some(e) = entry {
+                    let count = if err.kind == ReadErrorKind::OtherFilesystem { &e.other_fs } else { &e.skipped };
+                    count.fetch_add(1, Relaxed);
                 }
                 match err.kind {
                     ReadErrorKind::NotFound => self.vanished(),
@@ -406,6 +491,9 @@ impl Shared<'_> {
                     o.dirs.fetch_add(1, Relaxed);
                     o.errors.fetch_add(1, Relaxed);
                 }
+                if let Some(e) = entry {
+                    e.errors.fetch_add(1, Relaxed);
+                }
                 self.progress.add(0, 1, 0, 1);
                 self.error(dir, err);
             }
@@ -414,12 +502,22 @@ impl Shared<'_> {
 
     fn finish(self, started: Instant) -> WalkOutput {
         let owners = self.owners.into_inner().unwrap_or_else(|p| p.into_inner());
+        let entries = self.entries.into_inner().unwrap_or_else(|p| p.into_inner());
         let mut unowned = self.unowned.into_inner();
 
         for inode in self.inodes.resolve() {
             // Each inode counts once, under the first root that saw it.
             if let Some(first) = inode.holders.first() {
                 self.roots[first.root].bytes.fetch_add(inode.alloc, Relaxed);
+            }
+            // An entry, independent of owners: every link inside that one entry.
+            let mut within: Vec<Option<usize>> = inode.holders.iter().map(|h| h.entry).collect();
+            within.sort();
+            within.dedup();
+            if let [Some(e)] = within.as_slice()
+                && inode.complete
+            {
+                entries[*e].bytes.fetch_add(inode.alloc, Relaxed);
             }
             let mut holders: Vec<Option<usize>> = inode.holders.iter().map(|h| h.owner).collect();
             holders.sort();
@@ -464,6 +562,33 @@ impl Shared<'_> {
             .collect();
         owner_results.sort_by(|a, b| a.path.cmp(&b.path));
 
+        let mut listed: Vec<OwnerEntries> = Vec::new();
+        for e in &entries {
+            let owner = &owners[e.owner].path;
+            let result = EntryResult {
+                name: e.meta.name.clone(),
+                kind: e.meta.kind,
+                dev: e.meta.dev,
+                ino: e.meta.ino,
+                flags: e.meta.flags,
+                error: e.meta.error,
+                modified: e.meta.modified,
+                added: e.meta.added,
+                bytes: e.bytes.load(Relaxed),
+                errors: e.errors.load(Relaxed),
+                skipped: e.skipped.load(Relaxed),
+                other_fs: e.other_fs.load(Relaxed),
+            };
+            match listed.iter_mut().find(|l| &l.owner == owner) {
+                Some(l) => l.entries.push(result),
+                None => listed.push(OwnerEntries { owner: owner.clone(), entries: vec![result] }),
+            }
+        }
+        for l in &mut listed {
+            l.entries.sort_by(|a, b| a.name.cmp(&b.name));
+        }
+        listed.sort_by(|a, b| a.owner.cmp(&b.owner));
+
         let roots: Vec<RootResult> = self
             .roots
             .iter()
@@ -485,6 +610,7 @@ impl Shared<'_> {
             total_bytes: roots.iter().map(|r| r.bytes).sum(),
             roots,
             owners: owner_results,
+            entries: listed,
             unowned_bytes: unowned,
             errors: log.errors,
             errors_total: log.errors_total,

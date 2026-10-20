@@ -169,12 +169,20 @@ private struct Sidebar: View {
                             SidebarEntry(model: model, entry: entry)
                         }
                         if section.riskClass == .userData {
-                            Text("Downloads, media, backups and folders you protect. Shown, never cleaned.")
+                            Text("Your own files. Nothing is selected for you; pick files one by one and they go to the Trash.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .padding(.horizontal, 8)
                                 .padding(.top, 6)
+                            if items.backgroundSkipped {
+                                Label(CleanWording.backgroundSkipped, systemImage: "info.circle")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.horizontal, 8)
+                                    .padding(.top, 4)
+                            }
                         }
                     }
                     .padding(EdgeInsets(top: 8, leading: 6, bottom: 6, trailing: 6))
@@ -279,8 +287,17 @@ struct ItemRow: View {
         // In the Groups view a lock the heading states is not repeated, nor coloured.
         let warns = detail == nil ? row.lock != nil : CleanWording.ownLock(row) != nil
         HStack(spacing: 10) {
-            CheckBox(state: model.isSelected(row.id) ? .on : .off, enabled: row.selectable, label: "Select \(path)") {
-                model.toggle(row.id)
+            if row.userEntry != nil, case .entry? = row.lock {
+                // A locked file of the user's own: a lock, its reason on the line below.
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+                    .accessibilityLabel("Locked")
+            } else {
+                CheckBox(state: model.isSelected(row.id) ? .on : .off, enabled: row.selectable, label: "Select \(path)") {
+                    model.toggle(row.id)
+                }
             }
             VStack(alignment: .leading, spacing: 1) {
                 if let heading {
@@ -308,8 +325,11 @@ struct ItemRow: View {
             Button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: row.finding.path)])
             }
-            Button("Protect this folder…") { confirmProtect = true }
-                .disabled(!row.selectable)
+            // Never for a file, nor inside a device backup.
+            if model.items?.canProtect(row) ?? true {
+                Button("Protect this folder…") { confirmProtect = true }
+                    .disabled(!model.canProtect(row.id))
+            }
         }
         .confirmationDialog("Protect \(path)?", isPresented: $confirmProtect) {
             Button("Protect") { model.protect(row.id) }

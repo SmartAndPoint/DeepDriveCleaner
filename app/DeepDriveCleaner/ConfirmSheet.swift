@@ -47,7 +47,8 @@ private struct ConfirmView: View {
                     HStack(alignment: .top, spacing: 10) {
                         RoundedRectangle(cornerRadius: 3).fill(ReportClassStyle.color(row.riskClass)).frame(width: 10, height: 10).padding(.top, 4)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("\(ReportClassStyle.name(row.riskClass)) · \(Wording.items(row.count))").font(.system(size: 13, weight: .semibold))
+                            Text("\(row.riskClass == .userData ? "Your own files" : ReportClassStyle.name(row.riskClass)) · \(Wording.items(row.count))")
+                                .font(.system(size: 13, weight: .semibold))
                             Text(explain(row.riskClass, confirmation)).font(.system(size: 12)).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -159,7 +160,12 @@ private struct ConfirmView: View {
             if permanent > 0 { parts.append("\(Wording.items(permanent)) \(permanent == 1 ? "is" : "are") deleted permanently.") }
             return parts.joined(separator: " ") + toolNote
         case .userData:
-            return "Never cleaned."
+            var text = "They go to the Trash; nothing of yours is deleted permanently. Put Back restores them, and the space returns when you empty the Trash."
+            if confirmation.included > 0 {
+                let one = confirmation.included == 1
+                text += " Includes \(Wording.items(confirmation.included)) selected on \(one ? "its" : "their") own; \(one ? "it goes" : "they go") to the Trash with the folder, and \(one ? "its" : "their") space returns when the Trash is emptied."
+            }
+            return text
         }
     }
 

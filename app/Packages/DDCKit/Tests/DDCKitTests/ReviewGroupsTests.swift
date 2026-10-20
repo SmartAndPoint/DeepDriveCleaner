@@ -240,6 +240,7 @@ struct ReviewGroupsTests {
                     switch block {
                     case .subgroup(let subgroup): subgroup.items
                     case .single(let single): [single.item]
+                    case .entries(let items): items
                     }
                 }
                 for item in rows {
@@ -287,10 +288,13 @@ struct ReviewGroupsTests {
     @Test("user data has no Select all and no heading checkbox")
     func userDataNoSelectAll() throws {
         let items = try ReviewFixture.items()
-        let layout = items.layout(ReviewItems.Entry(riskClass: .userData, group: "Your data"), matching: "")
-        #expect(layout.count == 2 && layout.shape == .rules)
-        #expect(layout.selectAll == nil)
-        #expect(subgroups(layout).allSatisfy { !$0.checkable })
+        #expect(items.sidebar.last?.entries.map(\.group) == ["Downloads", "Pictures"], "one entry per rule, largest first")
+        for group in ["Downloads", "Pictures"] {
+            let layout = items.layout(ReviewItems.Entry(riskClass: .userData, group: group), matching: "")
+            #expect(layout.count == 1 && layout.shape == .folders, "a folder that lists no contents shows as itself")
+            #expect(layout.selectAll == nil)
+            #expect(subgroups(layout).allSatisfy { !$0.checkable })
+        }
     }
 
     @Test("amounts read 'selected of total' only when part is selected, the unit said once when shared")

@@ -326,7 +326,7 @@ private struct ClassRowView: View {
         case .safe: "Caches that refill themselves"
         case .rebuildable: "\(row.selectedCount) idle \(row.selectedCount == 1 ? "project" : "projects") with a lock file"
         case .review: "VMs, models, projects without a lock file"
-        case .userData: "Downloads, media, backups · report only"
+        case .userData: "Downloads, media, backups · pick by hand"
         }
     }
 

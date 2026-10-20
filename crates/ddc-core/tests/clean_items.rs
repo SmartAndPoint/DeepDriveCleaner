@@ -76,7 +76,11 @@ impl Fx {
         cancel: &AtomicBool,
     ) -> (ExecReport, CleanReport) {
         let catalog = self.catalog();
-        let listed = plan_listed(&self.scan(), &catalog, items);
+        let opts = ScanOptions { walk: WalkOptions { threads: Some(2), ..Default::default() }, ..Default::default() };
+        let (scanned, entries) =
+            report::scan_with_entries(&self.env(), &opts, &Progress::default(), &report::volumes::SystemStatFs)
+                .unwrap();
+        let listed = plan_listed(&scanned, &entries, &catalog, items);
         let trash = self.trash();
         let run = exec::execute(
             &self.env(),

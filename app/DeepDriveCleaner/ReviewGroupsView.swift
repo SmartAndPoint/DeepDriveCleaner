@@ -24,7 +24,7 @@ struct GroupView: View {
                 SelectAllRow(model: model, ids: all, summary: "\(Wording.items(layout.count, "folder")) · \(ByteSize.human(layout.bytes))")
                 Divider()
             }
-            if layout.count == 0 {
+            if layout.count == 0 && layout.lines(collapsed: []).isEmpty {
                 Text(model.query.isEmpty ? "Nothing in this group." : "Nothing here matches the filter.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -46,6 +46,15 @@ struct GroupView: View {
                             detail: single.detail
                         )
                         .padding(.leading, Self.checkIndent)
+                    case .entry(let item):
+                        ItemRow(model: model, row: item.row, home: items.report.home, shown: item.shown, detail: item.detail)
+                            .padding(.leading, Self.checkIndent)
+                    case .note(let text):
+                        Text(text)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, Self.checkIndent + 26)
+                            .padding(.vertical, 4)
                     }
                 }
                 .listStyle(.inset)

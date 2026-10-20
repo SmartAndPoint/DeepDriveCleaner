@@ -8,7 +8,7 @@ DeepDriveCleaner · scanned ~ in 39.6s · 5.5M files · 544.8 GiB
   safe           1919 items   76.3 GiB   selected 76.3 GiB
   rebuildable     126 items   35.1 GiB   selected 24.4 GiB
   review          263 items   79.4 GiB   manual choice
-  user-data        11 items  114.1 GiB   report only
+  user-data        11 items  114.1 GiB   pick by hand
   Can free now: 100.6 GiB selected by default, frees ~88.6 GiB → run `ddc clean` to review and confirm
 ```
 
@@ -73,11 +73,11 @@ Exit codes: 0 done, 1 error, 2 refused, 75 another scan or clean is running. Ctr
 | `safe` | Caches that refill themselves (`~/.npm/_cacache`, `~/.cache/uv`, Homebrew, pip, Gradle, …). | Selected. Removed with the tool's own command when it has one (`uv cache clean`, `go clean -modcache`, …). |
 | `rebuildable` | Project artifacts an install or build restores: `.venv`, `node_modules`, `target/`, `.next`, CMake build folders, … | Selected only when the project has been idle for `--min-age` days (default 14) and has a lock file. |
 | `review` | Expensive or uncertain to restore: environments without a lock file, global packages, toolchains, models, VM images. | Never selected. You choose each item; it goes to the Trash unless you pass `--permanent`. VM runtimes are cleaned only through their own prune commands. |
-| `user-data` | Pictures, movies, music, Downloads, iPhone backups, anything protected by `--exclude` or a `.ddc-keep` file. Developer artifacts inside Downloads are still found as their own items. | Reported, never touched. |
+| `user-data` | Pictures, movies, music, Downloads, iPhone backups, anything protected by `--exclude` or a `.ddc-keep` file. Developer artifacts inside Downloads are still found as their own items. | Never selected, and never in `ddc clean`'s plan. Files and folders of Downloads, Pictures, Movies, Music and iPhone and iPad backups that you pick one by one (`ddc clean --items`, as the menu bar app sends them) go to the Trash only, never deleted. |
 
 ### Safety
 
-- Right before touching anything, `ddc clean` checks every item again. It is still the same directory (device and inode), no symlink has appeared above it, it still matches its rule, it is not a project root, it is not protected, and no running process uses it. Anything that fails a check is skipped with a reason.
+- Right before touching anything, `ddc clean` checks every item again. It is still the same directory (device and inode), no symlink has appeared above it, it still matches its rule, it is not a project root, it is not protected, and no running process uses it. A file or folder you picked in one of your own folders is checked as that folder's entry instead: the same file or folder, still in that folder, not locked (an app's library, a `.ddc-keep`, a download still arriving, something changed in the last 10 minutes). Anything that fails a check is skipped with a reason.
 - Deletion first renames the folder to a tombstone through a verified parent folder, then removes it. An interrupted run leaves `*.ddc-deleting-*`, which the next scan finds as `safe`.
 - Every action is logged to `~/Library/Logs/DeepDriveCleaner/actions.jsonl`.
 - It never runs as root, never deletes your home, `~/Documents`, `~/Projects` or any other protected folder, and never follows a symlink out of a finding.

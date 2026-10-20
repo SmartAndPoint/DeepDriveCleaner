@@ -109,6 +109,24 @@
     "cancelled"
   ],
   "$defs": {
+    "Backup": {
+      "type": "object",
+      "properties": {
+        "device_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_backup": {
+          "description": "RFC 3339.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
     "Category": {
       "oneOf": [
         {
@@ -168,6 +186,135 @@
         "selected_bytes"
       ]
     },
+    "Contents": {
+      "description": "The direct children of a user-data folder: the largest listed, the rest summed.",
+      "type": "object",
+      "properties": {
+        "entries": {
+          "description": "Largest first (ties by path bytes); at most 100, each at least 10 MiB.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FolderEntry"
+          }
+        },
+        "rest_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "rest_count": {
+          "description": "The other children, findings of their own left out.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "entries",
+        "rest_count",
+        "rest_bytes"
+      ]
+    },
+    "EntryLock": {
+      "description": "Why an entry cannot be picked. One type in the scan report and the clean report.",
+      "oneOf": [
+        {
+          "description": "An app manages it; clean it in that app.",
+          "type": "object",
+          "properties": {
+            "app": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "const": "app-managed"
+            }
+          },
+          "required": [
+            "reason",
+            "app"
+          ]
+        },
+        {
+          "description": "A `.ddc-keep` in it, or an exclude at or in it.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "kept"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A protected folder (safety ADR §6) at or inside it.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "protected"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "Another volume is mounted inside it.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "other-volume"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "Added or changed within [`RECENT`] of the scan's start: in use or still arriving.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "recent"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A download still arriving.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "partial-download"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A backup whose `Status.plist` does not say it finished.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "unfinished-backup"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        }
+      ]
+    },
     "Finding": {
       "type": "object",
       "properties": {
@@ -183,6 +330,17 @@
         "class": {
           "description": "Effective class (may be lower than `rule_class`, see `notes`).",
           "$ref": "#/$defs/RiskClass"
+        },
+        "contents": {
+          "description": "What one of the user's own folders holds, to pick from (story \"User\ndata: pick your own files for the Trash\"). Only on findings of\n`rules::entries::ENTRY_RULES` the scan could read.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Contents"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "dev": {
           "type": "integer",
@@ -310,6 +468,91 @@
         "hint",
         "dev",
         "ino"
+      ]
+    },
+    "FolderEntry": {
+      "description": "One direct child of a user-data folder: a regular file or a directory.",
+      "type": "object",
+      "properties": {
+        "backup": {
+          "description": "A device backup's `Info.plist`, where it could be read.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Backup"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "bytes": {
+          "description": "Allocated bytes, findings inside it included.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "dev": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "findings": {
+          "description": "Findings of other rules inside it (a folder in Downloads).",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "git": {
+          "description": "A folder with `.git`: a project.",
+          "type": "boolean"
+        },
+        "incomplete": {
+          "description": "Parts of it could not be read; `bytes` is a lower bound. It can still\nbe picked: the Trash keeps it.",
+          "type": "boolean"
+        },
+        "ino": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "kind": {
+          "$ref": "#/$defs/FolderEntryKind"
+        },
+        "lock": {
+          "description": "Why it cannot be picked.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EntryLock"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "modified": {
+          "description": "Last modification, RFC 3339.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "bytes",
+        "dev",
+        "ino"
+      ]
+    },
+    "FolderEntryKind": {
+      "type": "string",
+      "enum": [
+        "file",
+        "folder"
       ]
     },
     "Inaccessible": {

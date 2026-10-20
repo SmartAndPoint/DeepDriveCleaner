@@ -8,6 +8,7 @@ use ddc_core::class::Fallback;
 use ddc_core::class::RiskClass;
 use ddc_core::exec::{ExecReport, Outcome, SkipReason};
 use ddc_core::plan::{Action, Plan, PlanItem};
+use ddc_core::rules::entries::EntryLock;
 
 use crate::render::{Style, tilde};
 use crate::size::human;
@@ -34,7 +35,7 @@ fn groups(plan: &Plan) -> Vec<(RiskClass, String, Vec<usize>)> {
 fn action_text(item: &PlanItem) -> String {
     match item.action {
         Action::Delete { .. } => "delete".to_owned(),
-        Action::Trash => "→ Trash".to_owned(),
+        Action::Trash | Action::TrashEntry => "→ Trash".to_owned(),
         Action::Native { cmd, fallback } => {
             let otherwise = match fallback {
                 Fallback::Trash => "else → Trash",
@@ -214,7 +215,7 @@ pub fn interactive(
     if chosen.is_empty() {
         return Ok(Decision::Proceed);
     }
-    if chosen.iter().any(|i| matches!(i.action, Action::Trash)) {
+    if chosen.iter().any(|i| matches!(i.action, Action::Trash | Action::TrashEntry)) {
         writeln!(w, "{}", style.dim("note: the Trash keeps the space until you empty it."))?;
     }
     let question = format!(
@@ -248,6 +249,21 @@ pub fn reason(r: &SkipReason) -> String {
         SkipReason::NeedsConfirmation => "needs an interactive confirmation".to_owned(),
         SkipReason::ActionNotAllowed => "the rule does not allow this action".to_owned(),
         SkipReason::Incomplete => "partly unreadable or has another filesystem mounted inside".to_owned(),
+        SkipReason::NotAnEntry => "no longer a file or folder you can pick in its folder".to_owned(),
+        SkipReason::EntryLocked { lock } => format!("locked: {}", lock_text(lock)),
+        SkipReason::InsideAnotherItem => "inside a folder that went to the Trash".to_owned(),
+    }
+}
+
+fn lock_text(lock: &EntryLock) -> String {
+    match lock {
+        EntryLock::AppManaged { app } => format!("{app} manages it; clean it in {app}"),
+        EntryLock::Kept => "protected by .ddc-keep or an exclude".to_owned(),
+        EntryLock::Protected => "holds a protected folder".to_owned(),
+        EntryLock::OtherVolume => "another volume is mounted inside".to_owned(),
+        EntryLock::Recent => "added or changed in the last 10 minutes".to_owned(),
+        EntryLock::PartialDownload => "a download still arriving".to_owned(),
+        EntryLock::UnfinishedBackup => "the backup did not finish".to_owned(),
     }
 }
 
@@ -333,6 +349,7 @@ mod tests {
                 ino: 1,
                 parent_dev: None,
                 parent_ino: None,
+                contents: None,
             },
             action,
             default_selected: selected,

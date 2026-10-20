@@ -18,6 +18,10 @@ public struct GroupLayout: Sendable, Equatable {
         case folders
         /// Several rules: a subgroup per rule.
         case rules
+        /// One of the user's own folders: its entries, picked one by one, then the rest.
+        case entries
+        /// The cloud folders: no finding, only the areas the scan did not enter.
+        case notScanned
     }
 
     /// A subgroup across rebuilds, for its folded state: its folder's bytes
@@ -81,11 +85,14 @@ public struct GroupLayout: Sendable, Equatable {
     public enum Block: Sendable, Equatable {
         case subgroup(Subgroup)
         case single(Single)
+        /// Rows under no heading: a user-data folder's entries, largest first.
+        case entries([Item])
 
         var bytes: UInt64 {
             switch self {
             case .subgroup(let subgroup): subgroup.bytes
             case .single(let single): single.item.row.finding.bytes
+            case .entries(let items): items.reduce(0) { $0 + $1.row.finding.bytes }
             }
         }
 
@@ -93,6 +100,7 @@ public struct GroupLayout: Sendable, Equatable {
             switch self {
             case .subgroup(let subgroup): subgroup.key.tag
             case .single(let single): Array(single.item.row.finding.rule.utf8)
+            case .entries: []
             }
         }
     }
@@ -102,10 +110,15 @@ public struct GroupLayout: Sendable, Equatable {
         case heading(Subgroup, expanded: Bool)
         case item(Item)
         case single(Single)
+        /// An entry of the user's own folders, under no heading.
+        case entry(Item)
+        /// A line of text: the unlisted rest, a folder not scanned.
+        case note(String)
 
         public enum ID: Hashable, Sendable {
             case heading(Key)
             case row(Int)
+            case note(String)
         }
 
         public var id: ID {
@@ -113,6 +126,8 @@ public struct GroupLayout: Sendable, Equatable {
             case .heading(let subgroup, _): .heading(subgroup.key)
             case .item(let item): .row(item.id)
             case .single(let single): .row(single.item.id)
+            case .entry(let item): .row(item.id)
+            case .note(let text): .note(text)
             }
         }
     }
@@ -132,6 +147,10 @@ public struct GroupLayout: Sendable, Equatable {
     public let bytes: UInt64
     /// Largest first.
     public let blocks: [Block]
+    /// "1,904 smaller items (2.3 GiB) are not listed" (entries shape).
+    public let rest: String?
+    /// The folders not scanned, under `~` (not-scanned shape).
+    public let notScanned: [String]
 
     /// The lines with folded subgroups showing their heading only.
     public func lines(collapsed: Set<Key>) -> [Line] {
@@ -142,15 +161,18 @@ public struct GroupLayout: Sendable, Equatable {
             case .subgroup(let subgroup):
                 let expanded = !collapsed.contains(subgroup.key)
                 return [.heading(subgroup, expanded: expanded)] + (expanded ? subgroup.items.map { .item($0) } : [])
+            case .entries(let items):
+                return items.map { .entry($0) }
             }
-        }
+        } + (rest.map { [.note($0)] } ?? []) + notScanned.map { .note($0) }
     }
 }
 
 extension ReviewItems {
-    /// The entry's sum of bytes, ignored findings left out: the sidebar's order.
+    /// The entry's sum of bytes, ignored findings left out: the sidebar's
+    /// order. A user-data folder counts as its finding, its entries not again.
     public func total(_ entry: Entry) -> UInt64 {
-        rows(in: entry).reduce(0) { $0 + $1.finding.bytes }
+        rows(in: entry).filter { $0.userEntry == nil }.reduce(0) { $0 + $1.finding.bytes }
     }
 
     /// The Groups view of `entry`, its rows filtered by `query`. The shape,
@@ -158,6 +180,16 @@ extension ReviewItems {
     /// so filtering only removes items.
     public func layout(_ entry: Entry, matching query: String) -> GroupLayout {
         let all = rows(in: entry)
+        if entry.riskClass == .userData, entry.group == CleanWording.cloudFolders, all.isEmpty {
+            return GroupLayout(
+                entry: entry, shape: .notScanned, blurb: CleanWording.cloudBanner, facts: nil, hint: nil, selectAll: nil,
+                count: 0, bytes: 0, blocks: [], rest: nil, notScanned: cloudSkipped.map { Wording.tilde($0, home: report.home) }
+            )
+        }
+        let folders = all.filter { $0.userEntry == nil && $0.finding.contents != nil }
+        if !folders.isEmpty {
+            return entriesLayout(entry, all.filter { $0.userEntry != nil && matches($0, query) }, folders: folders)
+        }
         let shown = all.filter { matches($0, query) }
         let rules = Dictionary(grouping: all, by: { $0.finding.rule })
         let checkable = entry.riskClass != .userData
@@ -190,7 +222,38 @@ extension ReviewItems {
             selectAll: checkable ? shown.map(\.id) : nil,
             count: shown.count,
             bytes: shown.reduce(0) { $0 + $1.finding.bytes },
-            blocks: Self.ordered(blocks)
+            blocks: Self.ordered(blocks),
+            rest: nil,
+            notScanned: []
+        )
+    }
+
+    /// A user-data folder's entries, each picked by itself: no Select all,
+    /// no heading, nothing picked for the user; the unlisted rest as one line.
+    private func entriesLayout(_ entry: Entry, _ shown: [Row], folders: [Row]) -> GroupLayout {
+        let scanned = Wording.date(rfc3339: report.generatedAt)
+        let slash = UInt8(ascii: "/")
+        let items = shown.map { row in
+            let name = Array(row.finding.path.utf8).split(separator: slash).last.map { String(decoding: Array($0), as: UTF8.self) }
+            return GroupLayout.Item(
+                row: row,
+                shown: Wording.escaped(name ?? row.finding.path),
+                detail: CleanWording.entryDetail(row, scanned: scanned)
+            )
+        }
+        let (count, bytes) = folders.compactMap(\.finding.contents).reduce((UInt64(0), UInt64(0))) { ($0.0 + $1.restCount, $0.1 + $1.restBytes) }
+        return GroupLayout(
+            entry: entry,
+            shape: .entries,
+            blurb: CleanWording.pickBlurb,
+            facts: nil,
+            hint: folders.first.flatMap { CleanWording.hint($0.finding.hint) },
+            selectAll: nil,
+            count: items.count,
+            bytes: items.reduce(0) { $0 + $1.row.finding.bytes },
+            blocks: items.isEmpty ? [] : [.entries(Self.ordered(items))],
+            rest: count == 0 ? nil : CleanWording.rest(count: count, bytes: bytes),
+            notScanned: []
         )
     }
 

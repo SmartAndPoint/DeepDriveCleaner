@@ -44,19 +44,28 @@ fn class_title(class: RiskClass) -> &'static str {
         RiskClass::Safe => "SAFE — caches that refill themselves",
         RiskClass::Rebuildable => "REBUILDABLE — project artifacts restored by install or build",
         RiskClass::Review => "REVIEW — expensive to restore; your call, one by one",
-        RiskClass::UserData => "USER DATA — reported only, never cleaned",
+        RiskClass::UserData => "USER DATA — never cleaned by default; files you pick go to the Trash",
     }
 }
 
 /// `/Users/me/x` → `~/x`. Control characters are escaped so a crafted file
-/// name cannot move the cursor or recolor a confirmation prompt.
+/// name cannot move the cursor or recolor a confirmation prompt, and
+/// bidirectional format characters so `cod.exe\u{202e}fdp.` cannot pass for a PDF.
 pub fn tilde(path: &Path, home: &Path) -> String {
     let shown = match path.strip_prefix(home) {
         Ok(rel) if rel.as_os_str().is_empty() => "~".to_owned(),
         Ok(rel) => format!("~/{}", rel.display()),
         Err(_) => path.display().to_string(),
     };
-    shown.chars().map(|c| if c.is_control() { c.escape_default().to_string() } else { c.to_string() }).collect()
+    shown
+        .chars()
+        .map(|c| if c.is_control() || bidi(c) { c.escape_default().to_string() } else { c.to_string() })
+        .collect()
+}
+
+/// Bidirectional embeddings, overrides and isolates, and the direction marks.
+fn bidi(c: char) -> bool {
+    matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{200e}' | '\u{200f}' | '\u{061c}')
 }
 
 /// Colors only on a terminal and without `NO_COLOR`.
@@ -116,7 +125,7 @@ pub fn report(w: &mut impl Write, r: &ScanReport, style: &Style) -> io::Result<(
                 format!("selected {}", human(t.selected_bytes))
             }
             RiskClass::Review => "manual choice".to_owned(),
-            RiskClass::UserData => "report only".to_owned(),
+            RiskClass::UserData => "pick by hand".to_owned(),
         };
         writeln!(
             w,

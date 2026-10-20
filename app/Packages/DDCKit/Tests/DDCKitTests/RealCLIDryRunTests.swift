@@ -80,4 +80,51 @@ struct RealCLIDryRunTests {
             }
         }
     }
+
+    @Test("a picked download the window lists would go to the Trash once it is not recent; a fresh one is locked")
+    func picksADownload() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let downloads = root.appending(path: "home/Downloads")
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+        // Above the 10 MiB floor of what the scan lists.
+        for name in ["old.iso", "new.iso"] { try Data(count: 11 << 20).write(to: downloads.appending(path: name)) }
+        try backdate(downloads.appending(path: "old.iso").path, to: Date(timeIntervalSinceNow: -86_400))
+
+        let scan = await runner.run(.scan, ["scan", "--json"])
+        #expect(scan.outcome == .done)
+        let rulesRun = await runner.run(.rules, ["rules", "--json"])
+        let rules = try RuleList.read(rulesRun.stdout)
+        for rule in rules.rules where rule.class == .userData { #expect(CleanWording.userDataName(rule.id) != nil, "\(rule.id)") }
+        let items = ReviewItems.make(report: try ScanReport.read(scan.stdout), settings: nil, rules: rules)
+        let old = try #require(items.rows.first { $0.userEntry != nil && $0.finding.path.hasSuffix("/old.iso") })
+        let new = try #require(items.rows.first { $0.userEntry != nil && $0.finding.path.hasSuffix("/new.iso") })
+        #expect(old.selectable)
+        #expect(new.lock == .entry(.recent), "the window shows it locked as of its scan")
+
+        // The app never sends a locked row; the CLI is asked about it all the same.
+        let fresh = ListedItem(path: new.finding.path, dev: new.finding.dev, ino: new.finding.ino, rule: new.finding.rule, class: .userData, action: .trash, permanent: false)
+        let picked = DDCKit.Confirmation(items, selection: [old.id], deletePermanently: true).itemList(checkedAgainst: items)
+        let file = root.appending(path: "picked.json")
+        try ItemList(items: picked.items + [fresh]).encoded().write(to: file)
+        let dry = await runner.run(.dryRun, ["clean", "--items", file.path, "--dry-run", "--json"])
+        #expect(dry.outcome == .done, "\(dry.stderrTail.suffix(3))")
+        let predictions = try String(decoding: dry.stdout, as: UTF8.self).split(separator: "\n").compactMap { line -> Prediction? in
+            guard case .item(let item) = try PreflightLine.read(String(line)) else { return nil }
+            return item.prediction
+        }
+        #expect(predictions == [.wouldTrash, .wouldSkip(.entryLocked(.recent))])
+    }
+}
+
+/// Sets a file's modification time and date added, as an old download has
+/// them (`setattrlist`, both attributes settable).
+private func backdate(_ path: String, to date: Date) throws {
+    var list = attrlist()
+    list.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
+    // ATTR_CMN_MODTIME, ATTR_CMN_ADDEDTIME: their timespecs in bit order.
+    list.commonattr = attrgroup_t(0x0000_0400 | 0x1000_0000)
+    let when = timespec(tv_sec: Int(date.timeIntervalSince1970), tv_nsec: 0)
+    var times = [when, when]
+    let status = times.withUnsafeMutableBytes { setattrlist(path, &list, $0.baseAddress, $0.count, UInt32(FSOPT_NOFOLLOW)) }
+    guard status == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
 }

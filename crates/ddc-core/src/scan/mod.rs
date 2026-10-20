@@ -8,7 +8,7 @@ mod progress;
 pub mod reader;
 mod walker;
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -86,6 +86,14 @@ pub trait Visitor: Sync {
         true
     }
 
+    /// Whether a [`Pre::Claim`] or [`Pre::Region`] measures each direct child
+    /// on its own ([`WalkOutput::entries`]), its listing read with times
+    /// (story "User data: pick your own files for the Trash"). Asked before
+    /// the read; a [`Post::Claim`] never lists entries.
+    fn lists_entries(&self, _dir: &DirCtx<'_>, _tag: Tag) -> bool {
+        false
+    }
+
     /// Called for every non-directory entry, including inside claims.
     fn on_file(&self, _dir: &Path, _entry: &EntryMeta, _owner: Option<(OwnerKind, Tag)>) {}
 }
@@ -156,6 +164,37 @@ impl OwnerResult {
     }
 }
 
+/// A direct child of an owner that lists entries, measured on its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntryResult {
+    pub name: OsString,
+    pub kind: EntryKind,
+    pub dev: u64,
+    pub ino: u64,
+    /// `st_flags` (`SF_DATALESS`, …).
+    pub flags: u32,
+    /// Errno of the child's own metadata; the other fields may be unset.
+    pub error: Option<i32>,
+    pub modified: Option<i64>,
+    pub added: Option<i64>,
+    /// Allocated bytes under it, claims inside included; a hard-linked file
+    /// counts when every link of it lies inside this child.
+    pub bytes: u64,
+    /// Unreadable directories or entries inside.
+    pub errors: u64,
+    /// Subdirectories skipped (dataless, changed) or vanished inside.
+    pub skipped: u64,
+    /// Directories inside that belong to another filesystem.
+    pub other_fs: u64,
+}
+
+/// The entries of one owner, sorted by name bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnerEntries {
+    pub owner: PathBuf,
+    pub entries: Vec<EntryResult>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RootResult {
     pub path: PathBuf,
@@ -182,6 +221,8 @@ pub struct WalkOutput {
     pub roots: Vec<RootResult>,
     /// Sorted by path.
     pub owners: Vec<OwnerResult>,
+    /// Per owner that lists entries ([`Visitor::lists_entries`]); sorted by path.
+    pub entries: Vec<OwnerEntries>,
     /// All allocated bytes, each inode once.
     pub total_bytes: u64,
     /// Bytes outside every claim and region.

@@ -7,7 +7,7 @@ struct CleanResultTests {
     /// A report with every outcome, in the clean schema's shape.
     private func report(_ items: [String]) throws -> CleanReport {
         let json = """
-            {"schema_version": 1, "ddc_version": "0.2.0", "cancelled": true, "failed": 2, "local_snapshots": 1,
+            {"schema_version": 2, "ddc_version": "0.2.0", "cancelled": true, "failed": 2, "local_snapshots": 1,
              "journal": "/Users/example/Library/Logs/DeepDriveCleaner/actions.jsonl",
              "volumes": [{"mount_point": "/System/Volumes/Data", "free_before": 1000, "free_after": 4000},
                          {"mount_point": "/Volumes/Work", "free_before": 10, "free_after": 10}],

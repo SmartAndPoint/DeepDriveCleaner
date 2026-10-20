@@ -4,6 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::entries::ENTRY_RULES;
 use super::matcher::glob_match;
 use super::{KEPT, Rule, RuleVisitor, toolchain};
 use crate::class::{Category, RiskClass};
@@ -63,7 +64,13 @@ pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> 
             // `--exclude` below a finding protects the whole finding.
             rule = kept;
             notes.push(Note::Excluded);
-        } else if owner.kind == OwnerKind::Claim && markers.iter().any(|m| m.starts_with(&owner.path)) {
+        } else if owner.kind == OwnerKind::Claim
+            && !ENTRY_RULES.contains(&rule.id)
+            && markers.iter().any(|m| m.starts_with(&owner.path))
+        {
+            // In the user's own folders a marker locks the entry that holds it
+            // instead (safety ADR, amendment of 2026-10-20); one at the folder's
+            // top made it `user.kept` before it was read.
             rule = kept;
             notes.push(Note::KeptByMarker);
         }

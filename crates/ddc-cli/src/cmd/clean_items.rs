@@ -16,6 +16,7 @@ use ddc_core::exec::{
     SystemTrash,
 };
 use ddc_core::plan::{ListedItems, plan_listed};
+use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
 use ddc_core::scan::{Progress, WalkOptions};
@@ -57,9 +58,12 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
     // The full rescan: only a whole-tree walk sees toolchain pins and new claims above an item.
     let opts = ScanOptions { walk: WalkOptions::default(), ..resolved.options };
     let scan_progress = Progress::default();
-    let scanned = progress::with_spinner(&scan_progress, "scanning", || report::scan(&env, &opts, &scan_progress))?;
+    let (scanned, entries) = progress::with_spinner(&scan_progress, "scanning", || {
+        report::scan_with_entries(&env, &opts, &scan_progress, &SystemStatFs)
+    })?;
     store::write_last_scan(&env, &scanned).context("cannot save the scan report")?;
-    let listed = plan_listed(&scanned, &catalog, &list.items);
+    // A picked entry is checked against its folder's full list, not the report's top 100.
+    let listed = plan_listed(&scanned, &entries, &catalog, &list.items);
 
     let mut journal = FileJournal::open(&env).context("cannot open the action journal")?;
     let journal_path = journal.path.clone();

@@ -27,6 +27,7 @@ pub use system::{SystemCommands, SystemProcesses, SystemTrash};
 use crate::class::{Fallback, Removal, RiskClass};
 use crate::env::Env;
 use crate::plan::{Action, Plan, PlanItem};
+use crate::rules::entries::{ENTRY_RULES, EntryLock};
 use crate::rules::{Catalog, KEEP_MARKER};
 use crate::scan::{self, EntryMeta, OwnerKind, Progress, Tag, Visitor, WalkOptions};
 use crate::sys::procs::ProcInfo;
@@ -73,6 +74,14 @@ pub enum SkipReason {
     NativeUnavailable {
         program: String,
     },
+    /// A picked user-data item that is no longer an entry of its folder.
+    NotAnEntry,
+    /// A picked entry that is locked now.
+    EntryLocked {
+        lock: EntryLock,
+    },
+    /// Inside an entry of the same list that went to the Trash.
+    InsideAnotherItem,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -224,13 +233,18 @@ pub fn execute(
     let mut report = ExecReport { local_snapshots: local_snapshots(ports.commands), ..ExecReport::default() };
     let markers = keep_markers(chosen.iter().map(|i| i.finding.path.clone()).collect(), opts);
     let guard = guard::Guard::new(env, catalog, &plan.roots, markers, ports.procs.processes());
+    // Entries that went to the Trash: what lies inside them went with them.
+    let mut trashed: Vec<PathBuf> = Vec::new();
 
     for item in chosen {
+        let path = &item.finding.path;
         let outcome = if opts.cancelled() {
             Outcome::NotRun
+        } else if trashed.iter().any(|t| path != t && path.starts_with(t)) {
+            Outcome::Skipped(SkipReason::InsideAnotherItem)
         } else if !allowed(item, consent) {
             Outcome::Skipped(SkipReason::NeedsConfirmation)
-        } else if let Err(reason) = action_allowed(item, catalog) {
+        } else if let Err(reason) = action_allowed(item, catalog, consent) {
             Outcome::Skipped(reason)
         } else {
             match guard.check(item) {
@@ -238,6 +252,9 @@ pub fn execute(
                 Ok(verified) => act(item, &verified, &ports, opts),
             }
         };
+        if item.action == Action::TrashEntry && outcome == Outcome::Trashed {
+            trashed.push(path.clone());
+        }
         if outcome == Outcome::NotRun {
             report.cancelled = true;
         } else {
@@ -276,8 +293,18 @@ fn allowed(item: &PlanItem, consent: &Consent) -> bool {
 
 /// The executor does not trust the plan: the action must be one the rule
 /// allows for this finding (ADR §1 — enforced here, not only by `build_plan`).
-fn action_allowed(item: &PlanItem, catalog: &Catalog) -> Result<(), SkipReason> {
+/// The one way into user data is an entry of the user's own folders that
+/// the user listed (safety ADR, amendment of 2026-10-20).
+fn action_allowed(item: &PlanItem, catalog: &Catalog, consent: &Consent) -> Result<(), SkipReason> {
     let Some(rule) = catalog.by_id(&item.finding.rule) else { return Err(SkipReason::ActionNotAllowed) };
+    if item.action == Action::TrashEntry {
+        let entry = *consent == Consent::Listed
+            && ENTRY_RULES.contains(&rule.id)
+            && rule.removal == Removal::None
+            && rule.class == RiskClass::UserData
+            && item.finding.class == RiskClass::UserData;
+        return if entry { Ok(()) } else { Err(SkipReason::ActionNotAllowed) };
+    }
     if rule.class == RiskClass::UserData || item.finding.class == RiskClass::UserData {
         return Err(SkipReason::ActionNotAllowed);
     }
@@ -315,7 +342,7 @@ fn act(item: &PlanItem, v: &guard::Verified, ports: &Ports<'_>, opts: &ExecOptio
     };
     match item.action {
         Action::Delete { make_writable } => delete::remove(v, path, make_writable),
-        Action::Trash => trash(ports, v, path),
+        Action::Trash | Action::TrashEntry => trash(ports, v, path),
         Action::Native { cmd, fallback: fb } => match native::run(&cmd, path, ports.commands, opts) {
             native::Native::Ran(result) => Outcome::Native { commands: vec![result] },
             native::Native::Cancelled => Outcome::NotRun,

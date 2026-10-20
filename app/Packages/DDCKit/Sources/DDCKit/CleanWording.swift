@@ -1,3 +1,5 @@
+import Foundation
+
 /// The plain language of the Review window, the sheet and the result: one
 /// table, so every skip reason the executor has reads the same everywhere
 /// (phrasing from `reason()` in `crates/ddc-cli/src/prompt.rs`).
@@ -23,6 +25,22 @@ public enum CleanWording {
         case .actionNotAllowed: "Its rule does not allow this action"
         case .incomplete: "Partly unreadable, or another disk is mounted inside"
         case .nativeUnavailable(let program): "\(program) is not available, or its runtime is not running"
+        case .notAnEntry: "No longer a file or folder you can pick in its folder"
+        case .entryLocked(let lock): entryLock(lock)
+        case .insideAnotherItem: "Went to the Trash with the folder it is in"
+        }
+    }
+
+    /// Why a file or folder of the user's own folders cannot be picked.
+    public static func entryLock(_ lock: EntryLock) -> String {
+        switch lock {
+        case .appManaged(let app): "\(app) manages it · clean it in \(app)"
+        case .kept: "Protected by .ddc-keep or an exclusion"
+        case .protected: "Holds a protected folder"
+        case .otherVolume: "Another disk is mounted inside"
+        case .recent: "Added or changed in the last 10 minutes"
+        case .partialDownload: "Still downloading"
+        case .unfinishedBackup: "This backup did not finish"
         }
     }
 
@@ -83,7 +101,7 @@ public enum CleanWording {
     public static func notSelected(_ reason: ScanReport.NotSelected) -> String {
         switch reason {
         case .review: "Review · not selected by default"
-        case .userData: "Your data · report only"
+        case .userData: "Your data · not selected"
         case .activeProject(let days): "\(days == 0 ? "Active today" : "Active \(days) \(days == 1 ? "day" : "days") ago") · not selected"
         case .unknownActivity: "Activity unknown · not selected"
         }
@@ -106,8 +124,72 @@ extension CleanWording {
         case .safe: "Caches that refill on the next install or build. Cleaned with the tool's own command when it has one."
         case .rebuildable: "Environments and build folders of projects untouched for a while that have a lock file."
         case .review: "Expensive to restore, or restorability is uncertain. Not selected by default."
-        case .userData: "Your data. Shown, never cleaned."
+        case .userData: "Your own files. Nothing here is ever selected for you."
         }
+    }
+
+    /// The sidebar's name for a user-data rule: one entry per rule. Nil for
+    /// a rule this app does not know, which keeps its group's name.
+    public static func userDataName(_ rule: String) -> String? {
+        switch rule {
+        case "user.downloads": "Downloads"
+        case "user.pictures": "Pictures"
+        case "user.movies": "Movies"
+        case "user.music": "Music"
+        case "user.ios-backups": "iPhone and iPad backups"
+        case "user.imazing-backups": "iMazing backups"
+        case "user.telegram": "Telegram"
+        case "user.whatsapp": "WhatsApp"
+        case "user.cloud": cloudFolders
+        case "user.kept": "Protected by you"
+        case "trash": "Trash"
+        case "xcode.archives": "Xcode archives"
+        case "ide.workspace-storage": "Editor workspace storage"
+        case "macos.app-bundle": "Apps"
+        case "node.global-packages": "Global packages"
+        default: nil
+        }
+    }
+
+    /// The sidebar's last User data entry: the folders the scan never enters.
+    public static let cloudFolders = "Cloud folders"
+
+    /// What a user-data group with entries says once, at its top.
+    public static let pickBlurb = "Pick files and folders one by one to move them to the Trash. Put Back in the Trash restores them."
+
+    /// Why the cloud folders are not scanned.
+    public static let cloudBanner = "iCloud Drive and other cloud folders are not scanned: a file there may live only in the cloud, and the Trash would remove it from every device. To free space, use Remove Download in Finder."
+
+    /// A background scan skipped the folders macOS guards with a prompt.
+    public static let backgroundSkipped = "A background scan skipped Downloads, Pictures and other protected folders. Scan now to list them."
+
+    /// "1,904 smaller items (2.3 GiB) are not listed".
+    public static func rest(count: UInt64, bytes: UInt64) -> String {
+        let noun = count == 1 ? "smaller item" : "smaller items"
+        return "\(Wording.number(Int(clamping: count))) \(noun) (\(ByteSize.human(bytes))) \(count == 1 ? "is" : "are") not listed"
+    }
+
+    /// An entry row's own facts: its lock, when it last changed, a backup's
+    /// device and date, the findings inside it, `.git`.
+    public static func entryDetail(_ row: ReviewItems.Row, scanned: Date?) -> String {
+        guard let entry = row.userEntry else { return "" }
+        var parts: [String] = []
+        if let lock = row.lock { parts.append(lock.text) }
+        if let backup = entry.backup {
+            if let name = backup.deviceName { parts.append(Wording.escaped(name)) }
+            if let date = backup.lastBackup.flatMap(Wording.date(rfc3339:)) {
+                parts.append("Last backup \(date.formatted(.dateTime.year().month().day()))")
+            }
+        } else if row.lock != .entry(.recent), let scanned, let modified = entry.modified.flatMap(Wording.date(rfc3339:)) {
+            let days = max(0, Int(scanned.timeIntervalSince(modified) / 86_400))
+            parts.append(days == 0 ? "Last changed today" : "Last changed \(days) \(days == 1 ? "day" : "days") ago")
+        }
+        if entry.findings > 0 {
+            parts.append("Holds \(Wording.items(Int(clamping: entry.findings), "finding")) of its own")
+        }
+        if entry.git { parts.append("A project (has .git)") }
+        if row.finding.incomplete { parts.append("Partly unreadable") }
+        return parts.joined(separator: " · ")
     }
 
     /// A finding's way back, as a sentence; nil when it has none.

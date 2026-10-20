@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use super::entries::ENTRY_RULES;
 use super::matcher::{self, ListingView};
 use super::{Catalog, Clones};
 use crate::class::RiskClass;
@@ -158,6 +159,12 @@ impl Visitor for RuleVisitor<'_> {
                     })
             }
         }
+    }
+
+    /// The user's own folders list their entries (story "User data: pick
+    /// your own files for the Trash").
+    fn lists_entries(&self, _dir: &DirCtx<'_>, tag: Tag) -> bool {
+        ENTRY_RULES.contains(&self.catalog.rule(tag).id)
     }
 
     fn on_file(&self, dir: &Path, entry: &EntryMeta, owner: Option<(OwnerKind, Tag)>) {

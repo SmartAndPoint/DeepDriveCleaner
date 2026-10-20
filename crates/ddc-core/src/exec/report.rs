@@ -11,8 +11,9 @@ use super::{ExecReport, Outcome, VolumeSpace};
 use crate::class::RiskClass;
 use crate::plan::{ActionKind, ListedItem, Refused};
 
-/// Version of [`CleanReport`]; the scan report has its own.
-pub const CLEAN_SCHEMA_VERSION: u32 = 1;
+/// Version of [`CleanReport`]; the scan report has its own. 2: the skip
+/// reasons `not-an-entry`, `entry-locked` and `inside-another-item`.
+pub const CLEAN_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CleanReport {

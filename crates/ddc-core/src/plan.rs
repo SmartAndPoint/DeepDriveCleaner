@@ -9,8 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::class::{Category, Fallback, NativeCommand, Removal, RiskClass};
 use crate::exec::SkipReason;
-use crate::model::{Finding, ScanReport};
-use crate::rules::{Catalog, Rule};
+use crate::model::{Finding, NotSelected, RemovalKind, ScanReport};
+use crate::report::contents::{EntryIndex, EntryState, NotAnEntry};
+use crate::rules::entries::ENTRY_RULES;
+use crate::rules::{Catalog, KEPT, Rule};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
@@ -26,6 +28,10 @@ pub enum Action {
     },
     /// Only these commands; never delete or trash.
     NativeOnly(&'static [NativeCommand]),
+    /// An entry of one of the user's own folders the user picked, to the
+    /// Trash (story "User data: pick your own files for the Trash"). Only
+    /// [`plan_listed`] makes it; [`action_for`] and [`build_plan`] never do.
+    TrashEntry,
 }
 
 impl Action {
@@ -36,7 +42,7 @@ impl Action {
     pub fn kind(&self) -> ActionKind {
         match self {
             Action::Delete { .. } => ActionKind::Delete,
-            Action::Trash => ActionKind::Trash,
+            Action::Trash | Action::TrashEntry => ActionKind::Trash,
             Action::Native { .. } => ActionKind::Native,
             Action::NativeOnly(_) => ActionKind::NativeOnly,
         }
@@ -244,10 +250,20 @@ pub struct ListedPlan {
 /// is `rule-mismatch` and an item now kept (`.ddc-keep`, `--exclude`) at or
 /// above it is `kept`, the reasons the dry run gives. Default selection and
 /// switched-off rules are never consulted: the list is the selection.
-pub fn plan_listed(report: &ScanReport, catalog: &Catalog, listed: &[ListedItem]) -> ListedPlan {
+///
+/// A `user-data` item is an entry the user picked; [`entry`] matches it
+/// against the fresh scan's full list of entries. Entries come first in the
+/// plan, so one runs before a finding inside it.
+pub fn plan_listed(report: &ScanReport, entries: &EntryIndex, catalog: &Catalog, listed: &[ListedItem]) -> ListedPlan {
     let mut items = Vec::new();
     let mut refused = Vec::new();
-    for item in listed {
+    for item in listed.iter().filter(|i| i.class == RiskClass::UserData) {
+        match entry(report, entries, catalog, item) {
+            Ok(planned) => items.push(planned),
+            Err(reason) => refused.push(Refused { item: item.clone(), reason }),
+        }
+    }
+    for item in listed.iter().filter(|i| i.class != RiskClass::UserData) {
         let fresh = report.findings.iter().find(|f| {
             f.path.as_os_str() == item.path.as_os_str()
                 && (f.dev, f.ino) == (item.dev, item.ino)
@@ -275,4 +291,86 @@ pub fn plan_listed(report: &ScanReport, catalog: &Catalog, listed: &[ListedItem]
         items.push(PlanItem { finding: f.clone(), action, default_selected: f.selected, selected: true });
     }
     ListedPlan { plan: Plan { roots: report.scan_roots.clone(), items }, refused }
+}
+
+/// A picked entry, checked in the order the dry run checks it: the action,
+/// the scan's own findings and roots, the parent, the folder, the entry and
+/// its identity, then its lock (safety ADR, amendment of 2026-10-20).
+fn entry(
+    report: &ScanReport,
+    index: &EntryIndex,
+    catalog: &Catalog,
+    item: &ListedItem,
+) -> Result<PlanItem, SkipReason> {
+    let Some(rule) = catalog.by_id(&item.rule) else { return Err(SkipReason::RuleMismatch) };
+    if item.action != ActionKind::Trash || item.permanent {
+        return Err(SkipReason::ActionNotAllowed);
+    }
+    let path = item.path.as_path();
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(SkipReason::ActionNotAllowed);
+    };
+    // Kept at the entry itself, in one of the folders: a marker at its top or an exclude.
+    if index.folders.contains_key(parent)
+        && report.findings.iter().any(|f| f.rule == KEPT && f.path.as_os_str() == path.as_os_str())
+    {
+        return Err(SkipReason::EntryLocked { lock: crate::rules::entries::EntryLock::Kept });
+    }
+    // The folder itself may not be picked; another finding is no entry.
+    if report.findings.iter().any(|f| f.path.as_os_str() == path.as_os_str()) {
+        return Err(if catalog.verify(rule, path) { SkipReason::ActionNotAllowed } else { SkipReason::NotAnEntry });
+    }
+    // The whole folder is kept now.
+    if report.findings.iter().any(|f| f.rule == KEPT && parent.starts_with(&f.path)) {
+        return Err(SkipReason::Kept);
+    }
+    if !report.scan_roots.iter().any(|r| path.starts_with(r)) {
+        return Err(SkipReason::OutsideScanRoots);
+    }
+    if parent.canonicalize().ok().as_deref() != Some(parent) {
+        return Err(SkipReason::ParentChanged);
+    }
+    let Some((folder, found)) = index.entry(parent, name) else { return Err(SkipReason::NotAnEntry) };
+    if folder.rule != item.rule || !ENTRY_RULES.contains(&rule.id) {
+        return Err(SkipReason::NotAnEntry);
+    }
+    let Some(found) = found else { return Err(SkipReason::NotAnEntry) };
+    match &found.state {
+        EntryState::NotAnEntry(NotAnEntry::Symlink) => return Err(SkipReason::Symlink),
+        EntryState::NotAnEntry(_) => return Err(SkipReason::NotAnEntry),
+        _ => {}
+    }
+    // Before the lock: a replaced entry is also a new one.
+    if (found.dev, found.ino) != (item.dev, item.ino) {
+        return Err(SkipReason::ChangedSinceScan);
+    }
+    if let EntryState::Locked(lock) = &found.state {
+        return Err(SkipReason::EntryLocked { lock: lock.clone() });
+    }
+    let finding = Finding {
+        path: item.path.clone(),
+        rule: rule.id.to_owned(),
+        category: rule.category,
+        class: RiskClass::UserData,
+        rule_class: rule.class,
+        removal: RemovalKind::Trash,
+        bytes: found.bytes,
+        shared_bytes: 0,
+        private_bytes: None,
+        files: 0,
+        dirs: 0,
+        incomplete: found.incomplete,
+        project: None,
+        selected: false,
+        not_selected: Some(NotSelected::UserData),
+        ignored: false,
+        notes: Vec::new(),
+        hint: rule.hint.to_owned(),
+        dev: found.dev,
+        ino: found.ino,
+        parent_dev: Some(folder.dev),
+        parent_ino: Some(folder.ino),
+        contents: None,
+    };
+    Ok(PlanItem { finding, action: Action::TrashEntry, default_selected: false, selected: true })
 }

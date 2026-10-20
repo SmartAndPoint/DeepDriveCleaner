@@ -256,7 +256,8 @@ public final class ReviewModel: ReviewRouting {
 
     public func isSelected(_ id: Int) -> Bool { selection.contains(id) }
 
-    /// Selectable rows only: user data and ignored findings never enter the selection.
+    /// Selectable rows only: user-data findings, locked entries and ignored
+    /// findings never enter the selection; a picked entry of the user's own folders does.
     public func toggle(_ id: Int) {
         guard let row = items?.row(id), row.selectable else { return }
         if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
@@ -269,9 +270,12 @@ public final class ReviewModel: ReviewRouting {
         if selected { selection.formUnion(selectable) } else { selection.subtract(selectable) }
     }
 
+    /// The selection as the clean takes it: a finding inside a picked folder
+    /// goes to the Trash with the folder, so it is not counted again.
     public var selectedRows: [ReviewItems.Row] {
         guard let items else { return [] }
-        return selection.sorted().compactMap { items.row($0) }
+        let covered = items.covered(by: selection)
+        return selection.subtracting(covered).sorted().compactMap { items.row($0) }
     }
 
     /// Off, mixed or on over the selectable rows of `ids`: Select all and
@@ -294,12 +298,25 @@ public final class ReviewModel: ReviewRouting {
         set(ids, selected: checkState(ids) != .on)
     }
 
-    /// The sidebar's and the group header's "selected of total".
+    /// The sidebar's and the group header's "selected of total". A
+    /// user-data folder's total is its finding; a picked entry counts
+    /// without the findings inside it, and never past the total.
     public func amount(of entry: ReviewItems.Entry) -> String {
         guard let items else { return "" }
+        if entry.riskClass == .userData, entry.group == CleanWording.cloudFolders, items.rows(in: entry).isEmpty {
+            return "not scanned"
+        }
         let rows = items.rows(in: entry)
-        let selected = rows.filter { selection.contains($0.id) }.reduce(0) { $0 + $1.finding.bytes }
-        return Wording.amount(selected: selected, total: rows.reduce(0) { $0 + $1.finding.bytes })
+        let total = items.total(entry)
+        let selected = rows.filter { selection.contains($0.id) }.reduce(0) { $0 + ($1.userEntry?.ownBytes ?? $1.finding.bytes) }
+        return Wording.amount(selected: min(selected, total), total: total)
+    }
+
+    /// Whether "Protect this folder" is offered: never for a file, nor
+    /// inside a device backup.
+    public func canProtect(_ id: Int) -> Bool {
+        guard let items, let row = items.row(id) else { return false }
+        return row.selectable && items.canProtect(row)
     }
 
     /// A subgroup's heading: folds it or opens it again.
@@ -318,7 +335,7 @@ public final class ReviewModel: ReviewRouting {
     /// "Protect this folder", after its confirmation: the marker, then the row
     /// can no longer be selected.
     public func protect(_ id: Int) {
-        guard let row = items?.row(id), row.selectable else { return }
+        guard canProtect(id), let row = items?.row(id) else { return }
         do {
             try KeepMarker.protect(path: row.finding.path, dev: row.finding.dev, ino: row.finding.ino)
             protected.insert(Identity(row.finding))

@@ -190,7 +190,15 @@ extension ReviewModel {
         if let report {
             stage = .result(CleanResult.make(report: report, confirmation: confirmation, volumes: volumes))
             let gone = report.items.filter { $0.outcome == .deleted || $0.outcome == .trashed }
-            cleaned = (Set(gone.map { Identity(path: $0.path, dev: $0.dev, ino: $0.ino) }), clock())
+            var identities = Set(gone.map { Identity(path: $0.path, dev: $0.dev, ino: $0.ino) })
+            // A finding inside a picked folder went to the Trash with it.
+            let folders = gone.filter { $0.class == .userData }.map(\.path)
+            if !folders.isEmpty {
+                for row in items?.rows ?? [] where folders.contains(where: { ReviewItems.inside(row.finding.path, $0) }) {
+                    identities.insert(Identity(row.finding))
+                }
+            }
+            cleaned = (identities, clock())
         } else if result.outcome == .done {
             stage = .stopped("The clean ended, but its report could not be read. The journal lists what was done.", journal: journal)
         } else if saved {

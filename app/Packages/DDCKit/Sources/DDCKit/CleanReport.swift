@@ -22,16 +22,23 @@ public enum SkipReason: Sendable, Equatable, Hashable {
     case actionNotAllowed
     case incomplete
     case nativeUnavailable(program: String)
+    /// A picked file or folder is no longer one of its folder's entries.
+    case notAnEntry
+    /// A picked entry is locked now.
+    case entryLocked(EntryLock)
+    /// Inside a picked folder that went to the Trash.
+    case insideAnotherItem
 
     /// Every `reason` value, as the schema lists them.
     public static let tags = [
         "missing", "not-a-directory", "symlink", "changed-since-scan", "parent-changed", "rule-mismatch",
         "outside-scan-roots", "scan-root", "protected", "project-root", "kept", "in-use", "in-use-unknown-cwd",
         "owner-running", "needs-confirmation", "action-not-allowed", "incomplete", "native-unavailable",
+        "not-an-entry", "entry-locked", "inside-another-item",
     ]
 
     enum CodingKeys: String, CodingKey {
-        case reason, pid, name, program
+        case reason, pid, name, program, lock
     }
 
     /// Reads the reason from the container of the item it is flattened into.
@@ -57,6 +64,9 @@ public enum SkipReason: Sendable, Equatable, Hashable {
         case "action-not-allowed": self = .actionNotAllowed
         case "incomplete": self = .incomplete
         case "native-unavailable": self = .nativeUnavailable(program: try c.decode(String.self, forKey: .program))
+        case "not-an-entry": self = .notAnEntry
+        case "entry-locked": self = .entryLocked(try c.decode(EntryLock.self, forKey: .lock))
+        case "inside-another-item": self = .insideAnotherItem
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .reason, in: c, debugDescription: "unknown reason \(other)")
         }
@@ -66,7 +76,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
 /// `clean --items --json`: what happened to each listed item.
 public struct CleanReport: Decodable, Sendable, Equatable {
     /// `CLEAN_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)

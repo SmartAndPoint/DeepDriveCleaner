@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use common::{TreeBuilder, alloc, reference_alloc};
 use ddc_core::scan::{
-    self, DirCtx, DirListing, NullVisitor, OwnerKind, OwnerResult, Post, Pre, Progress, ReadErrorKind, ReaderKind, Tag,
-    Visitor, WalkOptions, WalkOutput,
+    self, DirCtx, DirListing, DirReader, EntryKind, EntryResult, NullVisitor, OwnerKind, OwnerResult, Post, Pre,
+    Progress, ReadError, ReadErrorKind, ReaderKind, StdReader, Tag, Visitor, WalkOptions, WalkOutput,
 };
 
 const CLAIM_BY_NAME: Tag = 1;
@@ -18,6 +18,8 @@ const REGION: Tag = 3;
 struct TestVisitor {
     claim_paths: Vec<PathBuf>,
     region_paths: Vec<PathBuf>,
+    /// Claims or regions whose direct children are measured one by one.
+    entry_paths: Vec<PathBuf>,
 }
 
 impl Visitor for TestVisitor {
@@ -38,6 +40,18 @@ impl Visitor for TestVisitor {
             Post::Descend
         }
     }
+
+    fn lists_entries(&self, dir: &DirCtx<'_>, _tag: Tag) -> bool {
+        self.entry_paths.iter().any(|p| p == dir.path)
+    }
+}
+
+fn entries<'a>(out: &'a WalkOutput, owner: &Path) -> &'a [EntryResult] {
+    &out.entries.iter().find(|e| e.owner == owner).unwrap_or_else(|| panic!("no entries of {owner:?}")).entries
+}
+
+fn entry<'a>(out: &'a WalkOutput, owner: &Path, name: &str) -> &'a EntryResult {
+    entries(out, owner).iter().find(|e| e.name == name).unwrap_or_else(|| panic!("no entry {name}"))
 }
 
 fn opts(reader: ReaderKind) -> WalkOptions {
@@ -358,4 +372,186 @@ fn bulk_reader_matches_lstat_per_entry_across_batches() {
     }
     let fork = reference.entries.iter().find(|e| e.name == "f0002").unwrap();
     assert!(fork.alloc >= 300_000, "resource fork is part of the allocated size: {}", fork.alloc);
+
+    // Times only when asked for, and the rest of each record still in place.
+    let plain = BulkReader.read(&dir, None, false).unwrap();
+    assert!(plain.entries.iter().all(|e| e.modified.is_none() && e.added.is_none()));
+    let lstat_times: HashMap<_, _> = StdReader
+        .read_with_times(&dir, None, false)
+        .unwrap()
+        .entries
+        .into_iter()
+        .map(|e| (e.name, e.modified))
+        .collect();
+    for want_private in [false, true] {
+        let timed = BulkReader.read_with_times(&dir, None, want_private).unwrap();
+        assert_eq!(timed.entries.len(), reference.entries.len());
+        for b in &timed.entries {
+            let r = by_name[&b.name];
+            assert_eq!(
+                (b.kind, b.dev, b.ino, b.flags, b.alloc),
+                (r.kind, r.dev, r.ino, r.flags, r.alloc),
+                "{:?}",
+                b.name
+            );
+            assert!(b.modified.is_some() && b.modified == lstat_times[&b.name], "{:?}: {:?}", b.name, b.modified);
+            assert!(b.added.is_some(), "{:?}: no date added", b.name);
+            if want_private && b.kind == EntryKind::File {
+                assert!(b.private.is_some(), "{:?}", b.name);
+            }
+        }
+    }
+}
+
+#[test]
+fn listed_entries_are_measured_one_by_one_with_claims_inside_folded_back() {
+    let t = TreeBuilder::new();
+    let region = t.dir("Downloads");
+    let pics = t.dir("Pictures");
+    t.file("Downloads/a.zip", 100_000);
+    t.file("Downloads/b/x", 50_000);
+    t.file("Downloads/b/y/z", 30_000);
+    t.file("Downloads/repo/src/main.rs", 4_000);
+    t.file("Downloads/repo/claimme-deps/lib/big", 200_000);
+    t.symlink("a.zip", "Downloads/link");
+    t.file("Pictures/trip/one.jpg", 70_000);
+    t.file("Pictures/loose.png", 20_000);
+    t.file("elsewhere/not-listed", 10_000);
+    let visitor = TestVisitor {
+        region_paths: vec![region.clone()],
+        claim_paths: vec![pics.clone()],
+        entry_paths: vec![region.clone(), pics.clone()],
+    };
+
+    let out = walk(t.root(), &visitor);
+
+    let names: Vec<_> = entries(&out, &region).iter().map(|e| e.name.to_string_lossy().into_owned()).collect();
+    assert_eq!(names, ["a.zip", "b", "link", "repo"], "sorted by name, every kind");
+    assert_eq!(entry(&out, &region, "a.zip").bytes, alloc(&t.path("Downloads/a.zip")));
+    assert_eq!(entry(&out, &region, "b").bytes, reference_alloc(&t.path("Downloads/b")));
+    assert_eq!(entry(&out, &region, "link").kind, EntryKind::Symlink);
+    // The claim inside keeps its own owner and still counts for the entry that holds it.
+    let repo = entry(&out, &region, "repo");
+    assert_eq!(repo.bytes, reference_alloc(&t.path("Downloads/repo")));
+    let deps = owner(&out, &t.path("Downloads/repo/claimme-deps"));
+    assert_eq!(deps.bytes, reference_alloc(&t.path("Downloads/repo/claimme-deps")));
+    assert!(owner(&out, &region).bytes < repo.bytes + deps.bytes, "the region's remainder leaves the claim out");
+    for e in entries(&out, &region).iter().chain(entries(&out, &pics)) {
+        assert!(e.modified.is_some() && e.added.is_some(), "{:?}", e.name);
+        assert_eq!((e.errors, e.skipped, e.other_fs, e.error), (0, 0, 0, None), "{:?}", e.name);
+    }
+    // A claimed folder lists its children too.
+    assert_eq!(entry(&out, &pics, "trip").bytes, reference_alloc(&t.path("Pictures/trip")));
+    assert_eq!(entry(&out, &pics, "loose.png").bytes, alloc(&t.path("Pictures/loose.png")));
+    assert_eq!(out.entries.len(), 2, "only the owners that list entries");
+}
+
+#[test]
+fn a_hard_link_counts_for_an_entry_only_when_every_link_is_inside_it() {
+    let t = TreeBuilder::new();
+    let region = t.dir("Downloads");
+    let inside = t.file("Downloads/both/one", 40_000);
+    t.hardlink(&inside, "Downloads/both/sub/two");
+    let split = t.file("Downloads/left/one", 60_000);
+    t.hardlink(&split, "Downloads/right/two");
+    let visitor =
+        TestVisitor { region_paths: vec![region.clone()], entry_paths: vec![region.clone()], ..TestVisitor::default() };
+
+    let out = walk(t.root(), &visitor);
+
+    assert_eq!(entry(&out, &region, "both").bytes, alloc(&inside));
+    assert_eq!(entry(&out, &region, "left").bytes, 0);
+    assert_eq!(entry(&out, &region, "right").bytes, 0);
+}
+
+#[test]
+fn listed_entries_are_deterministic() {
+    let t = TreeBuilder::new();
+    let region = t.dir("Downloads");
+    for i in 0..40 {
+        t.file(&format!("Downloads/d{i}/f"), 1_000 * i);
+        t.file(&format!("Downloads/f{i}"), 500 * i);
+    }
+    let visitor =
+        TestVisitor { region_paths: vec![region.clone()], entry_paths: vec![region.clone()], ..TestVisitor::default() };
+    assert_eq!(walk(t.root(), &visitor).entries, walk(t.root(), &visitor).entries);
+}
+
+/// `StdReader` with some entries changed: a dataless child, a child whose own
+/// metadata fails, and a directory on another device.
+struct Altered {
+    folder: PathBuf,
+    deep: PathBuf,
+}
+
+impl Altered {
+    fn alter(&self, dir: &Path, mut listing: DirListing) -> DirListing {
+        for e in &mut listing.entries {
+            match (dir == self.folder, dir == self.deep, e.name.to_str()) {
+                (true, _, Some("dataless")) => e.flags |= scan::reader::SF_DATALESS,
+                (true, _, Some("broken")) => e.error = Some(libc::EACCES),
+                (true, _, Some("volume")) | (_, true, Some("mnt")) => e.dev ^= 0x5a5a,
+                _ => {}
+            }
+        }
+        listing
+    }
+}
+
+impl DirReader for Altered {
+    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
+        StdReader.read(dir, expect, want_private).map(|l| self.alter(dir, l))
+    }
+    fn read_with_times(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+    ) -> Result<DirListing, ReadError> {
+        StdReader.read_with_times(dir, expect, want_private).map(|l| self.alter(dir, l))
+    }
+}
+
+#[test]
+fn listed_entries_keep_what_the_reader_could_not_measure() {
+    let t = TreeBuilder::new();
+    let region = t.dir("Downloads");
+    t.file("Downloads/dataless/f", 1_000);
+    t.file("Downloads/broken", 1_000);
+    t.file("Downloads/volume/f", 1_000);
+    t.file("Downloads/deep/mnt/f", 1_000);
+    t.file("Downloads/deep/kept", 8_000);
+    t.file("Downloads/fine", 2_000);
+    let visitor =
+        TestVisitor { region_paths: vec![region.clone()], entry_paths: vec![region.clone()], ..TestVisitor::default() };
+    let reader = Altered { folder: region.clone(), deep: t.path("Downloads/deep") };
+
+    let out = scan::walk_with_reader(
+        &[t.root().to_path_buf()],
+        &visitor,
+        &opts(ReaderKind::Std),
+        &Progress::default(),
+        &reader,
+    )
+    .expect("walk");
+
+    assert!(entry(&out, &region, "dataless").flags & scan::reader::SF_DATALESS != 0);
+    assert_eq!(entry(&out, &region, "broken").error, Some(libc::EACCES));
+    assert_eq!(entry(&out, &region, "volume").other_fs, 1);
+    let deep = entry(&out, &region, "deep");
+    assert_eq!(deep.other_fs, 1, "a mount point deeper inside");
+    assert_eq!(deep.bytes, alloc(&t.path("Downloads/deep/kept")));
+    let fine = entry(&out, &region, "fine");
+    assert_eq!((fine.other_fs, fine.skipped, fine.errors), (0, 0, 0));
+    assert_eq!(
+        fine.modified,
+        Some(
+            std::fs::symlink_metadata(t.path("Downloads/fine"))
+                .map(|m| {
+                    use std::os::unix::fs::MetadataExt as _;
+                    m.mtime()
+                })
+                .unwrap()
+        )
+    );
 }

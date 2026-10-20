@@ -5,6 +5,7 @@
 
 mod catalog;
 mod classify;
+pub mod entries;
 pub mod listing;
 mod matcher;
 mod toolchain;

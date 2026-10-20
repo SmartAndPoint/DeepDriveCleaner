@@ -66,11 +66,21 @@ public enum Wording {
         return escaped(shown)
     }
 
-    /// Control characters escaped, so a crafted name cannot disguise itself.
+    /// Control characters and bidirectional format characters escaped, so a
+    /// crafted name cannot disguise itself: `cod\u{202E}fdp.exe` would read as a PDF.
     public static func escaped(_ text: String) -> String {
         text.unicodeScalars.map { scalar in
-            scalar.properties.generalCategory == .control ? scalar.escaped(asASCII: true) : String(scalar)
+            scalar.properties.generalCategory == .control || bidi(scalar) ? scalar.escaped(asASCII: true) : String(scalar)
         }.joined()
+    }
+
+    /// Embeddings, overrides and isolates (U+202A–U+202E, U+2066–U+2069) and
+    /// the direction marks (U+200E, U+200F, U+061C).
+    static func bidi(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x202A...0x202E, 0x2066...0x2069, 0x200E, 0x200F, 0x061C: true
+        default: false
+        }
     }
 
     /// "9.2 of 13.1 GiB", the unit said once when both share it, when part is

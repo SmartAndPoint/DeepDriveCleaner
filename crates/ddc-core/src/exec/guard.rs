@@ -5,10 +5,13 @@ use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::time::SystemTime;
 
 use super::SkipReason;
 use crate::env::Env;
-use crate::plan::PlanItem;
+use crate::plan::{Action, PlanItem};
+use crate::report::backups;
+use crate::rules::entries::{BACKUP_RULE, EntryFacts, lock_of};
 use crate::rules::{Catalog, KEEP_MARKER, PROTECTED_IN_HOME, PROTECTED_SYSTEM, owns};
 use crate::sys::fsops::DirFd;
 use crate::sys::procs::ProcInfo;
@@ -20,17 +23,24 @@ pub struct Verified {
     pub name: OsString,
     /// `(dev, ino)` of the finding as checked.
     pub id: (u64, u64),
+    /// A directory as checked; a picked entry may be a regular file.
+    pub is_dir: bool,
 }
 
 impl Verified {
-    /// The same directory is still at the same place (through the parent fd).
+    /// The same directory or file is still at the same place (through the parent fd).
     pub fn unchanged(&self) -> bool {
-        self.parent.stat_child(&self.name).is_ok_and(|st| !st.is_symlink && st.is_dir && (st.dev, st.ino) == self.id)
+        self.parent.stat_child(&self.name).is_ok_and(|st| {
+            !st.is_symlink && st.is_dir == self.is_dir && (st.is_dir || st.is_file) && (st.dev, st.ino) == self.id
+        })
     }
 }
 
 pub struct Guard<'a> {
     catalog: &'a Catalog,
+    home: PathBuf,
+    /// The run's start, against which an entry is "recent".
+    now: SystemTime,
     roots: Vec<PathBuf>,
     protected_paths: HashSet<String>,
     protected_ids: HashSet<(u64, u64)>,
@@ -73,6 +83,8 @@ impl<'a> Guard<'a> {
             .collect();
         Self {
             catalog,
+            home: env.home().to_path_buf(),
+            now: env.now(),
             roots: roots.to_vec(),
             protected_paths: paths.iter().map(|p| fold(p)).collect(),
             protected_ids,
@@ -83,6 +95,9 @@ impl<'a> Guard<'a> {
     }
 
     pub fn check(&self, item: &PlanItem) -> Result<Verified, SkipReason> {
+        if item.action == Action::TrashEntry {
+            return self.check_entry(item);
+        }
         let f = &item.finding;
         let path = f.path.as_path();
         let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
@@ -146,15 +161,100 @@ impl<'a> Guard<'a> {
         if let Some(reason) = in_use(path, &self.uses) {
             return Err(reason);
         }
-        Ok(Verified { parent: parent_fd, name: name.to_os_string(), id: (st.dev, st.ino) })
+        Ok(Verified { parent: parent_fd, name: name.to_os_string(), id: (st.dev, st.ino), is_dir: true })
+    }
+
+    /// §5 for a picked entry (safety ADR, amendment of 2026-10-20): the
+    /// parent is the folder, the entry a regular file or a directory with the
+    /// listed identity. The rule-marker match applies to the parent; the
+    /// `incomplete`, project-root and directory-only checks do not apply. A
+    /// keep marker in or at the entry is its lock, "kept".
+    fn check_entry(&self, item: &PlanItem) -> Result<Verified, SkipReason> {
+        let f = &item.finding;
+        let path = f.path.as_path();
+        let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+            return Err(SkipReason::Protected);
+        };
+        if !self.roots.iter().any(|r| path.starts_with(r)) {
+            return Err(SkipReason::OutsideScanRoots);
+        }
+        if self.roots.iter().any(|r| r == path) {
+            return Err(SkipReason::ScanRoot);
+        }
+        if self.protected_paths.contains(&fold(path)) {
+            return Err(SkipReason::Protected);
+        }
+        if parent.canonicalize().ok().as_deref() != Some(parent) {
+            return Err(SkipReason::ParentChanged);
+        }
+        let parent_fd = DirFd::open(parent).map_err(|_| SkipReason::ParentChanged)?;
+        let parent_id = parent_fd.identity().map_err(|_| SkipReason::ParentChanged)?;
+        if f.parent_dev.zip(f.parent_ino).is_some_and(|id| id != parent_id) {
+            return Err(SkipReason::ParentChanged);
+        }
+        match self.catalog.by_id(&f.rule) {
+            Some(rule) if self.catalog.verify(rule, parent) => {}
+            _ => return Err(SkipReason::NotAnEntry),
+        }
+        let st = match parent_fd.stat_child(name) {
+            Ok(st) => st,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(SkipReason::Missing),
+            Err(_) => return Err(SkipReason::ChangedSinceScan),
+        };
+        if st.is_symlink {
+            return Err(SkipReason::Symlink);
+        }
+        if !st.is_dir && !st.is_file {
+            return Err(SkipReason::NotAnEntry);
+        }
+        if (st.dev, st.ino) != (f.dev, f.ino) {
+            return Err(SkipReason::ChangedSinceScan);
+        }
+        if self.protected_ids.contains(&(st.dev, st.ino)) {
+            return Err(SkipReason::Protected);
+        }
+        // The plan is not trusted input: the entry's lock is derived again,
+        // as the scan and the dry run derive it. A volume mounted deeper is
+        // the scan's to see; one mounted at the entry is seen here.
+        let (modified, added) = parent_fd.child_times(name).unwrap_or((None, None));
+        let rule = f.rule.as_str();
+        let facts = EntryFacts {
+            home: &self.home,
+            rule,
+            path,
+            modified,
+            added,
+            now: self.now,
+            kept: self.markers.iter().any(|m| m.starts_with(path))
+                || fs::symlink_metadata(path.join(KEEP_MARKER)).is_ok(),
+            protected: PROTECTED_IN_HOME.iter().any(|rel| self.home.join(rel).starts_with(path)),
+            other_volume: st.dev != parent_id.0,
+            finished: rule == BACKUP_RULE && st.is_dir && backups::finished(path),
+        };
+        if let Some(lock) = lock_of(&facts) {
+            return Err(SkipReason::EntryLocked { lock });
+        }
+        // Above it only: the markers walked inside other listed entries are theirs.
+        if self.marker_above(path) {
+            return Err(SkipReason::Kept);
+        }
+        if let Some(reason) = in_use(path, &self.uses) {
+            return Err(reason);
+        }
+        Ok(Verified { parent: parent_fd, name: name.to_os_string(), id: (st.dev, st.ino), is_dir: st.is_dir })
     }
 
     fn kept(&self, path: &Path) -> bool {
-        if self.markers.iter().any(|m| m.starts_with(path)) {
-            return true;
-        }
+        self.markers.iter().any(|m| m.starts_with(path))
+            || fs::symlink_metadata(path.join(KEEP_MARKER)).is_ok()
+            || self.marker_above(path)
+    }
+
+    /// A keep marker in a directory above `path`, within its scan root.
+    pub(super) fn marker_above(&self, path: &Path) -> bool {
         let root = self.roots.iter().filter(|r| path.starts_with(r)).max_by_key(|r| r.as_os_str().len());
         path.ancestors()
+            .skip(1)
             .take_while(|a| root.is_none_or(|r| a.starts_with(r)))
             .any(|a| fs::symlink_metadata(a.join(KEEP_MARKER)).is_ok())
     }

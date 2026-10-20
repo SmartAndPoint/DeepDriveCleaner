@@ -245,6 +245,106 @@
         "success"
       ]
     },
+    "EntryLock": {
+      "description": "Why an entry cannot be picked. One type in the scan report and the clean report.",
+      "oneOf": [
+        {
+          "description": "An app manages it; clean it in that app.",
+          "type": "object",
+          "properties": {
+            "app": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "const": "app-managed"
+            }
+          },
+          "required": [
+            "reason",
+            "app"
+          ]
+        },
+        {
+          "description": "A `.ddc-keep` in it, or an exclude at or in it.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "kept"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A protected folder (safety ADR §6) at or inside it.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "protected"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "Another volume is mounted inside it.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "other-volume"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "Added or changed within [`RECENT`] of the scan's start: in use or still arriving.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "recent"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A download still arriving.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "partial-download"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A backup whose `Status.plist` does not say it finished.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "unfinished-backup"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        }
+      ]
+    },
     "ListedItem": {
       "description": "One finding of the reviewed scan, as the app shows it.",
       "type": "object",
@@ -750,6 +850,49 @@
           "required": [
             "reason",
             "program"
+          ]
+        },
+        {
+          "description": "A picked user-data item that is no longer an entry of its folder.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "not-an-entry"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A picked entry that is locked now.",
+          "type": "object",
+          "properties": {
+            "lock": {
+              "$ref": "#/$defs/EntryLock"
+            },
+            "reason": {
+              "type": "string",
+              "const": "entry-locked"
+            }
+          },
+          "required": [
+            "reason",
+            "lock"
+          ]
+        },
+        {
+          "description": "Inside an entry of the same list that went to the Trash.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "inside-another-item"
+            }
+          },
+          "required": [
+            "reason"
           ]
         }
       ]

@@ -7,11 +7,13 @@ use std::sync::Mutex;
 
 const SHARDS: usize = 64;
 
-/// Where a link was seen: scan root and (optionally) the owning finding.
+/// Where a link was seen: scan root and (optionally) the owning finding and
+/// the listed entry it lies in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Holder {
     pub root: usize,
     pub owner: Option<usize>,
+    pub entry: Option<usize>,
 }
 
 #[derive(Debug)]

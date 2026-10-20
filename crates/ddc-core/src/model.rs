@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::class::{Category, Removal, RiskClass};
 use crate::rules::Note;
+use crate::rules::entries::EntryLock;
 use crate::scan::SkipReason;
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -160,6 +161,67 @@ pub struct Finding {
     pub parent_dev: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_ino: Option<u64>,
+    /// What one of the user's own folders holds, to pick from (story "User
+    /// data: pick your own files for the Trash"). Only on findings of
+    /// `rules::entries::ENTRY_RULES` the scan could read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contents: Option<Contents>,
+}
+
+/// The direct children of a user-data folder: the largest listed, the rest summed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Contents {
+    /// Largest first (ties by path bytes); at most 100, each at least 10 MiB.
+    pub entries: Vec<FolderEntry>,
+    /// The other children, findings of their own left out.
+    pub rest_count: u64,
+    pub rest_bytes: u64,
+}
+
+/// One direct child of a user-data folder: a regular file or a directory.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct FolderEntry {
+    pub path: PathBuf,
+    pub kind: FolderEntryKind,
+    /// Allocated bytes, findings inside it included.
+    pub bytes: u64,
+    pub dev: u64,
+    pub ino: u64,
+    /// Last modification, RFC 3339.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified: Option<String>,
+    /// Why it cannot be picked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock: Option<EntryLock>,
+    /// Parts of it could not be read; `bytes` is a lower bound. It can still
+    /// be picked: the Trash keeps it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub incomplete: bool,
+    /// Findings of other rules inside it (a folder in Downloads).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub findings: u64,
+    /// A folder with `.git`: a project.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub git: bool,
+    /// A device backup's `Info.plist`, where it could be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup: Option<Backup>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum FolderEntryKind {
+    File,
+    Folder,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Backup {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_name: Option<String>,
+    /// RFC 3339.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_backup: Option<String>,
 }
 
 impl Finding {

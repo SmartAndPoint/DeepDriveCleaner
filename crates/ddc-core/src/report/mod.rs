@@ -1,5 +1,7 @@
 //! `scan`: walk + rules + project activity + default selection → [`ScanReport`].
 
+pub mod backups;
+pub mod contents;
 pub mod project;
 pub mod volumes;
 
@@ -16,6 +18,7 @@ use crate::model::{
 };
 use crate::rules::{Catalog, Classified, RuleVisitor, TOMBSTONE, classify};
 use crate::scan::{self, Progress, ReadErrorKind, WalkOptions, WalkSetupError};
+use contents::{ContentsLimits, EntryIndex};
 use volumes::{StatFs, SystemStatFs};
 
 pub const DEFAULT_MIN_AGE: Duration = Duration::from_secs(14 * 86_400);
@@ -36,6 +39,8 @@ pub struct ScanOptions {
     pub large_file_bytes: u64,
     /// Directories that are not even opened (background scans skip TCC areas).
     pub skip: Vec<PathBuf>,
+    /// How much of each user-data folder `contents` lists.
+    pub contents: ContentsLimits,
     pub walk: WalkOptions,
 }
 
@@ -49,6 +54,7 @@ impl Default for ScanOptions {
             min_size: 0,
             large_file_bytes: crate::rules::LARGE_FILE_BYTES,
             skip: Vec::new(),
+            contents: ContentsLimits::default(),
             walk: WalkOptions::default(),
         }
     }
@@ -77,6 +83,18 @@ pub fn scan_with(
     progress: &Progress,
     statfs: &dyn StatFs,
 ) -> Result<ScanReport, ScanError> {
+    scan_with_entries(env, opts, progress, statfs).map(|(report, _)| report)
+}
+
+/// [`scan_with`], and every entry of the user's own folders with its state:
+/// `clean --items` checks a picked entry against all of them, not against
+/// the report's top 100 (story "User data: pick your own files for the Trash").
+pub fn scan_with_entries(
+    env: &Env,
+    opts: &ScanOptions,
+    progress: &Progress,
+    statfs: &dyn StatFs,
+) -> Result<(ScanReport, EntryIndex), ScanError> {
     let started = Instant::now();
     let roots = if opts.roots.is_empty() { vec![env.home().to_path_buf()] } else { opts.roots.clone() };
     let excludes = opts
@@ -93,6 +111,15 @@ pub fn scan_with(
     let mut findings: Vec<Finding> = classify(&out, &visitor).iter().map(|c| finding(c, env.now(), opts)).collect();
     findings
         .sort_by(|a, b| a.class.cmp(&b.class).then(Reverse(a.bytes).cmp(&Reverse(b.bytes))).then(a.path.cmp(&b.path)));
+    let markers = visitor.keep_markers();
+    let cx = contents::Context {
+        home: env.home(),
+        now: env.now(),
+        excludes: visitor.excludes(),
+        markers: &markers,
+        limits: opts.contents,
+    };
+    let index = contents::attach(&mut findings, &out.entries, &cx);
 
     let totals = totals(&findings, &out);
     let large_files = visitor.large_files().into_iter().map(|(bytes, path)| LargeFile { path, bytes }).collect();
@@ -105,7 +132,7 @@ pub fn scan_with(
     let skipped = out.skipped.iter().map(|s| SkippedPath { path: s.path.clone(), reason: s.reason }).collect();
     let roots: Vec<&Path> = out.roots.iter().map(|r| r.path.as_path()).collect();
 
-    Ok(ScanReport {
+    let report = ScanReport {
         schema_version: SCHEMA_VERSION,
         ddc_version: env!("CARGO_PKG_VERSION").to_owned(),
         generated_at: humantime::format_rfc3339_seconds(env.now()).to_string(),
@@ -123,7 +150,8 @@ pub fn scan_with(
         skipped,
         skipped_total: out.skipped_total,
         cancelled: out.cancelled,
-    })
+    };
+    Ok((report, index))
 }
 
 fn finding(c: &Classified, now: SystemTime, opts: &ScanOptions) -> Finding {
@@ -136,7 +164,7 @@ fn finding(c: &Classified, now: SystemTime, opts: &ScanOptions) -> Finding {
     });
     let project = c.project_root.as_ref().map(|root| Project {
         root: root.clone(),
-        last_activity: last.map(|t| humantime::format_rfc3339_seconds(t).to_string()),
+        last_activity: last.and_then(rfc3339),
         idle_days: last.map(|t| now.duration_since(t).unwrap_or_default().as_secs() / 86_400),
         has_lockfile: c.has_lockfile,
     });
@@ -181,6 +209,7 @@ fn finding(c: &Classified, now: SystemTime, opts: &ScanOptions) -> Finding {
         ino: c.owner.ino,
         parent_dev: Some(c.owner.parent_dev),
         parent_ino: Some(c.owner.parent_ino),
+        contents: None,
     }
 }
 
@@ -226,4 +255,11 @@ fn totals(findings: &[Finding], out: &scan::WalkOutput) -> Totals {
 /// Whether this process has Full Disk Access (it can read the TCC database).
 pub fn full_disk_access(env: &Env) -> bool {
     fs::File::open(env.home().join("Library/Application Support/com.apple.TCC/TCC.db")).is_ok()
+}
+
+/// A file time as RFC 3339, `None` before 1970 or past year 9999: humantime
+/// cannot write those, and a file can carry any time.
+pub(crate) fn rfc3339(t: SystemTime) -> Option<String> {
+    let secs = t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+    (secs < backups::YEAR_10000).then(|| humantime::format_rfc3339_seconds(t).to_string())
 }

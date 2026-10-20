@@ -24,16 +24,25 @@ public struct Confirmation: Sendable, Equatable {
         public let bytes: UInt64
     }
 
-    /// In the sheet's order: by class, then biggest first.
+    /// In the sheet's order: the user's own files first, then by class,
+    /// then biggest first.
     public private(set) var items: [Item]
     public let home: String
+    /// Selected findings inside a picked folder: they go to the Trash with it
+    /// and are not sent on their own.
+    public let included: Int
+
+    /// The sheet's class order: the user's own files first.
+    public static let order: [ScanReport.RiskClass] = [.userData, .safe, .rebuildable, .review]
 
     /// The selectable rows of `selection`; a `review` item that the Trash
     /// would take starts permanent when the app preference says so.
     public init(_ snapshot: ReviewItems, selection: Set<Int>, deletePermanently: Bool) {
-        let order = ScanReport.RiskClass.allCases
+        let order = Self.order
+        let covered = snapshot.covered(by: selection)
+        included = covered.count
         items = snapshot.rows
-            .filter { selection.contains($0.id) && $0.selectable }
+            .filter { selection.contains($0.id) && $0.selectable && !covered.contains($0.id) }
             .sorted { a, b in
                 let (x, y) = (order.firstIndex(of: a.riskClass) ?? 0, order.firstIndex(of: b.riskClass) ?? 0)
                 if x != y { return x < y }
@@ -59,7 +68,7 @@ public struct Confirmation: Sendable, Equatable {
 
     /// "Safe · 1,919 items · 76.5 GiB", for every class that has items.
     public var classRows: [ClassRow] {
-        ScanReport.RiskClass.allCases.compactMap { riskClass in
+        Self.order.compactMap { riskClass in
             let of = items.filter { $0.finding.class == riskClass }
             return of.isEmpty ? nil : ClassRow(riskClass: riskClass, count: of.count, bytes: of.reduce(0) { $0 + $1.finding.bytes })
         }

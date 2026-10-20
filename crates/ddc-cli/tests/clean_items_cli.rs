@@ -1,7 +1,9 @@
 //! `ddc clean --items` end to end with a temporary HOME and data directory,
 //! and Ctrl-C / SIGTERM during a clean (story "CLI: clean an explicit item
-//! list"). No item is ever sent to the real Trash: the lists hold only items
-//! that are deleted, run a fake tool, or are refused.
+//! list"), and picked user files in a dry run (story "User data: pick your
+//! own files for the Trash"). No item is ever sent to the real Trash: the
+//! lists hold only items that are deleted, run a fake tool, or are refused,
+//! and a picked file is only ever dry-run.
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -229,7 +231,7 @@ fn the_report_round_trips_names_the_volume_and_a_failed_item_still_exits_0() {
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     let r = report(&out.stdout);
     assert_eq!(serde_json::to_value(&r).unwrap(), json, "every field is in the contract");
-    assert_eq!(r.schema_version, 1);
+    assert_eq!(r.schema_version, ddc_core::exec::report::CLEAN_SCHEMA_VERSION);
     assert!(matches!(outcome(&r, &fx.path("q/__pycache__")), Outcome::Failed { .. }));
     assert_eq!(r.failed, 1);
     assert_eq!(r.volumes.len(), 1);
@@ -383,4 +385,61 @@ fn ctrl_c_in_a_terminal_reaches_the_tool_and_stops_the_clean_after_it() {
     assert_eq!(journal[1]["commands"][0]["success"], false);
     assert!(!fx.path("r/__pycache__").exists(), "the item before it was cleaned");
     assert!(fx.path("q/__pycache__").exists(), "the item after it was not started");
+}
+
+/// A picked entry of the user's own folders, as the app lists it.
+fn picked(path: &Path, rule: &str, action: &str) -> serde_json::Value {
+    let md = fs::symlink_metadata(path).unwrap();
+    serde_json::json!({
+        "path": path, "dev": md.dev(), "ino": md.ino(),
+        "rule": rule, "class": "user-data", "action": action,
+    })
+}
+
+#[test]
+fn a_picked_download_would_go_to_the_trash_unless_it_is_recent_and_names_are_escaped() {
+    let fx = Fx::new();
+    let day_ago = SystemTime::now() - Duration::from_secs(86_400);
+    let tricky = "cod\u{202e}fdp.exe";
+    for name in ["old.pdf", "older.pdf", tricky] {
+        fx.write(&format!("Downloads/{name}"), &[4u8; 8_000]);
+        ddc_core::sys::fsops::set_times(&fx.path(&format!("Downloads/{name}")), day_ago, day_ago).unwrap();
+    }
+    fx.write("Downloads/new.pdf", &[5u8; 8_000]);
+    let items = [
+        picked(&fx.path("Downloads/old.pdf"), "user.downloads", "trash"),
+        picked(&fx.path("Downloads/new.pdf"), "user.downloads", "trash"),
+        picked(&fx.path("Downloads/older.pdf"), "user.downloads", "delete"),
+        picked(&fx.path(&format!("Downloads/{tricky}")), "user.downloads", "trash"),
+    ];
+    let list = fx.root.join("picked.json");
+    fs::write(&list, serde_json::json!({ "schema_version": 1, "items": items }).to_string()).unwrap();
+    let before = fx.snapshot();
+
+    let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--dry-run", "--json"]).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let lines: Vec<serde_json::Value> =
+        String::from_utf8(out.stdout).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let predictions: Vec<&str> = lines.iter().filter_map(|l| l["prediction"].as_str()).collect();
+    assert_eq!(predictions, ["would-trash", "would-skip", "would-skip", "would-trash"]);
+    assert_eq!(lines[1]["reason"], "entry-locked");
+    assert_eq!(lines[1]["lock"], serde_json::json!({ "reason": "recent" }));
+    assert_eq!(lines[2]["reason"], "action-not-allowed");
+
+    let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--dry-run"]).output().unwrap();
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("would move to Trash  ~/Downloads/cod\\u{202e}fdp.exe"), "{text}");
+    assert!(text.contains("locked: added or changed in the last 10 minutes"), "{text}");
+    assert!(!text.contains('\u{202e}'), "the override never reaches the terminal");
+    assert_eq!(fx.snapshot(), before, "a dry run changes nothing");
+
+    // Permanent on a picked file refuses the whole list when it is read,
+    // before the dry run (a picked file is never cleaned for real here).
+    let mut permanent = items[0].clone();
+    permanent["permanent"] = true.into();
+    fs::write(&list, serde_json::json!({ "schema_version": 1, "items": [permanent] }).to_string()).unwrap();
+    let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--dry-run"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("permanent"));
+    assert_eq!(fx.snapshot(), before);
 }
