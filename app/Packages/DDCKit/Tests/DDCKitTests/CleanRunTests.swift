@@ -267,7 +267,8 @@ struct CleanRunTests {
         var quit = false
         #expect(review.prepareToQuit { quit = true })
         try await until("the CLI ended") { quit }
-        #expect(review.sheet?.stage.result != nil)
+        // The callback fires when the process ends, before its report is read.
+        try await until("the result") { review.sheet?.stage.result != nil }
         #expect(events.rescans == 0, "no rescan while quitting")
         events.finishRescan()
     }

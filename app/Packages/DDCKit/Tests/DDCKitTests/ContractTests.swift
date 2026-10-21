@@ -175,6 +175,51 @@ struct ContractTests {
         }
     }
 
+    // MARK: - HIG ("HIG pass: keyboard, colour, empty states and menus")
+
+    @Test("buttons, menu items and window titles use title-style capitalization")
+    func titleCase() throws {
+        var literals: [String] = []
+        for text in try appSources().values {
+            for match in text.matches(of: /(?:Button|ClosureMenuItem)\("([^"]*)"|withTitle: "([^"]*)"/) {
+                literals.append(String(match.1 ?? match.2 ?? ""))
+            }
+            for line in text.matches(of: /\.title = ([^\n]*)/) {
+                literals += line.1.matches(of: /"([^"]*)"/).map { String($0.1) }
+            }
+        }
+        // Words that stay lowercase inside a title.
+        let minor: Set<String> = ["a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into", "nor", "of", "on", "or", "the", "to", "with"]
+        // A file name, not a title.
+        let exceptions: Set<String> = ["Show app.log in Finder"]
+        let failing = literals.filter { literal in
+            guard !exceptions.contains(literal) else { return false }
+            let words = literal.replacing(/\\\(.*\)/, with: "")
+                .split(separator: " ")
+                .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "…()").union(.punctuationCharacters)) }
+                .filter { !$0.isEmpty }
+            return words.enumerated().contains { index, word in
+                guard word.first?.isLowercase == true else { return false }
+                return index == 0 || index == words.count - 1 || !minor.contains(word)
+            }
+        }
+        #expect(!literals.isEmpty)
+        #expect(failing.isEmpty, "not in title case: \(failing)")
+    }
+
+    @Test("the accent is the system's, and warnings use the class ink")
+    func colours() throws {
+        let sources = try appSources()
+        func files(_ pattern: Regex<Substring>) -> Set<String> {
+            Set(sources.filter { $0.value.contains(pattern) }.map(\.key))
+        }
+        #expect(files(/PopoverView\.accent\b|StatusIcon\.accent\b/).isEmpty, "the AccentColor asset is the accent")
+        #expect(files(/srgbRed: 0x24\b|red: 0x24 \/ 255/).isEmpty, "the brand blue lives in the AccentColor asset only")
+        #expect(files(/foregroundStyle\([^\n]*ReportClassStyle\.review\b/).isEmpty, "warning text uses ReportClassStyle.ink(.review)")
+        let sheet = try #require(sources["ConfirmSheet.swift"])
+        #expect(sheet.contains(/Button\("Stop"\)[^\n]*\n\s*\.keyboardShortcut\(\.cancelAction\)/), "Esc stops a clean")
+    }
+
     // MARK: - Parts
 
     /// The app's Swift sources, comment lines stripped, by file name.

@@ -71,13 +71,13 @@ struct CleanResultView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Failed").font(.system(size: 13, weight: .semibold))
                     ForEach(Array(result.failures.enumerated()), id: \.offset) { _, failure in
-                        Text("\(failure.path): \(failure.error)").font(.system(size: 11)).foregroundStyle(ReportClassStyle.review)
+                        Text("\(failure.path): \(failure.error)").font(.system(size: 11)).foregroundStyle(ReportClassStyle.ink(.review))
                     }
                 }
             }
 
             HStack {
-                Button("Show the journal") {
+                Button("Show the Journal") {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: result.journal)])
                 }
                 Spacer()
@@ -128,9 +128,11 @@ private struct Tile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(Wording.number(value)).font(.system(size: 20, weight: .semibold)).monospacedDigit()
-                .foregroundStyle(alert ? AnyShapeStyle(ReportClassStyle.review) : AnyShapeStyle(.primary))
+                .foregroundStyle(alert ? AnyShapeStyle(ReportClassStyle.ink(.review)) : AnyShapeStyle(.primary))
             Text(label).font(.system(size: 11)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // "12 cleaned", not "12" and "cleaned" apart.
+        .accessibilityElement(children: .combine)
     }
 }

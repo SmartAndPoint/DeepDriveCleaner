@@ -12,8 +12,6 @@ import DDCKit
 /// state has the same size, so the icon never shifts.
 @MainActor
 enum StatusIcon {
-    static let accent = NSColor(srgbRed: 0x24 / 255, green: 0x59 / 255, blue: 0xB8 / 255, alpha: 1)
-
     /// The glyph's square, plus room on the right for a mark that overhangs it.
     private static let size = NSSize(width: 22, height: 18)
     private static let glyph = NSRect(x: 0, y: 0, width: 18, height: 18)
@@ -63,7 +61,9 @@ enum StatusIcon {
             context.setBlendMode(.clear)
             context.fillEllipse(in: circle(6))
             context.restoreGState()
-            context.setFillColor(accent.cgColor)
+            // The user's accent, resolved when the image draws; under
+            // Multicolor, the brand blue of the AccentColor asset.
+            context.setFillColor(NSColor.controlAccentColor.cgColor)
             context.fillEllipse(in: circle(4.5))
             context.setFillColor(NSColor.white.cgColor)
             context.fillEllipse(in: circle(1.5))

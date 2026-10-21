@@ -55,8 +55,8 @@ This installs `~/.cargo/bin/deepdrivecleaner` and a `ddc` symlink to it. A local
 
 ## The menu bar app
 
-- **The popover** (click the icon) shows the last scan: what can be freed by risk class, the biggest finds, when the last scan ran, and Scan now. The icon shows a turning arc while a scan or a clean runs, shows a small warning when something needs you (Full Disk Access, a failed scan), and goes grey while scans are paused (Pause scans, in the icon's right-click menu).
-- **The Review window** lists every finding by group (a sidebar ordered by size, per risk class) or as one list you can filter and sort. You tick what to clean; safe and idle rebuildable items start ticked, review items never do. Right-click a folder to reveal it in Finder or protect it with a `.ddc-keep` file.
+- **The popover** (click the icon) shows the last scan: what can be freed by risk class, the biggest finds, when the last scan ran, and Scan Now. The icon shows a turning arc while a scan or a clean runs, shows a small warning when something needs you (Full Disk Access, a failed scan), and goes grey while scans are paused (Pause Scans, in the icon's right-click menu).
+- **The Review window** lists every finding by group (a sidebar ordered by size, per risk class) or as one list you can filter and sort. You tick what to clean; safe and idle rebuildable items start ticked, review items never do. Clean N items… at the bottom cleans every tick; Clean N from <group>… in a group's Select all row cleans only that group's. Right-click a folder to show it in Finder or protect it with a `.ddc-keep` file.
 - **The confirmation sheet** lists every item with its action, checks each one with a dry run first, and names what would be skipped and why. Review items go to the Trash unless you choose Delete permanently for one. After the clean it shows what was deleted, moved to the Trash or skipped, grouped by cause.
 - **Your own files.** Downloads, Pictures, Movies, Music and iPhone and iPad backups list what they hold, largest first. Nothing in them is ever selected for you; you pick files and folders one by one, and they go to the Trash, never deleted. App libraries (Photos and others), partial downloads, unfinished backups and anything changed in the last 10 minutes are locked. Cloud folders (iCloud Drive and other File Provider folders) are not scanned.
 - **Settings** has Open at login for now.
@@ -268,7 +268,7 @@ ddc schedule status
 - Deletion first renames the folder to a tombstone through a verified parent folder, then removes it. An interrupted run leaves `*.ddc-deleting-*`, which the next scan finds as `safe`.
 - Every action is logged to `~/Library/Logs/DeepDriveCleaner/actions.jsonl`.
 - It never runs as root, never deletes your home, `~/Documents`, `~/Projects` or any other protected folder, and never follows a symlink out of a finding.
-- To keep a folder out of every plan for good, put an empty `.ddc-keep` file in it (the app's Protect this folder does that), or add it to `excludes`.
+- To keep a folder out of every plan for good, put an empty `.ddc-keep` file in it (the app's Protect This Folder does that), or add it to `excludes`.
 - APFS frees space asynchronously, and local Time Machine snapshots keep deleted blocks until macOS thins them. `ddc clean` says so when snapshots exist.
 
 These checks lower the risk; they do not remove it. See the [Disclaimer](#disclaimer).

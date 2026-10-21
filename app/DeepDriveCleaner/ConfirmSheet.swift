@@ -91,14 +91,13 @@ private struct ConfirmView: View {
             }
 
             HStack {
-                Button("Check again") { model.checkWarnings() }
+                Button("Check Again") { model.checkWarnings() }
                     .disabled(sheet.warnings == .waiting || sheet.warnings == .checking)
                 Spacer()
-                Button("Back to review") { model.closeSheet() }.keyboardShortcut(.cancelAction)
+                Button("Back to Review") { model.closeSheet() }.keyboardShortcut(.cancelAction)
                 // Not the default button: Return never starts a clean.
-                Button("Clean \(Wording.items(confirmation.items.count))") { model.cleanConfirmedItems() }
+                Button("Clean \(Wording.items(confirmation.items.count))", role: .destructive) { model.cleanConfirmedItems() }
                     .buttonStyle(.borderedProminent)
-                    .tint(PopoverView.accent)
                     .disabled(model.isCleaning)
             }
         }
@@ -118,19 +117,19 @@ private struct ConfirmView: View {
                 Image(systemName: "checkmark.circle").foregroundStyle(ReportClassStyle.safe)
                 Text("No warnings: nothing is predicted to be skipped.")
             case .checked where skips == sheet.confirmation.items.count:
-                Image(systemName: "exclamationmark.triangle").foregroundStyle(ReportClassStyle.review)
+                Image(systemName: "exclamationmark.triangle").foregroundStyle(ReportClassStyle.ink(.review))
                 Text("Nothing can be cleaned right now: every item would be skipped.")
             case .checked:
-                Image(systemName: "exclamationmark.triangle").foregroundStyle(ReportClassStyle.review)
+                Image(systemName: "exclamationmark.triangle").foregroundStyle(ReportClassStyle.ink(.review))
                 Text("\(Wording.items(skips)) will be skipped; the rest is cleaned.")
             case .busy:
                 Image(systemName: "hourglass").foregroundStyle(.secondary)
-                Text("A scan or clean started in Terminal holds the lock. Check again when it ends.")
+                Text("A scan or clean started in Terminal holds the lock. Check Again when it ends.")
             case .stopped:
                 Image(systemName: "pause.circle").foregroundStyle(.secondary)
                 Text("The check was stopped.")
             case .failed(let message):
-                Image(systemName: "exclamationmark.circle").foregroundStyle(ReportClassStyle.review)
+                Image(systemName: "exclamationmark.circle").foregroundStyle(ReportClassStyle.ink(.review))
                 Text(message)
             }
         }
@@ -139,7 +138,7 @@ private struct ConfirmView: View {
 
     @ViewBuilder private func prediction(_ item: DDCKit.Confirmation.Item) -> some View {
         if case .wouldSkip(let reason)? = sheet.predictions[item.id] {
-            Text(CleanWording.willSkip(reason)).font(.system(size: 11)).foregroundStyle(ReportClassStyle.review)
+            Text(CleanWording.willSkip(reason)).font(.system(size: 11)).foregroundStyle(ReportClassStyle.ink(.review))
         }
     }
 
@@ -185,7 +184,7 @@ private struct CleaningView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title).font(.system(size: 20, weight: .semibold))
-            ProgressView().progressViewStyle(.linear).tint(PopoverView.accent)
+            ProgressView().progressViewStyle(.linear)
             HStack {
                 Text("\(Wording.items(confirmation.items.count)) · \(ByteSize.human(confirmation.bytes))")
                 Spacer()
@@ -204,7 +203,9 @@ private struct CleaningView: View {
                 .foregroundStyle(.secondary)
             HStack {
                 Spacer()
-                Button("Cancel") { model.cancelClean() }
+                // Stop, as the phase it leads to says; Esc too.
+                Button("Stop") { model.cancelClean() }
+                    .keyboardShortcut(.cancelAction)
                     .disabled(phase == .stopping)
             }
         }
@@ -221,9 +222,9 @@ private struct CleaningView: View {
 
     private var detail: String {
         switch phase {
-        case .waiting: "The clean starts when the scan ends. Cancel now and it never starts."
+        case .waiting: "The clean starts when the scan ends. Stop now and it never starts."
         case .preparing: "Checking the selected folders again before anything is touched."
-        case .cleaning: "Removing the confirmed items one by one. Cancel stops after the current item."
+        case .cleaning: "Removing the confirmed items one by one. Stop ends it after the current item."
         case .stopping: "Nothing after the current item is touched."
         }
     }
@@ -248,7 +249,7 @@ private struct StoppedView: View {
             Text(text).fixedSize(horizontal: false, vertical: true)
             HStack {
                 if let journal {
-                    Button("Show the journal") { NSWorkspace.shared.activateFileViewerSelecting([journal]) }
+                    Button("Show the Journal") { NSWorkspace.shared.activateFileViewerSelecting([journal]) }
                 }
                 Spacer()
                 Button("Done", action: done).keyboardShortcut(.defaultAction)

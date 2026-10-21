@@ -330,6 +330,30 @@ public final class ReviewModel: ReviewRouting {
     }
 
     public var selectedBytes: UInt64 { selectedRows.reduce(0) { $0 + $1.finding.bytes } }
+
+    /// The selection inside `scope`, the ids a group's Select all row acts
+    /// on, as the sheet takes it (story "Review window: clean only the
+    /// selection in this group"), so the button, the row's summary and the
+    /// sheet count the same rows.
+    public func selectedRows(in scope: [Int]) -> [ReviewItems.Row] {
+        guard let items else { return [] }
+        let picked = selection.intersection(scope)
+        return picked.subtracting(items.covered(by: picked)).sorted().compactMap { items.row($0) }
+    }
+
+    /// Whether Clean N items… (`scope` nil) or a group's Clean N from… can
+    /// open the sheet.
+    public func canClean(scope: [Int]?) -> Bool {
+        let rows = scope.map(selectedRows(in:)) ?? selectedRows
+        return !rows.isEmpty && sheet == nil && rescanning == nil && !isCleaning
+    }
+
+    /// A group's Select all row: "2 of 3 · 7.2 GiB".
+    public func scopeSummary(_ scope: [Int]) -> String {
+        let rows = selectedRows(in: scope)
+        let selectable = scope.filter { items?.row($0)?.selectable == true }.count
+        return Wording.scopeSummary(selected: rows.count, of: selectable, bytes: rows.reduce(0) { $0 + $1.finding.bytes })
+    }
     public var selectedReclaimable: UInt64 { selectedRows.reduce(0) { $0 + $1.finding.reclaimableBytes } }
 
     /// "Protect this folder", after its confirmation: the marker, then the row
@@ -346,7 +370,7 @@ public final class ReviewModel: ReviewRouting {
         } catch {
             notice = switch error {
             case .missing: "That folder is gone; nothing was written."
-            case .changed: "That folder changed since the scan; nothing was written. Scan again first."
+            case .changed: "That folder changed since the scan; nothing was written. Scan Again first."
             case .cannotWrite(EACCES): "That folder is read-only, so the .ddc-keep file could not be written."
             case .cannotWrite(let code): "The .ddc-keep file could not be written (\(String(cString: strerror(code))))."
             }
@@ -356,10 +380,19 @@ public final class ReviewModel: ReviewRouting {
     // MARK: - The sheet
 
     /// Clean N items…: the sheet over the selection, and its dry run at once.
-    public func openSheet() {
+    /// A group's Clean N from… passes `scope`, the ids its Select all row
+    /// acts on: the sheet then holds the selection inside it only.
+    public func openSheet(scope: [Int]? = nil) {
+        // Ids are indexes into the report, and the reload below can renumber
+        // them: the scope crosses it by identity.
+        let scoped = scope.map { ids in Set(ids.compactMap { items?.row($0).map { Identity($0.finding) } }) }
         refreshSettings()
         guard sheet == nil, !isCleaning, rescanning == nil, let items else { return }
-        let confirmation = Confirmation(items, selection: selection, deletePermanently: preferences.deleteReviewPermanently)
+        var picked = selection
+        if let scoped {
+            picked = picked.filter { id in items.row(id).map { scoped.contains(Identity($0.finding)) } ?? false }
+        }
+        let confirmation = Confirmation(items, selection: picked, deletePermanently: preferences.deleteReviewPermanently)
         guard !confirmation.items.isEmpty else { return }
         sheet = Sheet(confirmation: confirmation, warnings: .waiting, predictions: [:], stage: .confirm)
         checkWarnings()

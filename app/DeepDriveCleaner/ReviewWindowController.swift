@@ -27,7 +27,7 @@ final class ReviewWindowController {
                 self.returnToPopover?()
             }))
             let window = NSWindow(contentViewController: hosting)
-            window.title = "Review and clean"
+            window.title = "Review and Clean"
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.setContentSize(NSSize(width: 1040, height: 700))
             window.contentMinSize = NSSize(width: 820, height: 520)
@@ -55,4 +55,15 @@ final class ReviewWindowController {
         if let window { presence.show(window) }
         return window != nil
     }
+
+    /// Edit → Find (⌘F): focuses the filter, only while this window is key.
+    func find() {
+        guard window?.isKeyWindow == true else { return }
+        NotificationCenter.default.post(name: .findInReview, object: nil)
+    }
+}
+
+extension Notification.Name {
+    /// Edit → Find in the Review window; `ReviewView` focuses its filter.
+    static let findInReview = Notification.Name("DeepDriveCleaner.findInReview")
 }

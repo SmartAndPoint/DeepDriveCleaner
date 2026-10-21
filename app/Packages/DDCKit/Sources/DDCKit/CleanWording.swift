@@ -161,7 +161,7 @@ extension CleanWording {
     public static let cloudBanner = "iCloud Drive and other cloud folders are not scanned: a file there may live only in the cloud, and the Trash would remove it from every device. To free space, use Remove Download in Finder."
 
     /// A background scan skipped the folders macOS guards with a prompt.
-    public static let backgroundSkipped = "A background scan skipped Downloads, Pictures and other protected folders. Scan now to list them."
+    public static let backgroundSkipped = "A background scan skipped Downloads, Pictures and other protected folders. Scan Now to list them."
 
     /// "1,904 smaller items (2.3 GiB) are not listed".
     public static func rest(count: UInt64, bytes: UInt64) -> String {

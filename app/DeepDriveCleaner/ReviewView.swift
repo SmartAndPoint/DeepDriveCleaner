@@ -8,6 +8,9 @@ import SwiftUI
 struct ReviewView: View {
     @Bindable var model: ReviewModel
     let close: () -> Void
+    /// While the user types a filter, Return stays in it instead of opening
+    /// the Clean sheet.
+    @FocusState private var filterFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,24 +32,27 @@ struct ReviewView: View {
                     content(items)
                 }
             } else {
-                VStack(spacing: 8) {
-                    Text("No scan yet").font(.system(size: 20, weight: .semibold))
-                    Text("Scan from the menu bar first; the findings show here.").foregroundStyle(.secondary)
-                    if model.scansPaused {
-                        Text("Scans are paused. Resume them from the menu bar icon.").foregroundStyle(.secondary)
-                    } else {
-                        Button("Scan now") { Task { await model.scanAgain() } }.disabled(model.rescanning != nil)
+                ContentUnavailableView {
+                    Label("No Scan Yet", systemImage: "internaldrive")
+                } description: {
+                    Text(model.scansPaused
+                        ? "Scans are paused. Resume them from the menu bar icon."
+                        : "Scan from the menu bar first; the findings show here.")
+                } actions: {
+                    if !model.scansPaused {
+                        Button("Scan Now") { Task { await model.scanAgain() } }.disabled(model.rescanning != nil)
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             Divider()
-            SelectionFooter(model: model, close: close)
+            SelectionFooter(model: model, typing: filterFocused && !model.query.isEmpty, close: close)
         }
         .frame(minWidth: 820, minHeight: 520)
         .sheet(isPresented: Binding(get: { model.sheet != nil }, set: { if !$0 { model.closeSheet() } })) {
             ConfirmSheet(model: model)
         }
+        // Edit → Find (⌘F) while this window is key.
+        .onReceive(NotificationCenter.default.publisher(for: .findInReview)) { _ in filterFocused = true }
     }
 
     private var header: some View {
@@ -61,19 +67,23 @@ struct ReviewView: View {
             Spacer()
             if model.mode == .items {
                 Picker("Sort", selection: $model.sort) {
-                    Text("Biggest first").tag(ReviewItems.Sort.size)
-                    Text("By path").tag(ReviewItems.Sort.path)
-                    Text("Most idle first").tag(ReviewItems.Sort.idle)
+                    Text("Biggest First").tag(ReviewItems.Sort.size)
+                    Text("By Path").tag(ReviewItems.Sort.path)
+                    Text("Most Idle First").tag(ReviewItems.Sort.idle)
                 }
                 .frame(width: 170)
             }
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Filter by path or rule", text: $model.query).textFieldStyle(.plain)
+                TextField("Filter by path or rule", text: $model.query)
+                    .textFieldStyle(.plain)
+                    .focused($filterFocused)
                 if !model.query.isEmpty {
+                    // Esc clears the filter first; with it empty, Esc is Close's.
                     Button { model.query = "" } label: { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
+                        .keyboardShortcut(.cancelAction)
                         .accessibilityLabel("Clear the filter")
                 }
             }
@@ -86,7 +96,7 @@ struct ReviewView: View {
                     .foregroundStyle(.secondary)
                     .help("Resume them from the menu bar icon.")
             } else {
-                Button("Scan again") { Task { await model.scanAgain() } }
+                Button("Scan Again") { Task { await model.scanAgain() } }
                     .disabled(model.rescanning != nil || model.isCleaning)
             }
         }
@@ -100,7 +110,7 @@ struct ReviewView: View {
             if let entry = model.entry {
                 GroupView(model: model, items: items, entry: entry)
             } else {
-                Text("Nothing was found.").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+                ContentUnavailableView("Nothing Found", systemImage: "checkmark.circle", description: Text("The last scan found nothing to clean."))
             }
         case .items:
             ItemsView(model: model, items: items)
@@ -112,6 +122,8 @@ struct ReviewView: View {
 /// not the window around it.
 private struct SelectionFooter: View {
     @Bindable var model: ReviewModel
+    /// The filter has the focus and holds text.
+    let typing: Bool
     let close: () -> Void
 
     var body: some View {
@@ -127,12 +139,13 @@ private struct SelectionFooter: View {
                 Text(sub.joined(separator: " · ")).font(.system(size: 12)).foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Close", action: close).keyboardShortcut(.cancelAction)
+            // Esc closes the window (owner, 2026-10-19), unless it is
+            // clearing the filter.
+            Button("Close", action: close).keyboardShortcut(model.query.isEmpty ? .cancelAction : nil)
             Button("Clean \(Wording.items(rows.count))…") { model.openSheet() }
                 .buttonStyle(.borderedProminent)
-                .tint(PopoverView.accent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(rows.isEmpty || model.rescanning != nil || model.isCleaning)
+                .keyboardShortcut(typing ? nil : .defaultAction)
+                .disabled(!model.canClean(scope: nil))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -255,16 +268,24 @@ private struct ItemsView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Largest items").font(.system(size: 17, weight: .semibold))
-                Text("Every folder the scan found. Tick or untick single folders; right-click to reveal or protect one.")
+                Text("Every folder the scan found. Tick or untick single folders; right-click to show or protect one.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
             .padding(16)
             Divider()
-            List(rows) { row in
-                ItemRow(model: model, row: row, home: items.report.home)
+            if rows.isEmpty {
+                if model.query.isEmpty {
+                    ContentUnavailableView("Nothing Found", systemImage: "checkmark.circle", description: Text("The last scan found nothing to clean."))
+                } else {
+                    ContentUnavailableView.search(text: model.query)
+                }
+            } else {
+                List(rows) { row in
+                    ItemRow(model: model, row: row, home: items.report.home)
+                }
+                .listStyle(.inset)
             }
-            .listStyle(.inset)
         }
     }
 }
@@ -308,7 +329,7 @@ struct ItemRow: View {
                 }
                 Text(shown ?? path).font(.system(size: 13)).lineLimit(1).truncationMode(.middle)
                 if !second.isEmpty {
-                    Text(second).font(.system(size: 11)).foregroundStyle(warns ? ReportClassStyle.review : .secondary).lineLimit(1)
+                    Text(second).font(.system(size: 11)).foregroundStyle(warns ? ReportClassStyle.ink(.review) : .secondary).lineLimit(1)
                 }
             }
             Spacer(minLength: 8)
@@ -322,12 +343,12 @@ struct ItemRow: View {
         .opacity(row.selectable || row.lock == .protected || row.lock == .cleaned ? 1 : 0.6)
         .contentShape(Rectangle())
         .contextMenu {
-            Button("Reveal in Finder") {
+            Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: row.finding.path)])
             }
             // Never for a file, nor inside a device backup.
             if model.items?.canProtect(row) ?? true {
-                Button("Protect this folder…") { confirmProtect = true }
+                Button("Protect This Folder…") { confirmProtect = true }
                     .disabled(!model.canProtect(row.id))
             }
         }
@@ -366,12 +387,13 @@ struct CheckBox: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 15))
-                .foregroundStyle(state == .off ? AnyShapeStyle(.secondary) : AnyShapeStyle(PopoverView.accent))
+                .foregroundStyle(state == .off ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.35)
         .accessibilityLabel(label)
+        .accessibilityAddTraits(.isToggle)
         .accessibilityValue(state == .on ? "selected" : state == .mixed ? "partly selected" : "not selected")
     }
 

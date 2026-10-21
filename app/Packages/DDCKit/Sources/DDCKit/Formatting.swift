@@ -45,6 +45,19 @@ public enum Wording {
         "\(number(n)) \(n == 1 ? noun : noun + "s")"
     }
 
+    /// A group's own clean (story "Review window: clean only the selection
+    /// in this group"): "Clean 2 from App caches…".
+    public static func cleanFrom(_ count: Int, group: String) -> String {
+        "Clean \(number(count)) from \(group)…"
+    }
+
+    /// What a group's Select all row acts on: "2 of 3 · 7.2 GiB"; with
+    /// nothing selected, "0 of 3".
+    public static func scopeSummary(selected: Int, of total: Int, bytes: UInt64) -> String {
+        let counts = "\(number(selected)) of \(number(total))"
+        return selected == 0 ? counts : "\(counts) · \(ByteSize.human(bytes))"
+    }
+
     /// "Spotify", "Spotify and Chrome", "Spotify, Chrome and Brave".
     public static func list(_ words: [String]) -> String {
         guard let last = words.last else { return "" }
@@ -141,11 +154,11 @@ public enum Wording {
 
     /// The footer's next scheduled scan: "Next scan today, 13:00",
     /// "Next scan tomorrow, 10:00", "Next scan Monday, 10:00", or
-    /// "Scheduled scans off" when nothing is scheduled.
-    public static func nextScan(_ next: Date?, now: Date, calendar: Calendar = .current) -> String {
+    /// "Scheduled scans off" when nothing is scheduled. The time follows the
+    /// user's 12- or 24-hour clock.
+    public static func nextScan(_ next: Date?, now: Date, calendar: Calendar = .current, locale: Locale = .autoupdatingCurrent) -> String {
         guard let next else { return "Scheduled scans off" }
-        let parts = calendar.dateComponents([.hour, .minute], from: next)
-        let time = String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
+        let time = next.formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: calendar, timeZone: calendar.timeZone))
         let day: String
         if calendar.isDate(next, inSameDayAs: now) {
             day = "today"

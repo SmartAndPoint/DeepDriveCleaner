@@ -70,7 +70,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         NSApp.mainMenu = MainMenu.make(
             about: { [weak self] in self?.presence.showAbout() },
-            settings: { [weak self] in self?.settings.show() }
+            settings: { [weak self] in self?.settings.show() },
+            find: { [weak self] in self?.reviewWindow.find() }
         )
         apply(launchMode.handle(.launched(arguments: CommandLine.arguments)))
     }

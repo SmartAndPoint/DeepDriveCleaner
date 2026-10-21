@@ -20,6 +20,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var refreshTimer: Timer?
     private var scanItem: NSMenuItem?
     private var pauseItem: NSMenuItem?
+    /// Set by a click that found the app inactive: its activation, which
+    /// arrives after `show`, makes the popover key once more.
+    private var keyOnActivation = false
+    private var activationObserver: NSObjectProtocol?
 
     init(model: PopoverModel, openSettings: @escaping @MainActor () -> Void, openPrivacy: @escaping @MainActor () -> Void) {
         self.model = model
@@ -46,8 +50,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         hosting.sizingOptions = .preferredContentSize
         popover.contentViewController = hosting
 
-        let scanItem = ClosureMenuItem("Scan now") { Task { await model.scanNow() } }
-        let pauseItem = ClosureMenuItem("Pause scans") { model.setPaused(!model.paused) }
+        let scanItem = ClosureMenuItem("Scan Now") { Task { await model.scanNow() } }
+        let pauseItem = ClosureMenuItem("Pause Scans") { model.setPaused(!model.paused) }
         menu.addItem(scanItem)
         menu.addItem(pauseItem)
         menu.addItem(ClosureMenuItem("Settings…", key: ",", handler: openSettings))
@@ -71,6 +75,24 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
         RunLoop.main.add(timer, forMode: .common)
         refreshTimer = timer
+
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.keyOnActivation else { return }
+                self.keyOnActivation = false
+                // A window the activation brought up keeps the key.
+                let popoverWindow = self.popover.contentViewController?.view.window
+                if let key = NSApp.keyWindow, key !== popoverWindow {
+                    AppLog.write("popover on activation: \(key.title.isEmpty ? "another window" : key.title) kept the key")
+                    return
+                }
+                self.keyPopover("on activation")
+            }
+        }
     }
 
     @objc private func clicked(_ sender: NSStatusBarButton) {
@@ -90,17 +112,28 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     func showPopover() {
         guard let button = item.button, !popover.isShown else { return }
         Task { await model.refresh() }
+        keyOnActivation = !NSApp.isActive
         NSApp.activate()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        // The popover's window focuses its first button (the gear) when it
-        // opens; nothing should look selected until the user tabs.
-        popover.contentViewController?.view.window?.makeFirstResponder(nil)
+        keyPopover("shown")
+    }
+
+    /// Makes the popover's window key, so it draws active rather than as a
+    /// window in the background, then clears the first responder: becoming key
+    /// focuses its first button (the gear), and nothing should look selected
+    /// until the user tabs. Activation is cooperative since macOS 14 and can
+    /// arrive after `show`, so this runs again when it does.
+    private func keyPopover(_ cause: String) {
+        guard popover.isShown, let window = popover.contentViewController?.view.window else { return }
+        window.makeKey()
+        window.makeFirstResponder(nil)
+        AppLog.write("popover \(cause): app \(NSApp.isActive ? "active" : "inactive"), window \(window.isKeyWindow ? "key" : "not key")")
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        pauseItem?.title = model.paused ? "Resume scans" : "Pause scans"
+        pauseItem?.title = model.paused ? "Resume Scans" : "Pause Scans"
         scanItem?.isEnabled = model.canScan
-        scanItem?.title = model.paused ? "Scan now (paused)" : "Scan now"
+        scanItem?.title = model.paused ? "Scan Now (Paused)" : "Scan Now"
     }
 
     func menuDidClose(_ menu: NSMenu) {
@@ -144,7 +177,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard arcTimer == nil else { return }
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self else { return }
+                // With Reduce Motion the arc stands still; checked on every
+                // tick, so switching it on mid-scan takes effect at once.
+                guard let self, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
                 self.arcAngle -= .pi / 6
                 self.draw()
             }

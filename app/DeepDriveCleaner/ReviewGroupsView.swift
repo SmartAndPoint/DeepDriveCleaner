@@ -21,13 +21,15 @@ struct GroupView: View {
             header(layout)
             Divider()
             if let all = layout.selectAll, !all.isEmpty {
-                SelectAllRow(model: model, ids: all, summary: "\(Wording.items(layout.count, "folder")) · \(ByteSize.human(layout.bytes))")
+                SelectAllRow(model: model, ids: all, group: entry.group, total: "\(Wording.items(layout.count, "folder")) · \(ByteSize.human(layout.bytes))")
                 Divider()
             }
             if layout.count == 0 && layout.lines(collapsed: []).isEmpty {
-                Text(model.query.isEmpty ? "Nothing in this group." : "Nothing here matches the filter.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if model.query.isEmpty {
+                    ContentUnavailableView("Nothing in This Group", systemImage: "tray")
+                } else {
+                    ContentUnavailableView.search(text: model.query)
+                }
             } else {
                 List(layout.lines(collapsed: model.collapsed)) { line in
                     switch line {
@@ -94,22 +96,43 @@ private struct GroupAmount: View {
     }
 }
 
-/// Every selectable row the filter shows; locked rows never change.
+/// Every selectable row the filter shows; locked rows never change. Its
+/// button cleans the selection among them only (story "Review window: clean
+/// only the selection in this group"; board 12, variant B).
 private struct SelectAllRow: View {
     @Bindable var model: ReviewModel
     let ids: [Int]
-    /// "9 folders · 3.8 GiB".
-    let summary: String
+    /// The sidebar group, for "Clean 2 from App caches…".
+    let group: String
+    /// "9 folders · 3.8 GiB", when nothing here can be selected.
+    let total: String
 
     var body: some View {
         let state = model.checkState(ids)
+        let selectable = model.canSelect(ids)
+        let label = Wording.cleanFrom(model.selectedRows(in: ids).count, group: group)
         HStack(spacing: 10) {
-            CheckBox(state: state, enabled: model.canSelect(ids), label: "Select all") {
+            CheckBox(state: state, enabled: selectable, label: "Select all") {
                 model.toggleAll(ids)
             }
-            Text("Select all").font(.system(size: 13, weight: .semibold))
+            Text("Select all").font(.system(size: 13, weight: .semibold)).fixedSize()
             Spacer()
-            Text(summary).font(.system(size: 12)).foregroundStyle(.secondary).monospacedDigit()
+            if selectable {
+                // "2 of 3 · 7.2 GiB": the rows the filter shows, so it can be
+                // less than the group's amount in the header.
+                Text(model.scopeSummary(ids)).font(.system(size: 12)).foregroundStyle(.secondary).monospacedDigit().fixedSize()
+                // The same sheet as Clean N items…, holding this group's ticks
+                // only. No shortcut: Return stays the footer's.
+                Button { model.openSheet(scope: ids) } label: {
+                    Text(label).lineLimit(1).truncationMode(.middle)
+                }
+                .buttonStyle(.bordered)
+                .frame(maxWidth: 280)
+                .help(label)
+                .disabled(!model.canClean(scope: ids))
+            } else {
+                Text(total).font(.system(size: 12)).foregroundStyle(.secondary).monospacedDigit()
+            }
         }
         // The list's rows start about 16 pt in: line its checkbox up with theirs.
         .padding(.leading, 16 + GroupView.checkIndent)

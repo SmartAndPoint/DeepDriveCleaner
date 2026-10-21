@@ -3,13 +3,14 @@ import SwiftUI
 
 /// The popover (artboard 1 of the design canvas), drawn from `PopoverModel`.
 /// Text and backgrounds use semantic colours, so it reads in dark mode; the
-/// class colours and the accent are the canvas's.
+/// class colours are the canvas's. The accent is the user's, and the brand
+/// blue of the `AccentColor` asset under Multicolor.
 struct PopoverView: View {
     @Bindable var model: PopoverModel
     let openSettings: () -> Void
     let openPrivacy: () -> Void
-
-    nonisolated static let accent = Color(red: 0x24 / 255, green: 0x59 / 255, blue: 0xB8 / 255)
+    /// With keyboard navigation on, the first focus is Review…, not the gear.
+    @FocusState private var focus: PopoverFocus?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -23,6 +24,7 @@ struct PopoverView: View {
         }
         .padding(16)
         .frame(width: 400, alignment: .leading)
+        .defaultFocus($focus, .review)
     }
 
     private var header: some View {
@@ -42,8 +44,7 @@ struct PopoverView: View {
                 Image(systemName: "gearshape").font(.system(size: 15)).frame(width: 32, height: 32)
             }
             .buttonStyle(.plain)
-            // The popover opens with this first button focused; no ring for that.
-            .focusEffectDisabled()
+            .help("Settings")
             .accessibilityLabel("Settings")
         }
     }
@@ -58,12 +59,12 @@ struct PopoverView: View {
             FirstScanView(model: model, openPrivacy: openPrivacy)
         case .unreadable(let reason):
             StateBlock(title: "The last report could not be read", text: "\(reason) A new scan replaces it.") {
-                Button("Scan now") { Task { await model.scanNow() } }.disabled(!model.canScan)
+                Button("Scan Now") { Task { await model.scanNow() } }.disabled(!model.canScan)
             }
         case .nothingFound:
             StateBlock(title: "Nothing found to clean", text: "The last scan found nothing to free \(model.scope).", note: model.withoutAccessNote) {
                 if (model.summary?.foundBytes ?? 0) > 0 {
-                    Button("See what was found") { model.review() }.buttonStyle(.link)
+                    Button("See What Was Found") { model.review() }.buttonStyle(.link)
                 }
             }
         case .nothingWorthCleaning:
@@ -73,11 +74,11 @@ struct PopoverView: View {
                 text: "\(ByteSize.human(summary?.reclaimable ?? 0)) could be freed, under your \(ByteSize.human(model.threshold)) notification threshold.",
                 note: model.withoutAccessNote
             ) {
-                Button("See what was found") { model.review() }.buttonStyle(.link)
+                Button("See What Was Found") { model.review() }.buttonStyle(.link)
             }
         case .found:
             if let summary = model.summary {
-                FoundView(model: model, summary: summary)
+                FoundView(model: model, summary: summary, focus: $focus)
             }
         }
     }
@@ -88,7 +89,7 @@ struct PopoverView: View {
             HStack(alignment: .center) {
                 if let scan = model.scan {
                     TimelineView(.periodic(from: scan.started, by: 1)) { context in
-                        Text("Scanning… \(Wording.elapsed(context.date.timeIntervalSince(scan.started)))")
+                        Text("Scanning… \(Wording.elapsed(context.date.timeIntervalSince(scan.started)))").monospacedDigit()
                     }
                 } else if model.paused {
                     HStack(spacing: 4) {
@@ -96,7 +97,7 @@ struct PopoverView: View {
                         Button("Resume") { model.setPaused(false) }.buttonStyle(.link)
                     }
                 } else {
-                    Button("Scan now") { Task { await model.scanNow() } }
+                    Button("Scan Now") { Task { await model.scanNow() } }
                         .buttonStyle(.link)
                         .disabled(!model.canScan)
                 }
@@ -110,10 +111,10 @@ struct PopoverView: View {
                     .labelStyle(.titleAndIcon)
                 } else {
                     Button(action: openPrivacy) {
-                        Label("Full Disk Access needed", systemImage: "exclamationmark.circle.fill")
+                        Label("Full Disk Access Needed", systemImage: "exclamationmark.circle.fill")
                     }
                     .buttonStyle(.link)
-                    .foregroundStyle(ReportClassStyle.review)
+                    .foregroundStyle(ReportClassStyle.ink(.review))
                     .help("Open Privacy & Security → Full Disk Access")
                 }
                 Spacer()
@@ -130,6 +131,7 @@ struct PopoverView: View {
 private struct FoundView: View {
     @Bindable var model: PopoverModel
     let summary: ReportSummary
+    var focus: FocusState<PopoverFocus?>.Binding
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -149,7 +151,7 @@ private struct FoundView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let note = model.withoutAccessNote {
-                    Text(note).font(.system(size: 12)).foregroundStyle(ReportClassStyle.review)
+                    Text(note).font(.system(size: 12)).foregroundStyle(ReportClassStyle.ink(.review))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -177,12 +179,12 @@ private struct FoundView: View {
                     Text("Review…").frame(maxWidth: .infinity, minHeight: 28)
                 }
                 .controlSize(.large)
+                .focused(focus, equals: .review)
                 Button { model.cleanSelected() } label: {
-                    Text("Clean selected…").fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: 28)
+                    Text("Clean Selected…").fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: 28)
                 }
                 .controlSize(.large)
                 .buttonStyle(.borderedProminent)
-                .tint(PopoverView.accent)
                 .disabled(model.selectedToClean == 0)
             }
         }
@@ -195,7 +197,7 @@ private struct ScanningView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Scanning \(model.scope.dropFirst("in ".count))…").font(.system(size: 20, weight: .semibold))
-            ProgressView().progressViewStyle(.linear).tint(PopoverView.accent)
+            ProgressView().progressViewStyle(.linear)
             if let scan = model.scan {
                 TimelineView(.periodic(from: scan.started, by: 1)) { context in
                     let elapsed = Wording.elapsed(context.date.timeIntervalSince(scan.started))
@@ -204,6 +206,7 @@ private struct ScanningView: View {
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .monospacedDigit()
                 }
             }
         }
@@ -218,9 +221,8 @@ private struct FirstScanView: View {
     var body: some View {
         if model.fullDiskAccess.isGranted {
             StateBlock(title: "No scan yet", text: "A scan reads your home folder and changes nothing.") {
-                Button("Scan now") { Task { await model.scanNow() } }
+                Button("Scan Now") { Task { await model.scanNow() } }
                     .buttonStyle(.borderedProminent)
-                    .tint(PopoverView.accent)
                     .disabled(!model.canScan)
             }
         } else {
@@ -231,8 +233,7 @@ private struct FirstScanView: View {
                 HStack(spacing: 12) {
                     Button("Open Privacy Settings", action: openPrivacy)
                         .buttonStyle(.borderedProminent)
-                        .tint(PopoverView.accent)
-                    Button("Scan anyway") { Task { await model.scanNow() } }
+                    Button("Scan Anyway") { Task { await model.scanNow() } }
                         .buttonStyle(.link)
                         .disabled(!model.canScan)
                 }
@@ -253,7 +254,7 @@ private struct StateBlock<Actions: View>: View {
             Text(title).font(.system(size: 20, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
             Text(text).font(.system(size: 13)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if let note {
-                Text(note).font(.system(size: 12)).foregroundStyle(ReportClassStyle.review).fixedSize(horizontal: false, vertical: true)
+                Text(note).font(.system(size: 12)).foregroundStyle(ReportClassStyle.ink(.review)).fixedSize(horizontal: false, vertical: true)
             }
             actions().font(.system(size: 13)).padding(.top, 4)
         }
@@ -451,6 +452,11 @@ enum ReportClassStyle {
 private extension Toggle {
     /// The canvas's switch: small, accent when on, its label for VoiceOver only.
     func switchStyle() -> some View {
-        toggleStyle(.switch).controlSize(.small).labelsHidden().tint(PopoverView.accent).frame(width: 38)
+        toggleStyle(.switch).controlSize(.small).labelsHidden().frame(width: 38)
     }
+}
+
+/// Where the popover's keyboard focus can start.
+enum PopoverFocus: Hashable {
+    case review
 }
