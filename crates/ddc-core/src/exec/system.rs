@@ -36,9 +36,10 @@ impl CommandRunner for SystemCommands {
     /// The command gets its own process group: a timeout or a forwarded
     /// SIGINT/SIGTERM reaches everything it started, and a grandchild cannot
     /// keep the pipes open after the command is gone.
-    fn run(&self, exe: &Path, args: &[String], timeout: Duration) -> io::Result<CmdOutput> {
+    fn run(&self, exe: &Path, args: &[String], env: &[(&str, &str)], timeout: Duration) -> io::Result<CmdOutput> {
         let mut child = Command::new(exe)
             .args(args)
+            .envs(env.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -105,5 +106,8 @@ pub struct SystemProcesses;
 impl ProcessTable for SystemProcesses {
     fn processes(&self) -> Vec<ProcInfo> {
         procs::current_user_processes()
+    }
+    fn open_files(&self, pid: i32) -> Vec<PathBuf> {
+        procs::open_files(pid)
     }
 }

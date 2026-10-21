@@ -7,18 +7,24 @@ import SwiftUI
 /// its state when the window opens again.
 @MainActor
 final class ReviewWindowController {
+    private let presence: DockPresenceController
     private var window: NSWindow?
     private var keyObserver: NSObjectProtocol?
     private var closeObserver: NSObjectProtocol?
     /// The Close button returns to the popover the user came from.
     var returnToPopover: (() -> Void)?
 
+    init(presence: DockPresenceController) {
+        self.presence = presence
+    }
+
     /// Shows the window for `model`; the model's `present`.
     func show(_ model: ReviewModel) -> Bool {
         if window == nil {
             let hosting = NSHostingController(rootView: ReviewView(model: model, close: { [weak self] in
-                self?.window?.performClose(nil)
-                self?.returnToPopover?()
+                guard let self else { return }
+                if let window = self.window { self.presence.closeReturningToPopover(window) }
+                self.returnToPopover?()
             }))
             let window = NSWindow(contentViewController: hosting)
             window.title = "Review and clean"
@@ -46,8 +52,7 @@ final class ReviewWindowController {
             }
             self.window = window
         }
-        NSApp.activate()
-        window?.makeKeyAndOrderFront(nil)
+        if let window { presence.show(window) }
         return window != nil
     }
 }

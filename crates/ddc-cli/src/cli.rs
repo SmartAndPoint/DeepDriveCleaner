@@ -38,7 +38,7 @@ pub enum Command {
     /// Measure allocated size like `du -skx` (diagnostics and benchmarks).
     #[command(hide = true)]
     Du(DuArgs),
-    /// Print process diagnostics (dataless policy, open-file limit, volume).
+    /// Print process diagnostics (dataless policy, open-file limit, volume, process snapshot).
     #[command(hide = true)]
     Diag,
 }

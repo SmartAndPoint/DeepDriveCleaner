@@ -40,7 +40,7 @@ pub(super) fn run(cmd: &NativeCommand, target: &Path, commands: &dyn CommandRunn
     if let Some(probe) = cmd.location {
         let Some(probe_exe) = commands.find(probe.program) else { return Native::Unavailable };
         let args: Vec<String> = probe.args.iter().map(|a| (*a).to_owned()).collect();
-        let Ok(out) = commands.run(&probe_exe, &args, Duration::from_secs(30)) else { return Native::Unavailable };
+        let Ok(out) = commands.run(&probe_exe, &args, &[], Duration::from_secs(30)) else { return Native::Unavailable };
         let reported = Path::new(out.stdout.trim()).canonicalize();
         let matches = out.success
             && reported.is_ok_and(|r| match probe.compare {
@@ -56,7 +56,7 @@ pub(super) fn run(cmd: &NativeCommand, target: &Path, commands: &dyn CommandRunn
     }
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let args: Vec<String> = cmd.args.iter().map(|a| a.replace("{name}", &name)).collect();
-    match commands.run(&exe, &args, NATIVE_TIMEOUT) {
+    match commands.run(&exe, &args, cmd.env, NATIVE_TIMEOUT) {
         Ok(out) => Native::Ran(CommandResult {
             program: cmd.program.to_owned(),
             args,

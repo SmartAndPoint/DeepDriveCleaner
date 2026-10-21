@@ -6,7 +6,8 @@
 /// reopen or activate event, or as a notification response. Any of those promotes
 /// the instance to the full app, which keeps running: a scheduled instance never
 /// swallows a user launch. A further launch from Finder, Spotlight, the login
-/// item or `open` arrives as `reopen`.
+/// item or `open` arrives as `reopen`; so does a click on the Dock icon while a
+/// window keeps the app in the Dock (`DockPresence`).
 public struct LaunchMode: Sendable, Equatable {
     public enum Mode: Sendable, Equatable {
         case starting, normal, scheduled
@@ -14,7 +15,8 @@ public struct LaunchMode: Sendable, Equatable {
 
     public enum Event: Sendable, Equatable {
         case launched(arguments: [String])
-        case reopen
+        /// `windowOpen`: one of the app's windows is open, so the app is in the Dock.
+        case reopen(windowOpen: Bool)
         case activate
         case notificationResponse
         /// The scheduled work (a scan if due, a pending notification) ended.
@@ -26,6 +28,9 @@ public struct LaunchMode: Sendable, Equatable {
         case startScheduledWork
         /// A reopen of the full app: the scheduler's tick, or a user's launch.
         case scanIfDue
+        /// Bring the open windows to the front (a click on the Dock icon). Added
+        /// to the scan: a reopen cannot tell the Dock from the scheduler's `open`.
+        case frontWindows
         case quit
     }
 
@@ -49,8 +54,8 @@ public struct LaunchMode: Sendable, Equatable {
             return [.showStatusItem]
         case (.scheduled, .workFinished):
             return [.quit]
-        case (.normal, .reopen):
-            return [.scanIfDue]
+        case (.normal, .reopen(let windowOpen)):
+            return windowOpen ? [.scanIfDue, .frontWindows] : [.scanIfDue]
         default:
             return []
         }

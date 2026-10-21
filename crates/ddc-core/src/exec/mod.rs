@@ -146,8 +146,9 @@ pub struct CmdOutput {
 pub trait CommandRunner {
     /// Absolute path of `program`, or `None` when not installed.
     fn find(&self, program: &str) -> Option<PathBuf>;
-    /// Runs without a shell, stdin closed; kills it after `timeout`.
-    fn run(&self, exe: &Path, args: &[String], timeout: Duration) -> io::Result<CmdOutput>;
+    /// Runs without a shell, stdin closed, with `env` added to the
+    /// environment; kills it after `timeout`.
+    fn run(&self, exe: &Path, args: &[String], env: &[(&str, &str)], timeout: Duration) -> io::Result<CmdOutput>;
 }
 
 pub trait Trasher {
@@ -156,6 +157,8 @@ pub trait Trasher {
 
 pub trait ProcessTable {
     fn processes(&self) -> Vec<ProcInfo>;
+    /// The files one process has open now, for the guard's confirming re-read.
+    fn open_files(&self, pid: i32) -> Vec<PathBuf>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -232,7 +235,7 @@ pub fn execute(
     let volumes = volumes_of(&chosen, env);
     let mut report = ExecReport { local_snapshots: local_snapshots(ports.commands), ..ExecReport::default() };
     let markers = keep_markers(chosen.iter().map(|i| i.finding.path.clone()).collect(), opts);
-    let guard = guard::Guard::new(env, catalog, &plan.roots, markers, ports.procs.processes());
+    let guard = guard::Guard::new(env, catalog, &plan.roots, markers, ports.procs);
     // Entries that went to the Trash: what lies inside them went with them.
     let mut trashed: Vec<PathBuf> = Vec::new();
 
@@ -249,7 +252,7 @@ pub fn execute(
         } else {
             match guard.check(item) {
                 Err(reason) => Outcome::Skipped(reason),
-                Ok(verified) => act(item, &verified, &ports, opts),
+                Ok(verified) => act(item, &verified, &guard, &ports, opts),
             }
         };
         if item.action == Action::TrashEntry && outcome == Outcome::Trashed {
@@ -322,7 +325,13 @@ fn action_allowed(item: &PlanItem, catalog: &Catalog, consent: &Consent) -> Resu
     if ok { Ok(()) } else { Err(SkipReason::ActionNotAllowed) }
 }
 
-fn act(item: &PlanItem, v: &guard::Verified, ports: &Ports<'_>, opts: &ExecOptions<'_>) -> Outcome {
+fn act(
+    item: &PlanItem,
+    v: &guard::Verified,
+    guard: &guard::Guard<'_>,
+    ports: &Ports<'_>,
+    opts: &ExecOptions<'_>,
+) -> Outcome {
     let path = item.finding.path.as_path();
     // Anything slow (a probe subprocess) may have run: re-check before acting.
     let fallback = |fb: Fallback| {
@@ -343,11 +352,21 @@ fn act(item: &PlanItem, v: &guard::Verified, ports: &Ports<'_>, opts: &ExecOptio
     match item.action {
         Action::Delete { make_writable } => delete::remove(v, path, make_writable),
         Action::Trash | Action::TrashEntry => trash(ports, v, path),
-        Action::Native { cmd, fallback: fb } => match native::run(&cmd, path, ports.commands, opts) {
-            native::Native::Ran(result) => Outcome::Native { commands: vec![result] },
-            native::Native::Cancelled => Outcome::NotRun,
-            native::Native::Unavailable | native::Native::LocationMismatch => fallback(fb),
-        },
+        Action::Native { cmd, fallback: fb } => {
+            // A long clean reaches this item minutes after the guard's snapshot,
+            // and a tool waits on a lock a process took meanwhile (uv).
+            if let Some(reason) = guard.before_tool(path) {
+                return Outcome::Skipped(reason);
+            }
+            if opts.cancelled() {
+                return Outcome::NotRun;
+            }
+            match native::run(&cmd, path, ports.commands, opts) {
+                native::Native::Ran(result) => Outcome::Native { commands: vec![result] },
+                native::Native::Cancelled => Outcome::NotRun,
+                native::Native::Unavailable | native::Native::LocationMismatch => fallback(fb),
+            }
+        }
         Action::NativeOnly(cmds) => {
             let mut results = Vec::new();
             for cmd in cmds {
@@ -395,7 +414,7 @@ fn volumes_of(chosen: &[&PlanItem], env: &Env) -> BTreeMap<PathBuf, u64> {
 pub fn local_snapshots(commands: &dyn CommandRunner) -> usize {
     let Some(tmutil) = commands.find("tmutil") else { return 0 };
     commands
-        .run(&tmutil, &["listlocalsnapshots".to_owned(), "/".to_owned()], Duration::from_secs(30))
+        .run(&tmutil, &["listlocalsnapshots".to_owned(), "/".to_owned()], &[], Duration::from_secs(30))
         .map(|out| out.stdout.lines().filter(|l| l.contains("com.apple.TimeMachine")).count())
         .unwrap_or(0)
 }

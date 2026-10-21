@@ -20,4 +20,10 @@ fn ddc_starts_with_dataless_materialization_off_and_raised_file_limit() {
         stdout.lines().find_map(|l| l.strip_prefix("open_files_limit: ")).and_then(|v| v.parse().ok()).unwrap();
     assert!(limit > 256, "open-file limit not raised: {limit}");
     assert!(stdout.contains("volume: apfs"), "{stdout}");
+    let snapshot = stdout.lines().find_map(|l| l.strip_prefix("process_snapshot: ")).expect("the snapshot line");
+    let numbers: Vec<u64> = snapshot.split(|c: char| !c.is_ascii_digit()).filter_map(|n| n.parse().ok()).collect();
+    assert!(
+        snapshot.ends_with(" ms") && numbers.len() == 3 && numbers[0] > 0,
+        "processes, open files and milliseconds: {snapshot}"
+    );
 }

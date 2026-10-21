@@ -12,7 +12,7 @@ struct LaunchModeTests {
     }
 
     @Test("a user's event during scheduled work promotes the instance, which then keeps running",
-          arguments: [LaunchMode.Event.reopen, .activate, .notificationResponse])
+          arguments: [LaunchMode.Event.reopen(windowOpen: false), .activate, .notificationResponse])
     func promotion(event: LaunchMode.Event) {
         var mode = LaunchMode()
         _ = mode.handle(.launched(arguments: ["/app", "--scheduled"]))
@@ -36,6 +36,13 @@ struct LaunchModeTests {
     func reopenOfNormalApp() {
         var mode = LaunchMode()
         _ = mode.handle(.launched(arguments: ["/app"]))
-        #expect(mode.handle(.reopen) == [.scanIfDue])
+        #expect(mode.handle(.reopen(windowOpen: false)) == [.scanIfDue])
+    }
+
+    @Test("a click on the Dock icon while a window is open also brings the windows to the front")
+    func reopenWithAWindowOpen() {
+        var mode = LaunchMode()
+        _ = mode.handle(.launched(arguments: ["/app"]))
+        #expect(mode.handle(.reopen(windowOpen: true)) == [.scanIfDue, .frontWindows])
     }
 }

@@ -14,8 +14,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private var launchMode = LaunchMode()
     private var statusItem: StatusItemController?
-    private lazy var settings = SettingsWindowController()
-    private let reviewWindow = ReviewWindowController()
+    /// In the Dock while a window is open (menu bar ADR §2, amended for 0.2.1).
+    private let presence = DockPresenceController()
+    private lazy var settings = SettingsWindowController(presence: presence)
+    private lazy var reviewWindow = ReviewWindowController(presence: presence)
     private var review: ReviewModel?
     private var model: PopoverModel?
 
@@ -66,6 +68,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             appVersion: version,
             log: { AppLog.write($0) }
         )
+        NSApp.mainMenu = MainMenu.make(
+            about: { [weak self] in self?.presence.showAbout() },
+            settings: { [weak self] in self?.settings.show() }
+        )
         apply(launchMode.handle(.launched(arguments: CommandLine.arguments)))
     }
 
@@ -84,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         AppLog.write("reopen in \(launchMode.mode) mode")
-        apply(launchMode.handle(.reopen))
+        apply(launchMode.handle(.reopen(windowOpen: presence.isRegular)))
         return false
     }
 
@@ -138,6 +144,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             case .scanIfDue:
                 // The due function arrives with "Background scan and notifications in the app".
                 AppLog.write("reopen of the running app: scan if due")
+            case .frontWindows:
+                presence.frontAll()
             case .quit:
                 Task { await quitAfterScheduledWork() }
             }

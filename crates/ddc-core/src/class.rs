@@ -89,6 +89,8 @@ pub struct NativeCommand {
     pub program: &'static str,
     pub args: &'static [&'static str],
     pub location: Option<LocationProbe>,
+    /// Set for the command only, not for its location probe.
+    pub env: &'static [(&'static str, &'static str)],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

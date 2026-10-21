@@ -60,7 +60,18 @@ const fn native(
     probe: Option<LocationProbe>,
     fallback: Fallback,
 ) -> Removal {
-    Removal::Native { cmd: NativeCommand { program, args, location: probe }, fallback }
+    native_env(program, args, probe, fallback, &[])
+}
+
+/// [`native`] with environment variables for the command.
+const fn native_env(
+    program: &'static str,
+    args: &'static [&'static str],
+    probe: Option<LocationProbe>,
+    fallback: Fallback,
+    env: &'static [(&'static str, &'static str)],
+) -> Removal {
+    Removal::Native { cmd: NativeCommand { program, args, location: probe, env }, fallback }
 }
 
 const fn probe(
@@ -76,11 +87,17 @@ const DOCKER_PRUNE: &[NativeCommand] = &[
         program: "docker",
         args: &["--context", "desktop-linux", "builder", "prune", "-f"],
         location: None,
+        env: &[],
     },
-    NativeCommand { program: "docker", args: &["--context", "desktop-linux", "image", "prune", "-f"], location: None },
+    NativeCommand {
+        program: "docker",
+        args: &["--context", "desktop-linux", "image", "prune", "-f"],
+        location: None,
+        env: &[],
+    },
 ];
 const PODMAN_PRUNE: &[NativeCommand] =
-    &[NativeCommand { program: "podman", args: &["image", "prune", "-f"], location: None }];
+    &[NativeCommand { program: "podman", args: &["image", "prune", "-f"], location: None, env: &[] }];
 
 pub static RULES: &[Rule] = &[
     // ---- synthetic -------------------------------------------------------
@@ -216,11 +233,14 @@ pub static RULES: &[Rule] = &[
             "cache.uv",
             PackageCache,
             Safe,
-            native(
+            // A lock taken after the in-use check fails in seconds, not at
+            // NATIVE_TIMEOUT (uv 0.9.16 and later; an older uv ignores it).
+            native_env(
                 "uv",
                 &["cache", "clean"],
                 probe("uv", &["cache", "dir"], LocationCompare::Equals),
                 Fallback::Delete,
+                &[("UV_LOCK_TIMEOUT", "10")],
             ),
             Matcher::KnownPaths(&[".cache/uv"]),
         )

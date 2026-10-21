@@ -19,7 +19,7 @@ DeepDriveCleaner · scanned ~ in 39.6s · 5.5M files · 544.8 GiB
 
 > **Built in the open with [ProjectStore](https://projectstore.dev).** Every decision, epic and story behind this code lives in a second public repository, [DeepDriveCleaner-projectstore](https://github.com/SmartAndPoint/DeepDriveCleaner-projectstore): the research, the ADRs, the acceptance criteria and the evidence each story was closed with. This repository is meant to be read as a worked example of that workflow, not only as a tool. See [Contributing](#contributing).
 
-Status: 0.2.0. macOS 26 on Apple Silicon. Settings beyond Open at login, and the app's own scheduled scans and notifications, come in 0.3.0; until then scheduled scans are the command line's (`ddc schedule install`).
+Status: 0.2.1. macOS 26 on Apple Silicon. Settings beyond Open at login, and the app's own scheduled scans and notifications, come in 0.3.0; until then scheduled scans are the command line's (`ddc schedule install`).
 
 ## Install
 
@@ -59,7 +59,8 @@ This installs `~/.cargo/bin/deepdrivecleaner` and a `ddc` symlink to it. A local
 - **The Review window** lists every finding by group (a sidebar ordered by size, per risk class) or as one list you can filter and sort. You tick what to clean; safe and idle rebuildable items start ticked, review items never do. Right-click a folder to reveal it in Finder or protect it with a `.ddc-keep` file.
 - **The confirmation sheet** lists every item with its action, checks each one with a dry run first, and names what would be skipped and why. Review items go to the Trash unless you choose Delete permanently for one. After the clean it shows what was deleted, moved to the Trash or skipped, grouped by cause.
 - **Your own files.** Downloads, Pictures, Movies, Music and iPhone and iPad backups list what they hold, largest first. Nothing in them is ever selected for you; you pick files and folders one by one, and they go to the Trash, never deleted. App libraries (Photos and others), partial downloads, unfinished backups and anything changed in the last 10 minutes are locked. Cloud folders (iCloud Drive and other File Provider folders) are not scanned.
-- **Settings** has Open at login in 0.2.0.
+- **Settings** has Open at login for now.
+- **In the Dock while a window is open.** While the Review window, Settings or About is open, the app is in the Dock and in Cmd-Tab, with its own menu bar (⌘W, ⌘Q, copy and paste in the search field). When the last window closes, it lives in the menu bar only again and the app you were using comes back to the front.
 
 The app runs the same command-line tool for every scan and clean, so everything below applies to it too.
 
@@ -263,7 +264,7 @@ ddc schedule status
 
 ## Safety
 
-- Right before touching anything, `ddc clean` checks every item again. It is still the same directory (device and inode), no symlink has appeared above it, it still matches its rule, it is not a project root, it is not protected, and no running process uses it. A file or folder you picked in one of your own folders is checked as that folder's entry instead: the same file or folder, still in that folder, not locked (an app's library, a `.ddc-keep`, a download still arriving, something changed in the last 10 minutes). Anything that fails a check is skipped with a reason.
+- Right before touching anything, `ddc clean` checks every item again. It is still the same directory (device and inode), no symlink has appeared above it, it still matches its rule, it is not a project root, it is not protected, and no running process uses it: runs from it, works in it, or has a file open in it. A process that holds a file only for a moment does not block it, and before a tool's own clean command (such as `uv cache clean`) the check runs again, so the tool does not wait on a lock that a running process already holds. A move to the Trash ignores open files, since a file open in the Trash keeps working, and Docker's and Podman's prune commands decide for themselves what is in use. A file or folder you picked in one of your own folders is checked as that folder's entry instead: the same file or folder, still in that folder, not locked (an app's library, a `.ddc-keep`, a download still arriving, something changed in the last 10 minutes). Anything that fails a check is skipped with a reason.
 - Deletion first renames the folder to a tombstone through a verified parent folder, then removes it. An interrupted run leaves `*.ddc-deleting-*`, which the next scan finds as `safe`.
 - Every action is logged to `~/Library/Logs/DeepDriveCleaner/actions.jsonl`.
 - It never runs as root, never deletes your home, `~/Documents`, `~/Projects` or any other protected folder, and never follows a symlink out of a finding.

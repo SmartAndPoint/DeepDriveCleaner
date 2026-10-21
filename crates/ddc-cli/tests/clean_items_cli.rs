@@ -172,6 +172,27 @@ fn wait_within(child: &mut Child, timeout: Duration) -> Option<ExitStatus> {
     None
 }
 
+/// A process holding `path` open (as its stdin) until dropped. Spawned with
+/// the file moved into it, so this harness never holds it open itself.
+struct Holder(Child);
+
+impl Holder {
+    fn new(path: &Path) -> Self {
+        Self(Command::new("/bin/sleep").arg("60").stdin(File::open(path).unwrap()).spawn().unwrap())
+    }
+
+    fn pid(&self) -> i32 {
+        self.0.id() as i32
+    }
+}
+
+impl Drop for Holder {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 fn alive(pid: i32) -> bool {
     Command::new("/bin/kill").args(["-0", &pid.to_string()]).stderr(Stdio::null()).status().unwrap().success()
 }
@@ -442,4 +463,54 @@ fn a_picked_download_would_go_to_the_trash_unless_it_is_recent_and_names_are_esc
     assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
     assert!(String::from_utf8_lossy(&out.stderr).contains("permanent"));
     assert_eq!(fx.snapshot(), before);
+}
+
+/// Story "Release 0.2.1": a file a running process holds open inside a
+/// finding that would be deleted (safety ADR, §5, amendment for 0.2.1).
+#[test]
+fn a_file_held_open_by_a_running_process_is_skipped_until_it_closes() {
+    let fx = Fx::new();
+    let pycache = fx.path("q/__pycache__");
+    let list = fx.list(&["q/__pycache__"]);
+    let holder = Holder::new(&pycache.join("m.cpython-312.pyc"));
+
+    let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--dry-run", "--json"]).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let line: serde_json::Value =
+        serde_json::from_str(String::from_utf8(out.stdout).unwrap().lines().next().unwrap()).unwrap();
+    assert_eq!((line["prediction"].as_str(), line["reason"].as_str()), (Some("would-skip"), Some("in-use")), "{line}");
+    assert_eq!((line["pid"].as_i64(), line["name"].as_str()), (Some(i64::from(holder.pid())), Some("sleep")), "{line}");
+
+    let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--json"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let expected = SkipReason::InUse { pid: holder.pid(), name: "sleep".into() };
+    assert_eq!(outcome(&report(&out.stdout), &pycache), &Outcome::Skipped(expected));
+    assert!(pycache.exists());
+
+    drop(holder);
+    let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--json"]).output().unwrap();
+    assert_eq!(outcome(&report(&out.stdout), &pycache), &Outcome::Deleted);
+    assert!(!pycache.exists());
+}
+
+/// The incident of 2026-10-20: `uv cache clean` waited out its timeout on a
+/// cache lock that running `uv run` processes held. Now the tool never starts.
+#[test]
+fn a_tool_never_starts_on_a_cache_a_running_process_holds_open() {
+    let fx = Fx::new();
+    let pid_file = fx.fake_uv();
+    fx.write(".cache/uv/.lock", b"");
+    let uv = fx.path(".cache/uv");
+    let list = fx.list(&[".cache/uv"]);
+    let holder = Holder::new(&uv.join(".lock"));
+
+    let started = Instant::now();
+    let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--json"]).output().unwrap();
+
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let expected = SkipReason::InUse { pid: holder.pid(), name: "sleep".into() };
+    assert_eq!(outcome(&report(&out.stdout), &uv), &Outcome::Skipped(expected));
+    assert!(!pid_file.exists(), "uv cache clean never started");
+    assert!(started.elapsed() < Duration::from_secs(20), "skipped, not waited out: {:?}", started.elapsed());
+    assert!(uv.join("wheels/a.whl").exists());
 }

@@ -19,6 +19,9 @@ pub struct ProcInfo {
     pub cwd: Option<PathBuf>,
     /// `VIRTUAL_ENV` / `CONDA_PREFIX` from the environment, when readable.
     pub env_prefixes: Vec<PathBuf>,
+    /// Paths of the files it has open, as the kernel reports them (see
+    /// [`open_files`]); empty for this process, its children, or when unreadable.
+    pub open_files: Vec<PathBuf>,
 }
 
 impl ProcInfo {
@@ -64,14 +67,100 @@ pub fn current_user_processes() -> Vec<ProcInfo> {
     // SAFETY: no arguments, cannot fail.
     let uid = unsafe { libc::getuid() };
     let argmax = argmax().unwrap_or(1 << 20);
+    let own = std::process::id();
     list_pids()
         .into_iter()
         .filter(|&pid| pid > 0)
         .filter_map(|pid| {
             let bsd = bsd_info(pid)?;
-            (bsd.pbi_uid == uid).then(|| describe(pid, &bsd, argmax))
+            (bsd.pbi_uid == uid).then(|| {
+                let mut info = describe(pid, &bsd, argmax);
+                // This process and the tools it runs hold the clean's own descriptors.
+                if pid as u32 != own && bsd.pbi_ppid != own {
+                    info.open_files = vnode_files(pid, bsd.pbi_nfiles);
+                }
+                info
+            })
         })
         .collect()
+}
+
+/// Paths of the files `pid` (a process of the current user) has open; empty
+/// when it is gone or unreadable. Only vnodes count: sockets and pipes have no
+/// path. The paths are the kernel's (`/private/var/…`, never `/var/…`) and are
+/// never `stat`ed here: a file in a protected folder could make macOS ask.
+pub fn open_files(pid: i32) -> Vec<PathBuf> {
+    match bsd_info(pid) {
+        Some(bsd) if bsd.pbi_uid == uid() => vnode_files(pid, bsd.pbi_nfiles),
+        _ => Vec::new(),
+    }
+}
+
+fn vnode_files(pid: i32, nfiles: u32) -> Vec<PathBuf> {
+    list_fds(pid, nfiles)
+        .into_iter()
+        .filter(|fd| fd.proc_fdtype == libc::PROX_FDTYPE_VNODE as u32)
+        .filter_map(|fd| vnode_path(pid, fd.proc_fd))
+        .collect()
+}
+
+/// The descriptor table, sized from `pbi_nfiles` with slack; a full buffer
+/// means it grew meanwhile, so the read is repeated once at double the size,
+/// and what that read returns is kept.
+fn list_fds(pid: i32, nfiles: u32) -> Vec<libc::proc_fdinfo> {
+    let mut capacity = nfiles as usize + 32;
+    for attempt in 0..2 {
+        let mut fds = vec![libc::proc_fdinfo { proc_fd: 0, proc_fdtype: 0 }; capacity];
+        let bytes = (capacity * size_of::<libc::proc_fdinfo>()) as c_int;
+        // SAFETY: `fds` is writable for `bytes` bytes.
+        let r = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr().cast(), bytes) };
+        if r <= 0 {
+            return Vec::new();
+        }
+        fds.truncate(r as usize / size_of::<libc::proc_fdinfo>());
+        if fds.len() < capacity || attempt == 1 {
+            return fds;
+        }
+        capacity *= 2;
+    }
+    Vec::new()
+}
+
+// <sys/proc_info.h>, not in libc 0.2.191.
+const PROC_PIDFDVNODEPATHINFO: c_int = 2;
+
+#[repr(C)]
+struct ProcFileInfo {
+    fi_openflags: u32,
+    fi_status: u32,
+    fi_offset: libc::off_t,
+    fi_type: i32,
+    fi_guardflags: u32,
+}
+
+#[repr(C)]
+struct VnodeFdInfoWithPath {
+    pfi: ProcFileInfo,
+    pvip: libc::vnode_info_path,
+}
+
+const _: () = assert!(size_of::<VnodeFdInfoWithPath>() == 1200);
+
+/// The path of descriptor `fd`; `None` when it closed since the table was
+/// read, or when the file has no path any more (unlinked).
+fn vnode_path(pid: i32, fd: i32) -> Option<PathBuf> {
+    let mut info = MaybeUninit::<VnodeFdInfoWithPath>::zeroed();
+    let size = size_of::<VnodeFdInfoWithPath>() as c_int;
+    // SAFETY: `info` is writable for `size` bytes.
+    let r = unsafe { libc::proc_pidfdinfo(pid, fd, PROC_PIDFDVNODEPATHINFO, info.as_mut_ptr().cast(), size) };
+    if r != size {
+        return None;
+    }
+    // SAFETY: filled by the kernel; `vip_path` is NUL-terminated.
+    let info = unsafe { info.assume_init() };
+    // SAFETY: as above.
+    let path = unsafe { CStr::from_ptr(info.pvip.vip_path.as_ptr().cast()) };
+    (!path.to_bytes().is_empty()).then(|| PathBuf::from(OsStr::from_bytes(path.to_bytes())))
 }
 
 fn list_pids() -> Vec<i32> {
@@ -263,5 +352,28 @@ mod tests {
     fn this_process_is_listed_with_its_executable() {
         let me = current_user_processes().into_iter().find(|p| p.pid == std::process::id() as i32).expect("self");
         assert!(me.exe.is_some() && me.cwd.is_some(), "{me:?}");
+        assert!(me.open_files.is_empty(), "its own descriptors are not read: {:?}", me.open_files);
+    }
+
+    /// A child holding a file open: `open_files` sees it by pid; the snapshot
+    /// leaves it out, since the clean's own tools are its children.
+    #[test]
+    fn open_files_of_a_process_are_read_by_pid_and_not_for_children() {
+        let dir = tempfile::tempdir().unwrap();
+        let held = dir.path().canonicalize().unwrap().join("held.bin");
+        std::fs::write(&held, b"x").unwrap();
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .stdin(std::fs::File::open(&held).unwrap())
+            .spawn()
+            .unwrap();
+        let pid = child.id() as i32;
+        let seen = open_files(pid);
+        let listed = current_user_processes().into_iter().find(|p| p.pid == pid);
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(seen.contains(&held), "{held:?} not in {seen:?}");
+        let listed = listed.expect("the child is listed");
+        assert!(listed.exe.is_some() && listed.open_files.is_empty(), "{listed:?}");
     }
 }

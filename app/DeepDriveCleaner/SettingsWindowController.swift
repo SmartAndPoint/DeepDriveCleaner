@@ -5,8 +5,13 @@ import SwiftUI
 /// adds its tabs. For now it holds the open-at-login toggle.
 @MainActor
 final class SettingsWindowController {
+    private let presence: DockPresenceController
     private let loginItem = LoginItem()
     private var window: NSWindow?
+
+    init(presence: DockPresenceController) {
+        self.presence = presence
+    }
 
     func show() {
         if window == nil {
@@ -18,8 +23,7 @@ final class SettingsWindowController {
             self.window = window
         }
         loginItem.refresh()
-        NSApp.activate()
-        window?.makeKeyAndOrderFront(nil)
+        if let window { presence.show(window) }
     }
 }
 

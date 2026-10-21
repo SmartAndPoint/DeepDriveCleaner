@@ -5,9 +5,9 @@ use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
-use super::SkipReason;
+use super::{ProcessTable, SkipReason};
 use crate::env::Env;
 use crate::plan::{Action, PlanItem};
 use crate::report::backups;
@@ -53,14 +53,47 @@ pub struct Guard<'a> {
     /// Per process: absolute paths it uses, and first components of relative
     /// paths whose base (cwd) is unknown.
     uses: Vec<Uses>,
+    /// For the confirming re-read of one process, and the fresh read before a
+    /// tool's command.
+    procs: &'a dyn ProcessTable,
 }
 
 struct Uses {
     pid: i32,
+    /// The app it belongs to, else its own name.
     name: String,
     paths: Vec<PathBuf>,
     unresolved: Vec<OsString>,
+    /// Files it has open, as the kernel reports them.
+    open: Vec<PathBuf>,
 }
+
+/// What the in-use check looks at, by action (ADR §5, amendment of 2026-10-20
+/// for 0.2.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UseCheck {
+    /// `native-only`: the runtime's daemon lives inside the finding by design
+    /// (Docker Desktop's backend works there), and its prune commands are what
+    /// knows what is in use.
+    Exempt,
+    /// A move to the Trash: a file open there keeps working.
+    Paths,
+    /// Deletion, and a tool's command with a fallback: open files count too
+    /// (a running `uv run` holds uv's cache lock).
+    PathsAndOpenFiles,
+}
+
+fn use_check(action: &Action) -> UseCheck {
+    match action {
+        Action::NativeOnly(_) => UseCheck::Exempt,
+        Action::Trash | Action::TrashEntry => UseCheck::Paths,
+        Action::Delete { .. } | Action::Native { .. } => UseCheck::PathsAndOpenFiles,
+    }
+}
+
+/// How long an open-file hit waits for its confirming re-read: a passing
+/// reader such as a Spotlight worker lets go by then.
+const OPEN_FILE_CONFIRM: Duration = Duration::from_millis(250);
 
 impl<'a> Guard<'a> {
     pub fn new(
@@ -68,8 +101,9 @@ impl<'a> Guard<'a> {
         catalog: &'a Catalog,
         roots: &[PathBuf],
         markers: Vec<PathBuf>,
-        procs: Vec<ProcInfo>,
+        procs: &'a dyn ProcessTable,
     ) -> Self {
+        let table = procs.processes();
         let mut paths: Vec<PathBuf> = PROTECTED_IN_HOME.iter().map(|rel| env.home().join(rel)).collect();
         paths.extend(PROTECTED_SYSTEM.iter().map(PathBuf::from));
         paths.extend(roots.iter().cloned());
@@ -89,9 +123,51 @@ impl<'a> Guard<'a> {
             protected_paths: paths.iter().map(|p| fold(p)).collect(),
             protected_ids,
             markers,
-            uses: procs.iter().map(uses).collect(),
-            apps: procs.iter().filter_map(|p| Some((p.pid, p.app_bundle()?, p.name.clone()))).collect(),
+            uses: table.iter().map(uses).collect(),
+            apps: table.iter().filter_map(|p| Some((p.pid, p.app_bundle()?, p.name.clone()))).collect(),
+            procs,
         }
+    }
+
+    /// Right before a tool's command: the open files read afresh, since a
+    /// long clean reaches the item minutes after the snapshot.
+    pub fn before_tool(&self, path: &Path) -> Option<SkipReason> {
+        let fresh: Vec<Uses> = self
+            .procs
+            .processes()
+            .into_iter()
+            .filter(|p| !p.open_files.is_empty())
+            .map(|p| Uses {
+                pid: p.pid,
+                name: p.app_bundle().unwrap_or_else(|| p.name.clone()),
+                paths: Vec::new(),
+                unresolved: Vec::new(),
+                open: p.open_files,
+            })
+            .collect();
+        self.holding(path, &fresh)
+    }
+
+    fn in_use(&self, path: &Path, check: UseCheck) -> Option<SkipReason> {
+        match check {
+            UseCheck::Exempt => None,
+            UseCheck::Paths => in_use(path, &self.uses),
+            UseCheck::PathsAndOpenFiles => in_use(path, &self.uses).or_else(|| self.holding(path, &self.uses)),
+        }
+    }
+
+    /// The first process with a file open inside `target` that still has one
+    /// after [`OPEN_FILE_CONFIRM`]; one wait for all of them.
+    fn holding(&self, target: &Path, uses: &[Uses]) -> Option<SkipReason> {
+        let holders: Vec<&Uses> = uses.iter().filter(|u| u.open.iter().any(|f| f.starts_with(target))).collect();
+        if holders.is_empty() {
+            return None;
+        }
+        std::thread::sleep(OPEN_FILE_CONFIRM);
+        holders
+            .into_iter()
+            .find(|u| self.procs.open_files(u.pid).iter().any(|f| f.starts_with(target)))
+            .map(|u| SkipReason::InUse { pid: u.pid, name: u.name.clone() })
     }
 
     pub fn check(&self, item: &PlanItem) -> Result<Verified, SkipReason> {
@@ -158,7 +234,7 @@ impl<'a> Guard<'a> {
         {
             return Err(SkipReason::OwnerRunning { pid: *pid, name: app.clone() });
         }
-        if let Some(reason) = in_use(path, &self.uses) {
+        if let Some(reason) = self.in_use(path, use_check(&item.action)) {
             return Err(reason);
         }
         Ok(Verified { parent: parent_fd, name: name.to_os_string(), id: (st.dev, st.ino), is_dir: true })
@@ -238,7 +314,7 @@ impl<'a> Guard<'a> {
         if self.marker_above(path) {
             return Err(SkipReason::Kept);
         }
-        if let Some(reason) = in_use(path, &self.uses) {
+        if let Some(reason) = self.in_use(path, UseCheck::Paths) {
             return Err(reason);
         }
         Ok(Verified { parent: parent_fd, name: name.to_os_string(), id: (st.dev, st.ino), is_dir: st.is_dir })
@@ -266,8 +342,10 @@ fn fold(p: &Path) -> String {
 }
 
 /// What a process uses: its executable path (as passed to execve), path-like
-/// arguments, working directory and `VIRTUAL_ENV`/`CONDA_PREFIX`. Relative
-/// paths are joined with the process's cwd; computed once per process.
+/// arguments, working directory and `VIRTUAL_ENV`/`CONDA_PREFIX`, and apart
+/// from them its open files, which are never `stat`ed (a protected folder could
+/// prompt). Relative paths are joined with the process's cwd; computed once per
+/// process. It is named by its app when it lives in an app bundle.
 fn uses(p: &ProcInfo) -> Uses {
     let mut paths: Vec<PathBuf> = Vec::new();
     let mut unresolved = Vec::new();
@@ -288,7 +366,8 @@ fn uses(p: &ProcInfo) -> Uses {
     paths.extend(p.env_prefixes.iter().cloned());
     let canonical: Vec<PathBuf> = paths.iter().filter_map(|c| canonical_parent(c)).collect();
     paths.extend(canonical);
-    Uses { pid: p.pid, name: p.name.clone(), paths, unresolved }
+    let name = p.app_bundle().unwrap_or_else(|| p.name.clone());
+    Uses { pid: p.pid, name, paths, unresolved, open: p.open_files.clone() }
 }
 
 /// A process uses `target` if any of its paths lies inside it; with an

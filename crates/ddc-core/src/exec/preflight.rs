@@ -106,7 +106,7 @@ pub fn preflight(
         .collect::<io::Result<Vec<PathBuf>>>()?;
     // One process snapshot for the whole sheet; the guard's own keep check
     // covers `.ddc-keep` above an item, the walk below the one inside it.
-    let guard = Guard::new(env, catalog, &roots, Vec::new(), ports.procs.processes());
+    let guard = Guard::new(env, catalog, &roots, Vec::new(), ports.procs);
     let root_refs: Vec<&Path> = roots.iter().map(PathBuf::as_path).collect();
     // Picked entries first, as the clean runs them: an item inside one that
     // would go to the Trash would be skipped.
