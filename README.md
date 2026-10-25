@@ -19,7 +19,7 @@ DeepDriveCleaner · scanned ~ in 39.6s · 5.5M files · 544.8 GiB
 
 > **Built in the open with [ProjectStore](https://projectstore.dev).** Every decision, epic and story behind this code lives in a second public repository, [DeepDriveCleaner-projectstore](https://github.com/SmartAndPoint/DeepDriveCleaner-projectstore): the research, the ADRs, the acceptance criteria and the evidence each story was closed with. This repository is meant to be read as a worked example of that workflow, not only as a tool. See [Contributing](#contributing).
 
-Status: 0.2.3. macOS 26 on Apple Silicon. Settings beyond Open at login, and the app's own scheduled scans and notifications, come in 0.3.0; until then scheduled scans are the command line's (`ddc schedule install`).
+Status: 0.2.4. macOS 26 on Apple Silicon. Settings beyond Open at login, and the app's own scheduled scans and notifications, come in 0.3.0; until then scheduled scans are the command line's (`ddc schedule install`).
 
 ## Install
 
