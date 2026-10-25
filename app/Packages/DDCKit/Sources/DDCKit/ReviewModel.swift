@@ -73,7 +73,8 @@ public final class ReviewModel: ReviewRouting {
     public internal(set) var sheet: Sheet?
     public internal(set) var notice: String?
     public enum Rescan: Sendable, Equatable {
-        /// The popover's scan after a clean: the window reloads when it ends.
+        /// The popover reads the report the clean saved, or scans after the
+        /// clean: the window reloads when it ends.
         case afterClean
         /// Scan again, from the window's header.
         case requested
@@ -94,9 +95,9 @@ public final class ReviewModel: ReviewRouting {
     @ObservationIgnored let present: @MainActor () -> Bool
     @ObservationIgnored let setBusy: @MainActor (Bool) -> Void
     @ObservationIgnored let rescan: @MainActor () async -> Void
+    @ObservationIgnored let reloadReport: @MainActor () async -> Bool
     @ObservationIgnored let paused: @MainActor () -> Bool
     @ObservationIgnored let temporaryDirectory: URL
-    @ObservationIgnored let pollInterval: Duration
     @ObservationIgnored let clock: @MainActor () -> Date
     @ObservationIgnored let log: @MainActor (String) -> Void
     /// Folders "Protect this folder" marked; locked until a scan reports them as protected.
@@ -119,6 +120,8 @@ public final class ReviewModel: ReviewRouting {
     /// - `setBusy`: the icon's busy input while a clean and the rescan after it run.
     /// - `rescan`: the popover's scan, which runs while paused: it follows a
     ///   clean, and Scan again checks `paused` first.
+    /// - `reloadReport`: the popover reads `last-scan.json` again, after a
+    ///   clean that saved it; false when it could not be shown.
     /// - `paused`: scans are paused from the menu bar.
     public init(
         runner: (any CLIRunning)?,
@@ -128,9 +131,9 @@ public final class ReviewModel: ReviewRouting {
         present: @escaping @MainActor () -> Bool,
         setBusy: @escaping @MainActor (Bool) -> Void = { _ in },
         rescan: @escaping @MainActor () async -> Void = {},
+        reloadReport: @escaping @MainActor () async -> Bool = { false },
         paused: @escaping @MainActor () -> Bool = { false },
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        pollInterval: Duration = .milliseconds(200),
         clock: @escaping @MainActor () -> Date = { .now },
         log: @escaping @MainActor (String) -> Void = { _ in }
     ) {
@@ -141,9 +144,9 @@ public final class ReviewModel: ReviewRouting {
         self.present = present
         self.setBusy = setBusy
         self.rescan = rescan
+        self.reloadReport = reloadReport
         self.paused = paused
         self.temporaryDirectory = temporaryDirectory
-        self.pollInterval = pollInterval
         self.clock = clock
         self.log = log
     }

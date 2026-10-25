@@ -130,6 +130,9 @@ struct ContractTests {
         let visitor = try rustSource("crates/ddc-core/src/rules/visitor.rs")
         let marker = try #require(visitor.firstMatch(of: /pub const KEEP_MARKER: &str = "([^"]+)";/))
         #expect(String(marker.1) == KeepMarker.name)
+        // The field that spares the scan after a clean, and its default for an older CLI.
+        let saved = try #require((try schema("clean")["properties"] as? [String: Any])?["last_scan_saved"] as? [String: Any])
+        #expect(saved["type"] as? String == "boolean" && saved["default"] as? Bool == false)
     }
 
     @Test("the progress events are the CLI's: version, event names, phases, walk steps, reasons and actions")

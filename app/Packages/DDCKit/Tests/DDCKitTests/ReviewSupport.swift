@@ -43,16 +43,25 @@ enum ReviewFixture {
     }
 }
 
-/// What the review model asked of the app: the icon's busy input and the rescans.
+/// What the review model asked of the app: the icon's busy input, the
+/// rescans and the reloads of a saved report.
 @MainActor
 final class ReviewEvents {
     var busy: [Bool] = []
     var rescans = 0
+    /// Reads of the report a clean saved; `reloadFails` makes them fail.
+    var reloads = 0
+    var reloadFails = false
     var presented = 0
     var paused = false
     /// While set, a rescan waits until `finishRescan()`.
     var holdRescan = false
     private var held: CheckedContinuation<Void, Never>?
+
+    func reloadReport() -> Bool {
+        reloads += 1
+        return !reloadFails
+    }
 
     func rescan() async {
         rescans += 1
@@ -86,9 +95,9 @@ func makeReview(
         },
         setBusy: { events.busy.append($0) },
         rescan: { await events.rescan() },
+        reloadReport: { events.reloadReport() },
         paused: { events.paused },
         temporaryDirectory: data.url,
-        pollInterval: .milliseconds(20),
         clock: clock
     )
 }

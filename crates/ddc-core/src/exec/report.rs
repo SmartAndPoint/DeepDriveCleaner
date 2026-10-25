@@ -30,6 +30,11 @@ pub struct CleanReport {
     pub local_snapshots: usize,
     /// The action journal every started item was recorded in.
     pub journal: PathBuf,
+    /// `last-scan.json` was edited by what this clean did and saved, so no
+    /// scan needs to follow (story "Faster clean: re-check only what the
+    /// selection needs"). Absent from an older CLI: read as false.
+    #[serde(default)]
+    pub last_scan_saved: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -93,6 +98,7 @@ impl CleanReport {
             volumes: run.volumes.clone(),
             local_snapshots: run.local_snapshots,
             journal,
+            last_scan_saved: false,
         }
     }
 }

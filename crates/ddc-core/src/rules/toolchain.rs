@@ -10,12 +10,18 @@ use std::path::{Path, PathBuf};
 use super::{Catalog, Pins};
 use crate::scan::OwnerResult;
 
+/// The rules whose versions pin files anywhere in the scan roots protect:
+/// [`Scope::Tree`](super::Scope::Tree).
+const PINNED: &[&str] = &["toolchain.nvm", "toolchain.pyenv", "toolchain.rustup"];
+/// The rule whose newest sibling is kept: [`Scope::Siblings`](super::Scope::Siblings).
+const NEWEST_KEPT: &str = "ide.jetbrains-old-data";
+
 /// Paths of claimed toolchain/IDE folders that are not findings.
 pub(crate) fn dropped(owners: &[OwnerResult], catalog: &Catalog, pins: &Pins) -> HashSet<PathBuf> {
     let mut groups: HashMap<&str, Vec<&OwnerResult>> = HashMap::new();
     for o in owners {
         let id = catalog.rule(o.tag).id;
-        if matches!(id, "toolchain.nvm" | "toolchain.pyenv" | "toolchain.rustup" | "ide.jetbrains-old-data") {
+        if PINNED.contains(&id) || id == NEWEST_KEPT {
             groups.entry(id).or_default().push(o);
         }
     }
@@ -170,4 +176,21 @@ fn jetbrains_current(names: &[String]) -> HashSet<String> {
         })
         .cloned()
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NEWEST_KEPT, PINNED};
+    use crate::rules::{Matcher, RULES, Scope};
+
+    /// The scopes name exactly the rules `dropped` decides from outside their item.
+    #[test]
+    fn the_scopes_are_the_rules_dropped_reads_beyond_their_item() {
+        let ids = |scope| RULES.iter().filter(|r| r.scope == scope).map(|r| r.id).collect::<Vec<_>>();
+        assert_eq!(ids(Scope::Tree), PINNED);
+        assert_eq!(ids(Scope::Siblings), [NEWEST_KEPT]);
+        for rule in RULES.iter().filter(|r| matches!(r.matcher, Matcher::KnownChildren(_))) {
+            assert_ne!(rule.scope, Scope::Item, "{}: a known-children rule decides from its siblings", rule.id);
+        }
+    }
 }

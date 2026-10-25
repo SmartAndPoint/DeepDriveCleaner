@@ -130,9 +130,23 @@ struct CleanRunTests {
         try fake.runs().filter { $0.event == "start" && $0.args.hasPrefix(prefix) }.count
     }
 
-    @Test("the sheet shows the predicted skips, then preparing, cleaning and the result with skips grouped by cause")
+    /// The CLI's `cleaning` event, played once the clean starts.
+    private func cleaningEvent() throws {
+        try play(1, [ProgressTests.preparing, ProgressTests.cleaning])
+        try fake.open("events-1")
+    }
+
+    /// The recorded clean report with `last_scan_saved` false: the CLI could not save the report.
+    private func notSaved() throws -> Data {
+        let text = String(decoding: try Fixture.data("clean-report"), as: UTF8.self)
+        #expect(text.contains(#""last_scan_saved": true"#))
+        return Data(text.replacingOccurrences(of: #""last_scan_saved": true"#, with: #""last_scan_saved": false"#).utf8)
+    }
+
+    @Test("the sheet shows the predicted skips, then preparing, cleaning and the result with skips grouped by cause; the saved report is read, with no scan")
     func flow() async throws {
-        try fake.put("rescan.json", Fixture.data("scan-report-groups"))
+        try fake.put("saved-scan.json", Fixture.data("scan-report-groups"))
+        try cleaningEvent()
         try await checkedSheet()
         let chrome = try id("Google/Chrome")
         #expect(review.sheet?.predictions[chrome] == .wouldSkip(.ownerRunning(pid: 4242, name: "Google Chrome")))
@@ -149,9 +163,7 @@ struct CleanRunTests {
         try await until("preparing") { review.sheet?.stage.isPreparing == true }
         #expect(events.busy == [true])
         try fake.open("clean-start")
-        let replaced = Date()
         try await until("the cleaning phase") { review.sheet?.stage.isCleaningPhase == true }
-        #expect(Date().timeIntervalSince(replaced) < 1)
         try fake.open("clean-go")
         try await until("the result") { review.sheet?.stage.result != nil }
 
@@ -162,8 +174,8 @@ struct CleanRunTests {
         #expect(result.causes == [CleanResult.Cause(title: "Google Chrome was running", count: 1, bytes: 303_104, paths: ["~/Library/Caches/Google/Chrome"])])
         #expect(result.volumes.map(\.name) == ["The startup disk"])
         #expect(result.volumes.first?.freeAfter == 200_001_871_872)
-        try await until("the rescan") { events.busy == [true, false] }
-        #expect(events.rescans == 1)
+        try await until("the reload") { events.busy == [true, false] }
+        #expect(events.reloads == 1 && events.rescans == 0, "the report the CLI saved, and no scan")
         #expect(try runs("clean --items") == 2, "one dry run, one clean")
         let listed = try fake.lists()
         #expect(listed.count == 2 && listed[0] == listed[1], "the clean got the list the sheet showed")
@@ -186,7 +198,7 @@ struct CleanRunTests {
     func events() async throws {
         let npm = ProgressTests.current(1, "/Users/example/.npm/_cacache", "delete", 901_120)
         let p1 = ProgressTests.current(3, "/Users/example/p1/node_modules", "delete", 602_112)
-        // No rescan.json: the file never changes, so only the events move the phase.
+        // No saved-scan.json: the file never changes, so only the events move the phase.
         try play(1, [ProgressTests.preparing, ProgressTests.walk("recheck", 45_600, expected: 71_300)])
         try play(2, [
             ProgressTests.walk("recheck", 71_250, expected: 71_300),
@@ -233,17 +245,18 @@ struct CleanRunTests {
 
         try fake.open("clean-go")
         try await until("the result") { review.sheet?.stage.result != nil }
-        try await until("the rescan") { events.busy == [true, false] }
-        #expect(events.rescans == 1)
+        try await until("the reload") { events.busy == [true, false] }
+        #expect(events.reloads == 1 && events.rescans == 0)
     }
 
-    @Test("a crash after the cleaning event points to the journal and rescans, with last-scan.json unchanged")
+    @Test("a crash after the cleaning event points to the journal and rescans, with last-scan.json unchanged; the icon stays busy until that scan ends")
     func crashAfterCleaningEvent() async throws {
-        try play(1, [ProgressTests.preparing, ProgressTests.cleaning])
-        try fake.open("events-1")
+        try fake.put("saved-scan.json", Fixture.data("scan-report-groups"))
+        try cleaningEvent()
         try fake.open("clean.crash")
         try fake.open("clean-start")
         try fake.open("clean-go")
+        events.holdRescan = true
         let modified = DataDirectory.modified(data.directory.lastScan)
         try await checkedSheet()
         review.cleanConfirmedItems()
@@ -253,6 +266,45 @@ struct CleanRunTests {
         #expect(stopped.journal == data.directory.journal)
         #expect(DataDirectory.modified(data.directory.lastScan) == modified)
         try await until("the rescan") { events.rescans == 1 }
+        #expect(events.busy == [true], "busy until the rescan ends")
+        #expect(events.reloads == 0)
+        events.finishRescan()
+        try await until("idle") { events.busy == [true, false] }
+    }
+
+    @Test("a crash before the cleaning event says nothing was touched, and nothing rescans")
+    func crashBeforeCleaningEvent() async throws {
+        try play(1, [ProgressTests.preparing])
+        try fake.open("events-1")
+        try fake.open("clean.crash")
+        try fake.open("clean-start")
+        try fake.open("clean-go")
+        try await checkedSheet()
+        review.cleanConfirmedItems()
+        try await until("the end") { review.sheet?.stage.stopped != nil }
+        let stopped = try #require(review.sheet?.stage.stopped)
+        #expect(stopped.text.hasSuffix("Nothing was touched."), "\(stopped.text)")
+        #expect(stopped.journal == nil)
+        try await until("idle") { events.busy == [true, false] }
+        #expect(events.rescans == 0 && events.reloads == 0)
+    }
+
+    @Test("a clean report that says the report was not saved, or a saved report the app cannot read, scans again")
+    func notSavedRescans() async throws {
+        for unreadable in [false, true] {
+            events.reloadFails = unreadable
+            try fake.put("clean-report.json", unreadable ? try Fixture.data("clean-report") : try notSaved())
+            try fake.open("clean-start")
+            try fake.open("clean-go")
+            review.closeSheet()
+            let (reloads, rescans) = (events.reloads, events.rescans)
+            try await checkedSheet()
+            review.cleanConfirmedItems()
+            try await until("the result") { review.sheet?.stage.result != nil }
+            try await until("the rescan") { events.rescans == rescans + 1 }
+            #expect(events.reloads == reloads + (unreadable ? 1 : 0), "read only when the CLI saved it")
+            try await until("idle") { !review.isCleaning }
+        }
     }
 
     @Test("while scans are paused Scan again starts nothing, and a clean still asks for its rescan")
@@ -262,7 +314,7 @@ struct CleanRunTests {
         await review.scanAgain()
         #expect(events.rescans == 0 && review.rescanning == nil)
 
-        try fake.put("rescan.json", Fixture.data("scan-report-groups"))
+        try fake.put("clean-report.json", try notSaved())
         try await checkedSheet()
         review.cleanConfirmedItems()
         try fake.open("clean-start")
@@ -319,7 +371,7 @@ struct CleanRunTests {
 
     @Test("Cancel while cleaning: SIGTERM, and the report the CLI prints then is the result")
     func cancelRunning() async throws {
-        try fake.put("rescan.json", Fixture.data("scan-report-groups"))
+        try cleaningEvent()
         try fake.open("clean.trap")
         try await checkedSheet()
         review.cleanConfirmedItems()
@@ -328,13 +380,13 @@ struct CleanRunTests {
         try await until("the cleaning phase") { review.sheet?.stage.isCleaningPhase == true }
         review.cancelClean()
         try await until("the result") { review.sheet?.stage.result != nil }
-        try await until("the rescan") { events.busy == [true, false] }
-        #expect(events.rescans == 1)
+        try await until("the reload") { events.busy == [true, false] }
+        #expect(events.reloads == 1 && events.rescans == 0, "the CLI saves what was done after a cancel too")
     }
 
     @Test("Quit during a clean waits for the CLI to end, not for the rescan after it")
     func quitWaitsForTheProcessOnly() async throws {
-        try fake.put("rescan.json", Fixture.data("scan-report-groups"))
+        try cleaningEvent()
         try fake.open("clean.trap")
         events.holdRescan = true
         try await checkedSheet()
@@ -347,7 +399,7 @@ struct CleanRunTests {
         try await until("the CLI ended") { quit }
         // The callback fires when the process ends, before its report is read.
         try await until("the result") { review.sheet?.stage.result != nil }
-        #expect(events.rescans == 0, "no rescan while quitting")
+        #expect(events.rescans == 0 && events.reloads == 0, "nothing after the clean while quitting")
         events.finishRescan()
     }
 
@@ -361,25 +413,6 @@ struct CleanRunTests {
         #expect(review.sheet?.stage.stopped?.text == "Cancelled. Nothing was touched.")
         #expect(review.sheet?.stage.stopped?.journal == nil)
         #expect(events.rescans == 0)
-    }
-
-    @Test("a crash after the CLI saved its rescan points to the journal and rescans; the icon stays busy until that scan ends")
-    func crashAfterSave() async throws {
-        try fake.put("rescan.json", Fixture.data("scan-report-groups"))
-        try fake.open("clean.crash")
-        try fake.open("clean-start")
-        try fake.open("clean-go")
-        events.holdRescan = true
-        try await checkedSheet()
-        review.cleanConfirmedItems()
-        try await until("the end") { review.sheet?.stage.stopped != nil }
-        let stopped = try #require(review.sheet?.stage.stopped)
-        #expect(stopped.text.contains("the journal lists what was done"))
-        #expect(stopped.journal == data.directory.journal)
-        try await until("the rescan") { events.rescans == 1 }
-        #expect(events.busy == [true], "busy until the rescan ends")
-        events.finishRescan()
-        try await until("idle") { events.busy == [true, false] }
     }
 
     @Test("a clean refused before it touched anything (busy, refused) says so and does not rescan")

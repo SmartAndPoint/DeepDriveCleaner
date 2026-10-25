@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 pub mod fakes;
+pub mod fixtures;
 
 use std::cell::RefCell;
 use std::fs::{self, File};

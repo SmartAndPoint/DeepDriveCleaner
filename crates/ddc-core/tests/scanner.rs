@@ -555,3 +555,60 @@ fn listed_entries_keep_what_the_reader_could_not_measure() {
         )
     );
 }
+
+/// A visitor that prunes given paths (story "Faster clean: re-check only what
+/// the selection needs").
+struct PruningVisitor {
+    inner: TestVisitor,
+    pruned: Vec<PathBuf>,
+}
+
+impl Visitor for PruningVisitor {
+    fn before_read(&self, dir: &DirCtx<'_>) -> Pre {
+        self.inner.before_read(dir)
+    }
+
+    fn prunes(&self, dir: &Path) -> bool {
+        self.pruned.iter().any(|p| p == dir)
+    }
+}
+
+/// Records every directory the walk opens.
+#[derive(Default)]
+struct Opened(std::sync::Mutex<Vec<PathBuf>>);
+
+impl DirReader for Opened {
+    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
+        self.0.lock().unwrap().push(dir.to_path_buf());
+        StdReader.read(dir, expect, want_private)
+    }
+}
+
+#[test]
+fn a_pruned_directory_inside_a_claim_is_never_opened_and_counts_nowhere() {
+    let t = TreeBuilder::new();
+    t.file("claimed/kept/a.bin", 4096);
+    t.file("claimed/left/deep/b.bin", 8192);
+    t.file("outside/c.bin", 4096);
+    let visitor = PruningVisitor {
+        inner: TestVisitor { claim_paths: vec![t.path("claimed")], ..TestVisitor::default() },
+        pruned: vec![t.path("claimed/left"), t.path("outside")],
+    };
+    let reader = Opened::default();
+    let out = scan::walk_with_reader(
+        &[t.root().to_path_buf()],
+        &visitor,
+        &opts(ReaderKind::Std),
+        &Progress::default(),
+        &reader,
+    )
+    .unwrap();
+
+    let opened = reader.0.into_inner().unwrap();
+    assert!(!opened.iter().any(|d| d.starts_with(t.path("claimed/left")) || d.starts_with(t.path("outside"))));
+    assert_eq!(out.pruned, 2);
+    assert_eq!((out.skipped_total, out.errors_total), (0, 0), "pruning is neither a skip nor an error");
+    let claimed = owner(&out, &t.path("claimed"));
+    assert!(!claimed.incomplete(), "a pruned directory does not make its owner incomplete");
+    assert_eq!((claimed.files, claimed.dirs, claimed.bytes), (1, 2, alloc(&t.path("claimed/kept/a.bin"))));
+}

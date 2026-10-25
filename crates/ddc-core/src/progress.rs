@@ -65,9 +65,11 @@ pub struct WalkEvent {
     /// Allocated bytes so far; a hard-linked file counts once per link until
     /// the final tick, which carries the report's totals.
     pub bytes: u64,
-    /// An estimate: the previous report's files for `recheck`, the executed
-    /// items' files for `markers` (nested items count twice, a region counts
-    /// less, a picked entry counts none). Absent for `scan`.
+    /// An estimate: for `recheck`, the previous report's files when the
+    /// whole tree is walked, and its listed findings' files (with the
+    /// siblings they are judged by) when the walk is pruned to the list;
+    /// for `markers`, the executed items' files. Nested items count twice, a
+    /// region counts less, a picked entry counts none. Absent for `scan`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub files_expected: Option<u64>,
 }

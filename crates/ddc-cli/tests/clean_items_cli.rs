@@ -336,6 +336,7 @@ fn sigterm_or_sighup_during_a_tool_ends_the_tool_and_ddc_with_the_report() {
         let fx = Fx::new();
         let pid_file = fx.fake_uv();
         let list = fx.list(&[".cache/uv", "q/__pycache__"]);
+        let before = fx.last_scan();
         let mut child = fx
             .ddc(&["clean", "--items", list.to_str().unwrap(), "--json"])
             .stdout(Stdio::piped())
@@ -369,6 +370,13 @@ fn sigterm_or_sighup_during_a_tool_ends_the_tool_and_ddc_with_the_report() {
         assert_eq!(journal.len(), 1, "the interrupted item, not the one never started: {journal:#?}");
         assert_eq!(journal[0]["rule"], "cache.uv");
         assert_eq!(journal[0]["commands"][0]["success"], false);
+        // Story "Faster clean: re-check only what the selection needs", AC 6:
+        // saved after a cancel too, with what was done; the not-run item stays.
+        assert!(r.last_scan_saved);
+        let after = fx.last_scan();
+        assert_eq!(after["generated_at"], before["generated_at"]);
+        assert!(found(&after, &fx.path("q/__pycache__")).is_some());
+        assert!(found(&after, &fx.path(".cache/uv")).is_some(), "the tool removed nothing");
     }
 }
 
@@ -547,9 +555,6 @@ fn kind(e: &serde_json::Value) -> String {
 fn a_clean_emits_its_phases_walks_and_items_in_order() {
     let fx = Fx::new();
     let list = fx.list(&["q/__pycache__", "p/node_modules"]);
-    let last_scan =
-        || -> serde_json::Value { serde_json::from_slice(&fs::read(fx.data.join("last-scan.json")).unwrap()).unwrap() };
-    let previous = last_scan()["totals"]["files"].as_u64().unwrap();
 
     let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--json", "--progress", "json"]).output().unwrap();
 
@@ -568,9 +573,10 @@ fn a_clean_emits_its_phases_walks_and_items_in_order() {
         "no item counter before cleaning: {kinds:?}"
     );
 
+    // Pruned to the list: the listed findings' files, besides what lies above them.
     let recheck = &events[last("walk recheck")];
-    assert_eq!(recheck["files"], last_scan()["totals"]["files"], "the final tick carries the saved report's totals");
-    assert_eq!(recheck["files_expected"], previous, "against the previous report's count");
+    assert_eq!(recheck["files_expected"], 2, "the listed findings' files");
+    assert!(recheck["files"].as_u64() >= recheck["files_expected"].as_u64(), "{recheck}");
     let markers = &events[last("walk markers")];
     assert_eq!(markers["files"], markers["files_expected"]);
 
@@ -643,4 +649,164 @@ fn without_the_flag_no_event_reaches_stderr() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(stderr.lines().all(|l| !l.starts_with('{')), "{args:?}: {stderr}");
     }
+}
+
+// ---- Story "Faster clean: re-check only what the selection needs" ----------
+
+impl Fx {
+    fn last_scan(&self) -> serde_json::Value {
+        serde_json::from_slice(&fs::read(self.data.join("last-scan.json")).unwrap()).unwrap()
+    }
+
+    /// Trees no list touches.
+    fn unrelated(&self) {
+        for i in 0..8 {
+            self.write(&format!("big/t{i}/deep/f.bin"), b"x");
+        }
+    }
+
+    fn clean_json(&self, list: &Path) -> (CleanReport, Vec<serde_json::Value>, String) {
+        let out =
+            self.ddc(&["clean", "--items", list.to_str().unwrap(), "--json", "--progress", "json"]).output().unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
+        (report(&out.stdout), events(&stderr), stderr)
+    }
+}
+
+/// The final `walk recheck` tick.
+fn recheck(events: &[serde_json::Value]) -> &serde_json::Value {
+    events.iter().rev().find(|e| e["event"] == "walk" && e["step"] == "recheck").expect("a recheck tick")
+}
+
+fn found<'a>(report: &'a serde_json::Value, path: &Path) -> Option<&'a serde_json::Value> {
+    report["findings"].as_array().unwrap().iter().find(|f| f["path"] == path.to_str().unwrap())
+}
+
+fn total(report: &serde_json::Value, key: &str) -> u64 {
+    report["totals"][key].as_u64().unwrap()
+}
+
+/// AC 1 and AC 6: the walk is pruned to the list, and the report on disk is
+/// the one the clean read, without what it deleted; no scan is needed after.
+#[test]
+fn a_pruned_clean_edits_the_report_it_read() {
+    let fx = Fx::new();
+    fx.unrelated();
+    let list = fx.list(&["q/__pycache__", "p/node_modules"]);
+    let before = fx.last_scan();
+    let gone: Vec<serde_json::Value> =
+        ["q/__pycache__", "p/node_modules"].iter().map(|r| found(&before, &fx.path(r)).unwrap().clone()).collect();
+    let sum = |key: &str| gone.iter().map(|f| f[key].as_u64().unwrap()).sum::<u64>();
+
+    let (clean, events, _) = fx.clean_json(&list);
+
+    assert!(clean.last_scan_saved);
+    assert!(clean.items.iter().all(|i| i.outcome == Outcome::Deleted), "{:?}", clean.items);
+    assert!(recheck(&events)["files"].as_u64().unwrap() < total(&before, "files"), "the unrelated trees are not read");
+    let after = fx.last_scan();
+    assert_eq!(after["generated_at"], before["generated_at"], "no fresh scan of the whole home is claimed");
+    assert_eq!(after["duration_ms"], before["duration_ms"]);
+    assert!(gone.iter().all(|f| found(&after, Path::new(f["path"].as_str().unwrap())).is_none()));
+    assert_eq!(total(&after, "scanned_bytes"), total(&before, "scanned_bytes") - sum("bytes"));
+    assert_eq!(total(&after, "files"), total(&before, "files") - sum("files"));
+    assert_eq!(total(&after, "dirs"), total(&before, "dirs") - sum("dirs"));
+}
+
+/// AC 6: a tool-cleaned item is measured again after its tool ran.
+#[test]
+fn a_tool_cleaned_item_is_saved_at_its_new_size() {
+    let fx = Fx::new();
+    fx.write(".cache/uv/wheels/a.whl", &[4u8; 200_000]);
+    fx.write(".cache/uv/keep.txt", &[5u8; 1_000]);
+    let bin = fx.root.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let script = "#!/bin/sh\ncase \"$1 $2\" in\n  \"cache dir\") echo \"$HOME/.cache/uv\" ;;\n  \"cache clean\") /bin/rm -rf \"$HOME/.cache/uv/wheels\" ;;\nesac\n";
+    fs::write(bin.join("uv"), script).unwrap();
+    fs::set_permissions(bin.join("uv"), fs::Permissions::from_mode(0o755)).unwrap();
+    let list = fx.list(&[".cache/uv"]);
+    let before = found(&fx.last_scan(), &fx.path(".cache/uv")).unwrap().clone();
+
+    let (clean, _, _) = fx.clean_json(&list);
+
+    assert!(matches!(outcome(&clean, &fx.path(".cache/uv")), Outcome::Native { .. }), "{:?}", clean.items);
+    assert!(clean.last_scan_saved);
+    let after = found(&fx.last_scan(), &fx.path(".cache/uv")).unwrap().clone();
+    assert_eq!((after["files"].as_u64(), after["dirs"].as_u64()), (Some(1), Some(1)), "{after}");
+    assert!(after["bytes"].as_u64() < before["bytes"].as_u64());
+}
+
+/// AC 3 (gate decision 10a): with no report of the clean's roots and home
+/// to edit, the clean walks the whole home and saves that walk's report.
+#[test]
+fn without_a_report_of_these_roots_the_clean_walks_the_whole_home() {
+    for case in ["none", "unreadable", "other roots"] {
+        let fx = Fx::new();
+        fx.unrelated();
+        let list = fx.list(&["q/__pycache__"]);
+        let whole = total(&fx.last_scan(), "files");
+        let saved = fx.data.join("last-scan.json");
+        match case {
+            "none" => fs::rename(&saved, fx.root.join("held.json")).unwrap(),
+            "unreadable" => fs::write(&saved, b"{ \"schema_version\": 1, ").unwrap(),
+            _ => {
+                let out = fx.ddc(&["scan", fx.path("p").to_str().unwrap()]).output().unwrap();
+                assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+                assert_eq!(fx.last_scan()["scan_roots"], serde_json::json!([fx.path("p")]));
+            }
+        }
+
+        let (clean, events, _) = fx.clean_json(&list);
+
+        assert_eq!(outcome(&clean, &fx.path("q/__pycache__")), &Outcome::Deleted, "{case}");
+        assert_eq!(recheck(&events)["files"], whole, "{case}: the whole home was walked");
+        assert!(recheck(&events).get("files_expected").is_none(), "{case}: no estimate from another report");
+        assert!(clean.last_scan_saved, "{case}");
+        let after = fx.last_scan();
+        assert_eq!(after["scan_roots"], serde_json::json!([fx.home]), "{case}");
+        assert!(found(&after, &fx.path("q/__pycache__")).is_none(), "{case}");
+        assert_eq!(total(&after, "files"), whole - 1, "{case}");
+    }
+}
+
+/// Gate decision 10: an ancestor the pruned walk cannot read sends it to the
+/// full walk, which cannot read it either; the item is refused.
+#[test]
+fn an_unreadable_ancestor_takes_the_full_walk() {
+    let fx = Fx::new();
+    fx.unrelated();
+    let list = fx.list(&["q/__pycache__", "p/node_modules"]);
+    let whole = total(&fx.last_scan(), "files");
+    fs::set_permissions(fx.path("q"), fs::Permissions::from_mode(0o000)).unwrap();
+
+    let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--json", "--progress", "json"]).output().unwrap();
+    fs::set_permissions(fx.path("q"), fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let clean = report(&out.stdout);
+    assert_eq!(outcome(&clean, &fx.path("q/__pycache__")), &Outcome::Skipped(SkipReason::ChangedSinceScan));
+    assert_eq!(outcome(&clean, &fx.path("p/node_modules")), &Outcome::Deleted);
+    let events = events(&String::from_utf8_lossy(&out.stderr));
+    assert_eq!(recheck(&events)["files"], whole - 1, "the whole home but what q holds");
+    assert!(fx.path("q/__pycache__").exists());
+}
+
+/// Gate decision 9: a report that cannot be saved is a warning; the clean
+/// report says so, and the app rescans.
+#[test]
+fn a_report_that_cannot_be_saved_is_a_warning_and_the_clean_says_so() {
+    let fx = Fx::new();
+    let list = fx.list(&["q/__pycache__"]);
+    fs::create_dir_all(fx.data.join("logs")).unwrap();
+    fs::set_permissions(&fx.data, fs::Permissions::from_mode(0o555)).unwrap();
+
+    let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--json"]).output().unwrap();
+    fs::set_permissions(&fx.data, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
+    assert!(stderr.contains("ddc: warning: cannot save the scan report:"), "{stderr}");
+    let clean = report(&out.stdout);
+    assert!(!clean.last_scan_saved);
+    assert_eq!(outcome(&clean, &fx.path("q/__pycache__")), &Outcome::Deleted);
 }

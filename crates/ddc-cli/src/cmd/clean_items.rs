@@ -3,8 +3,9 @@
 //! CLI", §6 and §7). The list is the selection and the consent: no class
 //! filter, no default selection, no prompt, no terminal needed.
 
+use std::collections::HashMap;
 use std::io::{IsTerminal as _, Read as _, Write as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Context as _;
@@ -15,8 +16,12 @@ use ddc_core::exec::{
     self, Consent, ExecOptions, ExecProgress, ExecReport, FileJournal, ItemReport, Outcome, Ports, SystemCommands,
     SystemProcesses, SystemTrash,
 };
+use ddc_core::model::ScanReport;
 use ddc_core::plan::{ListedItems, plan_listed};
 use ddc_core::progress::{Phase, WalkStep};
+use ddc_core::report::after_clean::{self, Remeasured};
+use ddc_core::report::contents::EntryIndex;
+use ddc_core::report::recheck::{self, RecheckError, Walk};
 use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
@@ -58,16 +63,48 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
     let _lock = store::try_lock(&env, LockMode::Exclusive)?;
     let reporter = progress::Reporter::new(args.progress.is_some());
     reporter.phase(Phase::Preparing);
-    // The full rescan: only a whole-tree walk sees toolchain pins and new claims above an item.
     let opts = ScanOptions { walk: WalkOptions::default(), ..resolved.options };
-    let scan_progress = Progress::default();
-    // Read before the rescan replaces the file.
-    let expected = store::last_scan_files(&env);
-    let (scanned, entries) = reporter.walk(&scan_progress, "scanning", WalkStep::Recheck, expected, || {
-        report::scan_with_entries(&env, &opts, &scan_progress, &SystemStatFs)
-    })?;
-    reporter.walk_done(WalkStep::Recheck, &scanned.totals, expected);
-    store::write_last_scan(&env, &scanned).context("cannot save the scan report")?;
+    // Read once under the lock: the re-check's estimate, and the report this
+    // clean edits after it runs (story "Faster clean: re-check only what the
+    // selection needs"). A report of other roots is not that report.
+    let previous = store::read_last_scan(&env).ok().flatten().filter(|r| recheck::same_roots(r, &env, &opts));
+    // Another root's file count says nothing about this walk.
+    let disk_files = previous.as_ref().map(|r| r.totals.files);
+    let full = |expected: Option<u64>| -> anyhow::Result<(ScanReport, EntryIndex)> {
+        // Only a whole-tree walk sees toolchain pins and new claims anywhere.
+        let scan_progress = Progress::default();
+        let (scanned, entries) = reporter.walk(&scan_progress, "scanning", WalkStep::Recheck, expected, || {
+            report::scan_with_entries(&env, &opts, &scan_progress, &SystemStatFs)
+        })?;
+        reporter.walk_done(WalkStep::Recheck, &scanned.totals, expected);
+        Ok((scanned, entries))
+    };
+    // `base` is the report edited after the clean; `None`: the rescan's.
+    let (scanned, entries, base) = match recheck::walk_for(&list.items, &catalog, previous.as_ref()) {
+        Walk::Pruned => {
+            let expected = previous.as_ref().and_then(|p| recheck::expected_files(p, &list.items, &catalog));
+            let scan_progress = Progress::default();
+            let checked = reporter.walk(&scan_progress, "checking", WalkStep::Recheck, expected, || {
+                recheck::pruned(&env, &opts, &catalog, &list.items, &scan_progress, &SystemStatFs, None)
+            });
+            match checked {
+                Ok((scanned, entries)) => {
+                    reporter.walk_done(WalkStep::Recheck, &scanned.totals, expected);
+                    (scanned, entries, previous)
+                }
+                // The full walk cannot read it either: the item ends `changed-since-scan` there too.
+                Err(RecheckError::UnreadableAncestor(_)) => {
+                    let (scanned, entries) = full(disk_files)?;
+                    (scanned, entries, None)
+                }
+                Err(RecheckError::Scan(e)) => return Err(e.into()),
+            }
+        }
+        Walk::Full(_) => {
+            let (scanned, entries) = full(disk_files)?;
+            (scanned, entries, None)
+        }
+    };
     // A picked entry is checked against its folder's full list, not the report's top 100.
     let listed = plan_listed(&scanned, &entries, &catalog, &list.items);
 
@@ -76,7 +113,7 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
     let cancel = signals::install().context("cannot install the signal handler")?;
     let commands = SystemCommands::new(&env);
     let exec_progress = ExecProgress::default();
-    let result = reporter.clean(&exec_progress, &scanned.home, cancel, |events| {
+    let result = reporter.clean(&exec_progress, env.home(), cancel, |events| {
         exec::execute(
             &env,
             &catalog,
@@ -86,7 +123,23 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
             &ExecOptions { cancel, progress: Some(&exec_progress), events, ..ExecOptions::default() },
         )
     })?;
-    let clean = CleanReport::new(&list.items, &listed.refused, &result, journal_path.clone());
+    let mut clean = CleanReport::new(&list.items, &listed.refused, &result, journal_path.clone());
+    // `last-scan.json` follows what was done, after a cancel too.
+    let mut base = base.unwrap_or(scanned);
+    let remeasured: HashMap<PathBuf, Remeasured> = clean
+        .items
+        .iter()
+        .filter(|i| matches!(i.outcome, Outcome::Native { .. }))
+        .map(|i| (i.path.clone(), after_clean::remeasure(&catalog, &i.rule, &i.path, &opts.walk)))
+        .collect();
+    after_clean::edit(&mut base, &clean, &remeasured, &opts);
+    clean.last_scan_saved = match store::write_last_scan(&env, &base) {
+        Ok(_) => true,
+        Err(e) => {
+            eprintln!("ddc: warning: cannot save the scan report: {e}");
+            false
+        }
+    };
 
     let mut out = std::io::stdout().lock();
     if args.json {
@@ -110,7 +163,7 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
                 .collect(),
             ..result.clone()
         };
-        prompt::print_result(&mut out, &shown, &scanned.home, &journal_path, &style)?;
+        prompt::print_result(&mut out, &shown, env.home(), &journal_path, &style)?;
     }
     out.flush()?;
     // A signal stopped the run (or arrived after it): end by it, so the caller

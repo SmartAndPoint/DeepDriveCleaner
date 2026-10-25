@@ -80,6 +80,24 @@ pub struct Rule {
     pub listed: bool,
     /// Where APFS clones are expected, so the private size is measured.
     pub clones: Clones,
+    /// What its verdict needs the walk to have visited.
+    pub scope: Scope,
+}
+
+/// What a rule's verdict needs the walk to have visited (safety ADR "Cleanup
+/// safety model", amendment of 2026-10-24): a clean re-checks its list with
+/// the walk its rules need. Every rule has one and it is matched exhaustively,
+/// so a new rule that reads outside its item cannot be missed silently. A
+/// path a rule stats or reads on its own does not count: the pruned walk
+/// makes the same call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// The item, its parent and its ancestors.
+    Item,
+    /// Also the other children of its parent, whose newest is kept.
+    Siblings,
+    /// Files anywhere in the scan roots: pin files in any project protect a version.
+    Tree,
 }
 
 /// APFS clones come almost only from uv and pnpm; elsewhere freed ≈ allocated
@@ -227,7 +245,7 @@ impl Catalog {
         self.rules.iter().find(|r| r.id == id)
     }
 
-    fn tag_of(&self, rule: &Rule) -> Option<Tag> {
+    pub(crate) fn tag_of(&self, rule: &Rule) -> Option<Tag> {
         self.rules.iter().position(|r| std::ptr::eq(r, rule)).map(|i| i as Tag)
     }
 

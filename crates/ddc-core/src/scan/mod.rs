@@ -14,7 +14,7 @@ use std::time::Duration;
 
 pub use progress::{Progress, ProgressSnapshot};
 pub use reader::{DirListing, DirReader, EntryKind, EntryMeta, ReadError, ReadErrorKind, StdReader};
-pub use walker::{walk, walk_with_reader};
+pub use walker::{normalized_roots, walk, walk_with_reader};
 
 /// Rule identifier chosen by the visitor (opaque to the walker).
 pub type Tag = u32;
@@ -96,6 +96,14 @@ pub trait Visitor: Sync {
 
     /// Called for every non-directory entry, including inside claims.
     fn on_file(&self, _dir: &Path, _entry: &EntryMeta, _owner: Option<(OwnerKind, Tag)>) {}
+
+    /// Whether the walk leaves `dir` unread: asked before every directory is
+    /// opened, inside claims too (story "Faster clean: re-check only what the
+    /// selection needs"). A pruned directory counts nowhere: in no owner,
+    /// entry or root, and not as skipped; [`WalkOutput::pruned`] counts it.
+    fn prunes(&self, _dir: &Path) -> bool {
+        false
+    }
 }
 
 /// Visitor that only measures.
@@ -235,6 +243,8 @@ pub struct WalkOutput {
     pub skipped_total: u64,
     /// Entries that disappeared while the walk was running.
     pub vanished: u64,
+    /// Directories left unread by [`Visitor::prunes`].
+    pub pruned: u64,
     pub cancelled: bool,
     pub elapsed: Duration,
 }

@@ -1,8 +1,10 @@
 //! `scan`: walk + rules + project activity + default selection → [`ScanReport`].
 
+pub mod after_clean;
 pub mod backups;
 pub mod contents;
 pub mod project;
+pub mod recheck;
 pub mod volumes;
 
 use std::cmp::Reverse;
@@ -17,7 +19,7 @@ use crate::model::{
     SkippedPath, Totals,
 };
 use crate::rules::{Catalog, Classified, RuleVisitor, TOMBSTONE, classify};
-use crate::scan::{self, Progress, ReadErrorKind, WalkOptions, WalkSetupError};
+use crate::scan::{self, DirReader, Progress, ReadErrorKind, Visitor, WalkError, WalkOptions, WalkSetupError};
 use contents::{ContentsLimits, EntryIndex};
 use volumes::{StatFs, SystemStatFs};
 
@@ -95,8 +97,31 @@ pub fn scan_with_entries(
     progress: &Progress,
     statfs: &dyn StatFs,
 ) -> Result<(ScanReport, EntryIndex), ScanError> {
+    scan_inner(env, opts, progress, statfs, None, None).map(|s| (s.report, s.index))
+}
+
+/// A scan with what the clean's re-check needs besides the report.
+pub(crate) struct Scanned {
+    pub(crate) report: ScanReport,
+    pub(crate) index: EntryIndex,
+    /// Every recorded read failure, `inaccessible`'s and the others.
+    pub(crate) errors: Vec<WalkError>,
+}
+
+/// The one scan pipeline. `reader` replaces the one `opts.walk` names (a
+/// test counts the directories opened); `reach` prunes the walk to a clean's
+/// list (story "Faster clean: re-check only what the selection needs"), with
+/// the same rules, classification and entries.
+pub(crate) fn scan_inner(
+    env: &Env,
+    opts: &ScanOptions,
+    progress: &Progress,
+    statfs: &dyn StatFs,
+    reader: Option<&dyn DirReader>,
+    reach: Option<&recheck::Reach>,
+) -> Result<Scanned, ScanError> {
     let started = Instant::now();
-    let roots = if opts.roots.is_empty() { vec![env.home().to_path_buf()] } else { opts.roots.clone() };
+    let roots = roots_of(env, opts);
     let excludes = opts
         .excludes
         .iter()
@@ -106,11 +131,18 @@ pub fn scan_with_entries(
     let visitor = RuleVisitor::new(&catalog, excludes)
         .with_large_file_threshold(opts.large_file_bytes)
         .with_skips(opts.skip.clone());
-    let out = scan::walk(&roots, &visitor, &opts.walk, progress)?;
+    let pruned = reach.map(|reach| recheck::Pruned { inner: &visitor, reach });
+    let walking: &dyn Visitor = match &pruned {
+        Some(pruned) => pruned,
+        None => &visitor,
+    };
+    let out = match reader {
+        Some(reader) => scan::walk_with_reader(&roots, walking, &opts.walk, progress, reader)?,
+        None => scan::walk(&roots, walking, &opts.walk, progress)?,
+    };
 
     let mut findings: Vec<Finding> = classify(&out, &visitor).iter().map(|c| finding(c, env.now(), opts)).collect();
-    findings
-        .sort_by(|a, b| a.class.cmp(&b.class).then(Reverse(a.bytes).cmp(&Reverse(b.bytes))).then(a.path.cmp(&b.path)));
+    sort_findings(&mut findings);
     let markers = visitor.keep_markers();
     let cx = contents::Context {
         home: env.home(),
@@ -151,7 +183,12 @@ pub fn scan_with_entries(
         skipped_total: out.skipped_total,
         cancelled: out.cancelled,
     };
-    Ok((report, index))
+    Ok(Scanned { report, index, errors: out.errors })
+}
+
+/// The roots a scan walks: the home when none are given.
+fn roots_of(env: &Env, opts: &ScanOptions) -> Vec<PathBuf> {
+    if opts.roots.is_empty() { vec![env.home().to_path_buf()] } else { opts.roots.clone() }
 }
 
 fn finding(c: &Classified, now: SystemTime, opts: &ScanOptions) -> Finding {
@@ -178,10 +215,7 @@ fn finding(c: &Classified, now: SystemTime, opts: &ScanOptions) -> Finding {
         RiskClass::Review => Some(NotSelected::Review),
         RiskClass::UserData => Some(NotSelected::UserData),
     };
-    // ddc's own leftovers of an interrupted clean are never hidden: they
-    // would stay on disk for good.
-    let ignored =
-        c.rule.id != TOMBSTONE && (opts.disabled_rules.iter().any(|r| r == c.rule.id) || c.owner.bytes < opts.min_size);
+    let ignored = hidden(c.rule.id, c.owner.bytes, opts);
     Finding {
         path: c.owner.path.clone(),
         rule: c.rule.id.to_owned(),
@@ -213,6 +247,19 @@ fn finding(c: &Classified, now: SystemTime, opts: &ScanOptions) -> Finding {
     }
 }
 
+/// The report's order: by class, then size (largest first), then path.
+pub(crate) fn sort_findings(findings: &mut [Finding]) {
+    findings
+        .sort_by(|a, b| a.class.cmp(&b.class).then(Reverse(a.bytes).cmp(&Reverse(b.bytes))).then(a.path.cmp(&b.path)));
+}
+
+/// Whether `settings.json` hides a finding of `rule` that holds `bytes`.
+/// ddc's own leftovers of an interrupted clean are never hidden: they would
+/// stay on disk for good.
+pub(crate) fn hidden(rule: &str, bytes: u64, opts: &ScanOptions) -> bool {
+    rule != TOMBSTONE && (opts.disabled_rules.iter().any(|r| r == rule) || bytes < opts.min_size)
+}
+
 fn totals(findings: &[Finding], out: &scan::WalkOutput) -> Totals {
     // Claims that are not findings (app bundles, global packages, protected
     // toolchain versions) still occupy space: report it as outside findings.
@@ -222,8 +269,25 @@ fn totals(findings: &[Finding], out: &scan::WalkOutput) -> Totals {
         .filter(|o| o.kind == scan::OwnerKind::Claim && !findings.iter().any(|f| f.path == o.path))
         .map(|o| o.bytes)
         .sum();
+    let mut totals = Totals {
+        scanned_bytes: out.total_bytes,
+        files: out.roots.iter().map(|r| r.files).sum(),
+        dirs: out.roots.iter().map(|r| r.dirs).sum(),
+        unowned_bytes: out.unowned_bytes + hidden_bytes,
+        classes: Vec::new(),
+        selected_bytes: 0,
+        selected_reclaimable_bytes: 0,
+        ignored_count: 0,
+        ignored_bytes: 0,
+    };
+    count_findings(&mut totals, findings);
+    totals
+}
+
+/// The totals that follow from the findings alone: per class, selected and ignored.
+pub(crate) fn count_findings(totals: &mut Totals, findings: &[Finding]) {
     let (ignored, shown): (Vec<&Finding>, Vec<&Finding>) = findings.iter().partition(|f| f.ignored);
-    let classes = RiskClass::ALL
+    totals.classes = RiskClass::ALL
         .iter()
         .map(|&class| {
             let of: Vec<&Finding> = shown.iter().copied().filter(|f| f.class == class).collect();
@@ -238,17 +302,10 @@ fn totals(findings: &[Finding], out: &scan::WalkOutput) -> Totals {
         })
         .collect();
     let selected = shown.iter().copied().filter(|f| f.selected);
-    Totals {
-        scanned_bytes: out.total_bytes,
-        files: out.roots.iter().map(|r| r.files).sum(),
-        dirs: out.roots.iter().map(|r| r.dirs).sum(),
-        unowned_bytes: out.unowned_bytes + hidden_bytes,
-        classes,
-        selected_bytes: selected.clone().map(|f| f.bytes).sum(),
-        selected_reclaimable_bytes: selected.map(Finding::reclaimable_bytes).sum(),
-        ignored_count: ignored.len() as u64,
-        ignored_bytes: ignored.iter().map(|f| f.bytes).sum(),
-    }
+    totals.selected_bytes = selected.clone().map(|f| f.bytes).sum();
+    totals.selected_reclaimable_bytes = selected.map(Finding::reclaimable_bytes).sum();
+    totals.ignored_count = ignored.len() as u64;
+    totals.ignored_bytes = ignored.iter().map(|f| f.bytes).sum();
 }
 
 /// TCC.db is readable only with Full Disk Access.

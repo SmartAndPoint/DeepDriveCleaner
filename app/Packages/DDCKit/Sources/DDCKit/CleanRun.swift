@@ -56,7 +56,7 @@ extension ReviewModel {
                 options: CLIRunner.Options(
                     ticket: ticket,
                     stdoutLine: { sink.yield(.line($0)) },
-                    onStart: { sink.yield(.started(nil)) }
+                    onStart: { sink.yield(.started(at: .now)) }
                 )
             )
             sink.finish()
@@ -113,13 +113,14 @@ extension ReviewModel {
         }
         let volumes = items.report.volumes
         let ticket = CLIRunner.Ticket()
+        let requested = ContinuousClock.now
         cleanTicket = ticket
         isCleaning = true
         self.sheet?.stage = .cleaning(.waiting)
         setBusy(true)
         log("clean of \(listed.count) items requested")
         cleanTask = Task {
-            await runClean(runner, file: file, ticket: ticket, confirmation: confirmation, volumes: volumes)
+            await runClean(runner, file: file, ticket: ticket, confirmation: confirmation, volumes: volumes, requested: requested)
             cleanTask = nil
             cleanTicket = nil
             isCleaning = false
@@ -131,38 +132,22 @@ extension ReviewModel {
         file: URL,
         ticket: CLIRunner.Ticket,
         confirmation: Confirmation,
-        volumes: [ScanReport.Volume]
+        volumes: [ScanReport.Volume],
+        requested: ContinuousClock.Instant
     ) async {
-        let lastScan = data.lastScan
         let (events, sink) = AsyncStream<RunEvent>.makeStream()
-        // The file's date when the process starts, not when Clean was pressed:
-        // a scan queued ahead of the clean writes the file too. Nil: never started.
-        var atStart: Date??
-        var watcher: Task<Void, Never>?
         var progress: CleanProgress?
+        var timings = CleanTimings(requested: requested)
         let consumer = Task { @MainActor in
             var otherVersion = false
             for await event in events {
                 switch event {
-                case .started(let baseline):
-                    atStart = baseline
+                case .started(let at):
+                    timings.started(at: at)
                     cleanProcessLive = true
                     setPhase(.preparing(since: clock()))
-                    watcher = Task { @MainActor in
-                        // A CLI that writes no events saves its rescan before it
-                        // touches the first item; while the clean holds the lock
-                        // nothing else writes the file.
-                        while !Task.isCancelled {
-                            if DataDirectory.modified(lastScan) != baseline {
-                                setPhase(.cleaning(since: clock()))
-                                return
-                            }
-                            try? await Task.sleep(for: pollInterval)
-                        }
-                    }
-                case .progress(.event(let event)):
-                    // The first event hands the phase to the events.
-                    watcher?.cancel()
+                case .progress(.event(let event), let at):
+                    timings.record(event, at: at)
                     if progress == nil { progress = CleanProgress() }
                     // In place: a copy per line would be quadratic over thousands of items.
                     progress?.apply(event)
@@ -170,7 +155,7 @@ extension ReviewModel {
                     // Item lines can come by the thousand: they show with the next tick.
                     if case .item = event { continue }
                     sheet?.progress = progress
-                case .progress(.otherVersion(let version)):
+                case .progress(.otherVersion(let version), _):
                     if !otherVersion { log("progress events of schema \(version) ignored") }
                     otherVersion = true
                 case .line:
@@ -185,24 +170,27 @@ extension ReviewModel {
             options: CLIRunner.Options(
                 ticket: ticket,
                 // On the runner's reader thread: decode and yield, never wait.
-                stderrLine: { line in if let read = ProgressEvent.read(line) { sink.yield(.progress(read)) } },
-                // Read on the runner's side, the moment the process exists.
-                onStart: { sink.yield(.started(DataDirectory.modified(lastScan))) }
+                stderrLine: { line in
+                    let at = ContinuousClock.now
+                    if let read = ProgressEvent.read(line) { sink.yield(.progress(read, at: at)) }
+                },
+                // On the runner's side, the moment the process exists.
+                onStart: { sink.yield(.started(at: .now)) }
             )
         )
         sink.finish()
         await consumer.value
-        watcher?.cancel()
         cleanProcessLive = false
         for done in processEnded { done() }
         processEnded = []
         try? FileManager.default.removeItem(at: file)
+        timings.ended(at: .now)
         log("clean ended \(result.outcome): \(result.stderrTail.suffix(3).joined(separator: " | "))")
+        log(timings.line)
 
-        // The CLI says `cleaning` before it touches the first item, and saves
-        // its rescan before that: neither means nothing was touched.
-        let saved = atStart.map { DataDirectory.modified(lastScan) != $0 } ?? false
-        let touched = saved || progress?.cleaning == true
+        // The CLI says `cleaning` immediately before it touches the first
+        // item, and writes `last-scan.json` only after the clean.
+        let touched = progress?.cleaning == true
         let stdout = result.stdout
         let journal = data.journal
         // What was done is read from the report whenever there is one (exit 0,
@@ -244,11 +232,15 @@ extension ReviewModel {
             sheet?.stage = stage
         }
 
-        // The disk changed, or the CLI saved its rescan: the popover shows it
-        // after a rescan of its own, and the icon turns until that ends.
+        // The disk changed: the popover shows the report the CLI edited and
+        // saved, or else scans again; the icon turns until that ends.
         if report != nil || touched || result.outcome == .done, !quitting {
             rescanning = .afterClean
-            await rescan()
+            if report?.lastScanSaved == true, await reloadReport() {
+                log("the clean saved the scan report: no scan after it")
+            } else {
+                await rescan()
+            }
             rescanning = nil
             if sheet == nil { reload() }
         }
@@ -298,11 +290,11 @@ extension ReviewModel {
     // MARK: - Parts
 
     enum RunEvent: Sendable {
-        /// `last-scan.json`'s date when the process started (the clean's baseline).
-        case started(Date?)
+        /// The process started.
+        case started(at: ContinuousClock.Instant)
         case line(String)
-        /// A stderr line that is an event.
-        case progress(ProgressEvent.Line)
+        /// A stderr line that is an event, and when it was read.
+        case progress(ProgressEvent.Line, at: ContinuousClock.Instant)
     }
 
     /// The rows as the current `settings.json` makes them, for the payload's

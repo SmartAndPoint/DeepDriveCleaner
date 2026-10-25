@@ -267,7 +267,7 @@ struct UserDataTests {
              "items": [{"path": "\(home)/Downloads/Project", "dev": 1, "ino": 102, "rule": "user.downloads",
                         "class": "user-data", "action": "trash", "bytes": 30000000, "outcome": "trashed"}]}
             """.utf8))
-        try fake.put("rescan.json", report)
+        try fake.put("saved-scan.json", report)
         let events = ReviewEvents()
         let snapshot = ReviewSnapshot(report: try ScanReport.read(report), rules: try Fixture.rules())
         let review = makeReview(runner: CLIRunner(executable: fake.executable), data: data, defaults: defaults, events: events) { snapshot }

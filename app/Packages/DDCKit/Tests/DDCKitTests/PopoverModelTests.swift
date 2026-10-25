@@ -89,7 +89,7 @@ struct PopoverModelTests {
         #expect(model.loadedReport?.findings.count == 11)
     }
 
-    @Test("during a clean the CLI's rescan is not loaded; after it, the next refresh loads what is on disk")
+    @Test("during a clean a refresh loads nothing; after it, the next refresh loads what is on disk")
     func noReloadDuringClean() async throws {
         try data.write(lastScan: try Fixture.data("scan-report"))
         let model = try makeModel(runner: nil, data: data, defaults: defaults)
@@ -106,6 +106,20 @@ struct PopoverModelTests {
         model.setCleaning(false)
         await model.refresh()
         #expect(model.loadedReport?.findings.count == 11)
+    }
+
+    @Test("the report a clean saved is read at once, while the clean still holds the icon; one that cannot be shown says so")
+    func reloadAfterClean() async throws {
+        try data.write(lastScan: try Fixture.data("scan-report"))
+        let model = try makeModel(runner: nil, data: data, defaults: defaults)
+        await model.start()
+        model.setCleaning(true)
+        try data.write(lastScan: try Fixture.data("scan-report-groups"))
+        #expect(await model.reloadReport())
+        #expect(model.loadedReport?.findings.count == 11)
+
+        try data.write(lastScan: try Fixture.data("scan-report-v2"))
+        #expect(await model.reloadReport() == false, "the caller scans instead")
     }
 
     @Test("a report with nothing to free shows Nothing found to clean and no biggest finds")

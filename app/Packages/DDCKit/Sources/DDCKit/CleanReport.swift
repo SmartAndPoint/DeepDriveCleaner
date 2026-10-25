@@ -95,6 +95,27 @@ public struct CleanReport: Decodable, Sendable, Equatable {
     public let localSnapshots: Int
     /// The action journal every started item was recorded in.
     public let journal: String
+    /// `last-scan.json` was edited by what this clean did and saved, so no
+    /// scan needs to follow (story "Faster clean: re-check only what the
+    /// selection needs"). Absent from an older CLI: false.
+    public let lastScanSaved: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, ddcVersion, cancelled, items, failed, volumes, localSnapshots, journal, lastScanSaved
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        ddcVersion = try c.decode(String.self, forKey: .ddcVersion)
+        cancelled = try c.decode(Bool.self, forKey: .cancelled)
+        items = try c.decode([Item].self, forKey: .items)
+        failed = try c.decode(UInt64.self, forKey: .failed)
+        volumes = try c.decode([VolumeSpace].self, forKey: .volumes)
+        localSnapshots = try c.decode(Int.self, forKey: .localSnapshots)
+        journal = try c.decode(String.self, forKey: .journal)
+        lastScanSaved = try c.decodeIfPresent(Bool.self, forKey: .lastScanSaved) ?? false
+    }
 
     public struct Item: Decodable, Sendable, Equatable {
         public let path: String

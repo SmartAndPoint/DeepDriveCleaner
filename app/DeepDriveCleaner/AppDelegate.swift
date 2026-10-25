@@ -51,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             },
             setBusy: { [weak self] in self?.model?.setCleaning($0) },
             rescan: { [weak self] in await self?.model?.scanAfterClean() },
+            reloadReport: { [weak self] in await self?.model?.reloadReport() ?? false },
             paused: { [weak self] in self?.model?.paused ?? false },
             log: { AppLog.write($0) }
         )

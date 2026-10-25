@@ -76,5 +76,6 @@
     }
   ],
   "local_snapshots": 0,
-  "journal": "/Users/example/Library/Application Support/DeepDriveCleaner/logs/actions.jsonl"
+  "journal": "/Users/example/Library/Application Support/DeepDriveCleaner/logs/actions.jsonl",
+  "last_scan_saved": true
 }

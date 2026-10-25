@@ -18,12 +18,12 @@ import Synchronization
 ///   list to `items-<n>.json`. The dry run prints `dry-run.jsonl`, waiting for
 ///   gate `line-<i>` before line `i` when `dry-run.gated` exists, and exits
 ///   with `dry-run.exit` when that exists. The clean waits for `clean-start`,
-///   then copies `rescan.json` over `lastScan` as the CLI saves its rescan,
 ///   then plays `clean-events-<k>.jsonl` to stderr for k = 1, 2, … while the
-///   file exists, each after gate `events-<k>`, waits for `clean-go`, and
-///   exits with `clean.exit` when that exists, else prints
-///   `clean-report.json`; with `clean.crash` it kills itself with SIGABRT
-///   there instead. With `clean.trap`, SIGTERM prints the report and
+///   file exists, each after gate `events-<k>`, and waits for `clean-go`.
+///   With `clean.crash` it kills itself with SIGABRT there. Then it copies
+///   `saved-scan.json` over `lastScan`, as the CLI saves the report it
+///   edited, and exits with `clean.exit` when that exists, else prints
+///   `clean-report.json`. With `clean.trap`, SIGTERM prints the report and
 ///   then ends the script by the signal, as the CLI's handler does.
 /// Gates replace sleeps, so the tests order runs without timing assumptions.
 /// The directory is removed when the fake goes away.
@@ -34,7 +34,7 @@ final class FakeCLI: Sendable {
 
     static let floodLines = 16_384  // 64-byte lines: 1 MiB per stream
 
-    /// `lastScan`: the file a clean replaces, as the CLI saves its rescan.
+    /// `lastScan`: the file a clean replaces, as the CLI saves the report it edited.
     init(lastScan: URL? = nil) throws {
         directory = FileManager.default.temporaryDirectory.appending(path: "ddckit-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -79,7 +79,6 @@ final class FakeCLI: Sendable {
                 else
                   [ -e "$gates/clean.trap" ] && trap 'cat "$gates/clean-report.json"; echo "end $$ $*" >> "$log"; trap - TERM; kill -TERM $$' TERM
                   gate clean-start
-                  [ -e "$gates/rescan.json" ] && cp "$gates/rescan.json" "$last"
                   k=1
                   while [ -e "$gates/clean-events-$k.jsonl" ]; do
                     gate "events-$k"
@@ -88,6 +87,7 @@ final class FakeCLI: Sendable {
                   done
                   gate clean-go
                   [ -e "$gates/clean.crash" ] && kill -ABRT $$
+                  [ -e "$gates/saved-scan.json" ] && cp "$gates/saved-scan.json" "$last"
                   if [ -e "$gates/clean.exit" ]; then echo "end $$ $*" >> "$log"; exit "$(cat "$gates/clean.exit")"; fi
                   cat "$gates/clean-report.json"
                 fi ;;

@@ -27,6 +27,11 @@
       "description": "The action journal every started item was recorded in.",
       "type": "string"
     },
+    "last_scan_saved": {
+      "description": "`last-scan.json` was edited by what this clean did and saved, so no\nscan needs to follow (story \"Faster clean: re-check only what the\nselection needs\"). Absent from an older CLI: read as false.",
+      "type": "boolean",
+      "default": false
+    },
     "local_snapshots": {
       "description": "Local Time Machine snapshots keep deleted blocks until macOS thins them.",
       "type": "integer",

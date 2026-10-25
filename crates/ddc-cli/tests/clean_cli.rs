@@ -169,3 +169,30 @@ fn scan_does_not_start_while_a_clean_holds_the_lock() {
     assert!(out.stdout.is_empty());
     assert!(!fx.data.join("last-scan.json").exists());
 }
+
+/// Story "Faster clean: re-check only what the selection needs", AC 8: the
+/// terminal's clean keeps its full rescan before its plan; only a clean of
+/// an explicit list is pruned.
+#[test]
+fn the_terminal_clean_still_rescans_the_whole_home() {
+    let fx = Fx::new();
+    for i in 0..8 {
+        fx.write(&format!("big/t{i}/deep/f.bin"), b"x");
+    }
+    let scan = ddc(&fx.home, &["scan", "--json", "--data-dir", fx.data_arg()]);
+    assert!(scan.status.success(), "stderr: {}", String::from_utf8_lossy(&scan.stderr));
+    let whole = serde_json::from_slice::<serde_json::Value>(&scan.stdout).unwrap()["totals"]["files"].clone();
+
+    let out = ddc(&fx.home, &["clean", "--yes", "--progress", "json", "--data-dir", fx.data_arg()]);
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "stderr: {stderr}");
+    let recheck = stderr
+        .lines()
+        .filter(|l| l.starts_with('{'))
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .rfind(|e| e["event"] == "walk" && e["step"] == "recheck")
+        .expect("a recheck tick");
+    assert_eq!(recheck["files"], whole, "the whole home, unrelated trees included");
+    assert!(!fx.home.join("q/__pycache__").exists());
+}

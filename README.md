@@ -149,7 +149,7 @@ Ctrl-C during a clean stops it after the current item; a tool it runs (such as `
 
 #### `ddc clean --items`: clean an exact list
 
-This is how the app cleans, and how a script can clean exactly what a person confirmed elsewhere. The list is the selection and the consent: no class filter, no default selection, no questions, no terminal needed. It rescans and checks every item again; anything that changed is skipped with a reason.
+This is how the app cleans, and how a script can clean exactly what a person confirmed elsewhere. The list is the selection and the consent: no class filter, no default selection, no questions, no terminal needed. It checks every item again; anything that changed is skipped with a reason. It reads only the listed items and what lies above and beside them, unless the list holds a toolchain version (nvm, pyenv, rustup), whose pins can sit in any project: then it rescans the whole home. Afterwards it updates `last-scan.json` with what it did, so no scan is needed (`last_scan_saved` in the JSON report).
 
 ```
 ddc clean --items FILE [--json] [--dry-run] [PATH…] [--exclude PATH]… [--data-dir DIR] [--progress json]
@@ -230,7 +230,7 @@ ddc schedule status
 
 | Path | What |
 |---|---|
-| `~/Library/Application Support/DeepDriveCleaner/last-scan.json` | The last scan's report, which the app shows. |
+| `~/Library/Application Support/DeepDriveCleaner/last-scan.json` | The last scan's report, which the app shows. `ddc clean --items` edits it after cleaning instead of scanning again; the next scan replaces it. |
 | `~/Library/Application Support/DeepDriveCleaner/settings.json` | Settings shared by the app and the terminal (below). |
 | `~/Library/Application Support/DeepDriveCleaner/notify-state.json` | When the background scan last notified, so it does not repeat itself. |
 | `~/Library/Application Support/DeepDriveCleaner/lock` | Scans share it; a clean takes it alone. |

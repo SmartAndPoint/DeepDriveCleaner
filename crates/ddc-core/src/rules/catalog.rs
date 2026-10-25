@@ -2,7 +2,7 @@
 //! "Detection rule catalog" (epic DDC-001) and `bench/make_baseline.py`.
 //! Order matters for specialized rules: the first match wins.
 
-use super::{Clones, Matcher, Rule, TOMBSTONE};
+use super::{Clones, Matcher, Rule, Scope, TOMBSTONE};
 use crate::class::Category::*;
 use crate::class::RiskClass::*;
 use crate::class::{Fallback, LocationCompare, LocationProbe, NativeCommand, Removal};
@@ -47,6 +47,7 @@ const fn rule(
         hint: "",
         listed: true,
         clones: Clones::Never,
+        scope: Scope::Item,
     }
 }
 
@@ -395,10 +396,12 @@ pub static RULES: &[Rule] = &[
     // ---- toolchains (each version separately; protected versions dropped after the walk)
     Rule {
         hint: "reinstall: nvm install <version>",
+        scope: Scope::Tree,
         ..rule("toolchain.nvm", Toolchain, Review, Removal::Trash, Matcher::KnownChildren(".nvm/versions/node"))
     },
     Rule {
         hint: "reinstall: pyenv install <version>",
+        scope: Scope::Tree,
         ..rule(
             "toolchain.pyenv",
             Toolchain,
@@ -414,6 +417,7 @@ pub static RULES: &[Rule] = &[
     },
     Rule {
         hint: "reinstall: rustup toolchain install <name>",
+        scope: Scope::Tree,
         ..rule(
             "toolchain.rustup",
             Toolchain,
@@ -442,6 +446,7 @@ pub static RULES: &[Rule] = &[
     },
     Rule {
         hint: "settings of an older IDE version; a newer one exists",
+        scope: Scope::Siblings,
         ..rule(
             "ide.jetbrains-old-data",
             Ide,

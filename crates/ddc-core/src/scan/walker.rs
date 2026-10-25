@@ -79,6 +79,7 @@ struct Shared<'a> {
     inodes: InodeTable,
     log: Mutex<Log>,
     unowned: AtomicU64,
+    pruned: AtomicU64,
 }
 
 struct Task {
@@ -144,6 +145,7 @@ pub fn walk_with_reader(
         inodes: InodeTable::new(),
         log: Mutex::new(Log::default()),
         unowned: AtomicU64::new(0),
+        pruned: AtomicU64::new(0),
     };
 
     pool.install(|| {
@@ -179,6 +181,12 @@ pub fn walk_with_reader(
     Ok(sh.finish(started))
 }
 
+/// `roots` as [`walk`] takes them: canonicalized, sorted, roots nested in
+/// others dropped.
+pub fn normalized_roots(roots: &[PathBuf]) -> Result<Vec<PathBuf>, WalkSetupError> {
+    normalize_roots(roots).map(|roots| roots.into_iter().map(|(path, _)| path).collect())
+}
+
 fn normalize_roots(roots: &[PathBuf]) -> Result<Vec<(PathBuf, Metadata)>, WalkSetupError> {
     let mut canon = Vec::with_capacity(roots.len());
     for root in roots {
@@ -203,6 +211,11 @@ fn normalize_roots(roots: &[PathBuf]) -> Result<Vec<(PathBuf, Metadata)>, WalkSe
 
 fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
     if sh.progress.is_cancelled() {
+        return;
+    }
+    // Before any rule hook, inside claims too: a pruned directory is never opened.
+    if sh.visitor.prunes(&task.dir) {
+        sh.pruned.fetch_add(1, Relaxed);
         return;
     }
     let Task { dir, expect, parent, depth, root, mut owner, entry, mut hooks } = task;
@@ -617,6 +630,7 @@ impl Shared<'_> {
             skipped: log.skipped,
             skipped_total: log.skipped_total,
             vanished: log.vanished,
+            pruned: self.pruned.into_inner(),
             cancelled: self.progress.is_cancelled(),
             elapsed: started.elapsed(),
         }

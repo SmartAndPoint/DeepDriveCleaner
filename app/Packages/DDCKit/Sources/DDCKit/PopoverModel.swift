@@ -228,8 +228,16 @@ public final class PopoverModel {
         probeAccess()
         readPreferences()
         if DataDirectory.modified(data.settings) != settingsModified { loadSettings() }
-        // During a clean the CLI's rescan replaces the file; the scan after the clean shows it.
+        // A clean writes the file when it ends; its reload, or the scan after it, shows it.
         if scan == nil, !cleaning, DataDirectory.modified(data.lastScan) != reportModified { await loadReport() }
+    }
+
+    /// The report a clean edited and saved, read at once, during the clean
+    /// too (story "Faster clean: re-check only what the selection needs").
+    /// False when it cannot be shown: the caller scans instead.
+    public func reloadReport() async -> Bool {
+        await loadReport()
+        return loadedReport != nil
     }
 
     private func probeAccess() {

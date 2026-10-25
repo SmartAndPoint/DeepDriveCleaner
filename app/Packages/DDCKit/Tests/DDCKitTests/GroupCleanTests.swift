@@ -150,7 +150,7 @@ struct GroupCleanTests {
              "items": [{"path": "/Users/example/Library/Caches/Google/Chrome", "dev": 16777232, "ino": 340634837,
                         "rule": "app.chrome-cache", "class": "safe", "action": "delete", "bytes": 303104, "outcome": "deleted"}]}
             """.utf8))
-        try fake.put("rescan.json", report)
+        try fake.put("saved-scan.json", report)
         let events = ReviewEvents()
         let snapshot = try ReviewFixture.snapshot(report: report, settingsIn: data)
         let review = makeReview(runner: CLIRunner(executable: fake.executable), data: data, defaults: defaults, events: events) { snapshot }
