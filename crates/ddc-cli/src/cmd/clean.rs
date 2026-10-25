@@ -6,7 +6,9 @@ use std::process::ExitCode;
 use anyhow::Context as _;
 use ddc_core::class::{Category, RiskClass};
 use ddc_core::env::Env;
-use ddc_core::exec::{self, Consent, ExecOptions, FileJournal, Ports, SystemCommands, SystemProcesses, SystemTrash};
+use ddc_core::exec::{
+    self, Consent, ExecOptions, ExecProgress, FileJournal, Ports, SystemCommands, SystemProcesses, SystemTrash,
+};
 use ddc_core::plan::{PlanOptions, build_plan};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
@@ -124,14 +126,18 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
     // Ctrl-C now stops the clean after the current item and still reaches a
     // tool running in its own process group.
     let cancel = ddc_core::sys::signals::install().context("cannot install the signal handler")?;
-    let result = exec::execute(
-        &env,
-        &catalog,
-        &plan,
-        &consent,
-        Ports { commands: &commands, trash: &SystemTrash, procs: &SystemProcesses, journal: &mut journal },
-        &ExecOptions { cancel },
-    )?;
+    let exec_progress = ExecProgress::default();
+    let result = progress::with_clean_line(&exec_progress, &scanned.home, || {
+        exec::execute(
+            &env,
+            &catalog,
+            &plan,
+            &consent,
+            Ports { commands: &commands, trash: &SystemTrash, procs: &SystemProcesses, journal: &mut journal },
+            // The snapshots were counted for the note above: `tmutil` runs once.
+            &ExecOptions { cancel, progress: Some(&exec_progress), local_snapshots: Some(snapshots) },
+        )
+    })?;
     prompt::print_result(&mut out, &result, &scanned.home, &journal_path, &style)?;
     out.flush()?;
     if let Some(sig) = ddc_core::sys::signals::received() {

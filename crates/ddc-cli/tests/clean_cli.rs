@@ -107,6 +107,10 @@ fn yes_cleans_only_safe_items_by_default() {
     let journal = fs::read_to_string(fx.data.join("logs/actions.jsonl")).unwrap();
     assert_eq!(journal.lines().count(), 1, "{journal}");
     assert!(journal.contains("\"rule\":\"python.pycache\"") && journal.contains("\"outcome\":\"deleted\""));
+    // Story "Progress output while ddc clean runs": the line is for terminals only.
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains('\r') && !stderr.contains("\x1b[2K"), "{stderr:?}");
+    assert!(stderr.lines().all(|l| l.is_empty() || l.starts_with("ddc: warning:")), "{stderr:?}");
 }
 
 #[test]

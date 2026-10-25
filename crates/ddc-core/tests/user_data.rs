@@ -133,7 +133,7 @@ impl Home {
                 procs: &FakeProcs(procs),
                 journal: &mut journal,
             },
-            &ExecOptions { cancel: &AtomicBool::new(false) },
+            &ExecOptions { cancel: &AtomicBool::new(false), ..ExecOptions::default() },
         )
         .unwrap();
         let report = CleanReport::new(items, &listed.refused, &run, PathBuf::from("/journal"));
@@ -651,7 +651,7 @@ fn a_plan_never_holds_an_entry_and_yes_touches_none() {
             procs: &FakeProcs(vec![]),
             journal: &mut journal,
         },
-        &ExecOptions { cancel: &AtomicBool::new(false) },
+        &ExecOptions { cancel: &AtomicBool::new(false), ..ExecOptions::default() },
     )
     .unwrap();
     assert!(h.path("Downloads/report.pdf").exists() && h.path("Pictures/Trip/one.jpg").exists());
@@ -690,7 +690,7 @@ fn the_executor_derives_an_entrys_lock_again_right_before_the_trash() {
             procs: &FakeProcs(vec![]),
             journal: &mut journal,
         },
-        &ExecOptions { cancel: &AtomicBool::new(false) },
+        &ExecOptions { cancel: &AtomicBool::new(false), ..ExecOptions::default() },
     )
     .unwrap();
 

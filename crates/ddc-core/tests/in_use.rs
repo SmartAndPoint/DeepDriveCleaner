@@ -135,7 +135,7 @@ impl Home {
             &listed.plan,
             &Consent::Listed,
             Ports { commands, trash: &FakeTrash(self.data.path().join("FakeTrash")), procs, journal: &mut journal },
-            &ExecOptions { cancel: &AtomicBool::new(false) },
+            &ExecOptions { cancel: &AtomicBool::new(false), ..ExecOptions::default() },
         )
         .unwrap();
         let report = CleanReport::new(items, &listed.refused, &run, PathBuf::from("/journal"));

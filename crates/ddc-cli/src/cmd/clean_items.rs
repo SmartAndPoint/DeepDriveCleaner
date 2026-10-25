@@ -12,8 +12,8 @@ use ddc_core::env::Env;
 use ddc_core::exec::preflight::{self, PreflightPorts};
 use ddc_core::exec::report::CleanReport;
 use ddc_core::exec::{
-    self, Consent, ExecOptions, ExecReport, FileJournal, ItemReport, Outcome, Ports, SystemCommands, SystemProcesses,
-    SystemTrash,
+    self, Consent, ExecOptions, ExecProgress, ExecReport, FileJournal, ItemReport, Outcome, Ports, SystemCommands,
+    SystemProcesses, SystemTrash,
 };
 use ddc_core::plan::{ListedItems, plan_listed};
 use ddc_core::report::volumes::SystemStatFs;
@@ -69,14 +69,17 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
     let journal_path = journal.path.clone();
     let cancel = signals::install().context("cannot install the signal handler")?;
     let commands = SystemCommands::new(&env);
-    let result = exec::execute(
-        &env,
-        &catalog,
-        &listed.plan,
-        &Consent::Listed,
-        Ports { commands: &commands, trash: &SystemTrash, procs: &SystemProcesses, journal: &mut journal },
-        &ExecOptions { cancel },
-    )?;
+    let exec_progress = ExecProgress::default();
+    let result = progress::with_clean_line(&exec_progress, &scanned.home, || {
+        exec::execute(
+            &env,
+            &catalog,
+            &listed.plan,
+            &Consent::Listed,
+            Ports { commands: &commands, trash: &SystemTrash, procs: &SystemProcesses, journal: &mut journal },
+            &ExecOptions { cancel, progress: Some(&exec_progress), ..ExecOptions::default() },
+        )
+    })?;
     let clean = CleanReport::new(&list.items, &listed.refused, &result, journal_path.clone());
 
     let mut out = std::io::stdout().lock();

@@ -9,6 +9,7 @@ pub mod procs;
 pub mod rlimit;
 pub mod signals;
 pub mod statfs;
+pub mod term;
 
 use std::io;
 

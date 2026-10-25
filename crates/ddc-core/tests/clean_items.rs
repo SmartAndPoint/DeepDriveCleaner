@@ -88,7 +88,7 @@ impl Fx {
             &listed.plan,
             &Consent::Listed,
             Ports { commands, trash: &trash, procs: &FakeProcs(vec![]), journal },
-            &ExecOptions { cancel },
+            &ExecOptions { cancel, ..ExecOptions::default() },
         )
         .unwrap();
         let clean = CleanReport::new(items, &listed.refused, &run, PathBuf::from("/journal"));

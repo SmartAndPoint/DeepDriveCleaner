@@ -4,9 +4,12 @@
 
 mod common;
 
+use std::cell::RefCell;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use common::TreeBuilder;
@@ -14,11 +17,11 @@ use common::fakes::{FakeCommands, FakeProcs, FakeTrash, app_process};
 use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
 use ddc_core::exec::{
-    self, Consent, ExecError, ExecOptions, ExecReport, MemoryJournal, Outcome, Ports, ProcessTable, SkipReason,
-    SystemProcesses,
+    self, Consent, ExecError, ExecOptions, ExecPhase, ExecProgress, ExecReport, ExecSnapshot, Journal, JournalEntry,
+    MemoryJournal, Outcome, Ports, ProcessTable, SkipReason, SystemProcesses,
 };
 use ddc_core::model::ScanReport;
-use ddc_core::plan::{Plan, PlanOptions, build_plan};
+use ddc_core::plan::{Action, Plan, PlanOptions, build_plan};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::{Catalog, RULES, owns};
 use ddc_core::scan::{Progress, WalkOptions};
@@ -83,18 +86,30 @@ impl Fx {
         procs: &dyn ProcessTable,
     ) -> (ExecReport, MemoryJournal) {
         let mut journal = MemoryJournal::default();
+        let report = self.run_with(plan, consent, commands, procs, &mut journal, &ExecOptions::default());
+        (report, journal)
+    }
+
+    fn run_with(
+        &self,
+        plan: &Plan,
+        consent: Consent,
+        commands: &FakeCommands,
+        procs: &dyn ProcessTable,
+        journal: &mut dyn Journal,
+        opts: &ExecOptions<'_>,
+    ) -> ExecReport {
         let trash = FakeTrash(self.data.path().join("FakeTrash"));
         let env = self.env();
-        let report = exec::execute(
+        exec::execute(
             &env,
             &Catalog::builtin(self.t.root()),
             plan,
             &consent,
-            Ports { commands, trash: &trash, procs, journal: &mut journal },
-            &ExecOptions::default(),
+            Ports { commands, trash: &trash, procs, journal },
+            opts,
         )
-        .unwrap();
-        (report, journal)
+        .unwrap()
     }
 
     fn run_yes(&self, plan: &Plan) -> (ExecReport, MemoryJournal) {
@@ -109,6 +124,10 @@ fn outcome<'a>(r: &'a ExecReport, path: &Path) -> &'a Outcome {
 
 fn select_all(plan: &mut Plan) {
     plan.items.iter_mut().for_each(|i| i.selected = true);
+}
+
+fn yes() -> Consent {
+    Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] }
 }
 
 #[test]
@@ -715,4 +734,168 @@ fn partly_unreadable_findings_are_not_deleted() {
     let (r, _) = fx.run_yes(&plan);
 
     assert_eq!(outcome(&r, &nm), &Outcome::Skipped(SkipReason::Incomplete));
+}
+
+// Story "Progress output while ddc clean runs": the counter the terminal's
+// progress line and the app's progress events read.
+
+#[test]
+fn progress_reaches_the_totals_with_native_only_bytes_left_out() {
+    let fx = Fx::new();
+    let deleted = fx.node_project("p");
+    let kept = fx.node_project("q");
+    fx.venv_project("r");
+    fx.t.file("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw", 50_000);
+    let mut plan = fx.plan();
+    select_all(&mut plan);
+    fx.t.write("q/node_modules/.ddc-keep", "");
+    let progress = ExecProgress::default();
+    let opts = ExecOptions { progress: Some(&progress), ..ExecOptions::default() };
+    let docker = FakeCommands::default().with("docker", true, "");
+
+    let r = fx.run_with(&plan, Consent::Interactive, &docker, &FakeProcs(vec![]), &mut MemoryJournal::default(), &opts);
+
+    let chosen: Vec<_> = plan.items.iter().filter(|i| i.selected).collect();
+    let native_only = |a: &Action| matches!(a, Action::NativeOnly(_));
+    assert!(chosen.iter().any(|i| native_only(&i.action)), "the fixture holds a native-only item");
+    let counted: u64 = chosen.iter().filter(|i| !native_only(&i.action)).map(|i| i.finding.bytes).sum();
+    assert!(counted < chosen.iter().map(|i| i.finding.bytes).sum::<u64>());
+    let s = progress.snapshot();
+    assert_eq!(s.phase, ExecPhase::Cleaning);
+    assert_eq!((s.items_done, s.items_total), (chosen.len() as u64, chosen.len() as u64));
+    assert_eq!((s.bytes_done, s.bytes_total), (counted, counted), "native-only bytes are in neither");
+    assert_eq!(s.current, None);
+    assert_eq!(outcome(&r, &deleted), &Outcome::Deleted);
+    assert_eq!(outcome(&r, &kept), &Outcome::Skipped(SkipReason::Kept), "a skipped item counts as processed");
+}
+
+/// Sets the cancel flag when the first item is journaled.
+struct CancelOnFirst<'a> {
+    flag: &'a AtomicBool,
+    inner: MemoryJournal,
+}
+
+impl Journal for CancelOnFirst<'_> {
+    fn record(&mut self, entry: &JournalEntry) -> std::io::Result<()> {
+        self.flag.store(true, Ordering::SeqCst);
+        self.inner.record(entry)
+    }
+}
+
+#[test]
+fn a_cancel_after_the_first_item_counts_only_that_one() {
+    let fx = Fx::new();
+    for p in ["p", "q", "r"] {
+        fx.node_project(p);
+    }
+    let plan = fx.plan();
+    let flag = AtomicBool::new(false);
+    let mut journal = CancelOnFirst { flag: &flag, inner: MemoryJournal::default() };
+    let progress = ExecProgress::default();
+    let opts = ExecOptions { cancel: &flag, progress: Some(&progress), ..ExecOptions::default() };
+
+    let r = fx.run_with(&plan, yes(), &FakeCommands::default(), &FakeProcs(vec![]), &mut journal, &opts);
+
+    assert!(r.cancelled);
+    let s = progress.snapshot();
+    assert_eq!((s.items_done, s.items_total), (1, 3), "not-run items are not processed");
+    assert_eq!(s.current, None);
+}
+
+/// Reads the shared counter when the guard takes its process snapshot:
+/// after the keep-marker walk, before the first item.
+struct SnapshotOnFirstCall<'a> {
+    progress: &'a ExecProgress,
+    seen: RefCell<Option<ExecSnapshot>>,
+}
+
+impl ProcessTable for SnapshotOnFirstCall<'_> {
+    fn processes(&self) -> Vec<ProcInfo> {
+        self.seen.borrow_mut().get_or_insert_with(|| self.progress.snapshot());
+        Vec::new()
+    }
+    fn open_files(&self, _: i32) -> Vec<PathBuf> {
+        Vec::new()
+    }
+}
+
+#[test]
+fn preparing_counts_the_files_of_the_chosen_trees_before_the_first_item() {
+    let fx = Fx::new();
+    fx.node_project("p");
+    fx.venv_project("q");
+    let plan = fx.plan();
+    let files: u64 = plan.items.iter().filter(|i| i.selected).map(|i| i.finding.files).sum();
+    let progress = ExecProgress::default();
+    let procs = SnapshotOnFirstCall { progress: &progress, seen: RefCell::new(None) };
+    let opts = ExecOptions { progress: Some(&progress), ..ExecOptions::default() };
+
+    fx.run_with(&plan, yes(), &FakeCommands::default(), &procs, &mut MemoryJournal::default(), &opts);
+
+    let seen = procs.seen.into_inner().expect("the guard read the process table");
+    assert_eq!(seen.phase, ExecPhase::Preparing);
+    assert!(files >= 3, "{files}");
+    assert_eq!((seen.walked.files, seen.walk_expected), (files, files));
+    assert_eq!((seen.items_done, seen.current), (0, None));
+}
+
+#[test]
+fn the_running_tool_is_named_while_its_command_runs() {
+    let fx = Fx::new();
+    let uv = fx.t.dir(".cache/uv");
+    fx.t.file(".cache/uv/wheels/a.whl", 1000);
+    let mut plan = fx.plan();
+    select_all(&mut plan);
+    let progress = Arc::new(ExecProgress::default());
+    let tools = Arc::new(Mutex::new(Vec::new()));
+    let (p, seen) = (Arc::clone(&progress), Arc::clone(&tools));
+    let commands = FakeCommands {
+        on_run: Some(Box::new(move || seen.lock().unwrap().push(p.snapshot().current.and_then(|c| c.tool)))),
+        ..FakeCommands::default().with("uv", true, &format!("{}\n", uv.display()))
+    };
+    let opts = ExecOptions { progress: Some(&progress), ..ExecOptions::default() };
+    let mut journal = ToolAtRecord { progress: &progress, seen: Vec::new(), inner: MemoryJournal::default() };
+
+    let r = fx.run_with(&plan, Consent::Interactive, &commands, &FakeProcs(vec![]), &mut journal, &opts);
+
+    assert!(matches!(outcome(&r, &uv), Outcome::Native { .. }), "{:?}", outcome(&r, &uv));
+    assert_eq!(*commands.calls.borrow(), ["uv cache dir", "uv cache clean"]);
+    assert_eq!(*tools.lock().unwrap(), [Some("uv"), Some("uv")], "named for the probe and the command");
+    assert_eq!(journal.seen, [Some(None)], "the item is still current when journaled, its tool no longer named");
+    assert_eq!(progress.snapshot().current, None, "cleared after the item");
+}
+
+/// Reads the current item's tool when the item is journaled: after the
+/// action, before the counter finishes the item.
+struct ToolAtRecord<'a> {
+    progress: &'a ExecProgress,
+    seen: Vec<Option<Option<&'static str>>>,
+    inner: MemoryJournal,
+}
+
+impl Journal for ToolAtRecord<'_> {
+    fn record(&mut self, entry: &JournalEntry) -> std::io::Result<()> {
+        self.seen.push(self.progress.snapshot().current.map(|c| c.tool));
+        self.inner.record(entry)
+    }
+}
+
+#[test]
+fn local_snapshots_counted_by_the_caller_run_no_tmutil() {
+    let fx = Fx::new();
+    fx.node_project("p");
+    let plan = fx.plan();
+    let tmutil = || FakeCommands::default().with("tmutil", true, "com.apple.TimeMachine.2026-10-25-000000.local\n");
+
+    let counted = tmutil();
+    let r =
+        fx.run_with(&plan, yes(), &counted, &FakeProcs(vec![]), &mut MemoryJournal::default(), &ExecOptions::default());
+    assert_eq!(r.local_snapshots, 1);
+    assert_eq!(*counted.calls.borrow(), ["tmutil listlocalsnapshots /"]);
+
+    let given = tmutil();
+    let opts = ExecOptions { local_snapshots: Some(3), ..ExecOptions::default() };
+    let r = fx.run_with(&plan, yes(), &given, &FakeProcs(vec![]), &mut MemoryJournal::default(), &opts);
+    assert_eq!(r.local_snapshots, 3);
+    assert!(given.calls.borrow().is_empty(), "{:?}", given.calls.borrow());
 }

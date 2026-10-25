@@ -7,6 +7,7 @@ pub mod guard;
 mod journal;
 mod native;
 pub mod preflight;
+mod progress;
 pub mod report;
 pub mod system;
 
@@ -22,6 +23,7 @@ use serde::{Deserialize, Serialize};
 
 pub use journal::{FileJournal, Journal, JournalEntry, MemoryJournal};
 pub use native::CommandResult;
+pub use progress::{CurrentItem, ExecPhase, ExecProgress, ExecSnapshot};
 pub use system::{SystemCommands, SystemProcesses, SystemTrash};
 
 use crate::class::{Fallback, Removal, RiskClass};
@@ -199,13 +201,19 @@ pub struct ExecOptions<'a> {
     /// Set by a signal handler (or a test): the run stops before the next item
     /// and before any fallback, and leaves the remaining items `NotRun`.
     pub cancel: &'a AtomicBool,
+    /// Live counters for the caller's progress display (story "Progress
+    /// output while ddc clean runs").
+    pub progress: Option<&'a ExecProgress>,
+    /// Local snapshots the caller already counted, so `tmutil` runs once;
+    /// `None` counts them here.
+    pub local_snapshots: Option<usize>,
 }
 
 static NEVER: AtomicBool = AtomicBool::new(false);
 
 impl Default for ExecOptions<'_> {
     fn default() -> Self {
-        Self { cancel: &NEVER }
+        Self { cancel: &NEVER, progress: None, local_snapshots: None }
     }
 }
 
@@ -232,27 +240,35 @@ pub fn execute(
         return Err(ExecError::ReviewWithYes);
     }
     let chosen: Vec<&PlanItem> = plan.items.iter().filter(|i| i.selected).collect();
+    let unshared = ExecProgress::default();
+    let progress = opts.progress.unwrap_or(&unshared);
+    progress.start(&chosen);
     let volumes = volumes_of(&chosen, env);
-    let mut report = ExecReport { local_snapshots: local_snapshots(ports.commands), ..ExecReport::default() };
-    let markers = keep_markers(chosen.iter().map(|i| i.finding.path.clone()).collect(), opts);
+    let snapshots = opts.local_snapshots.unwrap_or_else(|| local_snapshots(ports.commands));
+    let mut report = ExecReport { local_snapshots: snapshots, ..ExecReport::default() };
+    let markers = keep_markers(chosen.iter().map(|i| i.finding.path.clone()).collect(), opts, progress.walk());
     let guard = guard::Guard::new(env, catalog, &plan.roots, markers, ports.procs);
     // Entries that went to the Trash: what lies inside them went with them.
     let mut trashed: Vec<PathBuf> = Vec::new();
+    progress.begin_cleaning();
 
-    for item in chosen {
+    for (index, item) in (1..).zip(chosen) {
         let path = &item.finding.path;
         let outcome = if opts.cancelled() {
             Outcome::NotRun
-        } else if trashed.iter().any(|t| path != t && path.starts_with(t)) {
-            Outcome::Skipped(SkipReason::InsideAnotherItem)
-        } else if !allowed(item, consent) {
-            Outcome::Skipped(SkipReason::NeedsConfirmation)
-        } else if let Err(reason) = action_allowed(item, catalog, consent) {
-            Outcome::Skipped(reason)
         } else {
-            match guard.check(item) {
-                Err(reason) => Outcome::Skipped(reason),
-                Ok(verified) => act(item, &verified, &guard, &ports, opts),
+            progress.item_started(index, item);
+            if trashed.iter().any(|t| path != t && path.starts_with(t)) {
+                Outcome::Skipped(SkipReason::InsideAnotherItem)
+            } else if !allowed(item, consent) {
+                Outcome::Skipped(SkipReason::NeedsConfirmation)
+            } else if let Err(reason) = action_allowed(item, catalog, consent) {
+                Outcome::Skipped(reason)
+            } else {
+                match guard.check(item) {
+                    Err(reason) => Outcome::Skipped(reason),
+                    Ok(verified) => act(item, &verified, &guard, &ports, opts, progress),
+                }
             }
         };
         if item.action == Action::TrashEntry && outcome == Outcome::Trashed {
@@ -261,8 +277,13 @@ pub fn execute(
         if outcome == Outcome::NotRun {
             report.cancelled = true;
         } else {
-            ports.journal.record(&JournalEntry::new(item, &outcome))?;
+            let recorded = ports.journal.record(&JournalEntry::new(item, &outcome));
+            if recorded.is_err() {
+                progress.item_finished(item, false);
+            }
+            recorded?;
         }
+        progress.item_finished(item, outcome != Outcome::NotRun);
         report.items.push(ItemReport {
             path: item.finding.path.clone(),
             rule: item.finding.rule.clone(),
@@ -331,6 +352,7 @@ fn act(
     guard: &guard::Guard<'_>,
     ports: &Ports<'_>,
     opts: &ExecOptions<'_>,
+    progress: &ExecProgress,
 ) -> Outcome {
     let path = item.finding.path.as_path();
     // Anything slow (a probe subprocess) may have run: re-check before acting.
@@ -361,7 +383,10 @@ fn act(
             if opts.cancelled() {
                 return Outcome::NotRun;
             }
-            match native::run(&cmd, path, ports.commands, opts) {
+            progress.tool(Some(cmd.program));
+            let ran = native::run(&cmd, path, ports.commands, opts);
+            progress.tool(None);
+            match ran {
                 native::Native::Ran(result) => Outcome::Native { commands: vec![result] },
                 native::Native::Cancelled => Outcome::NotRun,
                 native::Native::Unavailable | native::Native::LocationMismatch => fallback(fb),
@@ -373,7 +398,10 @@ fn act(
                 if opts.cancelled() {
                     break;
                 }
-                match native::run(cmd, path, ports.commands, opts) {
+                progress.tool(Some(cmd.program));
+                let ran = native::run(cmd, path, ports.commands, opts);
+                progress.tool(None);
+                match ran {
                     native::Native::Ran(result) => results.push(result),
                     native::Native::Cancelled => break,
                     native::Native::Unavailable | native::Native::LocationMismatch => {
@@ -421,8 +449,9 @@ pub fn local_snapshots(commands: &dyn CommandRunner) -> usize {
 
 /// Walks everything about to be cleaned, collecting directories that hold a
 /// keep marker at any depth. Fails closed: a target whose walk fails (or that
-/// is no longer a real directory) is reported as kept itself.
-fn keep_markers(targets: Vec<PathBuf>, opts: &ExecOptions<'_>) -> Vec<PathBuf> {
+/// is no longer a real directory) is reported as kept itself. `walked`
+/// counts across the targets, for the caller's progress display.
+fn keep_markers(targets: Vec<PathBuf>, opts: &ExecOptions<'_>, walked: &Progress) -> Vec<PathBuf> {
     struct Markers(Mutex<Vec<PathBuf>>);
     impl Visitor for Markers {
         fn wants_private(&self, _: &scan::DirCtx<'_>, _: Tag) -> bool {
@@ -442,8 +471,8 @@ fn keep_markers(targets: Vec<PathBuf>, opts: &ExecOptions<'_>) -> Vec<PathBuf> {
         if !std::fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir()) {
             continue; // missing or swapped: the guard skips it anyway
         }
-        let walked = scan::walk(std::slice::from_ref(&target), &markers, &WalkOptions::default(), &Progress::default());
-        if walked.is_err() {
+        let result = scan::walk(std::slice::from_ref(&target), &markers, &WalkOptions::default(), walked);
+        if result.is_err() {
             markers.0.lock().unwrap_or_else(|p| p.into_inner()).push(target);
         }
     }
