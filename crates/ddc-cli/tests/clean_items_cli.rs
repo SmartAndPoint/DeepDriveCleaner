@@ -17,6 +17,7 @@ use std::time::{Duration, Instant, SystemTime};
 use ddc_core::exec::Outcome;
 use ddc_core::exec::SkipReason;
 use ddc_core::exec::report::CleanReport;
+use ddc_core::progress::ProgressLine;
 
 struct Fx {
     _tmp: tempfile::TempDir,
@@ -513,4 +514,133 @@ fn a_tool_never_starts_on_a_cache_a_running_process_holds_open() {
     assert!(!pid_file.exists(), "uv cache clean never started");
     assert!(started.elapsed() < Duration::from_secs(20), "skipped, not waited out: {:?}", started.elapsed());
     assert!(uv.join("wheels/a.whl").exists());
+}
+
+// Story "CLI: progress events": `--progress json` on stderr.
+
+/// The event lines of `stderr`, each checked to read back as written; the
+/// other lines are the CLI's own (`ddc: …`).
+fn events(stderr: &str) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    for line in stderr.lines().filter(|l| !l.trim().is_empty()) {
+        if !line.starts_with('{') {
+            assert!(line.starts_with("ddc:"), "not an event and not the CLI's own: {line:?}");
+            continue;
+        }
+        let event: ProgressLine = serde_json::from_str(line).unwrap_or_else(|e| panic!("{e}: {line}"));
+        let value = serde_json::to_value(&event).unwrap();
+        assert_eq!(value, serde_json::from_str::<serde_json::Value>(line).unwrap(), "reads back as written");
+        out.push(value);
+    }
+    out
+}
+
+fn kind(e: &serde_json::Value) -> String {
+    match e["event"].as_str().unwrap() {
+        "phase" => format!("phase {}", e["phase"].as_str().unwrap()),
+        "walk" => format!("walk {}", e["step"].as_str().unwrap()),
+        other => other.to_owned(),
+    }
+}
+
+#[test]
+fn a_clean_emits_its_phases_walks_and_items_in_order() {
+    let fx = Fx::new();
+    let list = fx.list(&["q/__pycache__", "p/node_modules"]);
+    let last_scan =
+        || -> serde_json::Value { serde_json::from_slice(&fs::read(fx.data.join("last-scan.json")).unwrap()).unwrap() };
+    let previous = last_scan()["totals"]["files"].as_u64().unwrap();
+
+    let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--json", "--progress", "json"]).output().unwrap();
+
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let events = events(&String::from_utf8_lossy(&out.stderr));
+    let kinds: Vec<String> = events.iter().map(kind).collect();
+    let at = |k: &str| kinds.iter().position(|x| x == k).unwrap_or_else(|| panic!("no {k}: {kinds:?}"));
+    let last = |k: &str| kinds.iter().rposition(|x| x == k).unwrap();
+    assert_eq!(kinds[0], "phase preparing");
+    let cleaning = at("phase cleaning");
+    assert!(at("walk recheck") < at("walk markers") && last("walk recheck") < at("walk markers"));
+    assert!(last("walk markers") < cleaning);
+    assert!(kinds[cleaning..].iter().all(|k| !k.starts_with("walk")), "no walk tick after cleaning: {kinds:?}");
+    assert!(
+        kinds[..cleaning].iter().all(|k| k != "items" && k != "item"),
+        "no item counter before cleaning: {kinds:?}"
+    );
+
+    let recheck = &events[last("walk recheck")];
+    assert_eq!(recheck["files"], last_scan()["totals"]["files"], "the final tick carries the saved report's totals");
+    assert_eq!(recheck["files_expected"], previous, "against the previous report's count");
+    let markers = &events[last("walk markers")];
+    assert_eq!(markers["files"], markers["files_expected"]);
+
+    let items: Vec<&serde_json::Value> = events.iter().filter(|e| e["event"] == "item").collect();
+    assert_eq!(items.iter().map(|e| e["i"].as_u64().unwrap()).collect::<Vec<_>>(), [1, 2]);
+    assert!(items.iter().all(|e| e["n"] == 2
+        && e["outcome"] == "deleted"
+        && e["action"] == "delete"
+        && e["bytes"].as_u64().unwrap() > 0));
+    let fin = events.last().unwrap();
+    assert_eq!(kind(fin), "items");
+    assert_eq!((fin["done"].as_u64(), fin["n"].as_u64()), (Some(2), Some(2)));
+    assert_eq!(fin["bytes_done"], fin["bytes_total"]);
+}
+
+#[test]
+fn cleaning_is_on_stderr_before_the_first_action() {
+    let fx = Fx::new();
+    let pid_file = fx.fake_uv();
+    let list = fx.list(&[".cache/uv", "q/__pycache__"]);
+    let mut child = fx
+        .ddc(&["clean", "--items", list.to_str().unwrap(), "--json", "--progress", "json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    let out = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        stdout.read_to_end(&mut buf).unwrap();
+    });
+    // Read as it comes, as the app does: a full pipe would block the clean.
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let mut stderr = child.stderr.take().unwrap();
+    let sink = std::sync::Arc::clone(&seen);
+    let err = std::thread::spawn(move || {
+        let mut chunk = [0u8; 4096];
+        while let Ok(n) = stderr.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            sink.lock().unwrap().push_str(&String::from_utf8_lossy(&chunk[..n]));
+        }
+    });
+    wait_for_pid(&pid_file, Duration::from_secs(60));
+
+    // The tool runs: the first item's action has begun, none has finished.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !seen.lock().unwrap().contains(r#""phase":"cleaning""#) {
+        assert!(Instant::now() < deadline, "no cleaning event while the tool runs: {}", seen.lock().unwrap());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(fx.journal().is_empty(), "nothing journaled yet");
+
+    Command::new("/bin/kill").args(["-TERM", &child.id().to_string()]).status().unwrap();
+    wait_within(&mut child, Duration::from_secs(5)).expect("ddc ends");
+    out.join().unwrap();
+    err.join().unwrap();
+    let kinds: Vec<String> = events(&seen.lock().unwrap()).iter().map(kind).collect();
+    assert!(kinds.contains(&"item".to_owned()), "the interrupted item still reports: {kinds:?}");
+}
+
+#[test]
+fn without_the_flag_no_event_reaches_stderr() {
+    let fx = Fx::new();
+    let list = fx.list(&["q/__pycache__"]);
+    for args in [vec!["scan", "--json"], vec!["clean", "--items", list.to_str().unwrap(), "--json"]] {
+        let out = fx.ddc(&args).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.lines().all(|l| !l.starts_with('{')), "{args:?}: {stderr}");
+    }
 }

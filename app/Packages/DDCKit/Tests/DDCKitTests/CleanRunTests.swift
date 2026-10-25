@@ -177,6 +177,84 @@ struct CleanRunTests {
         #expect(review.isSelected(chrome))
     }
 
+    /// stderr lines for the fake to play, one file per gate `events-<k>`.
+    private func play(_ k: Int, _ lines: [String]) throws {
+        try fake.put("clean-events-\(k).jsonl", Data(lines.map { $0 + "\n" }.joined().utf8))
+    }
+
+    @Test("the clean's events drive the sheet: step 1's counters, cleaning with last-scan.json unchanged, then item i of n")
+    func events() async throws {
+        let npm = ProgressTests.current(1, "/Users/example/.npm/_cacache", "delete", 901_120)
+        let p1 = ProgressTests.current(3, "/Users/example/p1/node_modules", "delete", 602_112)
+        // No rescan.json: the file never changes, so only the events move the phase.
+        try play(1, [ProgressTests.preparing, ProgressTests.walk("recheck", 45_600, expected: 71_300)])
+        try play(2, [
+            ProgressTests.walk("recheck", 71_250, expected: 71_300),
+            ProgressTests.walk("markers", 120, expected: 400),
+            ProgressTests.cleaning,
+            ProgressTests.items(done: 0, n: 6, bytesDone: 0, bytesTotal: 3_366_912, current: npm),
+            ProgressTests.item(1, n: 6, "/Users/example/.npm/_cacache", "delete", 901_120, #""outcome":"deleted""#),
+            ProgressTests.item(2, n: 6, "/Users/example/Library/Caches/Google/Chrome", "delete", 303_104,
+                               #""outcome":"skipped","reason":"owner-running","pid":4242,"name":"Google Chrome""#),
+            ProgressTests.items(done: 2, n: 6, bytesDone: 1_204_224, bytesTotal: 3_366_912, current: p1),
+        ])
+        // Hand-written, not from the recorded report: a native-only item in flight under its tool.
+        let docker = ProgressTests.current(6, "/Users/example/Library/Containers/com.docker.docker", "native-only", 4_294_967_296, tool: "docker")
+        try play(3, [ProgressTests.items(done: 5, n: 6, bytesDone: 2_666_496, bytesTotal: 3_366_912, current: docker)])
+        let modified = DataDirectory.modified(data.directory.lastScan)
+        try await checkedSheet()
+        review.cleanConfirmedItems()
+        try await until("preparing") { review.sheet?.stage.isPreparing == true }
+        #expect(review.sheet?.progress == nil, "no event yet")
+        try fake.open("clean-start")
+        try fake.open("events-1")
+        try await until("step 1's counters") { review.sheet?.progress?.walk?.files == 45_600 }
+        #expect(CleanWording.walkLine(try #require(review.sheet?.progress?.walk)) == "45,600 of about 71,300 files read")
+        #expect(review.sheet?.stage.isPreparing == true)
+
+        try fake.open("events-2")
+        try await until("item 3 in flight") { review.sheet?.progress?.current?.i == 3 }
+        #expect(review.sheet?.stage.isCleaningPhase == true)
+        #expect(DataDirectory.modified(data.directory.lastScan) == modified, "the event, not the file, switched the phase")
+        let progress = try #require(review.sheet?.progress)
+        #expect(progress.done == 2 && progress.n == 6 && progress.skipped == 1)
+        #expect(progress.current?.path == "/Users/example/p1/node_modules")
+        #expect(progress.fraction == 1_204_224.0 / 3_366_912)
+        #expect(progress.inFlight == 602_112.0 / 3_366_912)
+        #expect(CleanWording.counterLine(progress) == "1.1 of 3.2 MiB processed · 2 of 6 items · 1 skipped")
+        let run = try #require(try fake.runs().last { $0.event == "start" })
+        #expect(run.args.hasSuffix("--json --progress json"))
+
+        try fake.open("events-3")
+        try await until("the tool in flight") { review.sheet?.progress?.current?.i == 6 }
+        #expect(review.sheet?.progress?.current?.tool == "docker")
+        #expect(review.sheet?.progress?.inFlight == 0, "a native-only item adds no stripe")
+        #expect(review.sheet?.progress?.fraction == 2_666_496.0 / 3_366_912)
+
+        try fake.open("clean-go")
+        try await until("the result") { review.sheet?.stage.result != nil }
+        try await until("the rescan") { events.busy == [true, false] }
+        #expect(events.rescans == 1)
+    }
+
+    @Test("a crash after the cleaning event points to the journal and rescans, with last-scan.json unchanged")
+    func crashAfterCleaningEvent() async throws {
+        try play(1, [ProgressTests.preparing, ProgressTests.cleaning])
+        try fake.open("events-1")
+        try fake.open("clean.crash")
+        try fake.open("clean-start")
+        try fake.open("clean-go")
+        let modified = DataDirectory.modified(data.directory.lastScan)
+        try await checkedSheet()
+        review.cleanConfirmedItems()
+        try await until("the end") { review.sheet?.stage.stopped != nil }
+        let stopped = try #require(review.sheet?.stage.stopped)
+        #expect(stopped.text.contains("the journal lists what was done"))
+        #expect(stopped.journal == data.directory.journal)
+        #expect(DataDirectory.modified(data.directory.lastScan) == modified)
+        try await until("the rescan") { events.rescans == 1 }
+    }
+
     @Test("while scans are paused Scan again starts nothing, and a clean still asks for its rescan")
     func whilePaused() async throws {
         events.paused = true

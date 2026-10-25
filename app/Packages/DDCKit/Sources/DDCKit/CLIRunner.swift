@@ -42,7 +42,8 @@ public actor CLIRunner {
         public var ticket: Ticket?
         /// Each stdout line as it arrives; `Result.stdout` still holds all of it.
         public var stdoutLine: (@Sendable (String) -> Void)?
-        /// Each stderr line as it arrives (progress).
+        /// Each stderr line as it arrives, on the reader's thread: it must
+        /// not block, or the CLI stalls on a full pipe.
         public var stderrLine: (@Sendable (String) -> Void)?
         /// Called when the process has started, after every earlier run ended.
         public var onStart: (@Sendable () -> Void)?
@@ -63,7 +64,8 @@ public actor CLIRunner {
     public struct Result: Sendable {
         public let outcome: RunOutcome
         public let stdout: Data
-        /// The last lines of stderr, for the log when a run fails.
+        /// The last lines of stderr, for the log when a run fails; progress
+        /// events (lines starting with `{`) are left out.
         public let stderrTail: [String]
 
         public init(outcome: RunOutcome, stdout: Data, stderrTail: [String]) {
@@ -191,7 +193,8 @@ public actor CLIRunner {
         }
     }
 
-    /// Calls `each` per line as it arrives and returns the last `tailLines` lines.
+    /// Calls `each` per line as it arrives and returns the last `tailLines`
+    /// lines that are not progress events.
     private static func readLines(_ handle: FileHandle, each: (@Sendable (String) -> Void)?) async -> [String] {
         await withCheckedContinuation { done in
             DispatchQueue.global(qos: .utility).async {
@@ -200,6 +203,7 @@ public actor CLIRunner {
                 func emit(_ bytes: Data) {
                     let line = String(decoding: bytes, as: UTF8.self)
                     each?(line)
+                    guard !line.hasPrefix("{") else { return }
                     tail.append(line)
                     if tail.count > tailLines { tail.removeFirst() }
                 }

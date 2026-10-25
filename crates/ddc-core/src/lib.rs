@@ -12,6 +12,7 @@ pub mod exec;
 pub mod model;
 pub mod notify;
 pub mod plan;
+pub mod progress;
 pub mod report;
 pub mod rules;
 pub mod scan;

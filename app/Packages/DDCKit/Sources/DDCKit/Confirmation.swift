@@ -61,8 +61,29 @@ public struct Confirmation: Sendable, Equatable {
         items[index].permanent.toggle()
     }
 
+    /// "Selected": what the scan measured, as the Review window and the class rows name it.
     public var bytes: UInt64 { items.reduce(0) { $0 + $1.finding.bytes } }
-    public var reclaimable: UInt64 { items.reduce(0) { $0 + $1.finding.reclaimableBytes } }
+    /// What the clean frees. A `native-only` item frees space inside its
+    /// runtime's disk image, which no total counts (safety ADR §5), as the
+    /// terminal's "frees ~" leaves it out.
+    public var reclaimable: UInt64 { counting.reduce(0) { $0 + $1.finding.reclaimableBytes } }
+    /// `bytes` without `native-only` items: the bar's total until the CLI names its own.
+    public var counted: UInt64 { counting.reduce(0) { $0 + $1.finding.bytes } }
+    /// The `native-only` items' bytes by runtime, in the sheet's order.
+    public var notCounted: [(runtime: String, bytes: UInt64)] {
+        var parts: [(runtime: String, bytes: UInt64)] = []
+        for item in items where item.effectiveAction == .nativeOnly {
+            let runtime = CleanWording.runtime(rule: item.finding.rule)
+            if let index = parts.firstIndex(where: { $0.runtime == runtime }) {
+                parts[index].bytes += item.finding.bytes
+            } else {
+                parts.append((runtime, item.finding.bytes))
+            }
+        }
+        return parts
+    }
+
+    private var counting: [Item] { items.filter { $0.effectiveAction != .nativeOnly } }
     /// Items the Trash takes: the space stays used until it is emptied.
     public var trashCount: Int { items.filter { $0.effectiveAction == .trash }.count }
 

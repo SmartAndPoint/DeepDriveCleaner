@@ -76,6 +76,12 @@ impl ExecProgress {
         }
     }
 
+    /// Stops the keep-marker walk mid-tree (Ctrl-C); a target whose walk is
+    /// cancelled counts as kept, so it fails closed.
+    pub fn cancel_walk(&self) {
+        self.walk.cancel();
+    }
+
     pub(crate) fn walk(&self) -> &Progress {
         &self.walk
     }

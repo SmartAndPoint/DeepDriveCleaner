@@ -1,0 +1,818 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProgressLine",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "oneOf": [
+    {
+      "description": "A phase begins; never held back.",
+      "type": "object",
+      "properties": {
+        "event": {
+          "type": "string",
+          "const": "phase"
+        }
+      },
+      "$ref": "#/$defs/PhaseEvent",
+      "required": [
+        "event"
+      ]
+    },
+    {
+      "description": "A walk's counters: at most one every 100 ms, plus each step's final one.",
+      "type": "object",
+      "properties": {
+        "event": {
+          "type": "string",
+          "const": "walk"
+        }
+      },
+      "$ref": "#/$defs/WalkEvent",
+      "required": [
+        "event"
+      ]
+    },
+    {
+      "description": "The clean's item counters: at most one every 100 ms, plus a final one.",
+      "type": "object",
+      "properties": {
+        "event": {
+          "type": "string",
+          "const": "items"
+        }
+      },
+      "$ref": "#/$defs/ItemsEvent",
+      "required": [
+        "event"
+      ]
+    },
+    {
+      "description": "One item's outcome, after its journal record; never held back.",
+      "type": "object",
+      "properties": {
+        "event": {
+          "type": "string",
+          "const": "item"
+        }
+      },
+      "$ref": "#/$defs/ItemEvent",
+      "required": [
+        "event"
+      ]
+    }
+  ],
+  "required": [
+    "schema_version"
+  ],
+  "$defs": {
+    "ActionKind": {
+      "description": "An action as the app and the clean report name it.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "delete",
+            "trash"
+          ]
+        },
+        {
+          "description": "The tool's own command, or the rule's fallback where the tool is missing\nor reports another location.",
+          "type": "string",
+          "const": "native"
+        },
+        {
+          "description": "Only the tool's commands.",
+          "type": "string",
+          "const": "native-only"
+        }
+      ]
+    },
+    "CommandResult": {
+      "type": "object",
+      "properties": {
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "code": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "output": {
+          "description": "Last part of the command's output, for the journal.",
+          "type": "string"
+        },
+        "program": {
+          "type": "string"
+        },
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "program",
+        "args",
+        "success"
+      ]
+    },
+    "CurrentEvent": {
+      "description": "The item in flight.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ActionKind"
+        },
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "i": {
+          "description": "1-based, of `n`.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "path": {
+          "type": "string"
+        },
+        "tool": {
+          "description": "The tool whose command (or location probe) runs now.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "i",
+        "path",
+        "action",
+        "bytes"
+      ]
+    },
+    "EntryLock": {
+      "description": "Why an entry cannot be picked. One type in the scan report and the clean report.",
+      "oneOf": [
+        {
+          "description": "An app manages it; clean it in that app.",
+          "type": "object",
+          "properties": {
+            "app": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "const": "app-managed"
+            }
+          },
+          "required": [
+            "reason",
+            "app"
+          ]
+        },
+        {
+          "description": "A `.ddc-keep` in it, or an exclude at or in it.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "kept"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A protected folder (safety ADR §6) at or inside it.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "protected"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "Another volume is mounted inside it.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "other-volume"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "Added or changed within [`RECENT`] of the scan's start: in use or still arriving.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "recent"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A download still arriving.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "partial-download"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A backup whose `Status.plist` does not say it finished.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "unfinished-backup"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        }
+      ]
+    },
+    "ItemEvent": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ActionKind"
+        },
+        "bytes": {
+          "description": "Allocated bytes as the clean's re-check measured them.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "i": {
+          "description": "1-based, of `n`.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "n": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "const": "deleted"
+            }
+          },
+          "required": [
+            "outcome"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "const": "trashed"
+            }
+          },
+          "required": [
+            "outcome"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "commands": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/CommandResult"
+              }
+            },
+            "outcome": {
+              "type": "string",
+              "const": "native"
+            }
+          },
+          "required": [
+            "outcome",
+            "commands"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "const": "skipped"
+            }
+          },
+          "$ref": "#/$defs/SkipReason",
+          "required": [
+            "outcome"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "error": {
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string",
+              "const": "failed"
+            }
+          },
+          "required": [
+            "outcome",
+            "error"
+          ]
+        },
+        {
+          "description": "Left by a cancel before it started; never journaled.",
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "const": "not-run"
+            }
+          },
+          "required": [
+            "outcome"
+          ]
+        }
+      ],
+      "required": [
+        "i",
+        "n",
+        "path",
+        "action",
+        "bytes"
+      ]
+    },
+    "ItemsEvent": {
+      "type": "object",
+      "properties": {
+        "bytes_done": {
+          "description": "Bytes of the items done, whatever their outcome; `native-only` items\nare in neither byte figure (their space is freed inside a VM image).",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "bytes_total": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "current": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CurrentEvent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "done": {
+          "description": "Items with an outcome; `not-run` items are not counted.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "n": {
+          "description": "Items the executor runs; items refused at the re-check are only in the report.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "done",
+        "n",
+        "bytes_done",
+        "bytes_total"
+      ]
+    },
+    "Phase": {
+      "oneOf": [
+        {
+          "description": "After the lock, before the clean's re-check walk.",
+          "type": "string",
+          "const": "preparing"
+        },
+        {
+          "description": "Immediately before the first action: from here on the clean may touch\nfiles. Written even when no item runs.",
+          "type": "string",
+          "const": "cleaning"
+        }
+      ]
+    },
+    "PhaseEvent": {
+      "type": "object",
+      "properties": {
+        "phase": {
+          "$ref": "#/$defs/Phase"
+        }
+      },
+      "required": [
+        "phase"
+      ]
+    },
+    "SkipReason": {
+      "description": "Why an item was left alone. Serialized into the journal and the clean report.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "missing"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "not-a-directory"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "symlink"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "Same path, different directory than the scan saw.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "changed-since-scan"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A symlink or another directory now sits above the finding.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "parent-changed"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "The rule's marker no longer matches.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "rule-mismatch"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "outside-scan-roots"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "scan-root"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "protected"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "project-root"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "`.ddc-keep` in it or above it.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "kept"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "pid": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "reason": {
+              "type": "string",
+              "const": "in-use"
+            }
+          },
+          "required": [
+            "reason",
+            "pid",
+            "name"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "pid": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "reason": {
+              "type": "string",
+              "const": "in-use-unknown-cwd"
+            }
+          },
+          "required": [
+            "reason",
+            "pid",
+            "name"
+          ]
+        },
+        {
+          "description": "An app that owns the item is running; `name` is its bundle name.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "pid": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "reason": {
+              "type": "string",
+              "const": "owner-running"
+            }
+          },
+          "required": [
+            "reason",
+            "pid",
+            "name"
+          ]
+        },
+        {
+          "description": "`review` and `native-only` items need an interactive confirmation.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "needs-confirmation"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "The plan asks for a method the rule does not allow (user data,\nreport-only, a VM runtime with anything but its prune commands).",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "action-not-allowed"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "Part of it could not be read or another filesystem is mounted inside.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "incomplete"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "program": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "const": "native-unavailable"
+            }
+          },
+          "required": [
+            "reason",
+            "program"
+          ]
+        },
+        {
+          "description": "A picked user-data item that is no longer an entry of its folder.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "not-an-entry"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A picked entry that is locked now.",
+          "type": "object",
+          "properties": {
+            "lock": {
+              "$ref": "#/$defs/EntryLock"
+            },
+            "reason": {
+              "type": "string",
+              "const": "entry-locked"
+            }
+          },
+          "required": [
+            "reason",
+            "lock"
+          ]
+        },
+        {
+          "description": "Inside an entry of the same list that went to the Trash.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "inside-another-item"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        }
+      ]
+    },
+    "WalkEvent": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Allocated bytes so far; a hard-linked file counts once per link until\nthe final tick, which carries the report's totals.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "dirs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "files_expected": {
+          "description": "An estimate: the previous report's files for `recheck`, the executed\nitems' files for `markers` (nested items count twice, a region counts\nless, a picked entry counts none). Absent for `scan`.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "step": {
+          "$ref": "#/$defs/WalkStep"
+        }
+      },
+      "required": [
+        "step",
+        "files",
+        "dirs",
+        "bytes"
+      ]
+    },
+    "WalkStep": {
+      "oneOf": [
+        {
+          "description": "`ddc scan`.",
+          "type": "string",
+          "const": "scan"
+        },
+        {
+          "description": "The clean's re-check of the disk before its plan.",
+          "type": "string",
+          "const": "recheck"
+        },
+        {
+          "description": "The clean's walk of the chosen items for keep markers.",
+          "type": "string",
+          "const": "markers"
+        }
+      ]
+    }
+  }
+}

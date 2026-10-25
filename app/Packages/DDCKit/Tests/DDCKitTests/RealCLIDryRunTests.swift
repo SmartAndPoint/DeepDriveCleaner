@@ -47,6 +47,26 @@ struct RealCLIDryRunTests {
         runner = CLIRunner(executable: wrapper)
     }
 
+    @Test("the real scan's progress lines decode, and the last walk tick is the report's totals")
+    func scanEvents() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let lines = Lines()
+        let scan = await runner.run(.scan, ["scan", "--json", "--progress", "json"]) { lines.append($0) }
+        #expect(scan.outcome == .done)
+        let report = try ScanReport.read(scan.stdout)
+        let events = lines.all.filter { $0.hasPrefix("{") }
+        #expect(!events.isEmpty)
+        let walks = events.compactMap { line -> ProgressEvent.Walk? in
+            guard case .event(.walk(let walk))? = ProgressEvent.read(line) else { return nil }
+            return walk
+        }
+        #expect(walks.count == events.count, "every event line decodes as a scan walk")
+        #expect(walks.allSatisfy { $0.step == .scan && $0.filesExpected == nil })
+        let last = try #require(walks.last)
+        #expect(last.files == report.totals.files && last.dirs == report.totals.dirs && last.bytes == report.totals.scannedBytes)
+        #expect(scan.stderrTail.allSatisfy { !$0.hasPrefix("{") })
+    }
+
     @Test("the dry run accepts the window's list for every selectable finding, Trash or permanent")
     func acceptsTheList() async throws {
         defer { try? FileManager.default.removeItem(at: root) }

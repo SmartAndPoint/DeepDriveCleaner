@@ -17,11 +17,11 @@ use common::fakes::{FakeCommands, FakeProcs, FakeTrash, app_process};
 use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
 use ddc_core::exec::{
-    self, Consent, ExecError, ExecOptions, ExecPhase, ExecProgress, ExecReport, ExecSnapshot, Journal, JournalEntry,
-    MemoryJournal, Outcome, Ports, ProcessTable, SkipReason, SystemProcesses,
+    self, Consent, ExecError, ExecEvents, ExecOptions, ExecPhase, ExecProgress, ExecReport, ExecSnapshot, Journal,
+    JournalEntry, MemoryJournal, Outcome, Ports, ProcessTable, SkipReason, SystemProcesses,
 };
 use ddc_core::model::ScanReport;
-use ddc_core::plan::{Action, Plan, PlanOptions, build_plan};
+use ddc_core::plan::{Action, Plan, PlanItem, PlanOptions, build_plan};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::{Catalog, RULES, owns};
 use ddc_core::scan::{Progress, WalkOptions};
@@ -898,4 +898,113 @@ fn local_snapshots_counted_by_the_caller_run_no_tmutil() {
     let r = fx.run_with(&plan, yes(), &given, &FakeProcs(vec![]), &mut MemoryJournal::default(), &opts);
     assert_eq!(r.local_snapshots, 3);
     assert!(given.calls.borrow().is_empty(), "{:?}", given.calls.borrow());
+}
+
+// Story "CLI: progress events": the hook that writes the lines that must
+// reach stderr in order.
+
+/// The hook's calls and the journal's records, in one log.
+#[derive(Debug, Default)]
+struct Recorder {
+    log: Arc<Mutex<Vec<String>>>,
+}
+
+impl ExecEvents for Recorder {
+    fn cleaning(&self) {
+        self.log.lock().unwrap().push("cleaning".to_owned());
+    }
+    fn item(&self, i: u64, n: u64, item: &PlanItem, outcome: &Outcome) {
+        let bytes = ddc_core::progress::ItemEvent::new(i, n, item, outcome).bytes;
+        self.log.lock().unwrap().push(format!("item {i}/{n} {bytes}"));
+    }
+}
+
+struct LoggedJournal {
+    log: Arc<Mutex<Vec<String>>>,
+    inner: MemoryJournal,
+}
+
+impl Journal for LoggedJournal {
+    fn record(&mut self, entry: &JournalEntry) -> std::io::Result<()> {
+        self.log.lock().unwrap().push("journal".to_owned());
+        self.inner.record(entry)
+    }
+}
+
+#[test]
+fn the_hook_says_cleaning_before_the_first_action_and_each_item_after_its_record() {
+    let fx = Fx::new();
+    fx.node_project("p");
+    fx.node_project("q");
+    fx.t.file("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw", 50_000);
+    let mut plan = fx.plan();
+    select_all(&mut plan);
+    let recorder = Recorder::default();
+    let mut journal = LoggedJournal { log: Arc::clone(&recorder.log), inner: MemoryJournal::default() };
+    let progress = ExecProgress::default();
+    let opts = ExecOptions { progress: Some(&progress), events: Some(&recorder), ..ExecOptions::default() };
+    let docker = FakeCommands::default().with("docker", true, "");
+
+    fx.run_with(&plan, Consent::Interactive, &docker, &FakeProcs(vec![]), &mut journal, &opts);
+
+    let chosen: Vec<_> = plan.items.iter().filter(|i| i.selected).collect();
+    let n = chosen.len();
+    let log = recorder.log.lock().unwrap().clone();
+    let mut expected = vec!["cleaning".to_owned()];
+    for (i, item) in (1..).zip(&chosen) {
+        expected.push("journal".to_owned());
+        expected.push(format!("item {i}/{n} {}", item.finding.bytes));
+    }
+    assert_eq!(log, expected, "cleaning once, before the first record; each item after its own");
+    let native_only: Vec<_> = chosen.iter().filter(|i| matches!(i.action, Action::NativeOnly(_))).collect();
+    assert_eq!(native_only.len(), 1);
+    assert!(native_only[0].finding.bytes > 0, "a native-only item carries its bytes on its item event");
+    let counted: u64 =
+        chosen.iter().filter(|i| !matches!(i.action, Action::NativeOnly(_))).map(|i| i.finding.bytes).sum();
+    assert_eq!(progress.snapshot().bytes_total, counted, "but not in the byte total");
+}
+
+#[test]
+fn the_hook_says_cleaning_with_no_items_and_nothing_when_execute_refuses() {
+    let fx = Fx::new();
+    fx.node_project("p");
+    let mut plan = fx.plan();
+    plan.items.iter_mut().for_each(|i| i.selected = false);
+    let recorder = Recorder::default();
+    let opts = ExecOptions { events: Some(&recorder), ..ExecOptions::default() };
+    fx.run_with(&plan, yes(), &FakeCommands::default(), &FakeProcs(vec![]), &mut MemoryJournal::default(), &opts);
+    assert_eq!(*recorder.log.lock().unwrap(), ["cleaning"]);
+
+    let refused = Recorder::default();
+    let opts = ExecOptions { events: Some(&refused), ..ExecOptions::default() };
+    let trash = FakeTrash(fx.data.path().join("FakeTrash"));
+    let mut journal = MemoryJournal::default();
+    let result = exec::execute(
+        &fx.env(),
+        &Catalog::builtin(fx.t.root()),
+        &fx.plan(),
+        &Consent::AssumeYes { classes: vec![RiskClass::Review] },
+        Ports { commands: &FakeCommands::default(), trash: &trash, procs: &FakeProcs(vec![]), journal: &mut journal },
+        &opts,
+    );
+    assert!(matches!(result, Err(ExecError::ReviewWithYes)));
+    assert!(refused.log.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_cancelled_marker_walk_keeps_its_target() {
+    // The ticker cancels the walk on Ctrl-C; whichever flag the executor sees
+    // first, a target walked only in part must not be cleaned.
+    let fx = Fx::new();
+    let nm = fx.node_project("p");
+    let plan = fx.plan();
+    let progress = ExecProgress::default();
+    progress.cancel_walk();
+    let opts = ExecOptions { progress: Some(&progress), ..ExecOptions::default() };
+
+    let r =
+        fx.run_with(&plan, yes(), &FakeCommands::default(), &FakeProcs(vec![]), &mut MemoryJournal::default(), &opts);
+
+    assert_eq!(outcome(&r, &nm), &Outcome::Skipped(SkipReason::Kept));
+    assert!(nm.exists());
 }

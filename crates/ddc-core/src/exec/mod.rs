@@ -195,6 +195,17 @@ pub struct Ports<'a> {
 /// Native cleanup commands may take long (Go module cache); then they are killed.
 pub const NATIVE_TIMEOUT: Duration = Duration::from_secs(600);
 
+/// Told about the run as it goes, on the executing thread (story "CLI:
+/// progress events"): the progress events that must reach stderr in order.
+pub trait ExecEvents: std::fmt::Debug {
+    /// Once, after the executor's preparation and immediately before the
+    /// first action, even when no item runs; never when `execute` refuses.
+    fn cleaning(&self) {}
+    /// Once per item, after its journal record (at once for a `not-run`
+    /// item, which is never journaled) and after the counter counted it.
+    fn item(&self, _i: u64, _n: u64, _item: &PlanItem, _outcome: &Outcome) {}
+}
+
 /// How a run is steered from outside.
 #[derive(Debug, Clone, Copy)]
 pub struct ExecOptions<'a> {
@@ -207,13 +218,16 @@ pub struct ExecOptions<'a> {
     /// Local snapshots the caller already counted, so `tmutil` runs once;
     /// `None` counts them here.
     pub local_snapshots: Option<usize>,
+    /// Told on the executing thread before the first action and after each
+    /// item (story "CLI: progress events").
+    pub events: Option<&'a dyn ExecEvents>,
 }
 
 static NEVER: AtomicBool = AtomicBool::new(false);
 
 impl Default for ExecOptions<'_> {
     fn default() -> Self {
-        Self { cancel: &NEVER, progress: None, local_snapshots: None }
+        Self { cancel: &NEVER, progress: None, local_snapshots: None, events: None }
     }
 }
 
@@ -250,8 +264,13 @@ pub fn execute(
     let guard = guard::Guard::new(env, catalog, &plan.roots, markers, ports.procs);
     // Entries that went to the Trash: what lies inside them went with them.
     let mut trashed: Vec<PathBuf> = Vec::new();
+    // Before the phase flips, so no item counter reaches stderr ahead of it.
+    if let Some(events) = opts.events {
+        events.cleaning();
+    }
     progress.begin_cleaning();
 
+    let n = chosen.len() as u64;
     for (index, item) in (1..).zip(chosen) {
         let path = &item.finding.path;
         let outcome = if opts.cancelled() {
@@ -284,6 +303,9 @@ pub fn execute(
             recorded?;
         }
         progress.item_finished(item, outcome != Outcome::NotRun);
+        if let Some(events) = opts.events {
+            events.item(index, n, item, &outcome);
+        }
         report.items.push(ItemReport {
             path: item.finding.path.clone(),
             rule: item.finding.rule.clone(),
@@ -448,8 +470,9 @@ pub fn local_snapshots(commands: &dyn CommandRunner) -> usize {
 }
 
 /// Walks everything about to be cleaned, collecting directories that hold a
-/// keep marker at any depth. Fails closed: a target whose walk fails (or that
-/// is no longer a real directory) is reported as kept itself. `walked`
+/// keep marker at any depth. Fails closed: a target whose walk fails or is
+/// cancelled midway is reported as kept itself (one no longer a real
+/// directory is the guard's to skip). `walked`
 /// counts across the targets, for the caller's progress display.
 fn keep_markers(targets: Vec<PathBuf>, opts: &ExecOptions<'_>, walked: &Progress) -> Vec<PathBuf> {
     struct Markers(Mutex<Vec<PathBuf>>);
@@ -472,7 +495,7 @@ fn keep_markers(targets: Vec<PathBuf>, opts: &ExecOptions<'_>, walked: &Progress
             continue; // missing or swapped: the guard skips it anyway
         }
         let result = scan::walk(std::slice::from_ref(&target), &markers, &WalkOptions::default(), walked);
-        if result.is_err() {
+        if !result.is_ok_and(|out| !out.cancelled) {
             markers.0.lock().unwrap_or_else(|p| p.into_inner()).push(target);
         }
     }

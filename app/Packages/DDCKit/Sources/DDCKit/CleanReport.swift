@@ -109,7 +109,7 @@ public struct CleanReport: Decodable, Sendable, Equatable {
         public let outcome: Outcome
 
         private enum CodingKeys: String, CodingKey {
-            case path, dev, ino, rule, `class`, action, permanent, bytes, outcome, commands, error
+            case path, dev, ino, rule, `class`, action, permanent, bytes
         }
 
         public init(from decoder: any Decoder) throws {
@@ -122,16 +122,7 @@ public struct CleanReport: Decodable, Sendable, Equatable {
             action = try c.decode(ListedAction.self, forKey: .action)
             permanent = try c.decodeIfPresent(Bool.self, forKey: .permanent) ?? false
             bytes = try c.decodeIfPresent(UInt64.self, forKey: .bytes)
-            switch try c.decode(String.self, forKey: .outcome) {
-            case "deleted": outcome = .deleted
-            case "trashed": outcome = .trashed
-            case "native": outcome = .native(try c.decode([CommandResult].self, forKey: .commands))
-            case "skipped": outcome = .skipped(try SkipReason(from: decoder.container(keyedBy: SkipReason.CodingKeys.self)))
-            case "failed": outcome = .failed(try c.decode(String.self, forKey: .error))
-            case "not-run": outcome = .notRun
-            case let other:
-                throw DecodingError.dataCorruptedError(forKey: .outcome, in: c, debugDescription: "unknown outcome \(other)")
-            }
+            outcome = try Outcome(from: decoder)
         }
     }
 
@@ -144,6 +135,25 @@ public struct CleanReport: Decodable, Sendable, Equatable {
         case failed(String)
         /// Left by a cancel before it started.
         case notRun
+
+        private enum CodingKeys: String, CodingKey {
+            case outcome, commands, error
+        }
+
+        /// Reads the outcome flattened into an item: the report's, or a progress event's.
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            switch try c.decode(String.self, forKey: .outcome) {
+            case "deleted": self = .deleted
+            case "trashed": self = .trashed
+            case "native": self = .native(try c.decode([CommandResult].self, forKey: .commands))
+            case "skipped": self = .skipped(try SkipReason(from: decoder.container(keyedBy: SkipReason.CodingKeys.self)))
+            case "failed": self = .failed(try c.decode(String.self, forKey: .error))
+            case "not-run": self = .notRun
+            case let other:
+                throw DecodingError.dataCorruptedError(forKey: .outcome, in: c, debugDescription: "unknown outcome \(other)")
+            }
+        }
     }
 
     public struct CommandResult: Decodable, Sendable, Equatable {

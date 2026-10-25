@@ -66,6 +66,9 @@ pub struct ScanArgs {
     /// Worker threads (default: available parallelism).
     #[arg(long)]
     pub threads: Option<usize>,
+    /// Write progress events to stderr, one JSON line each (docs/progress.schema.json).
+    #[arg(long, value_enum, value_name = "FORMAT", conflicts_with = "background")]
+    pub progress: Option<ProgressFormat>,
     /// Run as the scheduled background agent: no output, skip TCC-protected folders, notify.
     #[arg(long, hide = true)]
     pub background: bool,
@@ -137,6 +140,11 @@ pub enum NotifyFormat {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ProgressFormat {
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum IntervalArg {
     Daily,
     Weekly,
@@ -182,6 +190,9 @@ pub struct CleanArgs {
     /// With --items: the report as JSON (with --dry-run, one JSON line per item).
     #[arg(long, requires = "items")]
     pub json: bool,
+    /// Write progress events to stderr, one JSON line each (docs/progress.schema.json).
+    #[arg(long, value_enum, value_name = "FORMAT")]
+    pub progress: Option<ProgressFormat>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

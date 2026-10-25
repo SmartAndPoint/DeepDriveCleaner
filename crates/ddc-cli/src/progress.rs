@@ -1,14 +1,255 @@
-//! Live progress line on stderr while a scan or a clean runs (terminals only).
+//! Progress on stderr while a scan or a clean runs: a live line on a terminal,
+//! or with `--progress json` one event per line for the app (story "CLI:
+//! progress events"; schema `docs/progress.schema.json`).
 
-use std::io::{IsTerminal as _, Write as _};
+use std::io::{IsTerminal as _, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::{Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
-use ddc_core::exec::{ExecPhase, ExecProgress, ExecSnapshot};
+use ddc_core::exec::{ExecEvents, ExecPhase, ExecProgress, ExecSnapshot, Outcome};
+use ddc_core::model::Totals;
+use ddc_core::plan::PlanItem;
+use ddc_core::progress::{ItemEvent, ItemsEvent, Phase, PhaseEvent, ProgressEvent, ProgressLine, WalkEvent, WalkStep};
 use ddc_core::scan::Progress;
 
 use crate::{render, size};
+
+/// How often the JSON ticker looks; the emitter sends at most one tick per [`GAP`].
+const TICK: Duration = Duration::from_millis(50);
+/// The least time between two ticks; phase and item lines are never held back.
+const GAP: Duration = Duration::from_millis(100);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Off,
+    /// The live line, on a terminal.
+    Line,
+    /// `--progress json`.
+    Json,
+}
+
+/// The progress of one command, in the mode its stderr and flags call for.
+#[derive(Debug)]
+pub struct Reporter {
+    mode: Mode,
+    emitter: Emitter,
+}
+
+impl Reporter {
+    /// JSON when asked, else the live line when stderr is a terminal, else nothing.
+    pub fn new(json: bool) -> Self {
+        let mode = if json {
+            Mode::Json
+        } else if std::io::stderr().is_terminal() {
+            Mode::Line
+        } else {
+            Mode::Off
+        };
+        Self { mode, emitter: Emitter::to(Box::new(std::io::stderr())) }
+    }
+
+    pub fn phase(&self, phase: Phase) {
+        if self.mode == Mode::Json {
+            self.emitter.phase(phase);
+        }
+    }
+
+    /// Runs `f`, a walk counted by `progress`: the spinner with `label`, or
+    /// `walk` ticks of `step`.
+    pub fn walk<T>(
+        &self,
+        progress: &Progress,
+        label: &str,
+        step: WalkStep,
+        files_expected: Option<u64>,
+        f: impl FnOnce() -> T,
+    ) -> T {
+        match self.mode {
+            Mode::Off => f(),
+            Mode::Line => with_spinner(progress, label, f),
+            Mode::Json => ticker(
+                TICK,
+                |_| self.emitter.walk(WalkEvent::new(step, progress.snapshot(), files_expected), Instant::now(), false),
+                || {},
+                f,
+            ),
+        }
+    }
+
+    /// The walk's final tick, from the finished report's totals: exact, where
+    /// the live byte count counted a hard-linked file once per link.
+    pub fn walk_done(&self, step: WalkStep, totals: &Totals, files_expected: Option<u64>) {
+        if self.mode == Mode::Json {
+            let event =
+                WalkEvent { step, files: totals.files, dirs: totals.dirs, bytes: totals.scanned_bytes, files_expected };
+            self.emitter.walk(event, Instant::now(), true);
+        }
+    }
+
+    /// Runs `f`, the executor, with the hook it passes on to `execute`. A
+    /// cancel seen by the ticker also stops the keep-marker walk mid-tree.
+    pub fn clean<T>(
+        &self,
+        progress: &ExecProgress,
+        home: &Path,
+        cancel: &AtomicBool,
+        f: impl FnOnce(Option<&dyn ExecEvents>) -> T,
+    ) -> T {
+        match self.mode {
+            Mode::Off => f(None),
+            Mode::Line => with_clean_line(progress, home, cancel, || f(None)),
+            Mode::Json => {
+                let sink = JsonEvents { emitter: &self.emitter, progress };
+                let result = ticker(
+                    TICK,
+                    |_| {
+                        if cancel.load(Ordering::SeqCst) {
+                            progress.cancel_walk();
+                        }
+                        self.emitter.exec_tick(progress, Instant::now(), false);
+                    },
+                    || {},
+                    || f(Some(&sink)),
+                );
+                self.emitter.exec_tick(progress, Instant::now(), true);
+                result
+            }
+        }
+    }
+}
+
+/// The executor's hook in JSON mode: the lines that must reach stderr in
+/// order, written on the executing thread.
+#[derive(Debug)]
+struct JsonEvents<'a> {
+    emitter: &'a Emitter,
+    progress: &'a ExecProgress,
+}
+
+impl ExecEvents for JsonEvents<'_> {
+    fn cleaning(&self) {
+        self.emitter.cleaning(self.progress);
+    }
+    fn item(&self, i: u64, n: u64, item: &PlanItem, outcome: &Outcome) {
+        self.emitter.item(ItemEvent::new(i, n, item, outcome));
+    }
+}
+
+/// Writes the events, one JSON line each, in one order. All of its state
+/// sits under one lock, taken before any counter's snapshot: the ticker's
+/// ticks and the hook's lines never interleave, a tick never repeats, no
+/// `items` tick comes before `phase cleaning` and no `walk` tick after it.
+pub struct Emitter {
+    state: Mutex<EmitterState>,
+}
+
+struct EmitterState {
+    out: Box<dyn Write + Send>,
+    last_tick: Option<Instant>,
+    last_walk: Option<WalkEvent>,
+    last_items: Option<ItemsEvent>,
+    cleaning: bool,
+}
+
+impl std::fmt::Debug for Emitter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Emitter").finish_non_exhaustive()
+    }
+}
+
+impl Emitter {
+    pub fn to(out: Box<dyn Write + Send>) -> Self {
+        Self {
+            state: Mutex::new(EmitterState {
+                out,
+                last_tick: None,
+                last_walk: None,
+                last_items: None,
+                cleaning: false,
+            }),
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, EmitterState> {
+        self.state.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    pub fn phase(&self, phase: Phase) {
+        let mut state = self.lock();
+        state.cleaning |= phase == Phase::Cleaning;
+        state.write(ProgressEvent::Phase(PhaseEvent { phase }));
+    }
+
+    /// A `walk` tick: dropped once `cleaning` is out, when unchanged, or,
+    /// unless it is a step's last, within [`GAP`] of the previous tick.
+    pub fn walk(&self, event: WalkEvent, now: Instant, last: bool) {
+        self.lock().walk(event, now, last);
+    }
+
+    /// The ticker's look at the executor: `walk markers` while it prepares,
+    /// `items` once `phase cleaning` is out.
+    pub fn exec_tick(&self, progress: &ExecProgress, now: Instant, last: bool) {
+        let mut state = self.lock();
+        let snap = progress.snapshot();
+        if state.cleaning {
+            state.items(ItemsEvent::from(&snap), now, last);
+        } else if snap.phase == ExecPhase::Preparing && !last {
+            state.walk(markers(&snap), now, false);
+        }
+    }
+
+    /// The hook's `cleaning`: the marker walk's final tick, then the phase.
+    fn cleaning(&self, progress: &ExecProgress) {
+        let mut state = self.lock();
+        let snap = progress.snapshot();
+        state.walk(markers(&snap), Instant::now(), true);
+        state.cleaning = true;
+        state.write(ProgressEvent::Phase(PhaseEvent { phase: Phase::Cleaning }));
+    }
+
+    pub fn item(&self, event: ItemEvent) {
+        self.lock().write(ProgressEvent::Item(event));
+    }
+}
+
+fn markers(snap: &ExecSnapshot) -> WalkEvent {
+    WalkEvent::new(WalkStep::Markers, snap.walked, Some(snap.walk_expected))
+}
+
+impl EmitterState {
+    fn walk(&mut self, event: WalkEvent, now: Instant, last: bool) {
+        if self.cleaning || self.last_walk.as_ref() == Some(&event) || !(last || self.due(now)) {
+            return;
+        }
+        self.last_tick = Some(now);
+        self.last_walk = Some(event.clone());
+        self.write(ProgressEvent::Walk(event));
+    }
+
+    fn items(&mut self, event: ItemsEvent, now: Instant, last: bool) {
+        if self.last_items.as_ref() == Some(&event) || !(last || self.due(now)) {
+            return;
+        }
+        self.last_tick = Some(now);
+        self.last_items = Some(event.clone());
+        self.write(ProgressEvent::Items(event));
+    }
+
+    fn due(&self, now: Instant) -> bool {
+        self.last_tick.is_none_or(|t| now.saturating_duration_since(t) >= GAP)
+    }
+
+    /// One line, one write, flushed; errors ignored: a closed stderr never
+    /// fails a clean.
+    fn write(&mut self, event: ProgressEvent) {
+        let Ok(mut line) = serde_json::to_vec(&ProgressLine::new(event)) else { return };
+        line.push(b'\n');
+        let _ = self.out.write_all(&line);
+        let _ = self.out.flush();
+    }
+}
 
 /// Runs `f`, drawing a spinner with counters from `progress` when stderr is a terminal.
 pub fn with_spinner<T>(progress: &Progress, label: &str, f: impl FnOnce() -> T) -> T {
@@ -23,9 +264,13 @@ pub fn with_spinner<T>(progress: &Progress, label: &str, f: impl FnOnce() -> T) 
 
 /// Runs `f` (the executor), drawing the clean's progress from `progress`
 /// when stderr is a terminal (story "Progress output while ddc clean runs").
-pub fn with_clean_line<T>(progress: &ExecProgress, home: &Path, f: impl FnOnce() -> T) -> T {
+/// A cancel it sees also stops the keep-marker walk mid-tree.
+pub fn with_clean_line<T>(progress: &ExecProgress, home: &Path, cancel: &AtomicBool, f: impl FnOnce() -> T) -> T {
     spin(
         |frame| {
+            if cancel.load(Ordering::SeqCst) {
+                progress.cancel_walk();
+            }
             let columns = ddc_core::sys::term::stderr_columns().map_or(80, usize::from);
             // The frame and its space, counted wide, and one spare column so a
             // terminal that wraps at the last column early never wraps the line.
@@ -113,9 +358,27 @@ fn spin<T>(line: impl Fn(char) -> String + Sync, f: impl FnOnce() -> T) -> T {
     if !std::io::stderr().is_terminal() {
         return f();
     }
+    fn draw(text: &str) {
+        let mut err = std::io::stderr().lock();
+        let _ = err.write_all(text.as_bytes());
+        let _ = err.flush();
+    }
+    const FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    ticker(
+        Duration::from_millis(120),
+        |i| draw(&format!("\r\x1b[2K{}", line(FRAMES[i % FRAMES.len()]))),
+        || draw("\r\x1b[2K"),
+        f,
+    )
+}
+
+/// Calls `tick(i)` every `period` on its own thread while `f` runs, then
+/// `end()` there once `f` returned.
+fn ticker<T>(period: Duration, tick: impl Fn(usize) + Sync, end: impl FnOnce() + Send, f: impl FnOnce() -> T) -> T {
     let done = AtomicBool::new(false);
-    /// Stops the spinner even if `f` panics (the scope waits for the thread),
-    /// and wakes it so the line clears at once.
+    let done = &done;
+    /// Stops the ticker even if `f` panics (the scope waits for the thread),
+    /// and wakes it so it ends at once.
     struct Stop<'a>(&'a AtomicBool, std::thread::Thread);
     impl Drop for Stop<'_> {
         fn drop(&mut self) {
@@ -123,23 +386,18 @@ fn spin<T>(line: impl Fn(char) -> String + Sync, f: impl FnOnce() -> T) -> T {
             self.1.unpark();
         }
     }
-    fn draw(text: &str) {
-        let mut err = std::io::stderr().lock();
-        let _ = err.write_all(text.as_bytes());
-        let _ = err.flush();
-    }
     std::thread::scope(|s| {
-        let spinner = s.spawn(|| {
-            const FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+        let tick = &tick;
+        let thread = s.spawn(move || {
             let mut i = 0;
             while !done.load(Ordering::Relaxed) {
-                draw(&format!("\r\x1b[2K{}", line(FRAMES[i % FRAMES.len()])));
+                tick(i);
                 i += 1;
-                std::thread::park_timeout(Duration::from_millis(120));
+                std::thread::park_timeout(period);
             }
-            draw("\r\x1b[2K");
+            end();
         });
-        let _stop = Stop(&done, spinner.thread().clone());
+        let _stop = Stop(done, thread.thread().clone());
         f()
     })
 }
@@ -147,6 +405,7 @@ fn spin<T>(line: impl Fn(char) -> String + Sync, f: impl FnOnce() -> T) -> T {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     use ddc_core::class::Category;
     use ddc_core::exec::CurrentItem;
@@ -244,5 +503,89 @@ mod tests {
             assert!(columns(&line) <= width, "{width}: {line:?}");
             assert!(line.ends_with("__pycache__"), "{width}: {line:?}");
         }
+    }
+
+    /// A stderr the test can read back.
+    #[derive(Clone, Default)]
+    struct Buf(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Buf {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Buf {
+        fn events(&self) -> Vec<serde_json::Value> {
+            let bytes = self.0.lock().unwrap().clone();
+            String::from_utf8(bytes).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect()
+        }
+    }
+
+    fn walk(files: u64) -> WalkEvent {
+        WalkEvent { step: WalkStep::Scan, files, dirs: 1, bytes: 0, files_expected: None }
+    }
+
+    fn item(i: u64) -> ItemEvent {
+        let path = PathBuf::from("/Users/example/p/node_modules");
+        ItemEvent { i, n: 9, path, action: ActionKind::Delete, bytes: 1, outcome: Outcome::Deleted }
+    }
+
+    #[test]
+    fn ticks_are_at_least_100_ms_apart_but_last_ticks_phases_and_items_never_wait() {
+        let buf = Buf::default();
+        let emitter = Emitter::to(Box::new(buf.clone()));
+        let start = Instant::now();
+        let mut sent = Vec::new();
+        // A changing count every 10 ms for 2 s.
+        for k in 0..200 {
+            let now = start + Duration::from_millis(10 * k);
+            let before = buf.events().len();
+            emitter.walk(walk(k + 1), now, false);
+            if buf.events().len() > before {
+                sent.push(now);
+                // An item line right after a tick: written at once, and the gap is left alone.
+                if sent.len() == 5 {
+                    emitter.item(item(5));
+                    assert_eq!(buf.events().last().unwrap()["event"], "item");
+                }
+            }
+        }
+        assert!((15..=21).contains(&sent.len()), "{} ticks", sent.len());
+        assert!(sent.windows(2).all(|w| w[1] - w[0] >= GAP));
+        assert_eq!(sent[5] - sent[4], GAP, "the item line did not delay the next tick");
+
+        let after = start + Duration::from_millis(1995);
+        emitter.walk(walk(5000), after, true);
+        emitter.walk(walk(5000), after, true);
+        emitter.phase(Phase::Cleaning);
+        let events = buf.events();
+        let tail: Vec<_> = events[events.len() - 2..].iter().map(|e| e["event"].as_str().unwrap()).collect();
+        assert_eq!(tail, ["walk", "phase"], "the last tick at once, and once; the phase at once");
+        assert_eq!(events[events.len() - 2]["files"], 5000);
+    }
+
+    #[test]
+    fn no_items_tick_before_cleaning_and_no_walk_tick_after_it() {
+        let buf = Buf::default();
+        let emitter = Emitter::to(Box::new(buf.clone()));
+        let progress = ExecProgress::default();
+        let start = Instant::now();
+        let at = |ms| start + Duration::from_millis(ms);
+
+        emitter.exec_tick(&progress, at(0), false);
+        emitter.exec_tick(&progress, at(500), false);
+        emitter.phase(Phase::Cleaning);
+        emitter.walk(walk(9), at(1000), true);
+        emitter.exec_tick(&progress, at(1500), false);
+        emitter.exec_tick(&progress, at(2000), true);
+
+        let kinds: Vec<_> = buf.events().iter().map(|e| e["event"].as_str().unwrap().to_owned()).collect();
+        assert_eq!(kinds, ["walk", "phase", "items"], "an unchanged tick is not repeated, even as the last one");
+        assert_eq!(buf.events()[0]["step"], "markers");
     }
 }

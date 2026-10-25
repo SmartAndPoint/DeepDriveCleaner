@@ -132,6 +132,22 @@ struct ContractTests {
         #expect(String(marker.1) == KeepMarker.name)
     }
 
+    @Test("the progress events are the CLI's: version, event names, phases, walk steps, reasons and actions")
+    func progressContracts() throws {
+        let source = try rustSource("crates/ddc-core/src/progress.rs")
+        let version = try #require(source.firstMatch(of: /pub const PROGRESS_SCHEMA_VERSION: u32 = (\d+);/))
+        #expect(Int(version.1) == ProgressEvent.schemaVersion)
+        let progress = try schema("progress")
+        let branches = try #require(progress["oneOf"] as? [[String: Any]])
+        let events = branches.compactMap { (($0["properties"] as? [String: Any])?["event"] as? [String: Any])?["const"] as? String }
+        #expect(events.count == branches.count)
+        #expect(Set(events) == Set(ProgressEvent.names))
+        #expect(Set(try values(progress, "Phase")) == Set(ProgressEvent.Phase.allCases.map(\.rawValue)))
+        #expect(Set(try values(progress, "WalkStep")) == Set(ProgressEvent.WalkStep.allCases.map(\.rawValue)))
+        #expect(Set(try values(progress, "SkipReason", key: "reason")) == Set(SkipReason.tags))
+        #expect(Set(try values(progress, "ActionKind")) == Set(ListedAction.allCases.map(\.rawValue)))
+    }
+
     @Test("every enum value the schemas list is one the app decodes")
     func schemaEnums() throws {
         let clean = try schema("clean")

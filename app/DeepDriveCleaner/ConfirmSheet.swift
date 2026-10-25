@@ -15,7 +15,7 @@ struct ConfirmSheet: View {
                 case .confirm:
                     ConfirmView(model: model, sheet: sheet)
                 case .cleaning(let phase):
-                    CleaningView(model: model, phase: phase, confirmation: sheet.confirmation)
+                    CleaningView(model: model, phase: phase, confirmation: sheet.confirmation, progress: sheet.progress)
                 case .result(let result):
                     CleanResultView(result: result, done: model.closeSheet)
                 case .stopped(let text, let journal):
@@ -40,6 +40,9 @@ private struct ConfirmView: View {
                 Text("Clean \(Wording.items(confirmation.items.count))?").font(.system(size: 20, weight: .semibold))
                 Text("\(ByteSize.human(confirmation.bytes)) selected · frees about \(ByteSize.human(confirmation.reclaimable))")
                     .foregroundStyle(.secondary)
+                if let notCounted = CleanWording.notCounted(confirmation) {
+                    Text(notCounted).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             VStack(spacing: 0) {
@@ -176,17 +179,40 @@ private struct ConfirmView: View {
     }
 }
 
+/// Step 1, the CLI's re-check, then step 2, the items (artboard 11). Without
+/// events yet the bar is indeterminate.
 private struct CleaningView: View {
     @Bindable var model: ReviewModel
     let phase: ReviewModel.Phase
     let confirmation: DDCKit.Confirmation
+    let progress: CleanProgress?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(title).font(.system(size: 20, weight: .semibold))
-            ProgressView().progressViewStyle(.linear)
+            VStack(alignment: .leading, spacing: 2) {
+                if let step {
+                    Text(step).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                }
+                Text(title).font(.system(size: 20, weight: .semibold))
+            }
+            bar
+            if let current = items?.current {
+                HStack(spacing: 6) {
+                    Text("Now:").foregroundStyle(.secondary)
+                    Text(CleanWording.now(current, home: confirmation.home))
+                        .font(.system(size: 12, design: current.tool == nil ? .default : .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    if current.tool == nil {
+                        Text(ByteSize.human(current.bytes)).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                }
+                .font(.system(size: 12))
+            }
+            Text(detail).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {
-                Text("\(Wording.items(confirmation.items.count)) · \(ByteSize.human(confirmation.bytes))")
+                Text("\(Wording.items(confirmation.items.count)) · \(ByteSize.human(confirmation.bytes)) confirmed")
                 Spacer()
                 if let since {
                     TimelineView(.periodic(from: since, by: 1)) { context in
@@ -197,7 +223,6 @@ private struct CleaningView: View {
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
             .monospacedDigit()
-            Text(detail).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Text("You can keep working meanwhile; the menu bar icon turns until the clean ends.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
@@ -211,11 +236,69 @@ private struct CleaningView: View {
         }
     }
 
+    /// The item counters, once the CLI has begun cleaning; `.stopping` keeps them.
+    private var items: CleanProgress? {
+        guard let progress, progress.cleaning else { return nil }
+        switch phase {
+        case .cleaning, .stopping: return progress.counting(items: confirmation.items.count, bytes: confirmation.counted)
+        case .waiting, .preparing: return nil
+        }
+    }
+
+    /// Step 1's walk while the CLI re-checks.
+    private var walk: CleanProgress.Walk? {
+        guard case .preparing = phase, let progress, !progress.cleaning else { return nil }
+        return progress.walk
+    }
+
+    @ViewBuilder private var bar: some View {
+        if let items {
+            VStack(alignment: .leading, spacing: 6) {
+                CleanBar(fraction: items.fraction, inFlight: items.inFlight)
+                HStack {
+                    Text(CleanWording.counterLine(items))
+                    Spacer()
+                    Text(CleanWording.percent(items.fraction))
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+            }
+        } else if let walk {
+            VStack(alignment: .leading, spacing: 6) {
+                if let fraction = progress?.walkFraction {
+                    CleanBar(fraction: fraction, inFlight: 0)
+                } else {
+                    ProgressView().progressViewStyle(.linear)
+                }
+                HStack {
+                    Text(CleanWording.walkLine(walk))
+                    Spacer()
+                    if let fraction = progress?.walkFraction { Text(CleanWording.percent(fraction)) }
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+            }
+        } else {
+            ProgressView().progressViewStyle(.linear)
+        }
+    }
+
+    private var step: String? {
+        guard progress != nil else { return nil }
+        switch phase {
+        case .preparing: return "Step 1 of 2"
+        case .cleaning: return "Step 2 of 2"
+        case .waiting, .stopping: return nil
+        }
+    }
+
     private var title: String {
         switch phase {
         case .waiting: "Waiting for the running scan…"
-        case .preparing: "Preparing…"
-        case .cleaning: "Cleaning…"
+        case .preparing: progress == nil ? "Preparing…" : "Checking again"
+        case .cleaning: progress == nil ? "Cleaning…" : "Cleaning"
         case .stopping: "Stopping after the current item…"
         }
     }
@@ -223,8 +306,8 @@ private struct CleaningView: View {
     private var detail: String {
         switch phase {
         case .waiting: "The clean starts when the scan ends. Stop now and it never starts."
-        case .preparing: "Checking the selected folders again before anything is touched."
-        case .cleaning: "Removing the confirmed items one by one. Stop ends it after the current item."
+        case .preparing: progress == nil ? "Checking the selected folders again before anything is touched." : CleanWording.walkDetail(walk?.step)
+        case .cleaning: items.map(CleanWording.cleaningNote) ?? "Removing the confirmed items one by one. Stop ends it after the current item."
         case .stopping: "Nothing after the current item is touched."
         }
     }
@@ -233,6 +316,67 @@ private struct CleaningView: View {
         switch phase {
         case .preparing(let since), .cleaning(let since): since
         case .waiting, .stopping: nil
+        }
+    }
+}
+
+/// A determinate bar with the item in flight striped after it; the stripes
+/// hold still under Reduce Motion.
+private struct CleanBar: View {
+    let fraction: Double
+    let inFlight: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.secondary.opacity(0.2))
+                HStack(spacing: 0) {
+                    Rectangle().fill(Color.accentColor).frame(width: width * fraction)
+                    if inFlight > 0 {
+                        Stripes(moving: !reduceMotion).frame(width: width * inFlight)
+                    }
+                }
+                .clipShape(Capsule())
+            }
+        }
+        .frame(height: 6)
+        .accessibilityElement()
+        .accessibilityLabel("Clean progress")
+        .accessibilityValue(CleanWording.percent(fraction))
+    }
+}
+
+private struct Stripes: View {
+    let moving: Bool
+
+    var body: some View {
+        if moving {
+            TimelineView(.animation) { context in
+                pattern(offset: context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1) * Self.period)
+            }
+        } else {
+            pattern(offset: 0)
+        }
+    }
+
+    private static let period = 8.0
+
+    private func pattern(offset: Double) -> some View {
+        Canvas { context, size in
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color.accentColor.opacity(0.35)))
+            var x = offset - Self.period - size.height
+            while x < size.width {
+                var stripe = Path()
+                stripe.move(to: CGPoint(x: x, y: size.height))
+                stripe.addLine(to: CGPoint(x: x + size.height, y: 0))
+                stripe.addLine(to: CGPoint(x: x + size.height + Self.period / 2, y: 0))
+                stripe.addLine(to: CGPoint(x: x + Self.period / 2, y: size.height))
+                stripe.closeSubpath()
+                context.fill(stripe, with: .color(.accentColor))
+                x += Self.period
+            }
         }
     }
 }

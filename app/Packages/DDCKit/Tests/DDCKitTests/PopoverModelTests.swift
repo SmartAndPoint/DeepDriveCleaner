@@ -15,6 +15,38 @@ struct PopoverModelTests {
 
     // MARK: Scan now
 
+    @Test("a running scan shows the files its walk events count; without events only the elapsed time shows")
+    func scanFileCount() async throws {
+        let report = FakeRunner.done(try Fixture.data("scan-report-groups"))
+        let runner = FakeRunner(scan: report, blocks: true)
+        await runner.reply(scanLines: [
+            "ddc: warning: a folder could not be read",
+            #"{"schema_version":1,"event":"walk","step":"scan","files":45600,"dirs":900,"bytes":8192}"#,
+            #"{"schema_version":1,"event":"walk","step":"scan","files":1200,"dirs":80,"bytes":4096}"#,
+            #"{"schema_version":2,"event":"walk","step":"scan","files":99999,"dirs":1,"bytes":1}"#,
+        ])
+        let model = try makeModel(runner: runner, data: data, defaults: defaults)
+        await model.start()
+        let scan = Task { await model.scanNow() }
+        try await runner.waitForScan()
+        try await until("the file count") { model.scan?.files == 45600 }
+        #expect(await runner.arguments.last == ["scan", "--json", "--progress", "json"])
+        await runner.finishScan()
+        await scan.value
+        #expect(model.scan == nil)
+
+        let silent = FakeRunner(scan: report, blocks: true)
+        let other = try makeModel(runner: silent, data: data, defaults: defaults)
+        await other.start()
+        let second = Task { await other.scanNow() }
+        try await silent.waitForScan()
+        await Task.yield()
+        #expect(other.scan?.files == nil)
+        #expect(other.scan?.started != nil)
+        await silent.finishScan()
+        await second.value
+    }
+
     @Test("pressing Scan now twice while a scan runs asks the runner once and shows the running scan")
     func scanNowJoins() async throws {
         let started = Date(timeIntervalSince1970: 1_800_000_000)

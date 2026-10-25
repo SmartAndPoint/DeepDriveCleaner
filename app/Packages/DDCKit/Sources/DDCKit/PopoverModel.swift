@@ -35,9 +35,10 @@ public final class PopoverModel {
         public let text: String
     }
 
-    /// The running scan; `files` arrives with "CLI: progress events".
+    /// The running scan.
     public struct ScanProgress: Equatable, Sendable {
         public let started: Date
+        /// Files read so far, from the CLI's `walk` events; nil before the first.
         public var files: UInt64?
     }
 
@@ -343,7 +344,28 @@ public final class PopoverModel {
         clearNotice("busy")
         scan = ScanProgress(started: clock(), files: nil)
         log("scan started")
-        let result = await runner.run(.scan, ["scan", "--json"], stderrLine: nil)
+        let (lines, sink) = AsyncStream<ProgressEvent.Line>.makeStream()
+        let consumer = Task { @MainActor in
+            var otherVersion = false
+            for await line in lines {
+                switch line {
+                case .event(.walk(let walk)) where walk.step == .scan:
+                    let files = max(scan?.files ?? 0, walk.files)
+                    scan?.files = files
+                case .otherVersion(let version):
+                    if !otherVersion { log("progress events of schema \(version) ignored") }
+                    otherVersion = true
+                case .event:
+                    break
+                }
+            }
+        }
+        // On the runner's reader thread: decode and yield, never wait.
+        let result = await runner.run(.scan, ["scan", "--json", "--progress", "json"]) { line in
+            if let read = ProgressEvent.read(line) { sink.yield(read) }
+        }
+        sink.finish()
+        await consumer.value
         now = clock()
         probeAccess()
         if let message = CLIFailure.message(result.outcome, stderrTail: result.stderrTail) {

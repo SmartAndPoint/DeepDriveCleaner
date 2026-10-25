@@ -28,12 +28,13 @@ public final class ReviewModel: ReviewRouting {
         case failed(String)
     }
 
-    /// Where a clean is (story "CLI: progress events" adds item `i` of `n`).
+    /// Where a clean is; `Sheet.progress` says how far (story "CLI: progress events").
     public enum Phase: Sendable, Equatable {
         /// Behind another run of the CLI.
         case waiting
-        /// The CLI's rescan of the listed items.
+        /// Step 1: the CLI's re-check of the listed items, then its keep-marker walk.
         case preparing(since: Date)
+        /// Step 2: from the `cleaning` event on, the CLI may touch files.
         case cleaning(since: Date)
         /// Cancel was pressed: the CLI stops after the current item.
         case stopping
@@ -54,6 +55,9 @@ public final class ReviewModel: ReviewRouting {
         /// The dry run's prediction per row id.
         public internal(set) var predictions: [Int: Prediction]
         public internal(set) var stage: Stage
+        /// The clean's events so far; nil until the first one (a CLI that
+        /// writes none leaves the bar indeterminate).
+        public internal(set) var progress: CleanProgress?
     }
 
     /// Nil without a report: the window says to scan first.
@@ -354,7 +358,10 @@ public final class ReviewModel: ReviewRouting {
         let selectable = scope.filter { items?.row($0)?.selectable == true }.count
         return Wording.scopeSummary(selected: rows.count, of: selectable, bytes: rows.reduce(0) { $0 + $1.finding.bytes })
     }
-    public var selectedReclaimable: UInt64 { selectedRows.reduce(0) { $0 + $1.finding.reclaimableBytes } }
+    /// "frees about": `native-only` items left out, as `Confirmation.reclaimable` does.
+    public var selectedReclaimable: UInt64 {
+        selectedRows.filter { $0.action != .nativeOnly }.reduce(0) { $0 + $1.finding.reclaimableBytes }
+    }
 
     /// "Protect this folder", after its confirmation: the marker, then the row
     /// can no longer be selected.
@@ -394,7 +401,7 @@ public final class ReviewModel: ReviewRouting {
         }
         let confirmation = Confirmation(items, selection: picked, deletePermanently: preferences.deleteReviewPermanently)
         guard !confirmation.items.isEmpty else { return }
-        sheet = Sheet(confirmation: confirmation, warnings: .waiting, predictions: [:], stage: .confirm)
+        sheet = Sheet(confirmation: confirmation, warnings: .waiting, predictions: [:], stage: .confirm, progress: nil)
         checkWarnings()
     }
 

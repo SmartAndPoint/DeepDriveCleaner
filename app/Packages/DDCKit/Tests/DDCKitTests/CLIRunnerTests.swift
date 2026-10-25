@@ -70,6 +70,25 @@ struct CLIRunnerTests {
         #expect(result.stderrTail.count == CLIRunner.tailLines)
     }
 
+    @Test("progress events reach the line callback but stay out of the stderr tail")
+    func eventsLeaveTheTail() async throws {
+        let fake = try FakeCLI()
+        let runner = CLIRunner(executable: fake.executable)
+        let stderr = """
+            ddc: warning: one
+            {"schema_version":1,"event":"phase","phase":"preparing"}
+            ddc: two
+
+            """
+        try fake.put("stderr.txt", Data(stderr.utf8))
+        let lines = Lines()
+
+        let result = await runner.run(.scan, ["stderr", fake.directory.appending(path: "stderr.txt").path]) { lines.append($0) }
+
+        #expect(lines.all == ["ddc: warning: one", #"{"schema_version":1,"event":"phase","phase":"preparing"}"#, "ddc: two"])
+        #expect(result.stderrTail == ["ddc: warning: one", "ddc: two"])
+    }
+
     @Test("exit statuses map to outcomes", arguments: [
         (Int32(0), RunOutcome.done),
         (1, .error(status: 1)),

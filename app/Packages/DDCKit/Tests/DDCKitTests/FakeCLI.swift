@@ -12,13 +12,16 @@ import Synchronization
 /// - `exit <status>`: exit with that status;
 /// - `flood`: 1 MiB to stderr, then 1 MiB to stdout, 64-byte lines;
 /// - `report <file>`: print the file;
+/// - `stderr <file>`: print the file to stderr;
 /// - `crash`: kill itself with SIGABRT;
-/// - `clean --items <file> [--dry-run] --json`: copies the list to
-///   `items-<n>.json`. The dry run prints `dry-run.jsonl`, waiting for gate
-///   `line-<i>` before line `i` when `dry-run.gated` exists, and exits with
-///   `dry-run.exit` when that exists. The clean waits for `clean-start`, then
-///   copies `rescan.json` over `lastScan` as the CLI saves its rescan, waits
-///   for `clean-go`, and exits with `clean.exit` when that exists, else prints
+/// - `clean --items <file> [--dry-run] --json [--progress json]`: copies the
+///   list to `items-<n>.json`. The dry run prints `dry-run.jsonl`, waiting for
+///   gate `line-<i>` before line `i` when `dry-run.gated` exists, and exits
+///   with `dry-run.exit` when that exists. The clean waits for `clean-start`,
+///   then copies `rescan.json` over `lastScan` as the CLI saves its rescan,
+///   then plays `clean-events-<k>.jsonl` to stderr for k = 1, 2, … while the
+///   file exists, each after gate `events-<k>`, waits for `clean-go`, and
+///   exits with `clean.exit` when that exists, else prints
 ///   `clean-report.json`; with `clean.crash` it kills itself with SIGABRT
 ///   there instead. With `clean.trap`, SIGTERM prints the report and
 ///   then ends the script by the signal, as the CLI's handler does.
@@ -60,6 +63,7 @@ final class FakeCLI: Sendable {
               flood) yes \(line63("e")) | head -n \(FakeCLI.floodLines) >&2
                      yes \(line63("o")) | head -n \(FakeCLI.floodLines) ;;
               report) cat "$2" ;;
+              stderr) cat "$2" >&2 ;;
               crash) kill -ABRT $$ ;;
               clean)
                 n=$(ls "$gates" | grep -c '^items-')
@@ -76,6 +80,12 @@ final class FakeCLI: Sendable {
                   [ -e "$gates/clean.trap" ] && trap 'cat "$gates/clean-report.json"; echo "end $$ $*" >> "$log"; trap - TERM; kill -TERM $$' TERM
                   gate clean-start
                   [ -e "$gates/rescan.json" ] && cp "$gates/rescan.json" "$last"
+                  k=1
+                  while [ -e "$gates/clean-events-$k.jsonl" ]; do
+                    gate "events-$k"
+                    cat "$gates/clean-events-$k.jsonl" >&2
+                    k=$((k + 1))
+                  done
                   gate clean-go
                   [ -e "$gates/clean.crash" ] && kill -ABRT $$
                   if [ -e "$gates/clean.exit" ]; then echo "end $$ $*" >> "$log"; exit "$(cat "$gates/clean.exit")"; fi

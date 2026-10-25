@@ -106,6 +106,15 @@ public enum Wording {
         return "\(shown) of \(whole)"
     }
 
+    /// "6.2 of 13.9 GiB", "0 B of 13.9 GiB": a clean's progress, the unit
+    /// said once when both share it; the part is always named.
+    public static func progress(_ done: UInt64, of total: UInt64) -> String {
+        let (part, whole) = (ByteSize.human(done), ByteSize.human(total))
+        let unit = { (text: String) in text.split(separator: " ").last.map(String.init) ?? "" }
+        let shown = unit(part) == unit(whole) ? String(part.dropLast(unit(part).count + 1)) : part
+        return "\(shown) of \(whole)"
+    }
+
     /// "17 s", "2 min 5 s": the running scan's elapsed time.
     public static func elapsed(_ interval: TimeInterval) -> String {
         let seconds = max(0, Int(interval))

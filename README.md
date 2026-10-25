@@ -84,6 +84,7 @@ Read-only: it never changes a file. It walks your home folder (or the paths you 
 
 ```
 ddc scan [PATH…] [--json] [--all] [--exclude PATH]… [--min-age DAYS] [--data-dir DIR] [--threads N]
+         [--progress json]
 ```
 
 | Option | Meaning |
@@ -95,6 +96,7 @@ ddc scan [PATH…] [--json] [--all] [--exclude PATH]… [--min-age DAYS] [--data
 | `--min-age DAYS` | A project untouched for at least this many days has its rebuildable artifacts selected. Default: `settings.json`, else 14. |
 | `--data-dir DIR` | Where the last scan, the settings and the lock live (default `~/Library/Application Support/DeepDriveCleaner`). Logs then go to `DIR/logs`. The `DDC_DATA_DIR` environment variable does the same. |
 | `--threads N` | Worker threads. Default: one per core. |
+| `--progress json` | Write progress to stderr as events, one JSON line each ([`docs/progress.schema.json`](docs/progress.schema.json)): the files, folders and bytes read so far, at most every 100 ms, the last line with the report's totals. Other stderr lines start with `ddc:`. Without it, a terminal shows a live line instead. |
 
 ```
 ddc scan                         # your home folder
@@ -117,7 +119,7 @@ Right before touching an item it checks it again (see [Safety](#safety)) and ski
 
 ```
 ddc clean [PATH…] [--dry-run] [--yes] [--class CLASS]… [--category CATEGORY]… [--min-size SIZE]
-          [--min-age DAYS] [--permanent] [--exclude PATH]… [--data-dir DIR]
+          [--min-age DAYS] [--permanent] [--exclude PATH]… [--data-dir DIR] [--progress json]
 ```
 
 | Option | Meaning |
@@ -132,6 +134,7 @@ ddc clean [PATH…] [--dry-run] [--yes] [--class CLASS]… [--category CATEGORY]
 | `--permanent` | Delete `review` items instead of moving them to the Trash. |
 | `--exclude PATH` | Never touch this folder. Repeatable. |
 | `--data-dir DIR` | As for `scan`. |
+| `--progress json` | Write progress to stderr as events, one JSON line each ([`docs/progress.schema.json`](docs/progress.schema.json)): the phase (`preparing`, then `cleaning` right before the first item is touched), the re-check and keep-marker walks, item `i` of `n` with the bytes processed, and one line per item with its outcome. Without it, a terminal shows a live line: what is checked while preparing, then the item, the bytes processed of the total and the path or the tool that runs. |
 
 ```
 ddc clean --dry-run                          # what would happen
@@ -149,7 +152,7 @@ Ctrl-C during a clean stops it after the current item; a tool it runs (such as `
 This is how the app cleans, and how a script can clean exactly what a person confirmed elsewhere. The list is the selection and the consent: no class filter, no default selection, no questions, no terminal needed. It rescans and checks every item again; anything that changed is skipped with a reason.
 
 ```
-ddc clean --items FILE [--json] [--dry-run] [PATH…] [--exclude PATH]… [--data-dir DIR]
+ddc clean --items FILE [--json] [--dry-run] [PATH…] [--exclude PATH]… [--data-dir DIR] [--progress json]
 ```
 
 | Option | Meaning |

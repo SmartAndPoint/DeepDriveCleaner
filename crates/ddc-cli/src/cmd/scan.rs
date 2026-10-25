@@ -5,6 +5,7 @@ use std::process::ExitCode;
 
 use anyhow::Context as _;
 use ddc_core::env::Env;
+use ddc_core::progress::WalkStep;
 use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::scan::{Progress, WalkOptions};
@@ -29,8 +30,10 @@ pub fn run(args: ScanArgs) -> anyhow::Result<ExitCode> {
     let _lock = store::try_lock(&env, LockMode::Shared)?;
     let opts =
         ScanOptions { walk: WalkOptions { threads: args.threads, ..WalkOptions::default() }, ..resolved.options };
+    let reporter = progress::Reporter::new(args.progress.is_some());
     let progress = Progress::default();
-    let report = progress::with_spinner(&progress, "scanning", || report::scan(&env, &opts, &progress))?;
+    let report = reporter.walk(&progress, "scanning", WalkStep::Scan, None, || report::scan(&env, &opts, &progress))?;
+    reporter.walk_done(WalkStep::Scan, &report.totals, None);
     store::write_last_scan(&env, &report).context("cannot save the scan report")?;
     for root in report.scan_roots.iter().filter(|r| !report.volumes.iter().any(|v| v.roots.contains(r))) {
         eprintln!("ddc: no volume information for {}; its free space is unknown", root.display());

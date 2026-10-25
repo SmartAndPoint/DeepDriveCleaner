@@ -144,3 +144,36 @@ fn sigterm_before_the_scan_finishes_leaves_the_saved_scan_untouched() {
         .collect();
     assert!(leftovers.is_empty(), "{leftovers:?}");
 }
+
+// Story "CLI: progress events".
+
+#[test]
+fn a_scan_with_progress_json_emits_walk_ticks_ending_at_the_report_totals() {
+    let (tmp, home) = fixture();
+    let data = tmp.path().join("data");
+
+    let out = ddc(&home, &["scan", "--json", "--progress", "json", "--data-dir", data.to_str().unwrap()]);
+
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let mut events = Vec::new();
+    for line in stderr.lines().filter(|l| !l.trim().is_empty()) {
+        if !line.starts_with('{') {
+            assert!(line.starts_with("ddc:"), "{line:?}");
+            continue;
+        }
+        let event: ddc_core::progress::ProgressLine = serde_json::from_str(line).unwrap();
+        let value = serde_json::to_value(&event).unwrap();
+        assert_eq!(value, serde_json::from_str::<serde_json::Value>(line).unwrap(), "reads back as written");
+        events.push(value);
+    }
+    assert!(!events.is_empty());
+    assert!(events.iter().all(|e| e["event"] == "walk" && e["step"] == "scan" && e.get("files_expected").is_none()));
+    let last = events.last().unwrap();
+    let totals = &report["totals"];
+    assert_eq!(
+        (&last["files"], &last["dirs"], &last["bytes"]),
+        (&totals["files"], &totals["dirs"], &totals["scanned_bytes"])
+    );
+}

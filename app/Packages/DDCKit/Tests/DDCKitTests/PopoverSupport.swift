@@ -114,6 +114,8 @@ actor FakeRunner: CLIRunning {
     private(set) var calls: [CLIRunner.Kind] = []
     private(set) var arguments: [[String]] = []
     private var scanResult: CLIRunner.Result
+    /// stderr lines a scan writes before it blocks.
+    private var scanLines: [String] = []
     private var rulesResult: CLIRunner.Result
     private var gate: CheckedContinuation<Void, Never>?
     private var released = false
@@ -139,6 +141,7 @@ actor FakeRunner: CLIRunning {
             // The review tests that run these use `FakeCLI`; here they only count.
             return CLIRunner.Result(outcome: .done, stdout: Data(), stderrTail: [])
         default:
+            for line in scanLines { options.stderrLine?(line) }
             if blocks && !released {
                 await withCheckedContinuation { gate = $0 }
             }
@@ -151,6 +154,11 @@ actor FakeRunner: CLIRunning {
     /// What the next scans return.
     func reply(scan: CLIRunner.Result) {
         scanResult = scan
+    }
+
+    /// What the next scans write to stderr.
+    func reply(scanLines: [String]) {
+        self.scanLines = scanLines
     }
 
     func count(_ kind: CLIRunner.Kind) -> Int {

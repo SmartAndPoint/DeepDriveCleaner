@@ -16,6 +16,7 @@ use ddc_core::exec::{
     SystemProcesses, SystemTrash,
 };
 use ddc_core::plan::{ListedItems, plan_listed};
+use ddc_core::progress::{Phase, WalkStep};
 use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
@@ -55,12 +56,17 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
     }
 
     let _lock = store::try_lock(&env, LockMode::Exclusive)?;
+    let reporter = progress::Reporter::new(args.progress.is_some());
+    reporter.phase(Phase::Preparing);
     // The full rescan: only a whole-tree walk sees toolchain pins and new claims above an item.
     let opts = ScanOptions { walk: WalkOptions::default(), ..resolved.options };
     let scan_progress = Progress::default();
-    let (scanned, entries) = progress::with_spinner(&scan_progress, "scanning", || {
+    // Read before the rescan replaces the file.
+    let expected = store::last_scan_files(&env);
+    let (scanned, entries) = reporter.walk(&scan_progress, "scanning", WalkStep::Recheck, expected, || {
         report::scan_with_entries(&env, &opts, &scan_progress, &SystemStatFs)
     })?;
+    reporter.walk_done(WalkStep::Recheck, &scanned.totals, expected);
     store::write_last_scan(&env, &scanned).context("cannot save the scan report")?;
     // A picked entry is checked against its folder's full list, not the report's top 100.
     let listed = plan_listed(&scanned, &entries, &catalog, &list.items);
@@ -70,14 +76,14 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
     let cancel = signals::install().context("cannot install the signal handler")?;
     let commands = SystemCommands::new(&env);
     let exec_progress = ExecProgress::default();
-    let result = progress::with_clean_line(&exec_progress, &scanned.home, || {
+    let result = reporter.clean(&exec_progress, &scanned.home, cancel, |events| {
         exec::execute(
             &env,
             &catalog,
             &listed.plan,
             &Consent::Listed,
             Ports { commands: &commands, trash: &SystemTrash, procs: &SystemProcesses, journal: &mut journal },
-            &ExecOptions { cancel, progress: Some(&exec_progress), ..ExecOptions::default() },
+            &ExecOptions { cancel, progress: Some(&exec_progress), events, ..ExecOptions::default() },
         )
     })?;
     let clean = CleanReport::new(&list.items, &listed.refused, &result, journal_path.clone());

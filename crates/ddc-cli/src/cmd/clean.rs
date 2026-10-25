@@ -10,6 +10,7 @@ use ddc_core::exec::{
     self, Consent, ExecOptions, ExecProgress, FileJournal, Ports, SystemCommands, SystemProcesses, SystemTrash,
 };
 use ddc_core::plan::{PlanOptions, build_plan};
+use ddc_core::progress::{Phase, WalkStep};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
 use ddc_core::scan::{Progress, WalkOptions};
@@ -69,10 +70,16 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
         }
     }
     let _lock = store::try_lock(&env, LockMode::Exclusive)?;
+    let reporter = progress::Reporter::new(args.progress.is_some());
+    reporter.phase(Phase::Preparing);
 
     let opts = ScanOptions { walk: WalkOptions::default(), ..resolved.options };
     let scan_progress = Progress::default();
-    let scanned = progress::with_spinner(&scan_progress, "scanning", || report::scan(&env, &opts, &scan_progress))?;
+    // Read before the rescan replaces the file.
+    let expected = store::last_scan_files(&env);
+    let scanned = reporter
+        .walk(&scan_progress, "scanning", WalkStep::Recheck, expected, || report::scan(&env, &opts, &scan_progress))?;
+    reporter.walk_done(WalkStep::Recheck, &scanned.totals, expected);
     store::write_last_scan(&env, &scanned).context("cannot save the scan report")?;
 
     let mut classes: Vec<RiskClass> = args.classes.iter().map(|c| class(*c)).collect();
@@ -127,7 +134,7 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
     // tool running in its own process group.
     let cancel = ddc_core::sys::signals::install().context("cannot install the signal handler")?;
     let exec_progress = ExecProgress::default();
-    let result = progress::with_clean_line(&exec_progress, &scanned.home, || {
+    let result = reporter.clean(&exec_progress, &scanned.home, cancel, |events| {
         exec::execute(
             &env,
             &catalog,
@@ -135,7 +142,7 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
             &consent,
             Ports { commands: &commands, trash: &SystemTrash, procs: &SystemProcesses, journal: &mut journal },
             // The snapshots were counted for the note above: `tmutil` runs once.
-            &ExecOptions { cancel, progress: Some(&exec_progress), local_snapshots: Some(snapshots) },
+            &ExecOptions { cancel, progress: Some(&exec_progress), local_snapshots: Some(snapshots), events },
         )
     })?;
     prompt::print_result(&mut out, &result, &scanned.home, &journal_path, &style)?;

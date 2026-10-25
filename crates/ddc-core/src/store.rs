@@ -76,6 +76,25 @@ pub fn read_last_scan(env: &Env) -> io::Result<Option<ScanReport>> {
     }
 }
 
+/// The saved report's file count, read without the rest of it: the
+/// expected count of a clean's re-check, before the re-check replaces the
+/// file (story "CLI: progress events"). `None` when absent, unreadable or of
+/// another schema version.
+pub fn last_scan_files(env: &Env) -> Option<u64> {
+    #[derive(serde::Deserialize)]
+    struct Head {
+        schema_version: u32,
+        totals: HeadTotals,
+    }
+    #[derive(serde::Deserialize)]
+    struct HeadTotals {
+        files: u64,
+    }
+    let bytes = fs::read(env.data_dir().join(LAST_SCAN)).ok()?;
+    let head = serde_json::from_slice::<Head>(&bytes).ok()?;
+    (head.schema_version == crate::model::SCHEMA_VERSION).then_some(head.totals.files)
+}
+
 /// Atomic replace of `path` with `bytes`; the temp file is removed on failure.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
     let dir = path.parent().ok_or_else(|| io::Error::other("path has no parent"))?;
