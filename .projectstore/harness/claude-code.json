@@ -1,9 +1,25 @@
 {
   "agents": {
     "per_agent": {
+      "archaeologist": {
+        "model": "sonnet",
+        "effort": "max"
+      },
       "critic": {
         "model": "fable",
         "effort": "xhigh"
+      },
+      "librarian": {
+        "model": "sonnet",
+        "effort": "max"
+      },
+      "planner": {
+        "model": "sonnet",
+        "effort": "max"
+      },
+      "reviewer": {
+        "model": "sonnet",
+        "effort": "max"
       }
     }
   }
