@@ -3,7 +3,7 @@
     "per_agent": {
       "archaeologist": {
         "model": "sonnet",
-        "effort": "max"
+        "effort": "xhigh"
       },
       "critic": {
         "model": "fable",
@@ -11,7 +11,7 @@
       },
       "librarian": {
         "model": "sonnet",
-        "effort": "max"
+        "effort": "xhigh"
       },
       "planner": {
         "model": "sonnet",
@@ -19,7 +19,7 @@
       },
       "reviewer": {
         "model": "sonnet",
-        "effort": "max"
+        "effort": "xhigh"
       }
     }
   }
