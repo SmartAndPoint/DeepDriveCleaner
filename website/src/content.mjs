@@ -545,4 +545,3 @@ export const legacyMetadata = {
     }
   }
 };
-
