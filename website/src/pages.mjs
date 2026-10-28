@@ -39,8 +39,26 @@ export function renderPage(page, language, host, config, development) {
   }
   const meta=pageMetadata[page][language];
   const canonical=config.canonicals[language][page];
+  const socialTags=Object.entries({
+    'og:site_name':product.name,
+    'og:locale':language==='zh'?'zh_CN':'en_US',
+    'og:locale:alternate':language==='zh'?'en_US':'zh_CN',
+    'og:image':meta.imageUrl,
+    'og:image:secure_url':meta.imageUrl,
+    'og:image:type':'image/png',
+    'og:image:width':meta.imageWidth,
+    'og:image:height':meta.imageHeight,
+    'og:image:alt':meta.imageAlt
+  }).map(([property,value])=>`<meta property="${property}" content="${escape(value)}">`).join('')+
+  Object.entries({
+    'twitter:card':'summary_large_image',
+    'twitter:title':meta.title,
+    'twitter:description':meta.description,
+    'twitter:image':meta.imageUrl,
+    'twitter:image:alt':meta.imageAlt
+  }).map(([name,value])=>`<meta name="${name}" content="${escape(value)}">`).join('');
   const schema={ '@context':'https://schema.org', '@type':'SoftwareApplication', name:product.name, alternateName:['ddc','deepdrivecleaner'], url:product.origins.product+'/', description:meta.description, applicationCategory:'DeveloperApplication', operatingSystem:'macOS', softwareVersion:product.version, downloadUrl:product.release, license:product.license, inLanguage:language==='zh'?'zh-CN':'en', publisher:{'@type':'Organization',name:'SmartAndPoint',url:'https://github.com/SmartAndPoint'} };
-  let html=`<!doctype html><html lang="${language==='zh'?'zh-CN':'en'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="${page==='cli'?'#faf9f5':'#f5f8fc'}"><title>${escape(meta.title)}</title><meta name="description" content="${escape(meta.description)}"><link rel="canonical" href="${canonical}"><link rel="alternate" hreflang="en" href="${config.canonicals.en[page]}"><link rel="alternate" hreflang="zh-CN" href="${config.canonicals.zh[page]}"><link rel="alternate" hreflang="x-default" href="${config.canonicals.en[page]}"><meta property="og:title" content="${escape(meta.title)}"><meta property="og:description" content="${escape(meta.description)}"><meta property="og:type" content="website"><meta property="og:url" content="${canonical}"><meta name="twitter:card" content="summary"><link rel="icon" href="/assets/icon.png"><link rel="stylesheet" href="/styles.css"><script type="application/ld+json">${JSON.stringify(schema).replaceAll('<','\\u003c')}</script><script id="site-config" type="application/json">${JSON.stringify({...config,page,host,initialLanguage:language}).replaceAll('<','\\u003c')}</script><script src="/content.js" defer></script><script src="/site.js" defer></script></head><body class="${page}-page" data-page="${page}"><div class="site-shell">${header}${body}${footer}<div id="copy-status" role="status" aria-live="polite" class="toast"></div><noscript><p class="noscript-note">${escape(t.noJs)}</p></noscript></div></body></html>`;
+  let html=`<!doctype html><html lang="${language==='zh'?'zh-CN':'en'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="${page==='cli'?'#faf9f5':'#f5f8fc'}"><title>${escape(meta.title)}</title><meta name="description" content="${escape(meta.description)}"><link rel="canonical" href="${canonical}"><link rel="alternate" hreflang="en" href="${config.canonicals.en[page]}"><link rel="alternate" hreflang="zh-CN" href="${config.canonicals.zh[page]}"><link rel="alternate" hreflang="x-default" href="${config.canonicals.en[page]}"><meta property="og:title" content="${escape(meta.title)}"><meta property="og:description" content="${escape(meta.description)}"><meta property="og:type" content="website"><meta property="og:url" content="${canonical}">${socialTags}<link rel="icon" href="/assets/icon.png"><link rel="stylesheet" href="/styles.css"><script type="application/ld+json">${JSON.stringify(schema).replaceAll('<','\\u003c')}</script><script id="site-config" type="application/json">${JSON.stringify({...config,page,host,initialLanguage:language}).replaceAll('<','\\u003c')}</script><script src="/content.js" defer></script><script src="/site.js" defer></script></head><body class="${page}-page" data-page="${page}"><div class="site-shell">${header}${body}${footer}<div id="copy-status" role="status" aria-live="polite" class="toast"></div><noscript><p class="noscript-note">${escape(t.noJs)}</p></noscript></div></body></html>`;
   // Render the retained contributor template in each static locale too.
   html=html.replace(/(<([a-z][\w-]*)\b[^>]*\bdata-i18n="([\w-]+)"[^>]*>)([^<]*)(<\/\2>)/gi,(all,open,tag,key,old,close)=>Object.hasOwn(t,key)?open+escape(t[key])+close:all);
   html=html.replace(/(<[^>]*\bdata-i18n-aria="([\w-]+)"[^>]*\baria-label=")([^"]*)(")/gi,(all,open,key,old,close)=>Object.hasOwn(t,key)?open+escape(t[key])+close:all);

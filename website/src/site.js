@@ -61,9 +61,20 @@
     const meta=pageMetadata[config.page][language];
     document.title=meta.title;
     document.querySelector('meta[name="description"]').content=meta.description;
-    document.querySelector('meta[property="og:title"]').content=meta.title;
-    document.querySelector('meta[property="og:description"]').content=meta.description;
-    document.querySelector('meta[property="og:url"]').content=config.canonicals[language][config.page];
+    for(const [property,value] of Object.entries({
+      'og:title':meta.title, 'og:description':meta.description,
+      'og:url':config.canonicals[language][config.page], 'og:site_name':product.name,
+      'og:locale':language==='zh'?'zh_CN':'en_US',
+      'og:locale:alternate':language==='zh'?'en_US':'zh_CN',
+      'og:image':meta.imageUrl, 'og:image:secure_url':meta.imageUrl,
+      'og:image:type':'image/png', 'og:image:width':String(meta.imageWidth),
+      'og:image:height':String(meta.imageHeight), 'og:image:alt':meta.imageAlt
+    })) document.querySelector('meta[property="'+property+'"]').content=value;
+    for(const [name,value] of Object.entries({
+      'twitter:card':'summary_large_image', 'twitter:title':meta.title,
+      'twitter:description':meta.description, 'twitter:image':meta.imageUrl,
+      'twitter:image:alt':meta.imageAlt
+    })) document.querySelector('meta[name="'+name+'"]').content=value;
     document.querySelector('link[rel="canonical"]').href=config.canonicals[language][config.page];
     renderAvailability(); renderRisk(); refreshLinks();
     clearTimeout(toastTimer);
