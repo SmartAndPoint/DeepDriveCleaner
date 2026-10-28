@@ -40,13 +40,13 @@ struct ReviewGroupsTests {
         // `rules --json` lists Python environments, node_modules, Build outputs.
         let items = try ReviewFixture.items()
         #expect(groups(items, .rebuildable) == ["node_modules", "Python environments", "Build outputs"])
-        #expect(groups(items, .safe) == ["Package caches", "App caches"])
+        #expect(groups(items, .safe) == ["Package downloads", "Browser and app caches"])
 
         let chrome = try Fixture.editedFindings("scan-report-groups") { $0[2]["bytes"] = 2_000_000 }
-        #expect(groups(try ReviewFixture.items(report: chrome), .safe) == ["App caches", "Package caches"])
+        #expect(groups(try ReviewFixture.items(report: chrome), .safe) == ["Browser and app caches", "Package downloads"])
         // pip's type is switched off: its size counts for nothing.
         let pip = try Fixture.editedFindings("scan-report-groups") { $0[1]["bytes"] = 10_000_000 }
-        #expect(groups(try ReviewFixture.items(report: pip), .safe) == ["Package caches", "App caches"])
+        #expect(groups(try ReviewFixture.items(report: pip), .safe) == ["Package downloads", "Browser and app caches"])
         // Equal totals keep the rules' order, either way round.
         let tied = try Fixture.editedFindings("scan-report-groups") { $0[6]["bytes"] = 802_816 }
         #expect(groups(try ReviewFixture.items(report: tied), .rebuildable) == ["node_modules", "Build outputs", "Python environments"])
@@ -133,7 +133,7 @@ struct ReviewGroupsTests {
         #expect(filtered.selectAll?.count == 2)
     }
 
-    /// Package caches with several rules, and Build outputs with two rules
+    /// Package downloads with several rules, and Build outputs with two rules
     /// whose ids end the same.
     private func caches(scanRoots: [String]? = nil) throws -> Data {
         var ino = 9_500
@@ -145,9 +145,9 @@ struct ReviewGroupsTests {
             var findings = json["findings"] as? [[String: Any]] ?? []
             findings += [
                 try! cache(0, "cache.npm", "/Users/example/.npm/_logs", 200_000),
-                try! cache(0, "cache.cargo", "/Users/example/.cargo/registry/cache", 210_000),
-                try! cache(0, "cache.cargo", "/Users/example/.cargo/registry/src", 146_000),
-                try! cache(0, "cache.uv", "/Users/example/.cache/uv", 812_000, hint: "refills on the next uv sync"),
+                try! cache(0, "cache.homebrew", "/Users/example/Library/Caches/Homebrew/downloads", 210_000),
+                try! cache(0, "cache.homebrew", "/Users/example/Library/Caches/Homebrew/api", 146_000),
+                try! cache(0, "cache.yarn", "/Users/example/Library/Caches/Yarn", 812_000, hint: "refills on the next yarn install"),
                 try! cache(6, "rust.target", "/Users/example/r2/target", 300_000),
                 try! cache(6, "maven.target", "/Users/example/m1/target", 280_000),
                 try! cache(6, "maven.target", "/Users/example/m2/target", 270_000),
@@ -160,19 +160,19 @@ struct ReviewGroupsTests {
     @Test("several rules give a subgroup per rule, titled by the id's last part; a one-item rule is one row; equal titles keep their own keys")
     func rulesShape() throws {
         let items = try ReviewFixture.items(report: caches())
-        let layout = items.layout(ReviewItems.Entry(riskClass: .safe, group: "Package caches"), matching: "")
+        let layout = items.layout(ReviewItems.Entry(riskClass: .safe, group: "Package downloads"), matching: "")
         #expect(layout.shape == .rules)
         #expect(layout.facts == nil)
         #expect(layout.blocks.count == 3)
-        guard case .subgroup(let npm) = layout.blocks[0], case .single(let uv) = layout.blocks[1], case .subgroup(let cargo) = layout.blocks[2] else {
+        guard case .subgroup(let npm) = layout.blocks[0], case .single(let yarn) = layout.blocks[1], case .subgroup(let homebrew) = layout.blocks[2] else {
             Issue.record("blocks out of order: \(layout.blocks)")
             return
         }
         #expect(npm.title == "npm" && npm.subtitle == "cache.npm · 2 folders · Delete" && npm.kind == .rule("cache.npm"))
         #expect(npm.items.map(\.shown) == ["~/.npm/_cacache", "~/.npm/_logs"])
-        #expect(uv.title == "uv" && uv.subtitle == "cache.uv · Delete" && uv.item.shown == "~/.cache/uv")
-        #expect(uv.hint == "Refills on the next uv sync" && uv.detail == "Refills on the next uv sync")
-        #expect(cargo.title == "cargo" && cargo.items.map(\.row.finding.bytes) == [210_000, 146_000])
+        #expect(yarn.title == "yarn" && yarn.subtitle == "cache.yarn · Delete" && yarn.item.shown == "~/Library/Caches/Yarn")
+        #expect(yarn.hint == "Refills on the next yarn install" && yarn.detail == "Refills on the next yarn install")
+        #expect(homebrew.title == "homebrew" && homebrew.items.map(\.row.finding.bytes) == [210_000, 146_000])
 
         let builds = items.layout(ReviewItems.Entry(riskClass: .rebuildable, group: "Build outputs"), matching: "")
         let targets = subgroups(builds)
@@ -181,12 +181,12 @@ struct ReviewGroupsTests {
         #expect(Set(targets.map(\.kind)) == [.rule("rust.target"), .rule("maven.target")])
 
         // A filter down to one rule keeps the rules shape.
-        let cargoOnly = items.layout(ReviewItems.Entry(riskClass: .safe, group: "Package caches"), matching: "cargo")
-        #expect(cargoOnly.shape == .rules)
-        #expect(subgroups(cargoOnly).map(\.title) == ["cargo"] && singles(cargoOnly).isEmpty)
+        let homebrewOnly = items.layout(ReviewItems.Entry(riskClass: .safe, group: "Package downloads"), matching: "homebrew")
+        #expect(homebrewOnly.shape == .rules)
+        #expect(subgroups(homebrewOnly).map(\.title) == ["homebrew"] && singles(homebrewOnly).isEmpty)
         // Down to one item: still a subgroup, counting what it shows.
-        let src = subgroups(items.layout(ReviewItems.Entry(riskClass: .safe, group: "Package caches"), matching: "registry/src"))
-        #expect(src.map(\.subtitle) == ["cache.cargo · 1 folder · Delete"] && src.map(\.bytes) == [146_000])
+        let api = subgroups(items.layout(ReviewItems.Entry(riskClass: .safe, group: "Package downloads"), matching: "Homebrew/api"))
+        #expect(api.map(\.subtitle) == ["cache.homebrew · 1 folder · Delete"] && api.map(\.bytes) == [146_000])
     }
 
     @Test("Select all and a heading are off, mixed or on over their selectable rows, and locked rows never change")
@@ -194,7 +194,7 @@ struct ReviewGroupsTests {
         // Both npm folders are scan roots: locked.
         let review = try review(caches(scanRoots: ["/Users/example", "/Users/example/.npm/_cacache", "/Users/example/.npm/_logs"]))
         let items = try #require(review.items)
-        let layout = items.layout(ReviewItems.Entry(riskClass: .safe, group: "Package caches"), matching: "")
+        let layout = items.layout(ReviewItems.Entry(riskClass: .safe, group: "Package downloads"), matching: "")
         let all = try #require(layout.selectAll)
         let locked = Set(all.filter { items.row($0)?.selectable == false })
         #expect(locked.count == 2)
@@ -208,17 +208,17 @@ struct ReviewGroupsTests {
         #expect(review.selection.isDisjoint(with: locked))
         #expect(review.isSelected(elsewhere) == before, "Select all changes only its own group")
 
-        let cargo = try #require(subgroups(layout).first { $0.title == "cargo" })
-        review.toggle(cargo.ids[0])
+        let homebrew = try #require(subgroups(layout).first { $0.title == "homebrew" })
+        review.toggle(homebrew.ids[0])
         #expect(review.checkState(all) == .mixed)
-        #expect(review.checkState(cargo.ids) == .mixed)
-        review.toggleAll(cargo.ids)
-        #expect(review.checkState(cargo.ids) == .on)
-        review.toggleAll(cargo.ids)
-        #expect(review.checkState(cargo.ids) == .off)
-        #expect(review.isSelected(try ReviewFixture.id(items, ".cache/uv")), "a heading changes only its own rows")
+        #expect(review.checkState(homebrew.ids) == .mixed)
+        review.toggleAll(homebrew.ids)
+        #expect(review.checkState(homebrew.ids) == .on)
+        review.toggleAll(homebrew.ids)
+        #expect(review.checkState(homebrew.ids) == .off)
+        #expect(review.isSelected(try ReviewFixture.id(items, "Caches/Yarn")), "a heading changes only its own rows")
 
-        review.toggleAll(cargo.ids)
+        review.toggleAll(homebrew.ids)
         #expect(review.checkState(all) == .on)
         review.toggleAll(all)
         #expect(review.checkState(all) == .off)
@@ -254,7 +254,7 @@ struct ReviewGroupsTests {
             }
         }
         let caches = try ReviewFixture.items(report: caches())
-        let npm = try #require(subgroups(caches.layout(ReviewItems.Entry(riskClass: .safe, group: "Package caches"), matching: "")).first)
+        let npm = try #require(subgroups(caches.layout(ReviewItems.Entry(riskClass: .safe, group: "Package downloads"), matching: "")).first)
         #expect(npm.subtitle.contains("cache.npm") && npm.subtitle.contains("Delete"))
 
         // The Items view keeps its full line.
@@ -277,7 +277,7 @@ struct ReviewGroupsTests {
         #expect(lines.count == subgroups(layout).count + 11 - temp.items.count)
         #expect(lines.first == .heading(temp, expanded: false))
 
-        review.entry = ReviewItems.Entry(riskClass: .safe, group: "Package caches")
+        review.entry = ReviewItems.Entry(riskClass: .safe, group: "Package downloads")
         review.reload()
         review.entry = entry
         #expect(review.collapsed == [temp.key])

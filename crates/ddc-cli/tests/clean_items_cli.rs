@@ -810,3 +810,40 @@ fn a_report_that_cannot_be_saved_is_a_warning_and_the_clean_says_so() {
     assert!(!clean.last_scan_saved);
     assert_eq!(outcome(&clean, &fx.path("q/__pycache__")), &Outcome::Deleted);
 }
+
+/// "Skip entirely" (safety ADR, amendment of 2026-10-28): an item at, under or
+/// above a skip is kept, in the dry run and in the clean alike; the walk never
+/// reads the skipped folder, so without that the clean would say "changed".
+#[test]
+fn an_item_at_under_or_above_a_skip_is_kept_in_the_dry_run_and_the_clean() {
+    let fx = Fx::new();
+    fx.write("q/__pycache__/sub/n.cpython-312.pyc", &[2u8; 1_000]);
+    fx.write("r/__pycache__/o.cpython-312.pyc", &[2u8; 1_000]);
+    fx.write("s/__pycache__/o.cpython-312.pyc", &[2u8; 1_000]);
+    let list = fx.list(&["q/__pycache__", "r/__pycache__", "s/__pycache__"]);
+    fs::write(
+        fx.data.join("settings.json"),
+        serde_json::json!({
+            "schema_version": 1,
+            "skips": [fx.path("q/__pycache__/sub"), fx.path("r/__pycache__"), fx.path("s")],
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let before = fx.snapshot();
+
+    let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--dry-run", "--json"]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let lines: Vec<serde_json::Value> =
+        String::from_utf8(out.stdout).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let kept = lines.iter().filter(|l| l["prediction"] == "would-skip" && l["reason"] == "kept").count();
+    assert_eq!(kept, 3, "above, at and under a skip: {lines:?}");
+
+    let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--json"]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let r = report(&out.stdout);
+    for rel in ["q/__pycache__", "r/__pycache__", "s/__pycache__"] {
+        assert_eq!(outcome(&r, &fx.path(rel)), &Outcome::Skipped(SkipReason::Kept), "{rel}");
+    }
+    assert_eq!(fx.snapshot(), before, "nothing removed");
+}

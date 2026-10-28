@@ -5,8 +5,8 @@ import Foundation
 ///
 /// The schema version is read first: a report of another version is
 /// unreadable as a whole, never half-decoded. Fields the CLI leaves out when
-/// empty (`volumes`, `ignored`, the ignored totals) decode as their defaults,
-/// so a report of the 0.1.0 CLI still reads.
+/// empty (`volumes`, `ignored`, the ignored totals, `not_scanned`) decode as
+/// their defaults, so a report of the 0.1.0 CLI still reads.
 public struct ScanReport: Decodable, Sendable, Equatable {
     /// `SCHEMA_VERSION` of the CLI this app embeds.
     public static let schemaVersion = 1
@@ -29,15 +29,20 @@ public struct ScanReport: Decodable, Sendable, Equatable {
     public let minAgeDays: UInt64
     public let totals: Totals
     public let findings: [Finding]
+    /// Folders that could not be read: without Full Disk Access, or after
+    /// the user said no to macOS (at most 10 000; see `errorsTotal`).
+    public let inaccessible: [Inaccessible]
     public let errorsTotal: UInt64
-    /// Areas the scan did not enter: the cloud folders, and what a
-    /// background scan skips to avoid a permission prompt.
+    /// Areas the scan did not enter: the cloud folders, what a background
+    /// scan skips to avoid a permission prompt, and the user's skips.
     public let skipped: [Skipped]
     public let cancelled: Bool
+    /// The user's skips ("Skip entirely") the walk stopped at, canonical.
+    public let notScanned: [String]
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, ddcVersion, generatedAt, durationMs, home, scanRoots, fullDiskAccess, volumes
-        case minAgeDays, totals, findings, errorsTotal, skipped, cancelled
+        case minAgeDays, totals, findings, inaccessible, errorsTotal, skipped, cancelled, notScanned
     }
 
     public init(from decoder: any Decoder) throws {
@@ -53,9 +58,16 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         minAgeDays = try c.decode(UInt64.self, forKey: .minAgeDays)
         totals = try c.decode(Totals.self, forKey: .totals)
         findings = try c.decode([Finding].self, forKey: .findings)
+        inaccessible = try c.decodeIfPresent([Inaccessible].self, forKey: .inaccessible) ?? []
         errorsTotal = try c.decode(UInt64.self, forKey: .errorsTotal)
         skipped = try c.decodeIfPresent([Skipped].self, forKey: .skipped) ?? []
         cancelled = try c.decode(Bool.self, forKey: .cancelled)
+        notScanned = try c.decodeIfPresent([String].self, forKey: .notScanned) ?? []
+    }
+
+    public struct Inaccessible: Decodable, Sendable, Equatable {
+        public let path: String
+        public let error: String
     }
 
     public struct Skipped: Decodable, Sendable, Equatable {

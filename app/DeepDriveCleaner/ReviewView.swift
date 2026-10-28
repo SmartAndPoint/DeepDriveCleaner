@@ -19,6 +19,10 @@ struct ReviewView: View {
             if let notice = model.notice {
                 Banner(systemImage: "info.circle", text: notice)
             }
+            // The user's "Skip entirely" folders: not read, so nothing there is listed.
+            if let notScanned = model.items?.notScanned {
+                Banner(systemImage: "eye.slash", text: notScanned)
+            }
             if let rescan = model.rescanning, model.sheet == nil {
                 Banner(
                     systemImage: nil,

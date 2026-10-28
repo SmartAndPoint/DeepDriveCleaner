@@ -24,3 +24,65 @@ fn rules_json_lists_every_rule_with_its_group() {
     assert_eq!(list.rules.len(), RULES.len());
     assert!(list.rules.iter().all(|r| list.groups.contains(&r.group)));
 }
+
+/// The groups are the Types rows of the revised Settings (story "Settings:
+/// folders, types, notifications", D2): "Package downloads" is what the
+/// automatic clean may take one day, and "Toolchain caches" holds only `safe`
+/// rules, so the `review` downloads have a row of their own.
+#[test]
+fn rules_json_groups_follow_the_settings_types() {
+    let list = RuleList::builtin();
+    assert_eq!(
+        list.groups,
+        [
+            "Python environments",
+            "node_modules",
+            "Build outputs",
+            "Build caches in projects",
+            "Package downloads",
+            "Toolchain caches",
+            "Maven and test browsers",
+            "Browser and app caches",
+            "IDE caches",
+            "Xcode builds",
+            "Xcode device support",
+            "Old toolchains",
+            "ML models",
+            "VM and container images",
+            "Interrupted cleanups",
+            "Your data",
+        ]
+    );
+    let members = |group: &str| {
+        let mut ids: Vec<&str> = list.rules.iter().filter(|r| r.group == group).map(|r| r.id.as_str()).collect();
+        ids.sort_unstable();
+        ids
+    };
+    assert_eq!(
+        members("Package downloads"),
+        [
+            "cache.bun",
+            "cache.cocoapods",
+            "cache.homebrew",
+            "cache.npm",
+            "cache.pip",
+            "cache.pnpm",
+            "cache.poetry",
+            "cache.yarn"
+        ]
+    );
+    assert_eq!(
+        members("Toolchain caches"),
+        ["cache.cargo", "cache.go-build", "cache.go-mod", "cache.gradle", "cache.uv"]
+    );
+    assert_eq!(
+        members("Maven and test browsers"),
+        ["browsers.cypress", "browsers.playwright", "browsers.puppeteer", "repo.maven"]
+    );
+    for group in ["Package downloads", "Toolchain caches"] {
+        assert!(
+            list.rules.iter().filter(|r| r.group == group).all(|r| r.class == ddc_core::class::RiskClass::Safe),
+            "{group} is all safe"
+        );
+    }
+}

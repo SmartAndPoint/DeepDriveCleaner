@@ -163,6 +163,11 @@ extension CleanWording {
     /// A background scan skipped the folders macOS guards with a prompt.
     public static let backgroundSkipped = "A background scan skipped Downloads, Pictures and other protected folders. Scan Now to list them."
 
+    /// The user's skips: "Not scanned: ~/Projects/client-archive and ~/Movies/Raw footage (Skip entirely in Settings)".
+    public static func notScanned(_ folders: [String]) -> String {
+        "Not scanned: \(Wording.list(folders)) (Skip entirely in Settings)"
+    }
+
     /// "1,904 smaller items (2.3 GiB) are not listed".
     public static func rest(count: UInt64, bytes: UInt64) -> String {
         let noun = count == 1 ? "smaller item" : "smaller items"

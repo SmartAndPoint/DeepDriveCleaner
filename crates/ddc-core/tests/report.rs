@@ -382,6 +382,41 @@ fn large_files_inside_findings_are_not_listed_but_region_remainders_are() {
     assert_eq!(listed, vec![t.path("Downloads/movie.mkv").as_path()]);
 }
 
+/// "Skip entirely" (safety ADR, amendment of 2026-10-28): a skip is never
+/// opened and is listed in `not_scanned`, canonical; one inside a claimed
+/// finding is read with it, keeps it whole and is not listed.
+#[test]
+fn a_skipped_folder_is_never_opened_and_is_listed_as_not_scanned() {
+    use ddc_core::settings::{ScanFlags, Settings};
+    let fx = Fixture::new();
+    let t = &fx.tree;
+    t.write("Work/Raw/proj/package.json", "{}");
+    t.write("Work/Raw/proj/package-lock.json", "{}");
+    t.file("Work/Raw/proj/node_modules/x/index.js", 20_000);
+    t.file("Work/Raw/locked/x", 100);
+    let locked = t.lock("Work/Raw/locked");
+    t.file(".npm/_cacache/index-v5/a", 10_000);
+    t.symlink(t.path("Work/Raw"), "link-to-raw");
+    let settings = Settings { skips: vec![t.path(".npm/_cacache/index-v5")], ..Settings::default() };
+    let resolved =
+        settings.resolve(&fx.env(), &ScanFlags { skips: vec![t.path("link-to-raw")], ..ScanFlags::default() }).unwrap();
+    let opts = ScanOptions { ..resolved.options };
+
+    let r = report::scan(&fx.env(), &ScanOptions { large_file_bytes: 1 << 20, ..opts }, &Progress::default()).unwrap();
+
+    assert_eq!(r.not_scanned, [t.path("Work/Raw").canonicalize().unwrap()], "canonical, the claimed one not listed");
+    assert!(r.inaccessible.iter().all(|i| i.path != locked), "never opened: {:?}", r.inaccessible);
+    assert!(!r.findings.iter().any(|f| f.path.starts_with(t.path("Work/Raw"))), "nothing inside is a finding");
+    let npm = find(&r, t, ".npm/_cacache");
+    assert_eq!(npm.rule, ddc_core::rules::KEPT, "a skip inside a claim keeps the whole finding");
+    assert!(!npm.selected);
+
+    let mut json = serde_json::to_value(&r).unwrap();
+    json.as_object_mut().unwrap().remove("not_scanned");
+    assert!(serde_json::from_value::<ScanReport>(json).unwrap().not_scanned.is_empty(), "optional");
+    assert_eq!(ddc_core::model::SCHEMA_VERSION, 1);
+}
+
 #[test]
 fn unreadable_folders_are_reported() {
     let fx = Fixture::new();

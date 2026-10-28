@@ -44,6 +44,11 @@ pub struct ScanReport {
     pub skipped: Vec<SkippedPath>,
     pub skipped_total: u64,
     pub cancelled: bool,
+    /// The user's skips (`settings.json`'s `skips`, `--skip`) the walk stopped
+    /// at, canonical, never truncated. A skip inside a claimed finding is not
+    /// here: the finding was read and is kept whole instead.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub not_scanned: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

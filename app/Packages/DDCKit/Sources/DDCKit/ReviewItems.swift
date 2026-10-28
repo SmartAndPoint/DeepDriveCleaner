@@ -216,9 +216,19 @@ public struct ReviewItems: Sendable, Equatable {
     }
 
     /// A background scan skipped the areas macOS guards with a prompt: an
-    /// `excluded` area that is not a cloud folder.
+    /// `excluded` area that is neither a cloud folder nor the user's skip.
     public var backgroundSkipped: Bool {
-        report.skipped.contains { $0.reason == .excluded && !Self.isCloud($0.path, home: report.home) }
+        report.skipped.contains { skipped in
+            skipped.reason == .excluded && !Self.isCloud(skipped.path, home: report.home)
+                && !report.notScanned.contains { skipped.path == $0 || Self.inside(skipped.path, $0) }
+        }
+    }
+
+    /// The Review window's "Not scanned" line: the user's skips the scan
+    /// stopped at; nil when there are none.
+    public var notScanned: String? {
+        guard !report.notScanned.isEmpty else { return nil }
+        return CleanWording.notScanned(report.notScanned.map { Wording.tilde($0, home: report.home) })
     }
 
     static func isCloud(_ path: String, home: String) -> Bool {

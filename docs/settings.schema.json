@@ -74,6 +74,13 @@
       "type": "integer",
       "format": "uint32",
       "minimum": 0
+    },
+    "skips": {
+      "description": "Absolute folders never read (\"Skip entirely\"): not opened, listed in\nthe report's `not_scanned`, and protected as excludes are. `--skip`\nonly adds to them.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "additionalProperties": false,

@@ -48,7 +48,7 @@ struct ReportSummaryTests {
         #expect(after.row(.safe)?.selectedBytes == (before.row(.safe)?.selectedBytes ?? 0) - chrome.bytes)
         #expect(after.reclaimable == before.reclaimable - chrome.reclaimableBytes)
         #expect(after.ignoredCount == before.ignoredCount + 1)
-        #expect(!after.topGroups.contains { $0.name == "App caches" })
+        #expect(!after.topGroups.contains { $0.name == "Browser and app caches" })
     }
 
     @Test("a minimum size raised after the scan keeps a finding of exactly that size and drops one a byte under")
@@ -88,7 +88,7 @@ struct ReportSummaryTests {
             settings: try Fixture.groupsSettings(),
             rules: try Fixture.rules()
         )
-        #expect(summary.topGroups.map(\.name) == ["Package caches", "node_modules", "Python environments", "Build outputs"])
+        #expect(summary.topGroups.map(\.name) == ["Package downloads", "node_modules", "Python environments", "Build outputs"])
         let modules = try #require(summary.topGroups.first { $0.name == "node_modules" })
         #expect((modules.selectedCount, modules.count, modules.projects) == (1, 2, true), "1 idle project of 2")
         let caches = try #require(summary.topGroups.first)

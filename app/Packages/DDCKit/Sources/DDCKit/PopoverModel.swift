@@ -58,6 +58,8 @@ public final class PopoverModel {
     public private(set) var badgePending = false
     public private(set) var showSize = true
     public private(set) var showBadge = true
+    /// The prompting areas the app's last own scan could not read (`NotReadable`).
+    public private(set) var notReadable: [String] = []
     /// The class switches; in memory, so every launch starts from the default selection.
     public var includeSafe = true
     public var includeRebuildable = true
@@ -175,6 +177,9 @@ public final class PopoverModel {
 
     public var nextScanText: String { Wording.nextScan(nextScan(), now: now) }
 
+    /// The scheduler's next slot, as the footer reads it; Settings' Next scan too.
+    public var nextScanDate: Date? { nextScan() }
+
     public var threshold: UInt64 { summary?.threshold ?? settings?.threshold ?? SharedSettings.defaultThreshold }
 
     public var iconState: IconState {
@@ -249,6 +254,7 @@ public final class PopoverModel {
         showSize = preferences.showSize
         showBadge = preferences.showBadge
         badgePending = preferences.badgePending
+        notReadable = preferences.notReadable
     }
 
     private func loadSettings() {
@@ -386,6 +392,12 @@ public final class PopoverModel {
         }
         let stdout = result.stdout
         let decoded = await Task.detached { Result { try ScanReport.read(stdout) } }.value
+        // Only the app's own scan reads the prompting areas: a report on disk
+        // may come from a background scan that left them out.
+        if case .success(let read) = decoded {
+            notReadable = NotReadable.areas(of: read)
+            preferences.setNotReadable(notReadable)
+        }
         reportModified = DataDirectory.modified(data.lastScan)
         if DataDirectory.modified(data.settings) != settingsModified { loadSettings() }
         apply(decoded)
@@ -424,6 +436,18 @@ public final class PopoverModel {
         preferences.setScansPaused(on)
         paused = on
         log(on ? "scans paused" : "scans resumed")
+    }
+
+    /// The General pane's "Show the size you can free next to the icon": the icon follows at once.
+    public func setShowSize(_ on: Bool) {
+        preferences.setShowSize(on)
+        showSize = on
+    }
+
+    /// The General pane's "Show a badge on the menu bar icon".
+    public func setShowBadge(_ on: Bool) {
+        preferences.setShowBadge(on)
+        showBadge = on
     }
 
     /// The Review window's clean started or ended, its rescan included.

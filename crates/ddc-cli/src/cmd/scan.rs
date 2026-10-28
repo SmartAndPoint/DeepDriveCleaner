@@ -20,8 +20,10 @@ pub fn run(args: ScanArgs) -> anyhow::Result<ExitCode> {
         return super::background::run(&args, &notify::Osascript, &SystemStatFs);
     }
     let env = Env::from_process(args.data_dir.clone())?;
-    let resolved =
-        super::resolve(&env, ScanFlags { paths: args.paths, excludes: args.exclude, min_age_days: args.min_age })?;
+    let resolved = super::resolve(
+        &env,
+        ScanFlags { paths: args.paths, excludes: args.exclude, skips: args.skip, min_age_days: args.min_age },
+    )?;
     super::note_missing(&resolved.missing);
     // A scan changes nothing: a dropped protection is only worth a warning.
     if !resolved.dropped_excludes.is_empty() {

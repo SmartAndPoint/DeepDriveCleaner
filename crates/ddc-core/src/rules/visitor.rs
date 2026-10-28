@@ -38,6 +38,9 @@ pub struct RuleVisitor<'c> {
     large_threshold: u64,
     /// Never opened (TCC-protected areas in background scans).
     skips: Vec<PathBuf>,
+    /// The user's skips: never opened, and recorded when the walk stops at one.
+    user_skips: Vec<PathBuf>,
+    not_scanned: Mutex<Vec<PathBuf>>,
 }
 
 impl<'c> RuleVisitor<'c> {
@@ -51,12 +54,21 @@ impl<'c> RuleVisitor<'c> {
             large: Mutex::new(Vec::new()),
             large_threshold: LARGE_FILE_BYTES,
             skips: Vec::new(),
+            user_skips: Vec::new(),
+            not_scanned: Mutex::new(Vec::new()),
         }
     }
 
     /// Directories that are skipped without being opened.
     pub fn with_skips(mut self, skips: Vec<PathBuf>) -> Self {
         self.skips = skips;
+        self
+    }
+
+    /// The user's skips, canonical: a directory at or under one is not opened,
+    /// and the skip is recorded for [`Self::not_scanned`].
+    pub fn with_user_skips(mut self, skips: Vec<PathBuf>) -> Self {
+        self.user_skips = skips;
         self
     }
 
@@ -80,6 +92,14 @@ impl<'c> RuleVisitor<'c> {
         m
     }
 
+    /// The user's skips the walk stopped at, sorted, each once.
+    pub fn not_scanned(&self) -> Vec<PathBuf> {
+        let mut skipped = self.not_scanned.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        skipped.sort();
+        skipped.dedup();
+        skipped
+    }
+
     /// Largest files outside findings (or in the remainder of a region),
     /// biggest first, at most [`LARGE_FILE_LIMIT`].
     pub fn large_files(&self) -> Vec<(u64, PathBuf)> {
@@ -100,6 +120,11 @@ impl<'c> RuleVisitor<'c> {
 impl Visitor for RuleVisitor<'_> {
     fn before_read(&self, dir: &DirCtx<'_>) -> Pre {
         let c = self.catalog;
+        // A user's skip at or above this directory (above a scan root).
+        if let Some(skip) = self.user_skips.iter().find(|s| dir.path.starts_with(s)) {
+            self.not_scanned.lock().unwrap_or_else(|p| p.into_inner()).push(skip.clone());
+            return Pre::Skip(SkipReason::Excluded);
+        }
         if c.no_traverse.contains_key(dir.path) || self.skips.iter().any(|s| s == dir.path) {
             return Pre::Skip(SkipReason::Excluded);
         }

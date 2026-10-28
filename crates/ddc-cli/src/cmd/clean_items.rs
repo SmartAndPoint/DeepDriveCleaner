@@ -17,7 +17,7 @@ use ddc_core::exec::{
     SystemProcesses, SystemTrash,
 };
 use ddc_core::model::ScanReport;
-use ddc_core::plan::{ListedItems, plan_listed};
+use ddc_core::plan::{ListedItem, ListedItems, Refused, plan_listed};
 use ddc_core::progress::{Phase, WalkStep};
 use ddc_core::report::after_clean::{self, Remeasured};
 use ddc_core::report::contents::EntryIndex;
@@ -48,7 +48,12 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
     let env = Env::from_process(args.data_dir.clone())?;
     let resolved = super::resolve(
         &env,
-        ScanFlags { paths: args.paths.clone(), excludes: args.exclude.clone(), min_age_days: args.min_age },
+        ScanFlags {
+            paths: args.paths.clone(),
+            excludes: args.exclude.clone(),
+            skips: args.skip.clone(),
+            min_age_days: args.min_age,
+        },
     )?;
     super::note_missing(&resolved.missing);
     // Nobody can be asked here; the dry run refuses too, so the sheet predicts the clean.
@@ -64,6 +69,14 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
     let reporter = progress::Reporter::new(args.progress.is_some());
     reporter.phase(Phase::Preparing);
     let opts = ScanOptions { walk: WalkOptions::default(), ..resolved.options };
+    // A skipped folder is never read, so no re-check sees it: an item at, under
+    // or above one is kept, as the dry run's preflight says (safety ADR,
+    // amendment of 2026-10-28).
+    let (skipped, items): (Vec<ListedItem>, Vec<ListedItem>) = list
+        .items
+        .iter()
+        .cloned()
+        .partition(|i| opts.user_skips.iter().any(|s| i.path.starts_with(s) || s.starts_with(&i.path)));
     // Read once under the lock: the re-check's estimate, and the report this
     // clean edits after it runs (story "Faster clean: re-check only what the
     // selection needs"). A report of other roots is not that report.
@@ -80,12 +93,12 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
         Ok((scanned, entries))
     };
     // `base` is the report edited after the clean; `None`: the rescan's.
-    let (scanned, entries, base) = match recheck::walk_for(&list.items, &catalog, previous.as_ref()) {
+    let (scanned, entries, base) = match recheck::walk_for(&items, &catalog, previous.as_ref()) {
         Walk::Pruned => {
-            let expected = previous.as_ref().and_then(|p| recheck::expected_files(p, &list.items, &catalog));
+            let expected = previous.as_ref().and_then(|p| recheck::expected_files(p, &items, &catalog));
             let scan_progress = Progress::default();
             let checked = reporter.walk(&scan_progress, "checking", WalkStep::Recheck, expected, || {
-                recheck::pruned(&env, &opts, &catalog, &list.items, &scan_progress, &SystemStatFs, None)
+                recheck::pruned(&env, &opts, &catalog, &items, &scan_progress, &SystemStatFs, None)
             });
             match checked {
                 Ok((scanned, entries)) => {
@@ -106,7 +119,8 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
         }
     };
     // A picked entry is checked against its folder's full list, not the report's top 100.
-    let listed = plan_listed(&scanned, &entries, &catalog, &list.items);
+    let mut listed = plan_listed(&scanned, &entries, &catalog, &items);
+    listed.refused.extend(skipped.into_iter().map(|item| Refused { item, reason: exec::SkipReason::Kept }));
 
     let mut journal = FileJournal::open(&env).context("cannot open the action journal")?;
     let journal_path = journal.path.clone();

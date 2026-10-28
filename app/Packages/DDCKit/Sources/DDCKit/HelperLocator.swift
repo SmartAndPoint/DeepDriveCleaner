@@ -24,6 +24,23 @@ public enum HelperLocator {
         return url
     }
 
+    /// Where Homebrew's cask links `ddc`.
+    public static let linkCandidates = ["/opt/homebrew/bin/ddc", "/usr/local/bin/ddc"]
+
+    /// The General pane's "Command-line tool" row: the first of `candidates`
+    /// that resolves into this bundle, else the bundled helper's path. Only
+    /// paths are resolved; no process is started.
+    public static func commandLineTool(bundleURL: URL, candidates: [String] = linkCandidates) -> String {
+        let helper = bundleURL.appending(path: relativePath, directoryHint: .notDirectory).path
+        let bundle = FolderList.resolved(bundleURL.path)
+        let link = candidates.first { candidate in
+            guard FileManager.default.fileExists(atPath: candidate) else { return false }
+            let target = FolderList.resolved(candidate)
+            return target.hasPrefix(bundle + "/")
+        }
+        return link ?? helper
+    }
+
     private static func sameFile(_ a: URL, _ b: URL) -> Bool {
         let key = URLResourceKey.fileResourceIdentifierKey
         guard let ida = try? a.resourceValues(forKeys: [key]).fileResourceIdentifier,

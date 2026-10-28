@@ -80,13 +80,24 @@ struct ContractTests {
         #expect(throws: SharedSettings.ReadError.malformed(path: path, reason: "Work is not an absolute path")) {
             try read(#"{"schema_version": 1, "roots": ["Work"]}"#)
         }
+        #expect(throws: SharedSettings.ReadError.malformed(path: path, reason: "huge is not an absolute path")) {
+            try read(#"{"schema_version": 1, "skips": ["/Users/example/x", "huge"]}"#)
+        }
+        #expect(throws: SharedSettings.ReadError.malformed(path: path, reason: "a field has the wrong type")) {
+            try read(#"{"schema_version": 1, "skips": "/Users/example/x"}"#)
+        }
+        for key in ["roots", "excludes", "skips", "disabled_rules"] {
+            #expect(throws: SharedSettings.ReadError.self, "serde refuses a null \(key)") {
+                try read(#"{"schema_version": 1, "\#(key)": null}"#)
+            }
+        }
         #expect(throws: SharedSettings.ReadError.malformed(path: path, reason: "min_age_days is over 3650")) {
             try read(#"{"schema_version": 1, "min_age_days": 4000}"#)
         }
         #expect(throws: SharedSettings.ReadError.malformed(path: path, reason: "a field has the wrong type")) {
             try read(#"{"schema_version": 1, "notify_low_disk": "yes"}"#)
         }
-        let full = try read(#"{"schema_version": 1, "roots": ["/Volumes/Work"], "excludes": ["/Volumes/Work/keep"], "min_age_days": 30, "notify_low_disk": false, "scheduler": {"by": "app", "app": "/Applications/DeepDriveCleaner.app"}, "min_size": 5}"#)
+        let full = try read(#"{"schema_version": 1, "roots": ["/Volumes/Work"], "excludes": ["/Volumes/Work/keep"], "skips": ["/Volumes/Work/huge"], "min_age_days": 30, "notify_low_disk": false, "scheduler": {"by": "app", "app": "/Applications/DeepDriveCleaner.app"}, "min_size": 5}"#)
         #expect(full.roots == ["/Volumes/Work"] && full.minSize == 5)
     }
 
@@ -96,8 +107,33 @@ struct ContractTests {
         let body = try #require(source.firstMatch(of: /pub struct Settings \{([^}]*)\}/))
         let fields = Set(String(body.1).matches(of: /pub (\w+):/).map { String($0.1) })
         #expect(fields == SharedSettings.keys)
+        #expect(fields.contains("skips"))
         let max = try #require(source.firstMatch(of: /const MAX_MIN_AGE_DAYS: u64 = (\d+);/))
         #expect(UInt64(max.1) == SharedSettings.maxMinAgeDays)
+        let report = try rustSource("crates/ddc-core/src/report/mod.rs")
+        let age = try #require(report.firstMatch(of: /pub const DEFAULT_MIN_AGE: Duration = Duration::from_secs\((\d+) \* 86_400\);/))
+        #expect(UInt64(age.1) == SettingsModel.defaultMinAgeDays)
+    }
+
+    @Test("the prompting areas are the background scan's")
+    func promptingAreas() throws {
+        let source = try rustSource("crates/ddc-cli/src/cmd/background.rs")
+        let body = try #require(source.firstMatch(of: /const PROMPTING_AREAS: &\[&str\] = &\[([^\]]*)\];/))
+        #expect(String(body.1).matches(of: /"([^"]+)"/).map { String($0.1) } == NotReadable.promptingAreas)
+    }
+
+    @Test("every Types row has help text, and the groups are the core's")
+    func typesHelp() throws {
+        let rules = try Fixture.rules()
+        let rows = TypesRows.make(rules: rules, disabled: [])
+        #expect(!rows.isEmpty)
+        for row in rows { #expect(row.help?.isEmpty == false, "\(row.label) has no help") }
+        #expect(Set(TypesRows.help.keys) == Set(rows.map(\.label)), "no help for a group that is not a row")
+        // The fixture is `rules --json`; its groups are `GROUPS` of the core, in order.
+        let source = try rustSource("crates/ddc-core/src/rules/listing.rs")
+        let groups = try #require(source.firstMatch(of: /pub const GROUPS: &\[\(&str, &\[&str\]\)\] = &\[(.*?)\n\];/.dotMatchesNewlines()))
+        let labels = String(groups.1).matches(of: /\(\s*"([^"]+)",\s*&\[/).map { String($0.1) }
+        #expect(labels == rules.groups)
     }
 
     @Test("only CleanRun.swift runs a clean or its dry run, and only the sheet's Clean action starts one")

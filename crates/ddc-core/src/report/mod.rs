@@ -41,6 +41,9 @@ pub struct ScanOptions {
     pub large_file_bytes: u64,
     /// Directories that are not even opened (background scans skip TCC areas).
     pub skip: Vec<PathBuf>,
+    /// The user's skips, canonical (`Settings::resolve`): not opened, and
+    /// listed in the report's `not_scanned`. They are in `excludes` too.
+    pub user_skips: Vec<PathBuf>,
     /// How much of each user-data folder `contents` lists.
     pub contents: ContentsLimits,
     pub walk: WalkOptions,
@@ -56,6 +59,7 @@ impl Default for ScanOptions {
             min_size: 0,
             large_file_bytes: crate::rules::LARGE_FILE_BYTES,
             skip: Vec::new(),
+            user_skips: Vec::new(),
             contents: ContentsLimits::default(),
             walk: WalkOptions::default(),
         }
@@ -130,7 +134,8 @@ pub(crate) fn scan_inner(
     let catalog = Catalog::builtin(env.home());
     let visitor = RuleVisitor::new(&catalog, excludes)
         .with_large_file_threshold(opts.large_file_bytes)
-        .with_skips(opts.skip.clone());
+        .with_skips(opts.skip.clone())
+        .with_user_skips(opts.user_skips.clone());
     let pruned = reach.map(|reach| recheck::Pruned { inner: &visitor, reach });
     let walking: &dyn Visitor = match &pruned {
         Some(pruned) => pruned,
@@ -182,6 +187,7 @@ pub(crate) fn scan_inner(
         skipped,
         skipped_total: out.skipped_total,
         cancelled: out.cancelled,
+        not_scanned: visitor.not_scanned(),
     };
     Ok(Scanned { report, index, errors: out.errors })
 }

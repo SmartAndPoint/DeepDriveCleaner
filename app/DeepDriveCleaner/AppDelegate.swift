@@ -16,7 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var statusItem: StatusItemController?
     /// In the Dock while a window is open (menu bar ADR §2, amended for 0.2.1).
     private let presence = DockPresenceController()
-    private lazy var settings = SettingsWindowController(presence: presence)
+    /// Made once the popover model exists: Settings shares its state.
+    private var settings: SettingsWindowController?
     private lazy var reviewWindow = ReviewWindowController(presence: presence)
     private var review: ReviewModel?
     private var model: PopoverModel?
@@ -69,9 +70,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             appVersion: version,
             log: { AppLog.write($0) }
         )
+        if let model {
+            // The store's writes reach the popover at once: ignored findings and the icon follow, with no scan.
+            let store = SettingsStore(
+                url: data.settings,
+                changed: { [weak model] in Task { await model?.refresh() } },
+                log: { AppLog.write($0) }
+            )
+            let settingsModel = SettingsModel(
+                store: store,
+                popover: model,
+                preferences: preferences,
+                // The scheduler arrives with "Background scan and notifications in the app".
+                scheduler: NoSchedulerControl(),
+                commandLineTool: HelperLocator.commandLineTool(bundleURL: Bundle.main.bundleURL)
+            )
+            settings = SettingsWindowController(presence: presence, model: settingsModel, privacy: Self.privacy)
+        }
         NSApp.mainMenu = MainMenu.make(
             about: { [weak self] in self?.presence.showAbout() },
-            settings: { [weak self] in self?.settings.show() },
+            settings: { [weak self] in self?.settings?.show() },
             find: { [weak self] in self?.reviewWindow.find() }
         )
         apply(launchMode.handle(.launched(arguments: CommandLine.arguments)))
@@ -128,8 +146,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if NSApp.isHidden { NSApp.unhideWithoutActivation() }
                 let statusItem = StatusItemController(
                     model: model,
-                    openSettings: { [weak self] in self?.settings.show() },
-                    openPrivacy: { Self.openFullDiskAccessSettings() }
+                    openSettings: { [weak self] in self?.settings?.show() },
+                    openPrivacy: Self.privacy.openFullDiskAccess
                 )
                 self.statusItem = statusItem
                 reviewWindow.returnToPopover = { [weak statusItem] in statusItem?.showPopover() }
@@ -175,12 +193,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // MARK: - System Settings
 
-    /// Privacy & Security → Full Disk Access. The anchor's form changed with
-    /// System Settings; the manual check on macOS 26 tells which one it honours.
-    static func openFullDiskAccessSettings() {
+    static let privacy = PrivacySettings(
+        openFullDiskAccess: { openPrivacySettings("Privacy_AllFiles") },
+        openFilesAndFolders: { openPrivacySettings("Privacy_FilesAndFolders") }
+    )
+
+    /// Privacy & Security → `anchor` (Full Disk Access, Files and Folders).
+    /// The anchor's form changed with System Settings; the manual check on
+    /// macOS 26 tells which one it honours.
+    static func openPrivacySettings(_ anchor: String) {
         let candidates = [
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
-            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles",
+            "x-apple.systempreferences:com.apple.preference.security?\(anchor)",
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?\(anchor)",
             "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension",
         ]
         for candidate in candidates {
@@ -189,6 +213,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
         }
-        AppLog.write("could not open the Full Disk Access settings")
+        AppLog.write("could not open the \(anchor) settings")
     }
 }

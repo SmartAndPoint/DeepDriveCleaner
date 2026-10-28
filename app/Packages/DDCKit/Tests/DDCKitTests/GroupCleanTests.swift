@@ -37,7 +37,7 @@ struct GroupCleanTests {
         let p1 = try ReviewFixture.id(items, "p1/node_modules")
         review.selection = [chrome, p1]
 
-        review.openSheet(scope: try scope(review, .safe, "App caches"))
+        review.openSheet(scope: try scope(review, .safe, "Browser and app caches"))
         let confirmation = try #require(review.sheet).confirmation
         #expect(confirmation.items.map(\.id) == [chrome])
         #expect(confirmation.bytes == 303_104)
@@ -59,7 +59,7 @@ struct GroupCleanTests {
         let items = try #require(review.items)
         let chrome = try ReviewFixture.id(items, "Google/Chrome")
         review.selection = [chrome, try ReviewFixture.id(items, "p1/node_modules")]
-        let apps = try scope(review, .safe, "App caches")
+        let apps = try scope(review, .safe, "Browser and app caches")
 
         // A newer report, and a settings change that makes the sheet reload first.
         current = reordered
@@ -113,14 +113,14 @@ struct GroupCleanTests {
 
     @Test("the button says how many and from which group, the row how many of how many; nothing selected, or a sheet open, disables it")
     func wordingAndEnabling() throws {
-        #expect(Wording.cleanFrom(2, group: "App caches") == "Clean 2 from App caches…")
+        #expect(Wording.cleanFrom(2, group: "Browser and app caches") == "Clean 2 from Browser and app caches…")
         #expect(Wording.cleanFrom(1_204, group: "Python environments") == "Clean 1,204 from Python environments…")
         #expect(Wording.scopeSummary(selected: 2, of: 3, bytes: 7_730_941_132) == "2 of 3 · 7.2 GiB")
         #expect(Wording.scopeSummary(selected: 0, of: 3, bytes: 0) == "0 of 3")
 
         let review = try review()
         let items = try #require(review.items)
-        let packages = try scope(review, .safe, "Package caches")
+        let packages = try scope(review, .safe, "Package downloads")
         let selectable = packages.filter { items.row($0)?.selectable == true }.count
         review.set(packages, selected: false)
         #expect(!review.canClean(scope: packages))
@@ -160,7 +160,7 @@ struct GroupCleanTests {
         let venv = try ReviewFixture.id(items, "py1/.venv")
         review.selection = [chrome, venv]
 
-        review.openSheet(scope: try scope(review, .safe, "App caches"))
+        review.openSheet(scope: try scope(review, .safe, "Browser and app caches"))
         try await until("the dry run") { review.sheet?.warnings == .checked }
         review.cleanConfirmedItems()
         try fake.open("clean-start")

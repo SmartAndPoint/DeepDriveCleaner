@@ -46,7 +46,7 @@ public enum Wording {
     }
 
     /// A group's own clean (story "Review window: clean only the selection
-    /// in this group"): "Clean 2 from App caches…".
+    /// in this group"): "Clean 2 from Browser and app caches…".
     public static func cleanFrom(_ count: Int, group: String) -> String {
         "Clean \(number(count)) from \(group)…"
     }

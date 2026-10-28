@@ -32,6 +32,11 @@ pub struct Settings {
     /// as `user.kept`, never cleaned.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub excludes: Vec<PathBuf>,
+    /// Absolute folders never read ("Skip entirely"): not opened, listed in
+    /// the report's `not_scanned`, and protected as excludes are. `--skip`
+    /// only adds to them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skips: Vec<PathBuf>,
     /// Rule ids switched off in the Types settings: their findings are
     /// `ignored`. Unknown ids are inert, so a renamed rule breaks nothing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -59,6 +64,7 @@ impl Default for Settings {
             schema_version: SETTINGS_SCHEMA_VERSION,
             roots: Vec::new(),
             excludes: Vec::new(),
+            skips: Vec::new(),
             disabled_rules: Vec::new(),
             min_age_days: None,
             min_size: None,
@@ -95,6 +101,9 @@ pub enum SettingsError {
     Malformed { path: PathBuf, reason: String },
     #[error("none of the folders to scan in {path} exists: {}", list(.missing))]
     NoRoots { path: PathBuf, missing: Vec<PathBuf> },
+    /// A skip that is not a folder, or a `--skip` that cannot be resolved.
+    #[error("cannot skip {}: {reason} ({origin})", .skip.display())]
+    Skip { skip: PathBuf, origin: String, reason: String },
 }
 
 fn list(paths: &[PathBuf]) -> String {
@@ -125,7 +134,7 @@ fn parse(bytes: &[u8]) -> Result<Settings, String> {
         None => return Err("no schema_version".to_owned()),
     }
     let settings: Settings = serde_json::from_value(value).map_err(|e| e.to_string())?;
-    if let Some(p) = settings.roots.iter().chain(&settings.excludes).find(|p| !p.is_absolute()) {
+    if let Some(p) = settings.roots.iter().chain(&settings.excludes).chain(&settings.skips).find(|p| !p.is_absolute()) {
         return Err(format!("{} is not an absolute path", p.display()));
     }
     if settings.min_age_days.is_some_and(|d| d > MAX_MIN_AGE_DAYS) {
@@ -149,13 +158,15 @@ pub fn clear_scheduler(env: &Env) -> Result<(), SettingsError> {
 pub struct ScanFlags {
     pub paths: Vec<PathBuf>,
     pub excludes: Vec<PathBuf>,
+    /// Added to the settings' skips, never in place of them.
+    pub skips: Vec<PathBuf>,
     pub min_age_days: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Resolved {
     pub options: ScanOptions,
-    /// Settings roots and excludes that do not exist (an unplugged disk): skipped.
+    /// Settings roots, excludes and skips that do not exist (an unplugged disk): skipped.
     pub missing: Vec<PathBuf>,
     /// Settings excludes an `--exclude` drops while they still protect a
     /// scanned folder: the caller names them before going on.
@@ -186,11 +197,40 @@ impl Settings {
             let effective = if roots.is_empty() { vec![env.home().to_path_buf()] } else { roots.clone() };
             (flags.excludes.clone(), self.dropped(&flags.excludes, &effective))
         };
+        let (found, gone) = existing(&self.skips);
+        missing.extend(gone);
+        let origin = path(env).display().to_string();
+        let mut user_skips = Vec::new();
+        for (skip, origin) in found
+            .iter()
+            .map(|s| (s, format!("skips in {origin}")))
+            .chain(flags.skips.iter().map(|s| (s, "--skip".to_owned())))
+        {
+            let canonical = skip.canonicalize().map_err(|e| SettingsError::Skip {
+                skip: skip.clone(),
+                origin: origin.clone(),
+                reason: e.to_string(),
+            })?;
+            if !canonical.is_dir() {
+                return Err(SettingsError::Skip { skip: skip.clone(), origin, reason: "not a folder".to_owned() });
+            }
+            if !user_skips.contains(&canonical) {
+                user_skips.push(canonical);
+            }
+        }
+        // After the `--exclude` branch: an exclude flag never drops a skip.
+        let mut excludes = excludes;
+        excludes.extend(user_skips.iter().cloned());
+        let dropped_excludes = dropped_excludes
+            .into_iter()
+            .filter(|e| e.canonicalize().map_or(true, |c| !user_skips.iter().any(|s| c.starts_with(s))))
+            .collect();
         let min_age_days = flags.min_age_days.or(self.min_age_days);
         Ok(Resolved {
             options: ScanOptions {
                 roots,
                 excludes,
+                user_skips,
                 min_age: min_age_days.map_or(DEFAULT_MIN_AGE, |d| Duration::from_secs(d * 86_400)),
                 disabled_rules: self.disabled_rules.clone(),
                 min_size: self.min_size.unwrap_or(0),

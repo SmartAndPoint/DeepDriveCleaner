@@ -72,7 +72,12 @@ fn the_file_applies_and_a_flag_wins() {
     assert_eq!(file.min_age, Duration::from_secs(30 * 86_400));
     assert_eq!((file.min_size, file.disabled_rules.as_slice()), (50 << 20, ["cache.npm".to_owned()].as_slice()));
 
-    let flags = ScanFlags { paths: vec![fx.t.path("q")], excludes: vec![fx.t.path("q/keep")], min_age_days: Some(3) };
+    let flags = ScanFlags {
+        paths: vec![fx.t.path("q")],
+        excludes: vec![fx.t.path("q/keep")],
+        min_age_days: Some(3),
+        ..ScanFlags::default()
+    };
     let flagged = s.resolve(&fx.env(), &flags).unwrap().options;
     assert_eq!(flagged.roots, [fx.t.path("q")]);
     assert_eq!(flagged.excludes, [fx.t.path("q/keep")]);
@@ -119,6 +124,62 @@ fn an_exclude_flag_names_only_the_protected_folders_it_drops() {
     );
 }
 
+/// "Skip entirely" (safety ADR, amendment of 2026-10-28): `--skip` adds to the
+/// file's skips, a skip is also an exclude no `--exclude` drops, and every
+/// skip is a canonical folder.
+#[test]
+fn skips_add_up_protect_and_must_be_folders() {
+    let fx = Fx::new();
+    for d in ["r/raw", "r/vm", "r/kept/deep", "r/flag"] {
+        fx.t.dir(d);
+    }
+    fx.t.file("r/notes.txt", 1);
+    fx.t.symlink(fx.t.path("r/flag"), "link-to-flag");
+    let canonical = |rel: &str| fx.t.path(rel).canonicalize().unwrap();
+    let s = Settings {
+        roots: vec![fx.t.path("r")],
+        excludes: vec![fx.t.path("r/kept/deep")],
+        skips: vec![fx.t.path("r/raw"), fx.t.path("r/vm"), fx.t.path("r/unplugged")],
+        ..Settings::default()
+    };
+
+    let flags = ScanFlags { skips: vec![fx.t.path("link-to-flag"), fx.t.path("r/raw")], ..ScanFlags::default() };
+    let resolved = s.resolve(&fx.env(), &flags).unwrap();
+    assert_eq!(
+        resolved.options.user_skips,
+        [canonical("r/raw"), canonical("r/vm"), canonical("r/flag")],
+        "the file's, then the flags', canonical, each once"
+    );
+    assert_eq!(resolved.missing, [fx.t.path("r/unplugged")], "a missing skip is skipped with a note");
+    for skip in &resolved.options.user_skips {
+        assert!(resolved.options.excludes.contains(skip), "{} protects as an exclude", skip.display());
+    }
+
+    // An exclude flag replaces the file's excludes, never its skips, and a
+    // folder a skip still covers is not named as dropped.
+    let s = Settings { skips: vec![fx.t.path("r/kept")], ..s };
+    let flags = ScanFlags { excludes: vec![fx.t.path("r/vm")], ..ScanFlags::default() };
+    let resolved = s.resolve(&fx.env(), &flags).unwrap();
+    assert!(resolved.options.excludes.contains(&canonical("r/kept")));
+    assert!(resolved.dropped_excludes.is_empty(), "{:?}", resolved.dropped_excludes);
+
+    for (skips, flag, origin) in [
+        (vec![fx.t.path("r/notes.txt")], vec![], "skips in"),
+        (vec![], vec![fx.t.path("r/notes.txt")], "--skip"),
+        (vec![], vec![fx.t.path("r/nowhere")], "--skip"),
+    ] {
+        assert_eq!(settings::SETTINGS_SCHEMA_VERSION, 1, "skips is an optional key");
+        let s = Settings { skips, ..Settings::default() };
+        let err = s.resolve(&fx.env(), &ScanFlags { skips: flag, ..ScanFlags::default() }).unwrap_err();
+        assert!(matches!(err, SettingsError::Skip { .. }), "{err}");
+        assert!(
+            err.to_string().contains(origin) && err.to_string().contains("notes.txt")
+                || err.to_string().contains("nowhere"),
+            "{err}"
+        );
+    }
+}
+
 #[test]
 fn a_malformed_file_is_an_error_naming_it() {
     let fx = Fx::new();
@@ -128,6 +189,7 @@ fn a_malformed_file_is_an_error_naming_it() {
         (r#"{"schema_version": 2}"#, "schema_version 2"),
         (r#"{"schema_version": 1, "colour": "blue"}"#, "unknown field"),
         (r#"{"schema_version": 1, "roots": ["Projects"]}"#, "not an absolute path"),
+        (r#"{"schema_version": 1, "skips": ["Movies/Raw"]}"#, "not an absolute path"),
         (r#"{"schema_version": 1, "min_age_days": 4000}"#, "min_age_days"),
         (r#"{"schema_version": 1, "min_size": "50M"}"#, "invalid type"),
     ] {

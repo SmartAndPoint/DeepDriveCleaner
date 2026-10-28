@@ -57,6 +57,13 @@
       "format": "uint64",
       "minimum": 0
     },
+    "not_scanned": {
+      "description": "The user's skips (`settings.json`'s `skips`, `--skip`) the walk stopped\nat, canonical, never truncated. A skip inside a claimed finding is not\nhere: the finding was read and is kept whole instead.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "scan_roots": {
       "type": "array",
       "items": {

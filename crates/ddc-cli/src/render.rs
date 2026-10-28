@@ -209,6 +209,12 @@ pub fn report(w: &mut impl Write, r: &ScanReport, style: &Style) -> io::Result<(
         }
     }
 
+    if !r.not_scanned.is_empty() {
+        let skipped: Vec<String> = r.not_scanned.iter().map(|p| tilde(p, home)).collect();
+        writeln!(w)?;
+        writeln!(w, "{} Not scanned: {}", style.dim("note:"), skipped.join(", "))?;
+    }
+
     if !r.large_files.is_empty() {
         writeln!(w)?;
         writeln!(w, "{}", style.bold("LARGE FILES — not covered by any rule, check by hand"))?;

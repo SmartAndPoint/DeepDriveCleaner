@@ -4,10 +4,14 @@
     "Python environments",
     "node_modules",
     "Build outputs",
-    "Package caches",
+    "Build caches in projects",
+    "Package downloads",
+    "Toolchain caches",
+    "Maven and test browsers",
+    "Browser and app caches",
     "IDE caches",
-    "Xcode data",
-    "App caches",
+    "Xcode builds",
+    "Xcode device support",
     "Old toolchains",
     "ML models",
     "VM and container images",
@@ -71,7 +75,7 @@
     },
     {
       "id": "python.pycache",
-      "group": "Build outputs",
+      "group": "Build caches in projects",
       "category": "project-artifact",
       "class": "safe",
       "removal": "delete",
@@ -80,7 +84,7 @@
     },
     {
       "id": "python.tool-cache",
-      "group": "Build outputs",
+      "group": "Build caches in projects",
       "category": "project-artifact",
       "class": "safe",
       "removal": "delete",
@@ -107,7 +111,7 @@
     },
     {
       "id": "js.build-cache",
-      "group": "Build outputs",
+      "group": "Build caches in projects",
       "category": "project-artifact",
       "class": "safe",
       "removal": "delete",
@@ -143,7 +147,7 @@
     },
     {
       "id": "gradle.project-cache",
-      "group": "Build outputs",
+      "group": "Build caches in projects",
       "category": "project-artifact",
       "class": "safe",
       "removal": "delete",
@@ -170,7 +174,7 @@
     },
     {
       "id": "cache.npm",
-      "group": "Package caches",
+      "group": "Package downloads",
       "category": "package-cache",
       "class": "safe",
       "removal": "delete",
@@ -179,7 +183,7 @@
     },
     {
       "id": "cache.yarn",
-      "group": "Package caches",
+      "group": "Package downloads",
       "category": "package-cache",
       "class": "safe",
       "removal": "delete",
@@ -188,7 +192,7 @@
     },
     {
       "id": "cache.bun",
-      "group": "Package caches",
+      "group": "Package downloads",
       "category": "package-cache",
       "class": "safe",
       "removal": "delete",
@@ -197,7 +201,7 @@
     },
     {
       "id": "cache.pnpm",
-      "group": "Package caches",
+      "group": "Package downloads",
       "category": "package-cache",
       "class": "safe",
       "removal": "delete",
@@ -206,7 +210,7 @@
     },
     {
       "id": "cache.uv",
-      "group": "Package caches",
+      "group": "Toolchain caches",
       "category": "package-cache",
       "class": "safe",
       "removal": "native",
@@ -215,7 +219,7 @@
     },
     {
       "id": "cache.pip",
-      "group": "Package caches",
+      "group": "Package downloads",
       "category": "package-cache",
       "class": "safe",
       "removal": "delete",
@@ -224,7 +228,7 @@
     },
     {
       "id": "cache.poetry",
-      "group": "Package caches",
+      "group": "Package downloads",
       "category": "package-cache",
       "class": "safe",
       "removal": "delete",
@@ -233,7 +237,7 @@
     },
     {
       "id": "cache.homebrew",
-      "group": "Package caches",
+      "group": "Package downloads",
       "category": "package-cache",
       "class": "safe",
       "removal": "delete",
@@ -242,7 +246,7 @@
     },
     {
       "id": "cache.go-build",
-      "group": "Package caches",
+      "group": "Toolchain caches",
       "category": "package-cache",
       "class": "safe",
       "removal": "native",
@@ -251,7 +255,7 @@
     },
     {
       "id": "cache.go-mod",
-      "group": "Package caches",
+      "group": "Toolchain caches",
       "category": "package-cache",
       "class": "safe",
       "removal": "native",
@@ -260,7 +264,7 @@
     },
     {
       "id": "cache.cargo",
-      "group": "Package caches",
+      "group": "Toolchain caches",
       "category": "package-cache",
       "class": "safe",
       "removal": "delete",
@@ -269,7 +273,7 @@
     },
     {
       "id": "cache.gradle",
-      "group": "Package caches",
+      "group": "Toolchain caches",
       "category": "package-cache",
       "class": "safe",
       "removal": "delete",
@@ -278,7 +282,7 @@
     },
     {
       "id": "repo.maven",
-      "group": "Package caches",
+      "group": "Maven and test browsers",
       "category": "package-cache",
       "class": "review",
       "removal": "trash",
@@ -287,7 +291,7 @@
     },
     {
       "id": "cache.cocoapods",
-      "group": "Package caches",
+      "group": "Package downloads",
       "category": "package-cache",
       "class": "safe",
       "removal": "delete",
@@ -296,7 +300,7 @@
     },
     {
       "id": "browsers.playwright",
-      "group": "Package caches",
+      "group": "Maven and test browsers",
       "category": "package-cache",
       "class": "review",
       "removal": "trash",
@@ -305,7 +309,7 @@
     },
     {
       "id": "browsers.puppeteer",
-      "group": "Package caches",
+      "group": "Maven and test browsers",
       "category": "package-cache",
       "class": "review",
       "removal": "trash",
@@ -314,7 +318,7 @@
     },
     {
       "id": "browsers.cypress",
-      "group": "Package caches",
+      "group": "Maven and test browsers",
       "category": "package-cache",
       "class": "review",
       "removal": "trash",
@@ -323,7 +327,7 @@
     },
     {
       "id": "xcode.derived-data",
-      "group": "Xcode data",
+      "group": "Xcode builds",
       "category": "xcode",
       "class": "safe",
       "removal": "delete",
@@ -332,7 +336,7 @@
     },
     {
       "id": "xcode.simulator-caches",
-      "group": "Xcode data",
+      "group": "Xcode builds",
       "category": "xcode",
       "class": "safe",
       "removal": "delete",
@@ -341,7 +345,7 @@
     },
     {
       "id": "xcode.device-support",
-      "group": "Xcode data",
+      "group": "Xcode device support",
       "category": "xcode",
       "class": "review",
       "removal": "trash",
@@ -539,7 +543,7 @@
     },
     {
       "id": "app.chrome-cache",
-      "group": "App caches",
+      "group": "Browser and app caches",
       "category": "app-cache",
       "class": "safe",
       "removal": "delete",
@@ -548,7 +552,7 @@
     },
     {
       "id": "app.brave-cache",
-      "group": "App caches",
+      "group": "Browser and app caches",
       "category": "app-cache",
       "class": "safe",
       "removal": "delete",
@@ -557,7 +561,7 @@
     },
     {
       "id": "app.firefox-cache",
-      "group": "App caches",
+      "group": "Browser and app caches",
       "category": "app-cache",
       "class": "safe",
       "removal": "delete",
@@ -566,7 +570,7 @@
     },
     {
       "id": "app.spotify-cache",
-      "group": "App caches",
+      "group": "Browser and app caches",
       "category": "app-cache",
       "class": "safe",
       "removal": "delete",
@@ -575,7 +579,7 @@
     },
     {
       "id": "app.slack-cache",
-      "group": "App caches",
+      "group": "Browser and app caches",
       "category": "app-cache",
       "class": "safe",
       "removal": "delete",
@@ -584,7 +588,7 @@
     },
     {
       "id": "app.adobe-camera-raw-cache",
-      "group": "App caches",
+      "group": "Browser and app caches",
       "category": "app-cache",
       "class": "safe",
       "removal": "delete",
@@ -683,7 +687,7 @@
     },
     {
       "id": "generic.cachedir-tag",
-      "group": "App caches",
+      "group": "Browser and app caches",
       "category": "generic-cache",
       "class": "review",
       "removal": "trash",

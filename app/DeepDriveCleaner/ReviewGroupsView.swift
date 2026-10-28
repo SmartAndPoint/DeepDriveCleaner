@@ -102,7 +102,7 @@ private struct GroupAmount: View {
 private struct SelectAllRow: View {
     @Bindable var model: ReviewModel
     let ids: [Int]
-    /// The sidebar group, for "Clean 2 from App caches…".
+    /// The sidebar group, for "Clean 2 from Browser and app caches…".
     let group: String
     /// "9 folders · 3.8 GiB", when nothing here can be selected.
     let total: String

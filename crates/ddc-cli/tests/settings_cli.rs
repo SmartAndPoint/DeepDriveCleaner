@@ -257,3 +257,38 @@ fn the_min_size_setting_is_a_floor_under_the_min_size_flag() {
     let (head, group) = planned("100M");
     assert!(head.contains("1 items selected, 110.0 MiB") && group.contains(" 1/1 "), "a larger flag wins: {group}");
 }
+
+/// "Skip entirely": the scan lists a skip as not scanned, the terminal says so
+/// in one line, and the background scan applies it beside the prompting areas.
+#[test]
+fn a_skip_is_not_scanned_in_every_scan() {
+    let fx = Fx::new();
+    fx.settings(serde_json::json!({ "schema_version": 1, "skips": [fx.path("p/x")] }));
+
+    let r = fx.scan(&[]);
+    assert_eq!(paths(&r, "not_scanned"), [fx.arg("p/x")]);
+    assert!(r["findings"].as_array().unwrap().iter().all(|f| !f["path"].as_str().unwrap().starts_with(&fx.arg("p/x"))));
+
+    let flagged = fx.scan(&["--skip", &fx.arg("q")]);
+    assert_eq!(paths(&flagged, "not_scanned"), [fx.arg("p/x"), fx.arg("q")], "--skip adds to the file's skips");
+
+    let text = String::from_utf8(fx.run(&["scan"]).stdout).unwrap();
+    assert!(text.contains("Not scanned: ~/p/x"), "{text}");
+
+    let out = fx.run(&["scan", "--background", "--notify", "json"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let saved: serde_json::Value = serde_json::from_slice(&fs::read(fx.data.join("last-scan.json")).unwrap()).unwrap();
+    assert_eq!(paths(&saved, "not_scanned"), [fx.arg("p/x")], "the background scan keeps the skips");
+
+    // An `--exclude` replaces the file's excludes; one a skip still covers is not "dropped".
+    fx.settings(serde_json::json!({
+        "schema_version": 1, "skips": [fx.path("p/x")], "excludes": [fx.path("p/x/__pycache__")],
+    }));
+    let replaced = fx.run(&["scan", "--exclude", &fx.arg("q")]);
+    assert!(replaced.status.success());
+    assert!(!String::from_utf8_lossy(&replaced.stderr).contains("no longer protected"), "covered by the skip");
+
+    let file = fx.run(&["scan", "--skip", &fx.arg("p/__pycache__/a.pyc")]);
+    assert!(!file.status.success());
+    assert!(String::from_utf8_lossy(&file.stderr).contains("cannot skip"), "{}", String::from_utf8_lossy(&file.stderr));
+}

@@ -38,7 +38,12 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
     let env = Env::from_process(args.data_dir.clone())?;
     let resolved = super::resolve(
         &env,
-        ScanFlags { paths: args.paths.clone(), excludes: args.exclude.clone(), min_age_days: args.min_age },
+        ScanFlags {
+            paths: args.paths.clone(),
+            excludes: args.exclude.clone(),
+            skips: args.skip.clone(),
+            min_age_days: args.min_age,
+        },
     )?;
     super::note_missing(&resolved.missing);
     let dropped = &resolved.dropped_excludes;

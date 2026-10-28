@@ -56,6 +56,10 @@ pub struct ScanArgs {
     /// Never touch this path: it is reported as protected (repeatable).
     #[arg(long, value_name = "PATH")]
     pub exclude: Vec<PathBuf>,
+    /// Never read this folder: not scanned and never cleaned. Adds to
+    /// settings.json's skips (repeatable).
+    #[arg(long, value_name = "PATH")]
+    pub skip: Vec<PathBuf>,
     /// Projects untouched for at least this many days are selected for cleanup
     /// (default: settings.json, else 14).
     #[arg(long, value_name = "DAYS", value_parser = clap::value_parser!(u64).range(0..=3650))]
@@ -179,6 +183,10 @@ pub struct CleanArgs {
     /// Never touch this path (repeatable).
     #[arg(long, value_name = "PATH")]
     pub exclude: Vec<PathBuf>,
+    /// Never read this folder: not scanned and never cleaned. Adds to
+    /// settings.json's skips (repeatable).
+    #[arg(long, value_name = "PATH")]
+    pub skip: Vec<PathBuf>,
     /// Where the last scan, the lock and the logs live.
     #[arg(long, value_name = "DIR")]
     pub data_dir: Option<PathBuf>,

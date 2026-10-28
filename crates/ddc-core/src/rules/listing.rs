@@ -14,44 +14,39 @@ use crate::plan::action_for;
 pub const RULES_SCHEMA_VERSION: u32 = 1;
 
 /// Every rule id in exactly one group, in the order of the Types settings:
-/// the design canvas's ten, then two without a switch.
+/// the thirteen of the design canvas's revised Settings (artboard 10) and
+/// "Maven and test browsers", which holds the `review` downloads out of the
+/// Safe "Toolchain caches", then two without a switch.
 pub const GROUPS: &[(&str, &[&str])] = &[
     ("Python environments", &["python.venv", "python.tox"]),
     ("node_modules", &["node.node_modules", "node.node_modules-orphan"]),
+    ("Build outputs", &["rust.target", "maven.target", "gradle.build", "cmake.build", "cocoapods.pods"]),
+    ("Build caches in projects", &["js.build-cache", "python.pycache", "python.tool-cache", "gradle.project-cache"]),
     (
-        "Build outputs",
-        &[
-            "rust.target",
-            "maven.target",
-            "gradle.build",
-            "gradle.project-cache",
-            "cmake.build",
-            "js.build-cache",
-            "python.pycache",
-            "python.tool-cache",
-            "cocoapods.pods",
-        ],
-    ),
-    (
-        "Package caches",
+        "Package downloads",
         &[
             "cache.npm",
+            "cache.pnpm",
             "cache.yarn",
             "cache.bun",
-            "cache.pnpm",
-            "cache.uv",
             "cache.pip",
             "cache.poetry",
             "cache.homebrew",
-            "cache.go-build",
-            "cache.go-mod",
-            "cache.cargo",
-            "cache.gradle",
             "cache.cocoapods",
-            "repo.maven",
-            "browsers.playwright",
-            "browsers.puppeteer",
-            "browsers.cypress",
+        ],
+    ),
+    ("Toolchain caches", &["cache.cargo", "cache.uv", "cache.go-mod", "cache.go-build", "cache.gradle"]),
+    ("Maven and test browsers", &["repo.maven", "browsers.playwright", "browsers.puppeteer", "browsers.cypress"]),
+    (
+        "Browser and app caches",
+        &[
+            "app.chrome-cache",
+            "app.brave-cache",
+            "app.firefox-cache",
+            "app.spotify-cache",
+            "app.slack-cache",
+            "app.adobe-camera-raw-cache",
+            "generic.cachedir-tag",
         ],
     ),
     (
@@ -64,19 +59,8 @@ pub const GROUPS: &[(&str, &[&str])] = &[
             "ide.windsurf-cache",
         ],
     ),
-    ("Xcode data", &["xcode.derived-data", "xcode.simulator-caches", "xcode.device-support"]),
-    (
-        "App caches",
-        &[
-            "app.chrome-cache",
-            "app.brave-cache",
-            "app.firefox-cache",
-            "app.spotify-cache",
-            "app.slack-cache",
-            "app.adobe-camera-raw-cache",
-            "generic.cachedir-tag",
-        ],
-    ),
+    ("Xcode builds", &["xcode.derived-data", "xcode.simulator-caches"]),
+    ("Xcode device support", &["xcode.device-support"]),
     ("Old toolchains", &["toolchain.nvm", "toolchain.pyenv", "toolchain.rustup"]),
     ("ML models", &["model.ollama", "model.huggingface", "model.lmstudio", "model.torch"]),
     (

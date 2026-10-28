@@ -83,7 +83,7 @@ ddc clean                # review the plan, then clean what you confirm
 Read-only: it never changes a file. It walks your home folder (or the paths you give), groups findings by risk class and type, and prints the largest per group. It saves the report as the last scan, which the app shows.
 
 ```
-ddc scan [PATH…] [--json] [--all] [--exclude PATH]… [--min-age DAYS] [--data-dir DIR] [--threads N]
+ddc scan [PATH…] [--json] [--all] [--exclude PATH]… [--skip PATH]… [--min-age DAYS] [--data-dir DIR] [--threads N]
          [--progress json]
 ```
 
@@ -93,6 +93,7 @@ ddc scan [PATH…] [--json] [--all] [--exclude PATH]… [--min-age DAYS] [--data
 | `--json` | Print the full report as JSON ([`docs/scan.schema.json`](docs/scan.schema.json)) instead of the summary. |
 | `--all` | List every finding, not only the largest ones per group. |
 | `--exclude PATH` | Never touch this folder: it is reported as protected user data. Repeatable. Replaces the `excludes` of `settings.json` (see [Settings](#settings)). |
+| `--skip PATH` | Never read this folder: it is not scanned and never cleaned, and the report lists it as not scanned. Repeatable. Adds to the `skips` of `settings.json`. |
 | `--min-age DAYS` | A project untouched for at least this many days has its rebuildable artifacts selected. Default: `settings.json`, else 14. |
 | `--data-dir DIR` | Where the last scan, the settings and the lock live (default `~/Library/Application Support/DeepDriveCleaner`). Logs then go to `DIR/logs`. The `DDC_DATA_DIR` environment variable does the same. |
 | `--threads N` | Worker threads. Default: one per core. |
@@ -119,7 +120,7 @@ Right before touching an item it checks it again (see [Safety](#safety)) and ski
 
 ```
 ddc clean [PATH…] [--dry-run] [--yes] [--class CLASS]… [--category CATEGORY]… [--min-size SIZE]
-          [--min-age DAYS] [--permanent] [--exclude PATH]… [--data-dir DIR] [--progress json]
+          [--min-age DAYS] [--permanent] [--exclude PATH]… [--skip PATH]… [--data-dir DIR] [--progress json]
 ```
 
 | Option | Meaning |
@@ -133,6 +134,7 @@ ddc clean [PATH…] [--dry-run] [--yes] [--class CLASS]… [--category CATEGORY]
 | `--min-age DAYS` | As for `scan`. |
 | `--permanent` | Delete `review` items instead of moving them to the Trash. |
 | `--exclude PATH` | Never touch this folder. Repeatable. |
+| `--skip PATH` | Never read this folder. Repeatable. Adds to the `skips` of `settings.json`. |
 | `--data-dir DIR` | As for `scan`. |
 | `--progress json` | Write progress to stderr as events, one JSON line each ([`docs/progress.schema.json`](docs/progress.schema.json)): the phase (`preparing`, then `cleaning` right before the first item is touched), the re-check and keep-marker walks, item `i` of `n` with the bytes processed, and one line per item with its outcome. Without it, a terminal shows a live line: what is checked while preparing, then the item, the bytes processed of the total and the path or the tool that runs. |
 
@@ -152,7 +154,7 @@ Ctrl-C during a clean stops it after the current item; a tool it runs (such as `
 This is how the app cleans, and how a script can clean exactly what a person confirmed elsewhere. The list is the selection and the consent: no class filter, no default selection, no questions, no terminal needed. It checks every item again; anything that changed is skipped with a reason. It reads only the listed items and what lies above and beside them, unless the list holds a toolchain version (nvm, pyenv, rustup), whose pins can sit in any project: then it rescans the whole home. Afterwards it updates `last-scan.json` with what it did, so no scan is needed (`last_scan_saved` in the JSON report).
 
 ```
-ddc clean --items FILE [--json] [--dry-run] [PATH…] [--exclude PATH]… [--data-dir DIR] [--progress json]
+ddc clean --items FILE [--json] [--dry-run] [PATH…] [--exclude PATH]… [--skip PATH]… [--data-dir DIR] [--progress json]
 ```
 
 | Option | Meaning |
@@ -249,12 +251,13 @@ ddc schedule status
 |---|---|---|
 | `roots` | Absolute folders to scan; empty means your home folder. A folder that does not exist, such as an unplugged disk, is skipped with a note. | `PATH…` |
 | `excludes` | Absolute folders never touched, reported as user data. | `--exclude` |
+| `skips` | Absolute folders never read: not scanned, never cleaned, listed as not scanned. A finding that holds one is kept whole. | `--skip` adds to it |
 | `min_age_days` | Idle days before a project's artifacts are selected (default 14). | `--min-age` |
 | `disabled_rules` | Rule ids from `ddc rules` switched off: their findings are reported as ignored and never selected or counted. | none |
 | `min_size` | Bytes: smaller findings are ignored. `clean --min-size` filters the plan on top of it, so the larger of the two applies. | none |
 | `notify_threshold`, `notify_low_disk` | When the background scan notifies (default 10G, and low disk on). | `--threshold` |
 
-`--exclude` replaces the excludes from the file. When that would leave a folder from the file unprotected, ddc names it first: `ddc clean` asks in a terminal and refuses without one; `ddc scan` and `ddc clean --dry-run` only warn, since they change nothing. A malformed file is an error that names it.
+`--skip` only adds to the skips from the file, and `--exclude` never drops them. `--exclude` replaces the excludes from the file. When that would leave a folder from the file unprotected, ddc names it first: `ddc clean` asks in a terminal and refuses without one; `ddc scan` and `ddc clean --dry-run` only warn, since they change nothing. A malformed file is an error that names it.
 
 ## Risk classes
 

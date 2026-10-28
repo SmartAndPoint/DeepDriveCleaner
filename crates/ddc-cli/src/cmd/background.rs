@@ -72,7 +72,12 @@ pub fn run_with(
     let settings = settings::load(env)?;
     let resolved = settings.resolve(
         env,
-        &ScanFlags { paths: args.paths.clone(), excludes: args.exclude.clone(), min_age_days: args.min_age },
+        &ScanFlags {
+            paths: args.paths.clone(),
+            excludes: args.exclude.clone(),
+            skips: args.skip.clone(),
+            min_age_days: args.min_age,
+        },
     )?;
     for path in &resolved.missing {
         log(env, &format!("{} in settings.json does not exist; skipped", path.display()));
