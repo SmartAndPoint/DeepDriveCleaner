@@ -10,6 +10,12 @@
 # on one image: a line per profile gives its build and scan times, and the image's
 # size on disk is printed at the end. A failed profile fails the run after every
 # profile has been tried. Outputs land in $LOAD_OUT (target/load).
+#
+# With $LOAD_CLI set, every profile goes through `ddc-loadgen run` instead (story
+# "Memory and CPU under load: peak memory, leaks and CPU time"): the tree is built
+# and checked the same way, then that CLI is measured on it ($LOAD_REPEAT runs of
+# each reading command, one clean). Each profile's rows land in
+# $LOAD_OUT/<size>-<profile>.tsv, all of them in $LOAD_OUT/load-<size>.tsv.
 set -euo pipefail
 
 usage="usage: load-image.sh <profile|all> <S|M|L|XL> [seed]"
@@ -122,19 +128,33 @@ mkdir -p "$out"
 field() { plutil -extract "$2" raw -o - "$1" 2>/dev/null || echo -; }
 seconds() { awk -v ms="$(field "$1" "$2")" 'BEGIN { if (ms == "-") print "-"; else printf "%.1f", ms / 1000 }'; }
 echo "image $image on $device at $mount; $size: $entries entries, seed $seed"
-printf '%-14s %10s %9s %9s %s\n' profile entries build_s scan_s differences
-failed=
+printf '%-14s %10s %9s %9s %11s %s\n' profile entries build_s scan_s differences failures
+failed= tables=()
 for p in $profiles; do
   mkdir "$mount/$p"
   json=$out/$size-$p.json
-  "$loadgen" build "$p" --entries "$entries" --seed "$seed" --into "$mount/$p" --device "$device" \
-    --verify --brief >"$json" || failed="$failed $p"
-  printf '%-14s %10s %9s %9s %s\n' "$p" "$(field "$json" entries)" "$(seconds "$json" build_ms)" \
-    "$(seconds "$json" verify_ms)" "$(field "$json" difference_count)"
+  if [ -n "${LOAD_CLI:-}" ]; then
+    rm -f "$out/$size-$p.tsv"
+    "$loadgen" run "$p" --entries "$entries" --seed "$seed" --into "$mount/$p" --device "$device" \
+      --cli "$LOAD_CLI" --repeat "${LOAD_REPEAT:-3}" --size "$size" --date "${LOAD_DATE:--}" \
+      --commit "${LOAD_COMMIT:--}" --out "$out" >"$json" || failed="$failed $p"
+    [ -e "$out/$size-$p.tsv" ] && tables+=("$out/$size-$p.tsv")
+  else
+    "$loadgen" build "$p" --entries "$entries" --seed "$seed" --into "$mount/$p" --device "$device" \
+      --verify --brief >"$json" || failed="$failed $p"
+  fi
+  printf '%-14s %10s %9s %9s %11s %s\n' "$p" "$(field "$json" entries)" "$(seconds "$json" build_ms)" \
+    "$(seconds "$json" verify_ms)" "$(field "$json" difference_count)" "$(field "$json" failure_count)"
 done
+if [ ${#tables[@]} -gt 0 ]; then
+  rm -f "$out/load-$size.tsv"
+  "$loadgen" table "${tables[@]}" --into "$out/load-$size.tsv"
+  echo "measurements: $out/load-$size.tsv"
+fi
 echo "image size on disk: $(du -sh "$image" | cut -f1); volume used: $(df -h "$mount" | awk 'NR == 2 { print $3 }')"
 if [ -n "$failed" ]; then
-  echo "load-image: failed:$failed. A number under differences is a mismatch with the manifest" \
-    "(listed in $out/$size-<profile>.json); a dash is a build that did not finish (its message is above)." >&2
+  echo "load-image: failed:$failed. A number under differences is a mismatch with the manifest," \
+    "one under failures a measured run that failed (both listed in $out/$size-<profile>.json);" \
+    "a dash is a build that did not finish (its message is above)." >&2
   exit 1
 fi

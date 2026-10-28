@@ -200,6 +200,11 @@ pub struct CleanArgs {
     /// With --items: the report as JSON (with --dry-run, one JSON line per item).
     #[arg(long, requires = "items")]
     pub json: bool,
+    /// With --items: report this many local Time Machine snapshots instead of
+    /// asking `tmutil`, so a load test runs no tool (story "Memory and CPU
+    /// under load").
+    #[arg(long, hide = true, value_name = "N", requires = "items")]
+    pub local_snapshots: Option<usize>,
     /// Write progress events to stderr, one JSON line each (docs/progress.schema.json).
     #[arg(long, value_enum, value_name = "FORMAT")]
     pub progress: Option<ProgressFormat>,

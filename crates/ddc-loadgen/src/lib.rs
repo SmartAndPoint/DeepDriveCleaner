@@ -8,9 +8,14 @@ pub mod build;
 pub mod caps;
 pub mod desc;
 pub mod fixtures;
+pub mod isolate;
+pub mod items;
 pub mod manifest;
+pub mod measure;
 pub mod profiles;
 pub mod rng;
+pub mod run;
+pub mod table;
 pub mod target;
 pub mod verify;
 

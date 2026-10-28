@@ -134,7 +134,7 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
             &listed.plan,
             &Consent::Listed,
             Ports { commands: &commands, trash: &SystemTrash, procs: &SystemProcesses, journal: &mut journal },
-            &ExecOptions { cancel, progress: Some(&exec_progress), events, ..ExecOptions::default() },
+            &ExecOptions { cancel, progress: Some(&exec_progress), events, local_snapshots: args.local_snapshots },
         )
     })?;
     let mut clean = CleanReport::new(&list.items, &listed.refused, &result, journal_path.clone());

@@ -13,5 +13,5 @@ fail-fast = false
 load = { max-threads = 4 }
 
 [[profile.default.overrides]]
-filter = '(package(ddc-loadgen) & kind(test)) | binary(golden_cli)'
+filter = '(package(ddc-loadgen) & kind(test)) | binary(golden_cli) | binary(load_cli)'
 test-group = 'load'

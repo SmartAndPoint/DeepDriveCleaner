@@ -22,7 +22,7 @@ MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
 .PHONY: build fmt fmt-check clippy test check release install dist app app-test app-dist icons \
 	gate-fast gate nextest doctest clippy-dhat doc deny machete msrv release-check \
-	tools require-tools hooks coverage ci-green golden-check golden-record loadgen-clean load-image
+	tools require-tools hooks coverage ci-green golden-check golden-record loadgen-clean load-image load
 
 build:
 	$(CARGO) build --workspace
@@ -95,6 +95,20 @@ LOAD_SEED ?= 1
 load-image:
 	$(CARGO) build --release -p ddc-loadgen --locked
 	LOADGEN=target/release/ddc-loadgen scripts/load-image.sh $(LOAD_PROFILE) $(LOAD_SIZE) $(LOAD_SEED)
+
+# The release CLI measured on every profile's tree (story "Memory and CPU under load:
+# peak memory, leaks and CPU time"): wall, user and system time, peak memory and
+# threads per command, in target/load/load-$(LOAD_SIZE).tsv. LOAD_PROFILE defaults to
+# all here. Limits come later: every run records, whatever LOAD_LIMITS says.
+LOAD_REPEAT ?= 3
+LOAD_LIMITS ?= record
+load:
+	@[ "$(LOAD_LIMITS)" = record ] || echo "make load: no limits yet; LOAD_LIMITS=$(LOAD_LIMITS) only records" >&2
+	$(CARGO) build --release -p ddc-loadgen -p ddc-cli --locked
+	LOADGEN=target/release/ddc-loadgen LOAD_CLI=target/release/deepdrivecleaner LOAD_REPEAT=$(LOAD_REPEAT) \
+	  LOAD_DATE=$$(date -u +%F) LOAD_COMMIT=$$(git describe --always --dirty) \
+	  scripts/load-image.sh $(if $(filter command line environment,$(origin LOAD_PROFILE)),$(LOAD_PROFILE),all) \
+	  $(LOAD_SIZE) $(LOAD_SEED)
 
 # Removes the load trees `ddc-loadgen mktemp` left in $$TMPDIR (only marked ones).
 loadgen-clean:

@@ -243,6 +243,19 @@ fn a_listed_item_of_a_switched_off_type_is_still_cleaned() {
     assert!(!fx.path("q/__pycache__").exists());
 }
 
+/// A load test passes the snapshot count, so `tmutil` is never asked.
+#[test]
+fn a_given_snapshot_count_is_reported_as_is() {
+    let fx = Fx::new();
+    let list = fx.list(&["q/__pycache__"]);
+
+    let out =
+        fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--json", "--local-snapshots", "7"]).output().unwrap();
+
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(report(&out.stdout).local_snapshots, 7);
+}
+
 #[test]
 fn the_report_round_trips_names_the_volume_and_a_failed_item_still_exits_0() {
     let fx = Fx::new();
