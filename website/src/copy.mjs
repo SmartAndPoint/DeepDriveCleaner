@@ -1,4 +1,4 @@
-import { translations } from './content.mjs';
+import { translations, product } from './content.mjs';
 
 const en = {
   appNav: 'The app', cliNav: 'CLI + agents', developerUtility: 'Developer disk utility',
@@ -157,17 +157,34 @@ const zh = {
 };
 
 export const copy = { en: {...translations.en,...en}, zh: {...translations.zh,...zh} };
-export const pageMetadata = {
+const socialAlt = {
   product: {
-    en: {title: 'DeepDriveCleaner — Disk cleanup for developers', description: 'Find development caches, dependencies and build outputs in a native Mac app. Review your cleanup selection, or use the same engine through the ddc CLI.'},
-    zh: {title: 'DeepDriveCleaner — 开发者磁盘清理工具', description: '在原生 Mac 应用中查找开发缓存、依赖和构建产物。审阅清理选择，或通过 ddc CLI 使用同一引擎。'}
+    en: 'DeepDriveCleaner icon beside a drive and folders on a pale blue background. deepdrivecleaner.app. Blazingly fast disk cleanup. For developers & agents.',
+    zh: '浅蓝背景上的 DeepDriveCleaner 图标、磁盘和文件夹。deepdrivecleaner.app。极速磁盘清理。为开发者与智能体打造。'
   },
   cli: {
-    en: {title: 'ddc.sh — DeepDriveCleaner CLI for developers and agents', description: 'One DeepDriveCleaner CLI workflow for people and coding agents. Release downloads, JSON reports, cleanup previews, terminal requirements and explicit-selection API.'},
-    zh: {title: 'ddc.sh — 面向开发者与智能体的 DeepDriveCleaner CLI', description: '供开发者和编程智能体共用的 DeepDriveCleaner CLI 流程：发布文件下载、JSON 报告、清理预览、终端要求与明确选择 API。'}
+    en: 'ddc, the DeepDriveCleaner CLI. A terminal shows ddc scan --json and ddc clean --dry-run. ddc.sh. Blazingly fast disk cleanup. For developers & agents.',
+    zh: 'ddc，即 DeepDriveCleaner CLI。终端展示 ddc scan --json 与 ddc clean --dry-run。ddc.sh。极速磁盘清理。为开发者与智能体打造。'
+  }
+};
+const socialMetadata = (kind, language) => ({
+  // Both product surfaces share a public image origin.
+  imageUrl: product.origins.product+'/assets/social-'+kind+'-'+language+'-v2.png',
+  imageWidth: 1731, imageHeight: 909,
+  imageAlt: socialAlt[kind][language]
+});
+
+export const pageMetadata = {
+  product: {
+    en: {...socialMetadata('product','en'), title: 'DeepDriveCleaner — Disk cleanup for developers', description: 'Find development caches, dependencies and build outputs in a native Mac app. Review your cleanup selection, or use the same engine through the ddc CLI.'},
+    zh: {...socialMetadata('product','zh'), title: 'DeepDriveCleaner — 开发者磁盘清理工具', description: '在原生 Mac 应用中查找开发缓存、依赖和构建产物。审阅清理选择，或通过 ddc CLI 使用同一引擎。'}
+  },
+  cli: {
+    en: {...socialMetadata('cli','en'), title: 'ddc.sh — DeepDriveCleaner CLI for developers and agents', description: 'One DeepDriveCleaner CLI workflow for people and coding agents. Release downloads, JSON reports, cleanup previews, terminal requirements and explicit-selection API.'},
+    zh: {...socialMetadata('cli','zh'), title: 'ddc.sh — 面向开发者与智能体的 DeepDriveCleaner CLI', description: '供开发者和编程智能体共用的 DeepDriveCleaner CLI 流程：发布文件下载、JSON 报告、清理预览、终端要求与明确选择 API。'}
   },
   development: {
-    en: {title: 'Contribute with your agent — DeepDriveCleaner', description: 'Develop the DeepDriveCleaner app and CLI with ProjectStore. Shared decisions, code, contribution terms and a setup runbook for humans and their agents.'},
-    zh: {title: '与你的智能体一起贡献 — DeepDriveCleaner', description: '使用 ProjectStore 开发 DeepDriveCleaner 应用与 CLI。共享决策、代码、贡献条款以及面向人与智能体的初始化操作指南。'}
+    en: {...socialMetadata('product','en'), title: 'Contribute with your agent — DeepDriveCleaner', description: 'Develop the DeepDriveCleaner app and CLI with ProjectStore. Shared decisions, code, contribution terms and a setup runbook for humans and their agents.'},
+    zh: {...socialMetadata('product','zh'), title: '与你的智能体一起贡献 — DeepDriveCleaner', description: '使用 ProjectStore 开发 DeepDriveCleaner 应用与 CLI。共享决策、代码、贡献条款以及面向人与智能体的初始化操作指南。'}
   }
 };
