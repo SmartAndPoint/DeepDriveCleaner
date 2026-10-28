@@ -2,24 +2,28 @@
   "agents": {
     "per_agent": {
       "archaeologist": {
+        "model": "opus",
+        "effort": "high"
+      },
+      "clerk": {
         "model": "sonnet",
-        "effort": "xhigh"
+        "effort": "high"
       },
       "critic": {
         "model": "fable",
         "effort": "xhigh"
       },
       "librarian": {
-        "model": "sonnet",
-        "effort": "xhigh"
+        "model": "opus",
+        "effort": "high"
       },
       "planner": {
-        "model": "sonnet",
-        "effort": "max"
+        "model": "opus",
+        "effort": "high"
       },
       "reviewer": {
-        "model": "sonnet",
-        "effort": "xhigh"
+        "model": "opus",
+        "effort": "high"
       }
     }
   }
