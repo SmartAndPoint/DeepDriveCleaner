@@ -40,7 +40,23 @@ jobs:
       - run: make gate
       - run: make coverage
       # Fuzzing: story "Coverage floor and property tests for the safety invariants".
-      # AddressSanitizer: story "Memory and CPU under load: peak memory, leaks and CPU time".
+
+  # AddressSanitizer on a dated nightly (story "Memory and CPU under load: peak memory,
+  # leaks and CPU time"), on its own runner so a gate failure does not skip it.
+  asan:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+          key: asan
+      - run: make asan
 
   # L-size load on its own runner, so a gate or coverage failure does not skip it and
   # their builds do not share its disk: story "Synthetic load trees: large, wide, deep

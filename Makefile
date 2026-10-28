@@ -22,7 +22,7 @@ MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
 .PHONY: build fmt fmt-check clippy test check release install dist app app-test app-dist icons \
 	gate-fast gate nextest doctest clippy-dhat doc deny machete msrv release-check \
-	tools require-tools hooks coverage ci-green golden-check golden-record loadgen-clean load-image load
+	tools require-tools hooks coverage ci-green golden-check golden-record loadgen-clean load-image load leaks asan
 
 build:
 	$(CARGO) build --workspace
@@ -109,6 +109,26 @@ load:
 	  LOAD_DATE=$$(date -u +%F) LOAD_COMMIT=$$(git describe --always --dirty) \
 	  scripts/load-image.sh $(if $(filter command line environment,$(origin LOAD_PROFILE)),$(LOAD_PROFILE),all) \
 	  $(LOAD_SIZE) $(LOAD_SEED)
+
+# `scan --json` of every profile's S tree under `leaks -atExit`, on the cargo release
+# build (the notarized app's hardened runtime keeps `leaks` out): fails on any leak.
+# Outputs in target/load/leaks-<profile>.txt and .stderr.txt. It joins `make gate`
+# after the owner's first run on the reference machine.
+leaks:
+	$(CARGO) build --release -p ddc-loadgen -p ddc-cli --locked
+	target/release/ddc-loadgen leaks --cli target/release/deepdrivecleaner
+
+# AddressSanitizer on the code that holds `unsafe` (the sys:: unit tests) and on a
+# scan of every profile's S tree in process (the generator's profile and hostile
+# tests), on a dated nightly. LeakSanitizer does not run on macOS; the explicit
+# --target keeps proc-macros uninstrumented. The nightly workflow runs it.
+ASAN_TOOLCHAIN ?= nightly-2026-10-20
+asan:
+	rustup toolchain install $(ASAN_TOOLCHAIN) --profile minimal
+	RUSTFLAGS=-Zsanitizer=address ASAN_OPTIONS=detect_leaks=0 CARGO_TARGET_DIR=target/asan \
+	  $(CARGO) +$(ASAN_TOOLCHAIN) test --locked --target aarch64-apple-darwin -p ddc-core --lib sys::
+	RUSTFLAGS=-Zsanitizer=address ASAN_OPTIONS=detect_leaks=0 CARGO_TARGET_DIR=target/asan \
+	  $(CARGO) +$(ASAN_TOOLCHAIN) test --locked --target aarch64-apple-darwin -p ddc-loadgen --test profiles --test hostile
 
 # Removes the load trees `ddc-loadgen mktemp` left in $$TMPDIR (only marked ones).
 loadgen-clean:

@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 use ddc_loadgen::desc::FsCaps;
 use ddc_loadgen::profiles::Profile;
 use ddc_loadgen::run::RunArgs;
-use ddc_loadgen::{generate, manifest, run, table, target, verify};
+use ddc_loadgen::{generate, leaks, manifest, run, table, target, verify};
 
 #[derive(Parser)]
 #[command(about = "Deterministic load trees for DeepDriveCleaner's load tests")]
@@ -77,6 +77,16 @@ enum Cmd {
         #[arg(long, default_value = "target/load")]
         out: PathBuf,
     },
+    /// `scan --json` of every profile's S tree under `leaks -atExit`: fails
+    /// on any leak, or on a run that did not end normally.
+    Leaks {
+        /// The CLI to check (the cargo release build).
+        #[arg(long)]
+        cli: PathBuf,
+        /// Where each profile's `leaks` output is kept.
+        #[arg(long, default_value = "target/load")]
+        out: PathBuf,
+    },
     /// Join the tables of one run's profiles under one `#` line.
     Table {
         tables: Vec<PathBuf>,
@@ -123,6 +133,16 @@ fn main() -> anyhow::Result<()> {
                     report.difference_count,
                     report.failure_count
                 );
+            }
+            return Ok(());
+        }
+        Cmd::Leaks { cli, out } => {
+            let checked = leaks::run(&cli, &out)?;
+            println!("{}", serde_json::to_string_pretty(&checked)?);
+            let failed: Vec<String> =
+                checked.iter().filter(|c| !c.passed).map(|c| c.output.display().to_string()).collect();
+            if !failed.is_empty() {
+                anyhow::bail!("leaks: {} profile(s) failed; see {}", failed.len(), failed.join(", "));
             }
             return Ok(());
         }
