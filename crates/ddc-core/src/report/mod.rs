@@ -8,6 +8,7 @@ pub mod recheck;
 pub mod volumes;
 
 use std::cmp::Reverse;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -146,7 +147,11 @@ pub(crate) fn scan_inner(
         None => scan::walk(&roots, walking, &opts.walk, progress)?,
     };
 
-    let mut findings: Vec<Finding> = classify(&out, &visitor).iter().map(|c| finding(c, env.now(), opts)).collect();
+    // One read per folder: many findings can share a project root that holds
+    // hundreds of thousands of entries (a temp folder).
+    let mut activity = HashMap::new();
+    let mut findings: Vec<Finding> =
+        classify(&out, &visitor).iter().map(|c| finding(c, env.now(), opts, &mut activity)).collect();
     sort_findings(&mut findings);
     let markers = visitor.keep_markers();
     let cx = contents::Context {
@@ -197,13 +202,20 @@ fn roots_of(env: &Env, opts: &ScanOptions) -> Vec<PathBuf> {
     if opts.roots.is_empty() { vec![env.home().to_path_buf()] } else { opts.roots.clone() }
 }
 
-fn finding(c: &Classified, now: SystemTime, opts: &ScanOptions) -> Finding {
+fn finding(
+    c: &Classified,
+    now: SystemTime,
+    opts: &ScanOptions,
+    activity: &mut HashMap<PathBuf, Option<SystemTime>>,
+) -> Finding {
     let min_age = opts.min_age;
     // Activity of the project root and of the artifact's own directory: a
     // fresh manifest next to the artifact counts even under a stale git root.
+    let mut last_activity =
+        |dir: &Path| *activity.entry(dir.to_path_buf()).or_insert_with(|| project::last_activity(dir));
     let last = c.project_root.as_deref().and_then(|root| {
-        let near = c.owner.path.parent().filter(|p| *p != root).and_then(project::last_activity);
-        project::last_activity(root).max(near)
+        let near = c.owner.path.parent().filter(|p| *p != root).and_then(&mut last_activity);
+        last_activity(root).max(near)
     });
     let project = c.project_root.as_ref().map(|root| Project {
         root: root.clone(),
@@ -269,10 +281,12 @@ pub(crate) fn hidden(rule: &str, bytes: u64, opts: &ScanOptions) -> bool {
 fn totals(findings: &[Finding], out: &scan::WalkOutput) -> Totals {
     // Claims that are not findings (app bundles, global packages, protected
     // toolchain versions) still occupy space: report it as outside findings.
+    // A set: a tree like /System holds tens of thousands of claims and findings.
+    let found: HashSet<&Path> = findings.iter().map(|f| f.path.as_path()).collect();
     let hidden_bytes: u64 = out
         .owners
         .iter()
-        .filter(|o| o.kind == scan::OwnerKind::Claim && !findings.iter().any(|f| f.path == o.path))
+        .filter(|o| o.kind == scan::OwnerKind::Claim && !found.contains(o.path.as_path()))
         .map(|o| o.bytes)
         .sum();
     let mut totals = Totals {

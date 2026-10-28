@@ -26,7 +26,9 @@ import Synchronization
 ///   `clean-report.json`. With `clean.trap`, SIGTERM prints the report and
 ///   then ends the script by the signal, as the CLI's handler does.
 /// Gates replace sleeps, so the tests order runs without timing assumptions.
-/// The directory is removed when the fake goes away.
+/// The directory is removed when the fake goes away. A gate gives up when the
+/// directory is gone or after 30,000 polls (some minutes), so a test that fails or
+/// leaks its fake never leaves a script polling for good.
 final class FakeCLI: Sendable {
     let directory: URL
     let executable: URL
@@ -56,7 +58,13 @@ final class FakeCLI: Sendable {
             log="$gates/runs.log"
             last=$(cat "$gates/last-scan-path" 2>/dev/null)
             echo "start $$ $*" >> "$log"
-            gate() { while [ ! -e "$gates/$1" ]; do sleep 0.01; done; }
+            gate() {
+                i=0
+                while [ ! -e "$gates/$1" ]; do
+                    [ -d "$gates" ] && [ "$i" -lt 30000 ] || { echo "end $$ gate $1 abandoned" >> "$log"; exit 70; }
+                    i=$((i + 1)); sleep 0.01
+                done
+            }
             case "$1" in
               wait) gate "$2" ;;
               exit) echo "end $$ $*" >> "$log"; exit "$2" ;;

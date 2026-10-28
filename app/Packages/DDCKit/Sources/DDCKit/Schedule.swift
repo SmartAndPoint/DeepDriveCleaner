@@ -87,10 +87,9 @@ public struct Schedule: Sendable, Equatable {
     }
 }
 
-/// "After a scheduled scan" in the Automation pane. The third choice,
-/// cleaning download caches automatically, is drawn but cannot be picked:
-/// it belongs to "Automatic cleaning of download caches after a scheduled
-/// scan" (decision D3), so it is never stored.
+/// "After a scheduled scan" in the Automation pane. A scheduled scan never
+/// cleans: "Automatic cleaning of download caches after a scheduled scan" is
+/// parked (2026-10-28).
 public enum AfterScheduledScan: String, CaseIterable, Sendable {
     /// Nothing is removed until the user reviews it. The default.
     case notify

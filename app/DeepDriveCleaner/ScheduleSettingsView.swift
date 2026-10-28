@@ -14,7 +14,7 @@ struct ScheduleSettingsView: View {
             Section {
                 Toggle(isOn: binding(\.enabled)) {
                     Text("Scan automatically")
-                    Text("A scan only reads. Nothing is removed unless Automation says so.")
+                    Text("A scan only reads. Nothing is removed until you review it.")
                 }
                 Group {
                     Picker("Repeat", selection: binding(\.repeats)) {

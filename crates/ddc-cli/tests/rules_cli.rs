@@ -26,8 +26,8 @@ fn rules_json_lists_every_rule_with_its_group() {
 }
 
 /// The groups are the Types rows of the revised Settings (story "Settings:
-/// folders, types, notifications", D2): "Package downloads" is what the
-/// automatic clean may take one day, and "Toolchain caches" holds only `safe`
+/// folders, types, notifications", D2): "Package downloads" are caches a
+/// package manager downloads again, and "Toolchain caches" holds only `safe`
 /// rules, so the `review` downloads have a row of their own.
 #[test]
 fn rules_json_groups_follow_the_settings_types() {

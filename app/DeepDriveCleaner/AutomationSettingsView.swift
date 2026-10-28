@@ -2,8 +2,8 @@ import DDCKit
 import SwiftUI
 
 /// Settings → Automation (artboard 10): what a scheduled scan does, when it
-/// notifies, and how a clean treats Review items. The automatic clean is
-/// drawn but cannot be picked yet (decision D3).
+/// notifies, and how a clean treats Review items. A scheduled scan never
+/// cleans: the automatic clean of artboard 10 is parked (2026-10-28).
 struct AutomationSettingsView: View {
     let model: SettingsModel
 
@@ -22,12 +22,6 @@ struct AutomationSettingsView: View {
                     help: "Nothing is removed until you review it. The default.",
                     selected: model.afterScheduledScan == .notify
                 ) { model.setAfterScheduledScan(.notify) }
-                Choice(
-                    title: "Clean download caches automatically, then notify me",
-                    help: "Arrives in a later version. Only caches a package manager downloads again; items in use are skipped, and everything else still waits for you.",
-                    selected: false
-                ) {}
-                .disabled(true)
                 Choice(
                     title: "Only show it in the menu bar",
                     help: "No notifications. The popover shows what can be freed.",
@@ -72,8 +66,7 @@ struct AutomationSettingsView: View {
     }
 }
 
-/// One choice of a radio group with its help; the group draws its own, so
-/// one choice can be shown and disabled.
+/// One choice of a radio group with its help under its title.
 private struct Choice: View {
     let title: String
     let help: String
