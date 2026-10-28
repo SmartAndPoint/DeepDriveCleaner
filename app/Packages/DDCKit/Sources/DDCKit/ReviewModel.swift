@@ -23,7 +23,7 @@ public final class ReviewModel: ReviewRouting {
         case checked
         /// A terminal `ddc` holds the lock.
         case busy
-        /// Stopped by Clean, Check again or closing the sheet.
+        /// Stopped by the warnings line's Stop, Clean, Check again or closing the sheet.
         case stopped
         case failed(String)
     }

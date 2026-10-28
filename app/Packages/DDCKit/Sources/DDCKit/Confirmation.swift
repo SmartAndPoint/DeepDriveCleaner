@@ -66,7 +66,12 @@ public struct Confirmation: Sendable, Equatable {
     /// What the clean frees. A `native-only` item frees space inside its
     /// runtime's disk image, which no total counts (safety ADR §5), as the
     /// terminal's "frees ~" leaves it out.
-    public var reclaimable: UInt64 { counting.reduce(0) { $0 + $1.finding.reclaimableBytes } }
+    public var reclaimable: UInt64 { reclaimable(excluding: []) }
+    /// `reclaimable` without the items of `ids`: the header leaves out the
+    /// items the dry run predicts to be skipped.
+    public func reclaimable(excluding ids: Set<Int>) -> UInt64 {
+        counting.reduce(0) { ids.contains($1.id) ? $0 : $0 + $1.finding.reclaimableBytes }
+    }
     /// `bytes` without `native-only` items: the bar's total until the CLI names its own.
     public var counted: UInt64 { counting.reduce(0) { $0 + $1.finding.bytes } }
     /// The `native-only` items' bytes by runtime, in the sheet's order.

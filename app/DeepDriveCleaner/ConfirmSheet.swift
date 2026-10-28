@@ -38,7 +38,7 @@ private struct ConfirmView: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Clean \(Wording.items(confirmation.items.count))?").font(.system(size: 20, weight: .semibold))
-                Text("\(ByteSize.human(confirmation.bytes)) selected · frees about \(ByteSize.human(confirmation.reclaimable))")
+                Text(CleanWording.sheetHeader(sheet))
                     .foregroundStyle(.secondary)
                 if let notCounted = CleanWording.notCounted(confirmation) {
                     Text(notCounted).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -98,16 +98,17 @@ private struct ConfirmView: View {
                     .disabled(sheet.warnings == .waiting || sheet.warnings == .checking)
                 Spacer()
                 Button("Back to Review") { model.closeSheet() }.keyboardShortcut(.cancelAction)
-                // Not the default button: Return never starts a clean.
+                // Not the default button: Return never starts a clean. Off while
+                // the check runs, and when every item would be skipped.
                 Button("Clean \(Wording.items(confirmation.items.count))", role: .destructive) { model.cleanConfirmedItems() }
                     .buttonStyle(.borderedProminent)
-                    .disabled(model.isCleaning)
+                    .disabled(model.isCleaning || !sheet.cleanAllowed)
             }
         }
     }
 
     @ViewBuilder private var warningsLine: some View {
-        let skips = sheet.predictions.values.filter { if case .wouldSkip = $0 { true } else { false } }.count
+        let skips = sheet.skipSummary
         HStack(spacing: 8) {
             switch sheet.warnings {
             case .waiting:
@@ -116,15 +117,17 @@ private struct ConfirmView: View {
             case .checking:
                 ProgressView().controlSize(.small)
                 Text("Checking each item for warnings…")
-            case .checked where skips == 0:
+                // A long check never traps the user: Stop leaves Clean on.
+                Button("Stop") { model.stopCheck() }.controlSize(.small)
+            case .checked where skips.count == 0:
                 Image(systemName: "checkmark.circle").foregroundStyle(ReportClassStyle.safe)
                 Text("No warnings: nothing is predicted to be skipped.")
-            case .checked where skips == sheet.confirmation.items.count:
+            case .checked where skips.nothingToClean:
                 Image(systemName: "exclamationmark.triangle").foregroundStyle(ReportClassStyle.ink(.review))
-                Text("Nothing can be cleaned right now: every item would be skipped.")
+                Text(CleanWording.nothingToClean(skips)).fixedSize(horizontal: false, vertical: true)
             case .checked:
                 Image(systemName: "exclamationmark.triangle").foregroundStyle(ReportClassStyle.ink(.review))
-                Text("\(Wording.items(skips)) will be skipped; the rest is cleaned.")
+                Text("\(Wording.items(skips.count)) will be skipped; the rest is cleaned.")
             case .busy:
                 Image(systemName: "hourglass").foregroundStyle(.secondary)
                 Text("A scan or clean started in Terminal holds the lock. Check Again when it ends.")

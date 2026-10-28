@@ -77,6 +77,13 @@ extension ReviewModel {
         dryRun = (ticket, task)
     }
 
+    /// The warnings line's Stop: a check that runs long (it walks every
+    /// listed tree) ends as `.stopped`, which leaves Clean on.
+    public func stopCheck() {
+        guard sheet?.stage == .confirm else { return }
+        stopWarnings()
+    }
+
     /// Stops a dry run that is waiting or running; it holds the shared lock
     /// and walks every listed tree.
     func stopWarnings() {
@@ -91,9 +98,10 @@ extension ReviewModel {
 
     /// The sheet's Clean action, and nothing else in the app: `clean --items`
     /// with exactly the confirmed items, each with its class, action and
-    /// `permanent`. Pressing it twice starts one clean.
+    /// `permanent`. Pressing it twice starts one clean. Nothing runs while
+    /// the check runs, nor when it said every item would be skipped.
     public func cleanConfirmedItems() {
-        guard let sheet, sheet.stage == .confirm, !isCleaning, let items else { return }
+        guard let sheet, sheet.cleanAllowed, !isCleaning, let items else { return }
         stopWarnings()
         guard let runner else {
             self.sheet?.stage = .stopped("The app's embedded CLI is missing, so it cannot clean. Reinstall DeepDriveCleaner.", journal: nil)

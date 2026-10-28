@@ -342,6 +342,49 @@ struct CleanRunTests {
         #expect(review.sheet?.predictions.count == 6)
     }
 
+    @Test("a dry run that says every item would be skipped for a running app: Clean runs no clean")
+    func everyItemSkipped() async throws {
+        // The recorded lines, each a skip for Google Chrome or Visual Studio Code.
+        let recorded = String(decoding: try Data(contentsOf: Fixture.url("clean-dry-run", extension: "jsonl")), as: UTF8.self)
+        var index = 0
+        let lines = recorded.split(separator: "\n").map { line -> String in
+            guard line.contains(#""type":"item""#) else { return String(line) }
+            defer { index += 1 }
+            let name = index.isMultiple(of: 2) ? "Google Chrome" : "Visual Studio Code"
+            return String(line).replacing(/"prediction":"would-[a-z]+"(,"reason":.*)?\}$/,
+                                          with: #""prediction":"would-skip","reason":"owner-running","pid":\#(index + 1),"name":"\#(name)"}"#)
+        }
+        try fake.put("dry-run.jsonl", Data((lines.joined(separator: "\n") + "\n").utf8))
+        try await checkedSheet()
+        let sheet = try #require(review.sheet)
+        #expect(sheet.predictions.count == 6)
+        #expect(sheet.skipSummary.nothingToClean)
+        #expect(sheet.skipSummary.apps == ["Google Chrome", "Visual Studio Code"])
+        #expect(!sheet.cleanAllowed)
+
+        review.cleanConfirmedItems()
+        #expect(review.sheet?.stage == .confirm)
+        #expect(!review.isCleaning)
+        #expect(events.busy.isEmpty)
+        #expect(try fake.runs().filter { $0.event == "start" && !$0.args.contains("--dry-run") }.isEmpty, "no clean ran")
+        #expect(try runs("clean --items") == 1, "the dry run only")
+    }
+
+    @Test("Stop while the check runs ends it as stopped, and Clean is then allowed; before that, Clean runs nothing")
+    func stopTheCheck() async throws {
+        try fake.open("dry-run.gated")
+        review.openSheet()
+        try await until("the dry run started") { review.sheet?.warnings == .checking }
+        #expect(review.sheet?.cleanAllowed == false)
+        review.cleanConfirmedItems()
+        #expect(review.sheet?.stage == .confirm && !review.isCleaning, "no clean while checking")
+
+        review.stopCheck()
+        #expect(review.sheet?.warnings == .stopped)
+        #expect(review.sheet?.cleanAllowed == true)
+        #expect(try runs("clean --items") == 1, "the dry run only")
+    }
+
     @Test("a dry run that finds the lock taken says so")
     func dryRunBusy() async throws {
         try fake.put("dry-run.exit", Data("75".utf8))

@@ -153,6 +153,26 @@ struct ContractTests {
         #expect(count(/func cleanConfirmedItems\(/, in: "CleanRun.swift") == 1)
         #expect(count(/cleanConfirmedItems\(/, in: "CleanRun.swift") == 1, "its definition only")
         #expect(count(/cleanConfirmedItems\(/, in: "ConfirmSheet.swift") == 1, "the sheet's Clean action")
+        // Story "Review window: Clean is not offered when every item would be
+        // skipped": the button is off, and the action itself runs nothing,
+        // while the check runs or when every item would be skipped.
+        let run = try #require(sources["CleanRun.swift"])
+        let confirmed = try #require(run.firstMatch(of: /func cleanConfirmedItems\(\)[\s\S]*?\n    }\n/))
+        #expect(confirmed.output.contains(/guard let sheet, sheet\.cleanAllowed,/), "cleanConfirmedItems() guards on cleanAllowed")
+        let sheet = try #require(sources["ConfirmSheet.swift"])
+        let button = try #require(sheet.firstMatch(of: /Button\("Clean [^\n]*\{ model\.cleanConfirmedItems\(\) \}\n(?:\s*\.[^\n]*\n)*/))
+        #expect(button.output.contains(/\.disabled\([^\n]*!sheet\.cleanAllowed/), "the Clean button is off unless the clean is allowed")
+        let summary = try #require(sources["SkipSummary.swift"])
+        #expect(summary.contains(/stage == \.confirm && warnings != \.checking && !skipSummary\.nothingToClean/))
+    }
+
+    @Test("the Docker details the sheet advises on are the catalog's")
+    func dockerDetails() throws {
+        let source = try rustSource("crates/ddc-core/src/rules/catalog.rs")
+        let down = try #require(source.firstMatch(of: /pub const DOCKER_DOWN: &str = "([^"]+)";/))
+        #expect(String(down.1) == CleanWording.dockerDown)
+        let missing = try #require(source.firstMatch(of: /no_context: "([^"]+)",/))
+        #expect(String(missing.1) == CleanWording.dockerNoContext)
     }
 
     @Test("the item list, the clean report and the keep marker are the CLI's")
