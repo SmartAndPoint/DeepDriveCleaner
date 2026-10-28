@@ -161,6 +161,71 @@ struct CLIRunnerTests {
         #expect(await run.outcome == .cancelled)
     }
 
+    // MARK: - The disk lane (story "Whole disk in the app")
+
+    @Test("a disk run held at a gate delays neither a scan nor a clean")
+    func diskBesideTheQueue() async throws {
+        let fake = try FakeCLI()
+        let runner = CLIRunner(executable: fake.executable)
+
+        async let disk = runner.run(.disk, ["wait", "disk"])
+        try await fake.waitForStart("wait disk")
+        #expect(await runner.run(.scan, ["exit", "0"]).outcome == .done)
+        #expect(await runner.run(.clean, ["exit", "1"]).outcome == .error(status: 1))
+        #expect(!(try fake.runs().contains { $0.event == "end" && $0.args == "wait disk" }), "the disk run still runs")
+        try fake.open("disk")
+        #expect(await disk.outcome == .done)
+    }
+
+    @Test("a disk run does not wait for a scan of the queue")
+    func diskDoesNotWait() async throws {
+        let fake = try FakeCLI()
+        let runner = CLIRunner(executable: fake.executable)
+
+        async let scan = runner.run(.scan, ["wait", "scan"])
+        try await fake.waitForStart("wait scan")
+        #expect(await runner.run(.disk, ["exit", "0"]).outcome == .done)
+        try fake.open("scan")
+        #expect(await scan.outcome == .done)
+    }
+
+    @Test("a second disk request joins the running one")
+    func joinedDisk() async throws {
+        let fake = try FakeCLI()
+        let runner = CLIRunner(executable: fake.executable)
+
+        async let first = runner.run(.disk, ["wait", "disk"])
+        try await fake.waitForStart("wait disk")
+        async let second = runner.run(.disk, ["wait", "other"])
+        try await Task.sleep(for: .milliseconds(50))
+        try fake.open("disk")
+        let outcomes = await [first.outcome, second.outcome]
+
+        #expect(outcomes == [.done, .done])
+        #expect(try fake.runs().filter { $0.event == "start" }.map(\.args) == ["wait disk"])
+        #expect(await runner.run(.disk, ["exit", "0"]).outcome == .done, "the lane is free again")
+    }
+
+    @Test("with a disk run and a scan running at once, each ticket stops its own run only", arguments: [true, false])
+    func ticketsWithTwoRuns(diskFirst: Bool) async throws {
+        let fake = try FakeCLI()
+        let runner = CLIRunner(executable: fake.executable)
+        let scanTicket = CLIRunner.Ticket()
+        let diskTicket = CLIRunner.Ticket()
+
+        async let disk = runner.run(.disk, ["wait", "disk"], options: CLIRunner.Options(ticket: diskTicket))
+        try await fake.waitForStart("wait disk")
+        async let scan = runner.run(.scan, ["wait", "scan"], options: CLIRunner.Options(ticket: scanTicket))
+        try await fake.waitForStart("wait scan")
+
+        let (first, other) = diskFirst ? (diskTicket, "wait scan") : (scanTicket, "wait disk")
+        await runner.cancel(first)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(!(try fake.runs().contains { $0.event == "end" && $0.args == other }), "the other run still runs")
+        await runner.cancel(diskFirst ? scanTicket : diskTicket)
+        #expect(await [disk.outcome, scan.outcome] == [.cancelled, .cancelled])
+    }
+
     @Test("a signal nobody sent is a crash, not a cancel")
     func crash() async throws {
         let fake = try FakeCLI()

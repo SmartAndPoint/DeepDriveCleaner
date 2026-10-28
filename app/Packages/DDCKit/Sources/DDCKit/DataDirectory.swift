@@ -33,6 +33,8 @@ public struct DataDirectory: Sendable, Equatable {
     public var journal: URL { logs.appending(path: "actions.jsonl") }
 
     public var lastScan: URL { url.appending(path: "last-scan.json") }
+    /// What `ddc disk` saved last (story "Whole disk in the app").
+    public var lastDisk: URL { url.appending(path: "last-disk.json") }
     public var settings: URL { url.appending(path: "settings.json") }
 
     /// The file's modification date, or nil when it does not exist.

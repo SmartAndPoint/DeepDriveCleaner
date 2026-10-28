@@ -203,6 +203,20 @@ struct ContractTests {
         #expect(Set(try values(scan, "FolderEntryKind")) == ["file", "folder"])
     }
 
+    @Test("the whole-disk report is the CLI's: version and every enum")
+    func diskContracts() throws {
+        let source = try rustSource("crates/ddc-core/src/disk/model.rs")
+        let version = try #require(source.firstMatch(of: /pub const DISK_SCHEMA_VERSION: u32 = (\d+);/))
+        #expect(Int(version.1) == DiskReport.schemaVersion)
+        let disk = try schema("disk")
+        #expect(Set(try values(disk, "ContainerSource")) == Set(DiskReport.ContainerSource.allCases.map(\.rawValue)))
+        #expect(Set(try values(disk, "HomeSource")) == Set(DiskReport.HomeSource.allCases.map(\.rawValue)))
+        #expect(Set(try values(disk, "ActionId")) == Set(DiskReport.ActionId.allCases.map(\.rawValue)))
+        #expect(Set(try values(disk, "SimulatorStatus")) == Set(DiskReport.SimulatorStatus.allCases.map(\.rawValue)))
+        #expect(Set(try values(disk, "InconsistentCause")) == Set(DiskReport.InconsistentCause.allCases.map(\.rawValue)))
+        #expect(Set(try values(disk, "HeldKind")) == Set(DiskReport.HeldKind.allCases.map(\.rawValue)))
+    }
+
     @Test("every user-data rule of the catalog has a sidebar name")
     func userDataNames() throws {
         let userData = try Fixture.rules().rules.filter { $0.class == .userData }.map(\.id)
@@ -314,6 +328,27 @@ struct ContractTests {
     }
 
     // MARK: - Parts
+
+    @Test("only the Whole disk view runs ddc disk: never the scheduled path, never on quit")
+    func diskCallers() throws {
+        let sources = try appSources()
+        func files(_ pattern: Regex<Substring>) -> Set<String> {
+            Set(sources.filter { $0.value.contains(pattern) }.map(\.key))
+        }
+        // `WalkStep.disk` exists too: the patterns name a run and its argument.
+        #expect(files(/run\(\s*\.disk\b/) == ["DiskModel.swift"])
+        #expect(files(/"disk"/) == ["DiskModel.swift"])
+        #expect(files(/\.scanDisk\(/) == ["DiskView.swift"], "the Scan Whole Disk button is the one caller")
+        for file in ["ScheduledWork.swift", "PopoverModel.swift"] {
+            #expect(!(try #require(sources[file])).contains(/DiskModel|scanDisk|\.disk\b/), "\(file) never runs a whole-disk scan")
+        }
+        let delegate = try #require(sources["AppDelegate.swift"])
+        #expect(!delegate.contains(/scanDisk|disk\??\.stop\(/), "the app never starts a whole-disk scan on its own, nor stops one on quit")
+        for name in ["applicationShouldTerminate", "applicationWillTerminate"] {
+            let body = try #require(delegate.firstMatch(of: Regex("func \(name)[\\s\\S]*?\n    }\n")))
+            #expect(!String(body.0).localizedCaseInsensitiveContains("disk"), "\(name) leaves a whole-disk scan running")
+        }
+    }
 
     /// The app's Swift sources, comment lines stripped, by file name.
     private func appSources() throws -> [String: String] {

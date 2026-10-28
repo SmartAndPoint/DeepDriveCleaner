@@ -589,3 +589,18 @@ fn a_skip_outside_the_home_folder_is_never_opened_through_the_data_volume() {
     assert!(!opened.iter().any(|p| p.starts_with(&skipped)), "{opened:?}");
     assert_eq!(area(&r, "opt").bytes, alloc(&kept));
 }
+
+#[test]
+fn the_apps_disk_fixtures_are_reports_the_cli_could_write() {
+    // Written by hand for the app's tests (story "Whole disk in the app"):
+    // each one reads as a `DiskReport` and writes back to the same JSON, so
+    // it holds no field the CLI does not write.
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/Packages/DDCKit/Tests/DDCKitTests/Fixtures");
+    for name in ["disk-report.json", "disk-cancelled.json"] {
+        let text = std::fs::read_to_string(dir.join(name)).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let r: DiskReport = serde_json::from_value(json.clone()).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(r.schema_version, disk::DISK_SCHEMA_VERSION, "{name}");
+        assert_eq!(serde_json::to_value(&r).unwrap(), json, "{name}");
+    }
+}

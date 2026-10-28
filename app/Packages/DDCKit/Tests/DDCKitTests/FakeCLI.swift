@@ -25,6 +25,12 @@ import Synchronization
 ///   edited, and exits with `clean.exit` when that exists, else prints
 ///   `clean-report.json`. With `clean.trap`, SIGTERM prints the report and
 ///   then ends the script by the signal, as the CLI's handler does.
+/// - `disk --json --progress json`: plays `disk-events.jsonl` to stderr when
+///   it exists, waits for gate `disk-go`, and exits with `disk.exit` when that
+///   exists. Else it copies `disk-report.json` over `lastDisk`, as the CLI
+///   saves its report before it prints, and prints it. With `disk.trap`,
+///   SIGTERM copies and prints `disk-stopped.json` when it exists, then ends
+///   the script by the signal.
 /// Gates replace sleeps, so the tests order runs without timing assumptions.
 /// The directory is removed when the fake goes away. A gate gives up when the
 /// directory is gone or after 30,000 polls (some minutes), so a test that fails or
@@ -36,14 +42,16 @@ final class FakeCLI: Sendable {
 
     static let floodLines = 16_384  // 64-byte lines: 1 MiB per stream
 
-    /// `lastScan`: the file a clean replaces, as the CLI saves the report it edited.
-    init(lastScan: URL? = nil) throws {
+    /// `lastScan`: the file a clean replaces, as the CLI saves the report it
+    /// edited; `lastDisk`: the file `disk` writes.
+    init(lastScan: URL? = nil, lastDisk: URL? = nil) throws {
         directory = FileManager.default.temporaryDirectory.appending(path: "ddckit-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         executable = directory.appending(path: "deepdrivecleaner")
         log = directory.appending(path: "runs.log")
         try FileManager.default.createSymbolicLink(at: executable, withDestinationURL: try Self.script.get())
         if let lastScan { try put("last-scan-path", Data(lastScan.path.utf8)) }
+        if let lastDisk { try put("last-disk-path", Data(lastDisk.path.utf8)) }
     }
 
     /// The shared script, in a directory named after its text: written once
@@ -57,12 +65,15 @@ final class FakeCLI: Sendable {
             gates=$(dirname "$0")
             log="$gates/runs.log"
             last=$(cat "$gates/last-scan-path" 2>/dev/null)
+            lastdisk=$(cat "$gates/last-disk-path" 2>/dev/null)
             echo "start $$ $*" >> "$log"
+            # Its counter is its own: sh has no locals, and the dry run's
+            # line loop counts in `i`.
             gate() {
-                i=0
+                polls=0
                 while [ ! -e "$gates/$1" ]; do
-                    [ -d "$gates" ] && [ "$i" -lt 30000 ] || { echo "end $$ gate $1 abandoned" >> "$log"; exit 70; }
-                    i=$((i + 1)); sleep 0.01
+                    [ -d "$gates" ] && [ "$polls" -lt 30000 ] || { echo "end $$ gate $1 abandoned" >> "$log"; exit 70; }
+                    polls=$((polls + 1)); sleep 0.01
                 done
             }
             case "$1" in
@@ -99,6 +110,15 @@ final class FakeCLI: Sendable {
                   if [ -e "$gates/clean.exit" ]; then echo "end $$ $*" >> "$log"; exit "$(cat "$gates/clean.exit")"; fi
                   cat "$gates/clean-report.json"
                 fi ;;
+              disk)
+                if [ -e "$gates/disk.trap" ]; then
+                  trap 'if [ -e "$gates/disk-stopped.json" ]; then cp "$gates/disk-stopped.json" "$lastdisk"; cat "$gates/disk-stopped.json"; fi; echo "end $$ $*" >> "$log"; trap - TERM; kill -TERM $$' TERM
+                fi
+                [ -e "$gates/disk-events.jsonl" ] && cat "$gates/disk-events.jsonl" >&2
+                gate disk-go
+                if [ -e "$gates/disk.exit" ]; then echo "end $$ $*" >> "$log"; exit "$(cat "$gates/disk.exit")"; fi
+                cp "$gates/disk-report.json" "$lastdisk"
+                cat "$gates/disk-report.json" ;;
             esac
             echo "end $$ $*" >> "$log"
             """

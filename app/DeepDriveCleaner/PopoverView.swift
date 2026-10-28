@@ -9,6 +9,8 @@ struct PopoverView: View {
     @Bindable var model: PopoverModel
     let openSettings: () -> Void
     let openPrivacy: () -> Void
+    /// The Whole disk window (story "Whole disk in the app").
+    let openWholeDisk: () -> Void
     /// With keyboard navigation on, the first focus is Review…, not the gear.
     @FocusState private var focus: PopoverFocus?
 
@@ -68,6 +70,7 @@ struct PopoverView: View {
                 if (model.summary?.foundBytes ?? 0) > 0 {
                     Button("See What Was Found") { model.review() }.buttonStyle(.link)
                 }
+                WholeDiskLink(open: openWholeDisk)
             }
         case .nothingWorthCleaning:
             let summary = model.summary
@@ -77,10 +80,11 @@ struct PopoverView: View {
                 note: model.withoutAccessNote
             ) {
                 Button("See What Was Found") { model.review() }.buttonStyle(.link)
+                WholeDiskLink(open: openWholeDisk)
             }
         case .found:
             if let summary = model.summary {
-                FoundView(model: model, summary: summary, focus: $focus)
+                FoundView(model: model, summary: summary, focus: $focus, openWholeDisk: openWholeDisk)
             }
         }
     }
@@ -135,6 +139,7 @@ private struct FoundView: View {
     @Bindable var model: PopoverModel
     let summary: ReportSummary
     var focus: FocusState<PopoverFocus?>.Binding
+    let openWholeDisk: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -157,6 +162,7 @@ private struct FoundView: View {
                     Text(note).font(.system(size: 12)).foregroundStyle(ReportClassStyle.ink(.review))
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                WholeDiskLink(open: openWholeDisk)
             }
 
             ClassBar(summary: summary)
@@ -242,6 +248,18 @@ private struct FirstScanView: View {
                 }
             }
         }
+    }
+}
+
+/// Under the totals: the home folder is only part of the disk.
+private struct WholeDiskLink: View {
+    let open: () -> Void
+
+    var body: some View {
+        Button("Where Does the Rest Go?", action: open)
+            .buttonStyle(.link)
+            .font(.system(size: 12))
+            .help("What takes the rest of the startup disk, outside the home folder")
     }
 }
 
@@ -448,11 +466,11 @@ enum ReportClassStyle {
         }
     }
 
-    private static func hex(_ value: Int) -> NSColor {
+    static func hex(_ value: Int) -> NSColor {
         NSColor(srgbRed: CGFloat(value >> 16 & 0xFF) / 255, green: CGFloat(value >> 8 & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
     }
 
-    private static func dynamic(_ light: NSColor, _ dark: NSColor) -> Color {
+    static func dynamic(_ light: NSColor, _ dark: NSColor) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
         })

@@ -13,6 +13,9 @@ final class ReviewWindowController {
     private var closeObserver: NSObjectProtocol?
     /// The Close button returns to the popover the user came from.
     var returnToPopover: (() -> Void)?
+    /// The Whole disk detail; `AppDelegate` sets it at launch, before
+    /// anything can ask for the window.
+    var wholeDisk: (() -> DiskView)?
 
     init(presence: DockPresenceController) {
         self.presence = presence
@@ -21,11 +24,12 @@ final class ReviewWindowController {
     /// Shows the window for `model`; the model's `present`.
     func show(_ model: ReviewModel) -> Bool {
         if window == nil {
+            guard let wholeDisk else { return false }
             let hosting = NSHostingController(rootView: ReviewView(model: model, close: { [weak self] in
                 guard let self else { return }
                 if let window = self.window { self.presence.closeReturningToPopover(window) }
                 self.returnToPopover?()
-            }))
+            }, wholeDisk: wholeDisk))
             let window = NSWindow(contentViewController: hosting)
             window.title = "Review and Clean"
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]

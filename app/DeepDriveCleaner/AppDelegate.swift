@@ -21,6 +21,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var reviewWindow = ReviewWindowController(presence: presence)
     private var review: ReviewModel?
     private var model: PopoverModel?
+    /// The Whole disk view's one model: its window and the Review detail
+    /// share its run. Never given to `ScheduledWork`, and never stopped on
+    /// quit: the CLI saves its report before it prints (ADR §1, amended
+    /// 2026-10-28).
+    private var disk: DiskModel?
+    private var diskWindow: DiskWindowController?
     /// The hourly tick's work and the notification's answers.
     private var work: ScheduledWork?
     /// The scheduler agent: healed at every launch, Settings' scheduler control.
@@ -78,6 +84,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             log: { AppLog.write($0) }
         )
         if let model {
+            let disk = DiskModel(runner: runner, data: data, log: { AppLog.write($0) })
+            self.disk = disk
+            diskWindow = DiskWindowController(presence: presence, model: disk, popover: model)
+            reviewWindow.wholeDisk = { DiskView(model: disk, popover: model) }
             // The store's writes reach the popover at once: ignored findings and the icon follow, with no scan.
             let store = SettingsStore(
                 url: data.settings,
@@ -204,7 +214,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let statusItem = StatusItemController(
                     model: model,
                     openSettings: { [weak self] in self?.settings?.show() },
-                    openPrivacy: Self.privacy.openFullDiskAccess
+                    openPrivacy: Self.privacy.openFullDiskAccess,
+                    openWholeDisk: { [weak self] in self?.diskWindow?.show() }
                 )
                 self.statusItem = statusItem
                 reviewWindow.returnToPopover = { [weak statusItem] in statusItem?.showPopover() }

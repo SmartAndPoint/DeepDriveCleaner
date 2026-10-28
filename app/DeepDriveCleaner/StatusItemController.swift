@@ -25,7 +25,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var keyOnActivation = false
     private var activationObserver: NSObjectProtocol?
 
-    init(model: PopoverModel, openSettings: @escaping @MainActor () -> Void, openPrivacy: @escaping @MainActor () -> Void) {
+    init(
+        model: PopoverModel,
+        openSettings: @escaping @MainActor () -> Void,
+        openPrivacy: @escaping @MainActor () -> Void,
+        openWholeDisk: @escaping @MainActor () -> Void
+    ) {
         self.model = model
         super.init()
         if let button = item.button {
@@ -43,6 +48,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             openPrivacy: { [weak self] in
                 self?.popover.performClose(nil)
                 openPrivacy()
+            },
+            openWholeDisk: { [weak self] in
+                self?.popover.performClose(nil)
+                openWholeDisk()
             }
         )
         let hosting = NSHostingController(rootView: view)

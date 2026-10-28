@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "ddc_version": "0.3.0",
+  "generated_at": "2026-10-19T09:00:00Z",
+  "duration_ms": 13300,
+  "cancelled": false,
+  "container": {
+    "source": "diskutil",
+    "reference": "disk3",
+    "capacity_bytes": 994284929024,
+    "in_use_bytes": 254350950400,
+    "volumes": [
+      {
+        "name": "Macintosh HD - Data",
+        "role": "data",
+        "device": "disk3s5",
+        "used_bytes": 207106310144,
+        "mount_point": "/System/Volumes/Data"
+      },
+      {
+        "name": "Macintosh HD",
+        "role": "system",
+        "device": "disk3s1",
+        "used_bytes": 12884901888
+      },
+      {
+        "name": "VM",
+        "role": "vm",
+        "device": "disk3s6",
+        "used_bytes": 23622320128,
+        "mount_point": "/System/Volumes/VM"
+      },
+      {
+        "name": "Preboot",
+        "role": "preboot",
+        "device": "disk3s2",
+        "used_bytes": 10737418240
+      }
+    ]
+  },
+  "home": {
+    "path": "/Users/example",
+    "source": "last-scan",
+    "as_of": "2026-10-19T08:04:55Z",
+    "bytes": 4161536,
+    "reclaimable_bytes": 2666496,
+    "unreadable": 0,
+    "partial": false
+  },
+  "areas": [
+    {
+      "id": "applications",
+      "paths": [
+        "/Applications"
+      ],
+      "title": "Applications",
+      "explanation": "Apps installed for every user.",
+      "frees": "Delete an app you no longer use in Finder, or with its own uninstaller.",
+      "bytes": 85899345920,
+      "shared_bytes": 0,
+      "files": 1310721,
+      "dirs": 81921,
+      "unreadable": 0,
+      "partial": false
+    },
+    {
+      "id": "library",
+      "paths": [
+        "/Library"
+      ],
+      "title": "Library for all users",
+      "explanation": "Support files, fonts and plug-ins for every user.",
+      "frees": "The app that put them there, or its uninstaller.",
+      "bytes": 15032385536,
+      "shared_bytes": 0,
+      "files": 229377,
+      "dirs": 14337,
+      "unreadable": 18,
+      "partial": false
+    },
+    {
+      "id": "opt",
+      "paths": [
+        "/opt"
+      ],
+      "title": "/opt",
+      "explanation": "Tools installed outside macOS.",
+      "frees": "The tool that installed them.",
+      "bytes": 943718400,
+      "shared_bytes": 0,
+      "files": 14401,
+      "dirs": 901,
+      "unreadable": 0,
+      "partial": false
+    },
+    {
+      "id": "homebrew",
+      "paths": [
+        "/opt/homebrew"
+      ],
+      "parent": "opt",
+      "title": "Homebrew",
+      "explanation": "Formulae, casks and Homebrew's prefix.",
+      "frees": "brew cleanup removes old versions and old downloads.",
+      "action": "brew-cleanup",
+      "bytes": 20401094656,
+      "shared_bytes": 0,
+      "files": 311297,
+      "dirs": 19457,
+      "unreadable": 0,
+      "partial": false
+    },
+    {
+      "id": "private",
+      "paths": [
+        "/private"
+      ],
+      "title": "System files in /private",
+      "explanation": "Files macOS keeps for itself.",
+      "frees": "macOS manages them.",
+      "bytes": 4294967296,
+      "shared_bytes": 0,
+      "files": 65537,
+      "dirs": 4097,
+      "unreadable": 106,
+      "partial": false
+    },
+    {
+      "id": "temporary-folders",
+      "paths": [
+        "/private/var/folders"
+      ],
+      "parent": "private",
+      "title": "Temporary folders",
+      "explanation": "Per-user caches and temporary files.",
+      "frees": "Quitting the app that owns them, or restarting the Mac.",
+      "bytes": 4294967296,
+      "shared_bytes": 0,
+      "files": 65537,
+      "dirs": 4097,
+      "unreadable": 185,
+      "partial": true,
+      "entries_read": 1000000
+    },
+    {
+      "id": "simulator-runtimes",
+      "paths": [
+        "/Library/Developer/CoreSimulator"
+      ],
+      "title": "Simulator runtimes",
+      "explanation": "Simulator runtimes of Xcode, with the caches and images CoreSimulator keeps beside them.",
+      "frees": "Xcode \u2192 Settings \u2192 Components, or simctl runtime delete.",
+      "action": "simctl-runtime-delete",
+      "bytes": 16106127360,
+      "shared_bytes": 0,
+      "files": 245761,
+      "dirs": 15361,
+      "unreadable": 0,
+      "partial": false
+    }
+  ],
+  "simulators": {
+    "status": "listed",
+    "runtimes": [
+      {
+        "identifier": "9A1B2C3D-0000-4000-8000-000000000001",
+        "runtime_identifier": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+        "platform": "iOS",
+        "version": "27.0",
+        "build": "24A100",
+        "size_bytes": 16085155840,
+        "path": "/System/Library/AssetsV2/com_apple_MobileAsset_iOSSimulatorRuntime/x.asset",
+        "parent_mount_path": "/System/Library/AssetsV2/com_apple_MobileAsset_iOSSimulatorRuntime",
+        "deletable": true,
+        "state": "Ready",
+        "devices": [
+          {
+            "udid": "11111111-2222-4333-8444-555555555555",
+            "name": "iPhone 18",
+            "state": "Shutdown"
+          }
+        ],
+        "booted": false
+      }
+    ],
+    "listed_bytes": 16085155840
+  },
+  "snapshots": {
+    "count": 0
+  },
+  "walk": {
+    "files": 2400000,
+    "dirs": 410000,
+    "bytes": 146972606464
+  },
+  "not_counted": {
+    "bytes": 60129542144,
+    "data_volume_bytes": 207106310144,
+    "counted_bytes": 146976768000,
+    "inconsistent": false,
+    "holds": [
+      {
+        "kind": "cloud",
+        "path": "/Users/example/Library/CloudStorage"
+      }
+    ],
+    "unreadable": 339
+  }
+}

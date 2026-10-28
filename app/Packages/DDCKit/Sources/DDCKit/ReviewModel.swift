@@ -64,6 +64,9 @@ public final class ReviewModel: ReviewRouting {
     public internal(set) var items: ReviewItems?
     public var selection: Set<Int> = []
     public var mode: Mode = .groups
+    /// The detail shows the Whole disk view (story "Whole disk in the app"):
+    /// nothing is listed or cleaned there.
+    public var wholeDisk = false
     public var entry: ReviewItems.Entry?
     public var query = ""
     public var sort: ReviewItems.Sort = .size
@@ -165,6 +168,7 @@ public final class ReviewModel: ReviewRouting {
 
     private func load(_ request: ReviewRequest) {
         notice = nil
+        wholeDisk = false
         guard let snapshot = snapshot() else {
             items = nil
             selection = []

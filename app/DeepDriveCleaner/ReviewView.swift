@@ -8,14 +8,19 @@ import SwiftUI
 struct ReviewView: View {
     @Bindable var model: ReviewModel
     let close: () -> Void
+    /// The Whole disk detail, shared with its own window.
+    let wholeDisk: () -> DiskView
     /// While the user types a filter, Return stays in it instead of opening
     /// the Clean sheet.
     @FocusState private var filterFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
+            // Nothing in the Whole disk detail is filtered, listed or cleaned.
+            if !model.wholeDisk {
+                header
+                Divider()
+            }
             if let notice = model.notice {
                 Banner(systemImage: "info.circle", text: notice)
             }
@@ -33,7 +38,7 @@ struct ReviewView: View {
                 HStack(spacing: 0) {
                     Sidebar(model: model, items: items).frame(width: 330)
                     Divider()
-                    content(items)
+                    if model.wholeDisk { wholeDisk() } else { content(items) }
                 }
             } else {
                 ContentUnavailableView {
@@ -49,7 +54,17 @@ struct ReviewView: View {
                 }
             }
             Divider()
-            SelectionFooter(model: model, typing: filterFocused && !model.query.isEmpty, close: close)
+            if model.wholeDisk {
+                // Close and Esc stay: the detail has no selection to clean.
+                HStack {
+                    Spacer()
+                    Button("Close", action: close).keyboardShortcut(.cancelAction)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            } else {
+                SelectionFooter(model: model, typing: filterFocused && !model.query.isEmpty, close: close)
+            }
         }
         .frame(minWidth: 820, minHeight: 520)
         .sheet(isPresented: Binding(get: { model.sheet != nil }, set: { if !$0 { model.closeSheet() } })) {
@@ -208,6 +223,7 @@ private struct Sidebar: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 14)
+            WholeDiskEntry(model: model).padding(.horizontal, 12).padding(.bottom, 14)
         }
         .background(Color(nsColor: .controlBackgroundColor))
         .focusable()
@@ -226,6 +242,30 @@ private struct Sidebar: View {
         }
         model.entry = entries[next]
         model.mode = .groups
+        model.wholeDisk = false
+    }
+}
+
+/// The sidebar's last row: what lies outside the home folder.
+private struct WholeDiskEntry: View {
+    @Bindable var model: ReviewModel
+
+    var body: some View {
+        Button {
+            model.wholeDisk = true
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "internaldrive").foregroundStyle(.secondary)
+                Text("Whole disk").font(.system(size: 13, weight: model.wholeDisk ? .semibold : .regular))
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .frame(minHeight: 32)
+            .background(model.wholeDisk ? Color.secondary.opacity(0.16) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(model.wholeDisk ? .isSelected : [])
     }
 }
 
@@ -235,10 +275,11 @@ private struct SidebarEntry: View {
     let entry: ReviewItems.Entry
 
     var body: some View {
-        let picked = model.entry == entry
+        let picked = model.entry == entry && !model.wholeDisk
         Button {
             model.entry = entry
             model.mode = .groups
+            model.wholeDisk = false
         } label: {
             HStack(spacing: 8) {
                 Text(entry.group).font(.system(size: 13, weight: picked ? .semibold : .regular)).lineLimit(1)

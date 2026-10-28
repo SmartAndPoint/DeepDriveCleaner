@@ -22,13 +22,20 @@ extension CLIRunner: CLIRunning {}
 
 /// The one way the app runs the embedded CLI (ADR §1).
 ///
-/// Runs never overlap: the CLI takes a lock, and two of its processes racing for
-/// it would make one fail as busy. A scan requested while a scan is queued or
-/// running joins it and gets the same result (its own arguments and
+/// Every run but `.disk` goes through one queue and never overlaps another:
+/// two that take the ddc lock would make one fail as busy, and `rules`,
+/// `notify` and `schedule` are queued too. A scan requested while a scan is queued
+/// or running joins it and gets the same result (its own arguments and
 /// `stderrLine` are not used); anything else waits its turn, so a clean
 /// requested during a scan starts when the scan ends.
+///
+/// `.disk` takes no lock and writes nothing another command reads, so it runs
+/// in a lane of its own, beside the queue: it
+/// never waits for a run of the queue, and no run of the queue waits for it.
+/// The lane holds one run; a second `.disk` request joins it (ADR §1,
+/// amended 2026-10-28, story "Whole disk in the app").
 public actor CLIRunner {
-    /// Only `.scan` coalesces: a scheduled `.backgroundScan` never hands
+    /// `.scan` and `.disk` coalesce: a scheduled `.backgroundScan` never hands
     /// a caller another run's output, nor do `notify` and `schedule`.
     public enum Kind: Sendable, Equatable, Hashable {
         case scan, clean, dryRun, rules
@@ -38,6 +45,8 @@ public actor CLIRunner {
         case notify
         /// `schedule uninstall`, in the migration from the 0.1.0 agent.
         case schedule
+        /// `disk --json`, the whole-disk report: read-only, outside the queue.
+        case disk
     }
 
     /// Names one run, so it can be cancelled without touching another.
@@ -53,7 +62,8 @@ public actor CLIRunner {
         /// Each stderr line as it arrives, on the reader's thread: it must
         /// not block, or the CLI stalls on a full pipe.
         public var stderrLine: (@Sendable (String) -> Void)?
-        /// Called when the process has started, after every earlier run ended.
+        /// Called when the process has started: for a run of the queue, after
+        /// every earlier run of the queue ended.
         public var onStart: (@Sendable () -> Void)?
 
         public init(
@@ -86,19 +96,29 @@ public actor CLIRunner {
     /// stderr lines kept in `Result.stderrTail`.
     static let tailLines = 50
 
+    /// A started process, keyed in `running` by its run.
+    private struct Running {
+        let process: Process
+        let ticket: Ticket?
+        var cancelRequested = false
+    }
+
     private let executable: URL
     private var last: Task<Result, Never>?
     private var queuedScan: (id: UUID, task: Task<Result, Never>)?
-    private var running: (process: Process, ticket: Ticket?)?
-    private var cancelRequested = false
+    private var diskRun: (id: UUID, task: Task<Result, Never>)?
+    /// One entry per process running: the queue's and the disk lane's.
+    private var running: [UUID: Running] = [:]
     private var cancelled: Set<Ticket> = []
 
     public init(executable: URL) {
         self.executable = executable
     }
 
-    /// Runs the CLI with `arguments` after every earlier run has ended.
+    /// Runs the CLI with `arguments` after every earlier run of the queue has
+    /// ended; `.disk` at once, or joining the one running.
     public func run(_ kind: Kind, _ arguments: [String], options: Options) async -> Result {
+        if kind == .disk { return await runDisk(arguments, options: options) }
         if kind == .scan, let scan = queuedScan {
             return await scan.task.value
         }
@@ -106,13 +126,7 @@ public actor CLIRunner {
         let id = UUID()
         let task = Task {
             _ = await previous?.value
-            let result: Result
-            if let ticket = options.ticket, cancelled.remove(ticket) != nil {
-                // Cancelled while it waited: it never starts.
-                result = Result(outcome: .cancelled, stdout: Data(), stderrTail: [])
-            } else {
-                result = await execute(arguments, options: options)
-            }
+            let result = await startUnlessCancelled(id: id, arguments, options: options)
             if queuedScan?.id == id { queuedScan = nil }
             return result
         }
@@ -121,22 +135,44 @@ public actor CLIRunner {
         return await task.value
     }
 
+    /// The disk lane: never reads or sets `last`, so it neither waits for the
+    /// queue nor holds it up.
+    private func runDisk(_ arguments: [String], options: Options) async -> Result {
+        if let disk = diskRun { return await disk.task.value }
+        let id = UUID()
+        let task = Task {
+            let result = await startUnlessCancelled(id: id, arguments, options: options)
+            if diskRun?.id == id { diskRun = nil }
+            return result
+        }
+        diskRun = (id, task)
+        return await task.value
+    }
+
+    private func startUnlessCancelled(id: UUID, _ arguments: [String], options: Options) async -> Result {
+        if let ticket = options.ticket, cancelled.remove(ticket) != nil {
+            // Cancelled while it waited: it never starts.
+            return Result(outcome: .cancelled, stdout: Data(), stderrTail: [])
+        }
+        return await execute(id: id, arguments, options: options)
+    }
+
     /// SIGTERM to the run of `ticket` if it is running (it then ends as
     /// `.cancelled`); if it is still waiting, it never starts. No other run
     /// is touched.
     public func cancel(_ ticket: Ticket) {
-        if let running, running.ticket == ticket {
+        if let (id, run) = running.first(where: { $0.value.ticket == ticket }) {
             // `terminate()` on a process that has not started raises an exception.
-            guard running.process.isRunning else { return }
-            cancelRequested = true
-            running.process.terminate()
+            guard run.process.isRunning else { return }
+            running[id]?.cancelRequested = true
+            run.process.terminate()
         } else {
             // Still waiting: it never starts. (A ticket whose run is over stays unused.)
             cancelled.insert(ticket)
         }
     }
 
-    private func execute(_ arguments: [String], options: Options) async -> Result {
+    private func execute(id: UUID, _ arguments: [String], options: Options) async -> Result {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -151,10 +187,9 @@ public actor CLIRunner {
         let stdout = Task.detached { await Self.readAll(out.fileHandleForReading, each: options.stdoutLine) }
         let stderr = Task.detached { await Self.readLines(err.fileHandleForReading, each: options.stderrLine) }
 
-        running = (process, options.ticket)
-        cancelRequested = false
+        running[id] = Running(process: process, ticket: options.ticket)
         defer {
-            running = nil
+            running[id] = nil
             if let ticket = options.ticket { cancelled.remove(ticket) }
         }
         let ended: (Int32, Process.TerminationReason)? = await withCheckedContinuation { done in
@@ -174,7 +209,7 @@ public actor CLIRunner {
             _ = await (stdout.value, stderr.value)
             return Result(outcome: .notLaunched(reason: "cannot start \(executable.path)"), stdout: Data(), stderrTail: [])
         }
-        let outcome = RunOutcome(status: status, reason: reason, cancelRequested: cancelRequested)
+        let outcome = RunOutcome(status: status, reason: reason, cancelRequested: running[id]?.cancelRequested ?? false)
         return Result(outcome: outcome, stdout: await stdout.value, stderrTail: await stderr.value)
     }
 

@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "ddc_version": "0.3.0",
+  "generated_at": "2026-10-19T09:00:00Z",
+  "duration_ms": 4100,
+  "cancelled": true,
+  "home": {
+    "path": "/Users/example",
+    "source": "walk",
+    "as_of": "2026-10-19T09:00:00Z",
+    "bytes": 3000000,
+    "unreadable": 2,
+    "partial": true
+  },
+  "areas": [
+    {
+      "id": "applications",
+      "paths": [
+        "/Applications"
+      ],
+      "title": "Applications",
+      "explanation": "Apps installed for every user.",
+      "frees": "Delete an app you no longer use in Finder, or with its own uninstaller.",
+      "bytes": 42949672960,
+      "shared_bytes": 0,
+      "files": 1310721,
+      "dirs": 81921,
+      "unreadable": 0,
+      "partial": true
+    },
+    {
+      "id": "library",
+      "paths": [
+        "/Library"
+      ],
+      "title": "Library for all users",
+      "explanation": "Support files, fonts and plug-ins for every user.",
+      "frees": "The app that put them there, or its uninstaller.",
+      "bytes": 7516192768,
+      "shared_bytes": 0,
+      "files": 229377,
+      "dirs": 14337,
+      "unreadable": 18,
+      "partial": true
+    },
+    {
+      "id": "opt",
+      "paths": [
+        "/opt"
+      ],
+      "title": "/opt",
+      "explanation": "Tools installed outside macOS.",
+      "frees": "The tool that installed them.",
+      "bytes": 471859200,
+      "shared_bytes": 0,
+      "files": 14401,
+      "dirs": 901,
+      "unreadable": 0,
+      "partial": true
+    },
+    {
+      "id": "homebrew",
+      "paths": [
+        "/opt/homebrew"
+      ],
+      "parent": "opt",
+      "title": "Homebrew",
+      "explanation": "Formulae, casks and Homebrew's prefix.",
+      "frees": "brew cleanup removes old versions and old downloads.",
+      "action": "brew-cleanup",
+      "bytes": 10200547328,
+      "shared_bytes": 0,
+      "files": 311297,
+      "dirs": 19457,
+      "unreadable": 0,
+      "partial": true
+    },
+    {
+      "id": "private",
+      "paths": [
+        "/private"
+      ],
+      "title": "System files in /private",
+      "explanation": "Files macOS keeps for itself.",
+      "frees": "macOS manages them.",
+      "bytes": 2147483648,
+      "shared_bytes": 0,
+      "files": 65537,
+      "dirs": 4097,
+      "unreadable": 106,
+      "partial": true
+    },
+    {
+      "id": "temporary-folders",
+      "paths": [
+        "/private/var/folders"
+      ],
+      "parent": "private",
+      "title": "Temporary folders",
+      "explanation": "Per-user caches and temporary files.",
+      "frees": "Quitting the app that owns them, or restarting the Mac.",
+      "bytes": 2147483648,
+      "shared_bytes": 0,
+      "files": 65537,
+      "dirs": 4097,
+      "unreadable": 185,
+      "partial": true,
+      "entries_read": 1000000
+    }
+  ],
+  "snapshots": {},
+  "walk": {
+    "files": 2400000,
+    "dirs": 410000,
+    "bytes": 146972606464
+  },
+  "not_counted": {
+    "bytes": -3221225472,
+    "data_volume_bytes": 10737418240,
+    "counted_bytes": 13958643712,
+    "inconsistent": true,
+    "causes": [
+      "clones-counted-twice"
+    ],
+    "holds": [],
+    "unreadable": 4
+  }
+}
