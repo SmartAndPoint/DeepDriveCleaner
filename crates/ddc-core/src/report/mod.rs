@@ -83,7 +83,7 @@ pub fn scan(env: &Env, opts: &ScanOptions, progress: &Progress) -> Result<ScanRe
     scan_with(env, opts, progress, &SystemStatFs)
 }
 
-/// [`scan`] with the volume statistics read through `statfs`.
+/// [`scan`](fn@scan) with the volume statistics read through `statfs`.
 pub fn scan_with(
     env: &Env,
     opts: &ScanOptions,

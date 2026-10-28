@@ -1,0 +1,8 @@
+#!/bin/sh
+# The full gate (`make gate`) before every push. Installed once per clone by
+# `make hooks`. Git passes the refs on stdin; nothing below reads them.
+set -eu
+# Homebrew's Rust may sit earlier in PATH; cargo finds rustc through PATH.
+export PATH="$HOME/.cargo/bin:$PATH"
+cd "$(git rev-parse --show-toplevel)"
+exec make gate </dev/null

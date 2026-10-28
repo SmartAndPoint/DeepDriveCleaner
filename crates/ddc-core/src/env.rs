@@ -79,7 +79,7 @@ impl Env {
         dirs
     }
 
-    /// `NO_COLOR` is set (https://no-color.org).
+    /// `NO_COLOR` is set (<https://no-color.org>).
     #[allow(clippy::disallowed_methods)] // process environment, read here only
     pub fn no_color() -> bool {
         std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty())

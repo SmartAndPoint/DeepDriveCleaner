@@ -251,7 +251,7 @@ pub struct ListedPlan {
 /// above it is `kept`, the reasons the dry run gives. Default selection and
 /// switched-off rules are never consulted: the list is the selection.
 ///
-/// A `user-data` item is an entry the user picked; [`entry`] matches it
+/// A `user-data` item is an entry the user picked; `entry` matches it
 /// against the fresh scan's full list of entries. Entries come first in the
 /// plan, so one runs before a finding inside it.
 pub fn plan_listed(report: &ScanReport, entries: &EntryIndex, catalog: &Catalog, listed: &[ListedItem]) -> ListedPlan {

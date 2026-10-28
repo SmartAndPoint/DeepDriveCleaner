@@ -1,0 +1,28 @@
+# cargo deny check: the dependency part of `make gate` (story "Mandatory gate before
+# every commit", DDC-005). No `targets` under [graph]: every platform is checked,
+# since DDC-007 builds Linux and Windows too.
+
+[advisories]
+# Known vulnerabilities always fail; unmaintained crates fail by default too.
+yanked = "deny"
+
+[licenses]
+# Permissive licenses only, compatible with distributing the workspace under
+# PolyForm Noncommercial. Anything else, copyleft included, is refused.
+allow = ["MIT", "Apache-2.0", "Unicode-3.0"]
+confidence-threshold = 0.8
+
+[licenses.private]
+# The workspace's own crates (PolyForm Noncommercial, publish = false).
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# `ddc-core = { path = … }` has no version; allowed because the crates are private.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

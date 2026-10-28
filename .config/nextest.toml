@@ -1,0 +1,8 @@
+[profile.default]
+# A test slower than 30 s is reported; at 120 s it is killed and fails, so a hang
+# fails the gate instead of stopping it.
+slow-timeout = { period = "30s", terminate-after = 4 }
+
+[profile.ci]
+retries = 0
+fail-fast = false

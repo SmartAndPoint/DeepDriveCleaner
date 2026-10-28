@@ -18,6 +18,15 @@ serde_json.workspace = true
 thiserror.workspace = true
 trash.workspace = true
 
+[features]
+# Empty until their stories fill them; the gate already builds with them.
+# Cost counters on the hot paths, for the complexity guard (story "Complexity guard:
+# operation counts and scaling exponents", DDC-005). Never in a release build.
+op-stats = []
+# A dhat heap profile of one run (story "Memory and CPU under load: peak memory,
+# leaks and CPU time", DDC-005). Both will install a global allocator: never together.
+dhat-heap = []
+
 [dev-dependencies]
 schemars.workspace = true
 serde_json.workspace = true

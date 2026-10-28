@@ -26,3 +26,11 @@
 - When discussing vault contents, reference artifacts by their frontmatter
   `title:` (with their parent epic), never by session-invented shorthand.
 <!-- /projectstore:agents -->
+
+## The gate
+
+- Run `make tools` and `make hooks` once per clone. The hooks run `make gate-fast`
+  before every commit and `make gate` before every push.
+- Never commit or push with `--no-verify`: fix what the gate names.
+- The pre-push gate takes about 2 minutes after a core change and longer cold:
+  run `git commit` and `git push` with a 10-minute tool timeout.

@@ -1,0 +1,86 @@
+# The mandatory gate on GitHub (story "Mandatory gate before every commit", DDC-005):
+# `make gate` on every push and pull request. `make dist` refuses a commit whose run
+# here is not green (scripts/ci-green.sh).
+name: Gate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gate-${{ github.ref }}
+  # Never cancel a push run: `make dist` reads its result.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NEXTEST_PROFILE: ci
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - name: Cache the gate tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-nextest
+            ~/.cargo/bin/cargo-deny
+            ~/.cargo/bin/cargo-machete
+            ~/.cargo/bin/cargo-llvm-cov
+          key: tools-${{ runner.os }}-${{ hashFiles('.config/tools.mk') }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+      - run: make tools
+      - run: make gate
+      # The M-size load checks join here with story "Synthetic load trees: large,
+      # wide, deep and hostile".
+
+  coverage:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - name: Cache the gate tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-nextest
+            ~/.cargo/bin/cargo-deny
+            ~/.cargo/bin/cargo-machete
+            ~/.cargo/bin/cargo-llvm-cov
+          key: tools-${{ runner.os }}-${{ hashFiles('.config/tools.mk') }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+          key: coverage
+      - run: make tools
+      - run: make coverage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lcov
+          path: target/lcov.info
+
+  # The app's logic. It runs against the debug CLI, so build that first: without it
+  # the real-CLI tests skip themselves.
+  app:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+          key: app
+      - run: cargo build -p ddc-cli --locked
+      - run: make app-test

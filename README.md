@@ -364,13 +364,23 @@ Work here follows the ProjectStore loop. Before code there is an artifact (an AD
 
 Development commands (they work around a Homebrew Rust that may shadow rustup in `PATH`):
 
+Once per clone, install the pinned check tools and the git hooks. The hooks run the gate before every commit and push:
+
 ```
-make check      # fmt check, clippy -D warnings, all tests
+make tools      # cargo-nextest, cargo-deny, cargo-machete, cargo-llvm-cov, the MSRV toolchain
+make hooks      # git runs .githooks/: gate-fast before a commit, gate before a push
+```
+
+```
+make gate-fast  # fmt check, clippy -D warnings, all tests (nextest), doc tests
+make gate       # gate-fast plus cargo deny, unused dependencies, docs, the MSRV build, a release build
+make check      # the same as make gate-fast
+make coverage   # line coverage, written to target/lcov.info
 make release    # optimized build
 make install    # install deepdrivecleaner + ddc
 make app-test   # the app's logic (DDCKit) under swift test
 make app        # the app, Debug, signed with your Developer ID
-make dist       # maintainers: the signed, notarized CLI tarball and app zip (then scripts/publish-release.sh)
+make dist       # maintainers: after a green CI run for HEAD, the signed, notarized CLI tarball and app zip (then scripts/publish-release.sh)
 ```
 
 By submitting a contribution you agree that SmartAndPoint may use, modify and relicense it under any terms, including commercial ones, and you confirm that you have the right to grant this.

@@ -1,0 +1,44 @@
+# The nightly tier of the gate (story "Mandatory gate before every commit", DDC-005):
+# the full gate and coverage on main, so advisories published since the last commit
+# reach `cargo deny`. Later stories add their slots below.
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NEXTEST_PROFILE: ci
+  CARGO_TERM_COLOR: always
+
+jobs:
+  nightly:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - name: Cache the gate tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-nextest
+            ~/.cargo/bin/cargo-deny
+            ~/.cargo/bin/cargo-machete
+            ~/.cargo/bin/cargo-llvm-cov
+          key: tools-${{ runner.os }}-${{ hashFiles('.config/tools.mk') }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+      - run: make tools
+      - run: make gate
+      - run: make coverage
+      # L-size load: story "Synthetic load trees: large, wide, deep and hostile".
+      # Fuzzing: story "Coverage floor and property tests for the safety invariants".
+      # AddressSanitizer: story "Memory and CPU under load: peak memory, leaks and CPU time".

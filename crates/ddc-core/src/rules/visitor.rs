@@ -101,7 +101,7 @@ impl<'c> RuleVisitor<'c> {
     }
 
     /// Largest files outside findings (or in the remainder of a region),
-    /// biggest first, at most [`LARGE_FILE_LIMIT`].
+    /// biggest first, at most `LARGE_FILE_LIMIT`.
     pub fn large_files(&self) -> Vec<(u64, PathBuf)> {
         let mut large = self.large.lock().unwrap_or_else(|p| p.into_inner()).clone();
         sort_large(&mut large);
