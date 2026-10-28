@@ -22,7 +22,7 @@ MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
 .PHONY: build fmt fmt-check clippy test check release install dist app app-test app-dist icons \
 	gate-fast gate nextest doctest clippy-dhat doc deny machete msrv release-check \
-	tools require-tools hooks coverage ci-green golden-check golden-record loadgen-clean load-image load leaks asan
+	tools require-tools hooks coverage ci-green golden-check golden-record loadgen-clean load-image load load-baseline bench-test leaks asan
 
 build:
 	$(CARGO) build --workspace
@@ -46,7 +46,7 @@ test:
 gate-fast: require-tools fmt-check clippy nextest doctest
 
 # deny and machete read only metadata and take seconds: they go first.
-gate: require-tools deny machete gate-fast clippy-dhat doc msrv release-check
+gate: require-tools deny machete gate-fast clippy-dhat doc msrv release-check bench-test
 
 # Kept for everything that already calls it.
 check: gate-fast
@@ -99,16 +99,39 @@ load-image:
 # The release CLI measured on every profile's tree (story "Memory and CPU under load:
 # peak memory, leaks and CPU time"): wall, user and system time, peak memory and
 # threads per command, in target/load/load-$(LOAD_SIZE).tsv. LOAD_PROFILE defaults to
-# all here. Limits come later: every run records, whatever LOAD_LIMITS says.
+# all here. LOAD_LIMITS=enforce fails over bench/load-limits.tsv (CPU only with 3 runs
+# or more, from a start load average of at most a quarter of the CPUs); record judges
+# nothing. A full enforce run of seed 1 with CPU judged lands in
+# bench/load-<date>-<size>.tsv, never over an existing one, and is compared with the
+# newest earlier table of its size.
 LOAD_REPEAT ?= 3
-LOAD_LIMITS ?= record
+LOAD_LIMITS ?= enforce
+LOAD_DATE := $(shell date -u +%F)
+LOAD_RUN = $(if $(filter command line environment,$(origin LOAD_PROFILE)),$(LOAD_PROFILE),all)
 load:
-	@[ "$(LOAD_LIMITS)" = record ] || echo "make load: no limits yet; LOAD_LIMITS=$(LOAD_LIMITS) only records" >&2
 	$(CARGO) build --release -p ddc-loadgen -p ddc-cli --locked
 	LOADGEN=target/release/ddc-loadgen LOAD_CLI=target/release/deepdrivecleaner LOAD_REPEAT=$(LOAD_REPEAT) \
-	  LOAD_DATE=$$(date -u +%F) LOAD_COMMIT=$$(git describe --always --dirty) \
-	  scripts/load-image.sh $(if $(filter command line environment,$(origin LOAD_PROFILE)),$(LOAD_PROFILE),all) \
-	  $(LOAD_SIZE) $(LOAD_SEED)
+	  LOAD_MODE=$(LOAD_LIMITS) LOAD_DATE=$(LOAD_DATE) LOAD_COMMIT=$$(git describe --always --dirty) \
+	  scripts/load-image.sh $(LOAD_RUN) $(LOAD_SIZE) $(LOAD_SEED)
+	@if [ "$(LOAD_RUN)" = all ] && [ "$(LOAD_SEED)" = 1 ] && head -1 target/load/load-$(LOAD_SIZE).tsv | grep -q ' mode=enforce '; then \
+	  target/release/ddc-loadgen table target/load/load-$(LOAD_SIZE).tsv \
+	    --into bench/load-$(LOAD_DATE)-$(LOAD_SIZE).tsv && \
+	  python3 -I bench/compare_load.py bench/load-$(LOAD_DATE)-$(LOAD_SIZE).tsv; \
+	else \
+	  echo "make load: the table stays in target/load/load-$(LOAD_SIZE).tsv; only a full enforce run of seed 1 with CPU judged goes to bench/"; \
+	fi
+
+# The limits from S and M runs on the reference machine, with 25% headroom
+# (ops/profiling-the-core.md): base from S, the slope between S and M.
+load-baseline:
+	$(MAKE) load LOAD_PROFILE=all LOAD_SIZE=S LOAD_SEED=1 LOAD_REPEAT=3 LOAD_LIMITS=record
+	$(MAKE) load LOAD_PROFILE=all LOAD_SIZE=M LOAD_SEED=1 LOAD_REPEAT=3 LOAD_LIMITS=record
+	target/release/ddc-loadgen limits target/load/load-S.tsv target/load/load-M.tsv >target/load/load-limits.tsv
+	cp target/load/load-limits.tsv bench/load-limits.tsv
+
+# The tests of the bench scripts.
+bench-test:
+	python3 -I -m unittest discover -s bench -p 'test_*.py'
 
 # `scan --json` of every profile's S tree under `leaks -atExit`, on the cargo release
 # build (the notarized app's hardened runtime keeps `leaks` out): fails on any leak.

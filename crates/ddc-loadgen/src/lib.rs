@@ -11,6 +11,7 @@ pub mod fixtures;
 pub mod isolate;
 pub mod items;
 pub mod leaks;
+pub mod limits;
 pub mod manifest;
 pub mod measure;
 pub mod profiles;

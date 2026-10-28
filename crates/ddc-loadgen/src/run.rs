@@ -19,6 +19,7 @@ use ddc_core::store::{LAST_DISK, LAST_SCAN};
 use ddc_core::sys::{procs, statfs, usage};
 
 use crate::isolate::{self, Target};
+use crate::limits::{self, Mode};
 use crate::measure::{Measured, measure};
 use crate::profiles::Profile;
 use crate::table::{Meta, Row};
@@ -43,6 +44,12 @@ pub struct RunArgs {
     pub commit: String,
     /// Where `<size>-<profile>.tsv` is written.
     pub out: PathBuf,
+    pub mode: Mode,
+    /// `bench/load-limits.tsv`, read in `enforce` mode.
+    pub limits: PathBuf,
+    /// The 1-minute load average when the whole run started, before any
+    /// tree was built; read here when not given.
+    pub load_start: Option<f64>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -62,6 +69,8 @@ pub struct Report {
     pub failure_count: usize,
     /// The owner's state that changed during the run, by modification time.
     pub owner_changes: Vec<String>,
+    /// Whether CPU time was judged: `enforce` on a quiet machine.
+    pub cpu_judged: bool,
     pub tsv: Option<PathBuf>,
 }
 
@@ -157,7 +166,7 @@ impl Session<'_> {
 pub fn run(a: &RunArgs) -> anyhow::Result<Report> {
     let real_home = isolate::real_home()?;
     let before = owner_state(&real_home);
-    let load_start = usage::load_average().unwrap_or(f64::NAN);
+    let load_start = a.load_start.unwrap_or_else(|| usage::load_average().unwrap_or(f64::NAN));
     let g = generate(a.profile, a.entries, a.seed, &a.into, a.device.as_deref())?;
     let started = Instant::now();
     let differences = verify::verify(&g.manifest, &g.layout, &g.home)?;
@@ -175,6 +184,7 @@ pub fn run(a: &RunArgs) -> anyhow::Result<Report> {
         failures: Vec::new(),
         failure_count: 0,
         owner_changes: Vec::new(),
+        cpu_judged: false,
         tsv: None,
     };
     // A tree that does not match is not measured.
@@ -209,14 +219,30 @@ pub fn run(a: &RunArgs) -> anyhow::Result<Report> {
         }
     }
 
+    let ncpu = std::thread::available_parallelism().map_or(0, usize::from);
+    // CPU is judged on medians of enough runs only.
+    report.cpu_judged =
+        a.mode == Mode::Enforce && a.repeat as usize >= limits::CPU_RUNS && limits::cpu_judged(load_start, ncpu);
+    if a.mode == Mode::Enforce {
+        match fs::read_to_string(&a.limits).map_err(anyhow::Error::from).and_then(|t| limits::parse(&t)) {
+            Ok(l) => report.failures.extend(limits::check(&l, &report.rows, a.mode, report.cpu_judged)),
+            Err(e) => report.failures.push(format!("limits: {}: {e:#}", a.limits.display())),
+        }
+    }
     let meta = Meta {
         date: a.date.clone(),
         commit: a.commit.clone(),
         model: usage::machine_model().unwrap_or_else(|| "-".to_owned()),
-        ncpu: std::thread::available_parallelism().map_or(0, usize::from),
+        ncpu,
         load_start,
         load_end: usage::load_average().unwrap_or(f64::NAN),
-        mode: "record".to_owned(),
+        // `enforce-memory`: a busy machine recorded CPU and did not judge it.
+        mode: match (a.mode, report.cpu_judged) {
+            (Mode::Record, _) => "record",
+            (Mode::Enforce, true) => "enforce",
+            (Mode::Enforce, false) => "enforce-memory",
+        }
+        .to_owned(),
         seed: a.seed,
     };
     fs::create_dir_all(&a.out)?;

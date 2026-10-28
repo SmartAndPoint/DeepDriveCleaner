@@ -6,6 +6,7 @@ use std::time::Instant;
 
 use clap::{Parser, Subcommand};
 use ddc_loadgen::desc::FsCaps;
+use ddc_loadgen::limits::{self, Mode};
 use ddc_loadgen::profiles::Profile;
 use ddc_loadgen::run::RunArgs;
 use ddc_loadgen::{generate, leaks, manifest, run, table, target, verify};
@@ -76,7 +77,17 @@ enum Cmd {
         commit: String,
         #[arg(long, default_value = "target/load")]
         out: PathBuf,
+        /// `enforce` fails over a limit (CPU only on a quiet machine); `record` judges nothing.
+        #[arg(long, value_enum, default_value_t = Mode::Record)]
+        mode: Mode,
+        #[arg(long, default_value = "bench/load-limits.tsv")]
+        limits: PathBuf,
+        /// The 1-minute load average when the whole run started (default: now).
+        #[arg(long)]
+        load_start: Option<f64>,
     },
+    /// Print the limits from a small and a large run's tables (`make load-baseline`).
+    Limits { small: PathBuf, large: PathBuf },
     /// `scan --json` of every profile's S tree under `leaks -atExit`: fails
     /// on any leak, or on a run that did not end normally.
     Leaks {
@@ -117,9 +128,39 @@ fn main() -> anyhow::Result<()> {
             let m = manifest::manifest(profile.name(), seed, &profile.desc(entries, seed, caps));
             serde_json::json!({ "hash": m.hash(), "manifest": m })
         }
-        Cmd::Run { profile, entries, seed, into, device, cli, repeat, size, date, commit, out } => {
+        Cmd::Run {
+            profile,
+            entries,
+            seed,
+            into,
+            device,
+            cli,
+            repeat,
+            size,
+            date,
+            commit,
+            out,
+            mode,
+            limits,
+            load_start,
+        } => {
             let size = size.unwrap_or_else(|| size_name(entries));
-            let a = RunArgs { profile, entries, seed, into, device, cli, repeat, size, date, commit, out };
+            let a = RunArgs {
+                profile,
+                entries,
+                seed,
+                into,
+                device,
+                cli,
+                repeat,
+                size,
+                date,
+                commit,
+                out,
+                mode,
+                limits,
+                load_start,
+            };
             let report = run::run(&a)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
             // Advisory: the owner's app may scan on its own meanwhile.
@@ -144,6 +185,23 @@ fn main() -> anyhow::Result<()> {
             if !failed.is_empty() {
                 anyhow::bail!("leaks: {} profile(s) failed; see {}", failed.len(), failed.join(", "));
             }
+            return Ok(());
+        }
+        Cmd::Limits { small, large } => {
+            let read = |p: &PathBuf| -> anyhow::Result<_> { table::parse(&std::fs::read_to_string(p)?) };
+            let ((s, small), (l, large)) = (read(&small)?, read(&large)?);
+            let note = format!(
+                "base from {} entries, slope to {} entries, x{}; {} {} on {}, load {:.2} and {:.2} at the start",
+                small.first().map_or(0, |r| r.entries),
+                large.first().map_or(0, |r| r.entries),
+                limits::HEADROOM,
+                s.date,
+                s.commit,
+                s.model,
+                s.load_start,
+                l.load_start
+            );
+            print!("{}", limits::render(&limits::baseline(&small, &large)?, &note));
             return Ok(());
         }
         Cmd::Table { tables, into } => {

@@ -14,8 +14,9 @@
 # With $LOAD_CLI set, every profile goes through `ddc-loadgen run` instead (story
 # "Memory and CPU under load: peak memory, leaks and CPU time"): the tree is built
 # and checked the same way, then that CLI is measured on it ($LOAD_REPEAT runs of
-# each reading command, one clean). Each profile's rows land in
-# $LOAD_OUT/<size>-<profile>.tsv, all of them in $LOAD_OUT/load-<size>.tsv.
+# each reading command, one clean), judged against bench/load-limits.tsv when
+# $LOAD_MODE is enforce. Each profile's rows land in $LOAD_OUT/<size>-<profile>.tsv,
+# all of them in $LOAD_OUT/load-<size>.tsv.
 set -euo pipefail
 
 usage="usage: load-image.sh <profile|all> <S|M|L|XL> [seed]"
@@ -97,6 +98,9 @@ for stale in "$tmp"/ddc-image-*.sparsebundle; do
   discard "$stale" || true
 done
 
+# The 1-minute load average before anything is built: the run's own work must not
+# decide whether its CPU times are judged.
+load_start=$(sysctl -n vm.loadavg | awk '{ print $2 }')
 nonce=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
 volume=ddc-load-$nonce
 image=$tmp/ddc-image-$$-$nonce.sparsebundle
@@ -137,7 +141,8 @@ for p in $profiles; do
     rm -f "$out/$size-$p.tsv"
     "$loadgen" run "$p" --entries "$entries" --seed "$seed" --into "$mount/$p" --device "$device" \
       --cli "$LOAD_CLI" --repeat "${LOAD_REPEAT:-3}" --size "$size" --date "${LOAD_DATE:--}" \
-      --commit "${LOAD_COMMIT:--}" --out "$out" >"$json" || failed="$failed $p"
+      --commit "${LOAD_COMMIT:--}" --out "$out" --mode "${LOAD_MODE:-record}" \
+      --load-start "$load_start" >"$json" || failed="$failed $p"
     [ -e "$out/$size-$p.tsv" ] && tables+=("$out/$size-$p.tsv")
   else
     "$loadgen" build "$p" --entries "$entries" --seed "$seed" --into "$mount/$p" --device "$device" \

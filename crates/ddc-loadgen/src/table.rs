@@ -70,7 +70,7 @@ pub struct Meta {
     /// The 1-minute load average at the start and the end.
     pub load_start: f64,
     pub load_end: f64,
-    /// `record` or `enforce`.
+    /// `record`, `enforce`, or `enforce-memory` when CPU was recorded and not judged.
     pub mode: String,
     pub seed: u64,
 }
@@ -100,6 +100,43 @@ impl Meta {
     }
 }
 
+impl Row {
+    /// Reads a line written by [`Row::line`].
+    pub fn parse(line: &str) -> anyhow::Result<Self> {
+        let c: Vec<&str> = line.split('\t').collect();
+        let [profile, size, seed, entries, command, run, wall, user, sys, cpu, rss, threads, exit] = c[..] else {
+            anyhow::bail!("a row has {} columns, not {}: {line}", c.len(), COLUMNS.len());
+        };
+        let bad = |e: std::num::ParseIntError| anyhow::anyhow!("{e} in the row {line}");
+        Ok(Self {
+            profile: profile.to_owned(),
+            size: size.to_owned(),
+            seed: seed.parse().map_err(bad)?,
+            entries: entries.parse().map_err(bad)?,
+            command: command.to_owned(),
+            run: run.parse().map_err(bad)?,
+            wall_ms: wall.parse().map_err(bad)?,
+            user_ms: user.parse().map_err(bad)?,
+            sys_ms: sys.parse().map_err(bad)?,
+            cpu_ms: cpu.parse().map_err(bad)?,
+            max_rss_bytes: rss.parse().map_err(bad)?,
+            threads_max: threads.parse().map_err(bad)?,
+            exit: exit.to_owned(),
+        })
+    }
+}
+
+/// Reads a whole table written by [`render`] or [`merge`].
+pub fn parse(text: &str) -> anyhow::Result<(Meta, Vec<Row>)> {
+    let mut lines = text.lines();
+    let meta = lines.next().and_then(Meta::parse).ok_or_else(|| anyhow::anyhow!("no # line"))?;
+    if lines.next() != Some(COLUMNS.join("\t").as_str()) {
+        anyhow::bail!("the header is not {COLUMNS:?}");
+    }
+    let rows = lines.filter(|l| !l.is_empty()).map(Row::parse).collect::<anyhow::Result<_>>()?;
+    Ok((meta, rows))
+}
+
 /// A whole table: the `#` line, the header and the rows.
 pub fn render(meta: &Meta, rows: &[String]) -> String {
     let mut out = format!("{}\n{}\n", meta.line(), COLUMNS.join("\t"));
@@ -110,7 +147,8 @@ pub fn render(meta: &Meta, rows: &[String]) -> String {
 }
 
 /// Joins the tables of one run's profiles, given in run order, under one
-/// `#` line: the first table's context and start load, the last end load.
+/// `#` line: the first table's context and start load, the last end load,
+/// and `enforce` only when every table was judged in full.
 pub fn merge(tables: &[String]) -> anyhow::Result<String> {
     let mut meta: Option<Meta> = None;
     let mut rows = Vec::new();
@@ -123,7 +161,10 @@ pub fn merge(tables: &[String]) -> anyhow::Result<String> {
         rows.extend(lines.filter(|l| !l.is_empty()).map(str::to_owned));
         meta = Some(match meta {
             None => m,
-            Some(first) => Meta { load_end: m.load_end, ..first },
+            Some(first) => {
+                let mode = if first.mode == "enforce" { m.mode } else { first.mode };
+                Meta { load_end: m.load_end, mode, ..first }
+            }
         });
     }
     let meta = meta.ok_or_else(|| anyhow::anyhow!("no table to merge"))?;
@@ -163,5 +204,35 @@ mod tests {
         assert_eq!(lines[1], COLUMNS.join("\t"));
         assert_eq!(&lines[2..], ["a\t1", "b\t1", "b\t2"]);
         assert!(merge(&["no meta\n".into()]).is_err());
+    }
+
+    #[test]
+    fn a_table_reads_back_and_a_partly_judged_merge_is_not_enforce() {
+        let row = Row {
+            profile: "mixed".into(),
+            size: "S".into(),
+            seed: 1,
+            entries: 10_000,
+            command: "scan".into(),
+            run: 2,
+            wall_ms: 120,
+            user_ms: 90,
+            sys_ms: 40,
+            cpu_ms: 130,
+            max_rss_bytes: 20_000_000,
+            threads_max: 11,
+            exit: "sig9".into(),
+        };
+        let enforce = Meta { mode: "enforce".into(), ..meta(1.0, 1.0) };
+        let text = render(&enforce, &[row.line()]);
+        assert_eq!(parse(&text).unwrap(), (enforce.clone(), vec![row]));
+        assert!(Row::parse("mixed\tS").is_err());
+
+        let memory = Meta { mode: "enforce-memory".into(), ..meta(9.0, 9.0) };
+        let both =
+            |a: &Meta, b: &Meta| Meta::parse(merge(&[render(a, &[]), render(b, &[])]).unwrap().lines().next().unwrap());
+        assert_eq!(both(&enforce, &memory).unwrap().mode, "enforce-memory");
+        assert_eq!(both(&memory, &enforce).unwrap().mode, "enforce-memory");
+        assert_eq!(both(&enforce, &enforce).unwrap().mode, "enforce");
     }
 }
