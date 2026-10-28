@@ -1,6 +1,8 @@
 # Homebrew's Rust 1.81 sits before rustup in PATH on the reference machine and
-# breaks both `cargo` and `clippy-driver`; force the rustup toolchain.
-CARGO := $(HOME)/.cargo/bin/cargo
+# breaks both `cargo` and `clippy-driver`; force the rustup toolchain. Where rustup
+# keeps no ~/.cargo/bin/cargo (GitHub's macOS image installs it with Homebrew), the
+# cargo in PATH is rustup's.
+CARGO := $(firstword $(wildcard $(HOME)/.cargo/bin/cargo) cargo)
 export PATH := $(HOME)/.cargo/bin:$(PATH)
 
 include .config/tools.mk

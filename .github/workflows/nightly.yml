@@ -19,13 +19,13 @@ jobs:
   nightly:
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: main
       - name: Toolchain from rust-toolchain.toml
         run: rustup toolchain install
       - name: Cache the gate tools
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/cargo-nextest

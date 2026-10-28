@@ -24,11 +24,11 @@ jobs:
   gate:
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Toolchain from rust-toolchain.toml
         run: rustup toolchain install
       - name: Cache the gate tools
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/cargo-nextest
@@ -47,11 +47,11 @@ jobs:
   coverage:
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Toolchain from rust-toolchain.toml
         run: rustup toolchain install
       - name: Cache the gate tools
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/cargo-nextest
@@ -65,7 +65,7 @@ jobs:
           key: coverage
       - run: make tools
       - run: make coverage
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: lcov
           path: target/lcov.info
@@ -75,7 +75,7 @@ jobs:
   app:
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Toolchain from rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
