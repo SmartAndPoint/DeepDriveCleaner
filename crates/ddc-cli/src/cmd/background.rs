@@ -43,6 +43,11 @@ const PROMPTING_AREAS: &[&str] = &[
 /// The notification threshold when neither `--threshold` nor `settings.json` sets one.
 const DEFAULT_THRESHOLD: u64 = 10 << 30;
 
+/// The walk of a scheduled scan: three threads, so it stays in the background.
+fn background_walk() -> WalkOptions {
+    WalkOptions { threads: Some(3), ..WalkOptions::default() }
+}
+
 /// The dispatcher hands in how to notify and how to read volumes, so this
 /// module never names a way to run a program.
 pub fn run(args: &ScanArgs, notifier: &dyn Notifier, statfs: &dyn StatFs) -> anyhow::Result<ExitCode> {
@@ -97,7 +102,7 @@ pub fn run_with(
         } else {
             PROMPTING_AREAS.iter().map(|rel| env.home().join(rel)).collect()
         },
-        walk: WalkOptions { threads: Some(3), ..WalkOptions::default() },
+        walk: background_walk(),
         ..resolved.options
     };
     let report = report::scan_with(env, &opts, &Progress::default(), statfs)?;
@@ -225,6 +230,11 @@ mod tests {
             NotifyStatus::Scanned(d) => d,
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn the_background_walk_uses_three_threads() {
+        assert_eq!(background_walk().threads, Some(3));
     }
 
     #[test]

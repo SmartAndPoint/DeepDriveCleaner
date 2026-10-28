@@ -302,6 +302,21 @@ mod tests {
         assert_eq!(installed_program(&text), Some(PathBuf::from("/Users/me/.cargo/bin/deepdrivecleaner & <tools>")));
     }
 
+    /// The scheduled scan stays in the background: launchd gives it low I/O
+    /// priority and a nice of 10 (story "Memory and CPU under load").
+    #[test]
+    fn the_agent_runs_at_low_io_priority_and_nice_10() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("agent.plist");
+        std::fs::write(&path, plist(&spec(tmp.path()))).unwrap();
+        let read = |key: &str| {
+            let out = Command::new("/usr/bin/plutil").args(["-extract", key, "raw", "-o", "-"]).arg(&path).output();
+            String::from_utf8(out.unwrap().stdout).unwrap().trim().to_owned()
+        };
+        assert_eq!(read("LowPriorityIO"), "true");
+        assert_eq!(read("Nice"), "10");
+    }
+
     #[test]
     fn an_agent_installed_from_the_app_is_listed_under_it() {
         let tmp = tempfile::tempdir().unwrap();

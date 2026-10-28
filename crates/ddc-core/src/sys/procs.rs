@@ -261,6 +261,17 @@ fn list_pids() -> Vec<i32> {
     pids
 }
 
+/// The number of threads `pid` has now, or `None` once it is gone (or is
+/// another user's).
+pub fn thread_count(pid: i32) -> Option<u32> {
+    let mut info = MaybeUninit::<libc::proc_taskinfo>::zeroed();
+    let size = size_of::<libc::proc_taskinfo>() as c_int;
+    // SAFETY: `info` is writable for `size` bytes.
+    let r = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTASKINFO, 0, info.as_mut_ptr().cast(), size) };
+    // SAFETY: proc_pidinfo filled the struct when it returned its size.
+    (r == size).then(|| u32::try_from(unsafe { info.assume_init() }.pti_threadnum).unwrap_or(0))
+}
+
 fn bsd_info(pid: i32) -> Option<libc::proc_bsdinfo> {
     let mut info = MaybeUninit::<libc::proc_bsdinfo>::zeroed();
     let size = size_of::<libc::proc_bsdinfo>() as c_int;
@@ -484,6 +495,27 @@ mod tests {
         let _ = child.kill();
         let _ = child.wait();
         assert!(seen.iter().any(|v| v.dev == meta.dev() && v.ino == meta.ino()), "{meta:?} not in {seen:?}");
+    }
+
+    #[test]
+    fn the_thread_count_includes_threads_just_started() {
+        let n = 8;
+        let ready = std::sync::Barrier::new(n + 1);
+        let done = std::sync::Barrier::new(n + 1);
+        std::thread::scope(|s| {
+            for _ in 0..n {
+                s.spawn(|| {
+                    ready.wait();
+                    done.wait();
+                });
+            }
+            ready.wait();
+            // Other tests' threads come and go; these eight and this one are certain.
+            let count = thread_count(std::process::id() as i32).unwrap();
+            done.wait();
+            assert!(count as usize > n, "{count}");
+        });
+        assert_eq!(thread_count(-1), None);
     }
 
     #[test]

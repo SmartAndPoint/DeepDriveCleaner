@@ -10,6 +10,7 @@ pub mod rlimit;
 pub mod signals;
 pub mod statfs;
 pub mod term;
+pub mod usage;
 
 use std::io;
 

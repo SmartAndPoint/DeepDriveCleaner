@@ -113,3 +113,28 @@ impl ProcessTable for SystemProcesses {
         procs::open_files(pid)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::SystemTime;
+
+    use super::*;
+    use crate::exec::NATIVE_TIMEOUT;
+    use crate::sys::usage::thread_cpu_time;
+
+    /// The thread waiting for a native command sleeps between its looks: its
+    /// own CPU over a 2 s command is under 1% of the wait.
+    #[test]
+    fn waiting_for_a_tool_does_not_spin() {
+        let dir = tempfile::tempdir().unwrap();
+        let env =
+            Env::with_paths(dir.path(), &dir.path().join("data"), &dir.path().join("logs"), SystemTime::now()).unwrap();
+        let (cpu, at) = (thread_cpu_time().unwrap(), Instant::now());
+        let out = SystemCommands::new(&env).run(Path::new("/bin/sleep"), &["2".into()], &[], NATIVE_TIMEOUT).unwrap();
+        let (cpu, wall) = (thread_cpu_time().unwrap() - cpu, at.elapsed());
+        assert!(out.success);
+        assert!(wall >= Duration::from_millis(1500), "{wall:?}");
+        let share = cpu.as_secs_f64() / wall.as_secs_f64();
+        assert!(share < 0.01, "{:.2}% CPU", share * 100.0);
+    }
+}

@@ -612,3 +612,32 @@ fn a_pruned_directory_inside_a_claim_is_never_opened_and_counts_nowhere() {
     assert!(!claimed.incomplete(), "a pruned directory does not make its owner incomplete");
     assert_eq!((claimed.files, claimed.dirs, claimed.bytes), (1, 2, alloc(&t.path("claimed/kept/a.bin"))));
 }
+
+/// Records the name of every thread that opens a directory.
+#[derive(Default)]
+struct ThreadNames(std::sync::Mutex<std::collections::BTreeSet<String>>);
+
+impl DirReader for ThreadNames {
+    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
+        let name = std::thread::current().name().unwrap_or("unnamed").to_owned();
+        self.0.lock().unwrap().insert(name);
+        StdReader.read(dir, expect, want_private)
+    }
+}
+
+/// The scheduled scan asks for three threads (`background_walk` in the CLI);
+/// the walk then opens directories on no more than three of its own.
+#[test]
+fn a_walk_asked_for_three_threads_reads_on_at_most_three() {
+    let t = TreeBuilder::new();
+    for i in 0..200 {
+        t.file(&format!("d{i}/e/f.bin"), 4096);
+    }
+    let reader = ThreadNames::default();
+    let opts = WalkOptions { threads: Some(3), ..opts(ReaderKind::Std) };
+    scan::walk_with_reader(&[t.root().to_path_buf()], &TestVisitor::default(), &opts, &Progress::default(), &reader)
+        .unwrap();
+    let names = reader.0.into_inner().unwrap();
+    assert!(!names.is_empty() && names.len() <= 3, "{names:?}");
+    assert!(names.iter().all(|n| n.starts_with("ddc-walk-")), "{names:?}");
+}

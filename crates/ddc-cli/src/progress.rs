@@ -69,13 +69,13 @@ impl Reporter {
         match self.mode {
             Mode::Off => f(),
             Mode::Line => with_spinner(progress, label, f),
-            Mode::Json => ticker(
-                TICK,
-                |_| self.emitter.walk(WalkEvent::new(step, progress.snapshot(), files_expected), Instant::now(), false),
-                || {},
-                f,
-            ),
+            Mode::Json => ticker(TICK, |_| self.walk_tick(progress, step, files_expected), || {}, f),
         }
+    }
+
+    /// One look of the JSON ticker during a walk.
+    fn walk_tick(&self, progress: &Progress, step: WalkStep, files_expected: Option<u64>) {
+        self.emitter.walk(WalkEvent::new(step, progress.snapshot(), files_expected), Instant::now(), false);
     }
 
     /// The walk's final tick, from the finished report's totals: exact, where
@@ -111,21 +111,19 @@ impl Reporter {
             Mode::Line => with_clean_line(progress, home, cancel, || f(None)),
             Mode::Json => {
                 let sink = JsonEvents { emitter: &self.emitter, progress };
-                let result = ticker(
-                    TICK,
-                    |_| {
-                        if cancel.load(Ordering::SeqCst) {
-                            progress.cancel_walk();
-                        }
-                        self.emitter.exec_tick(progress, Instant::now(), false);
-                    },
-                    || {},
-                    || f(Some(&sink)),
-                );
+                let result = ticker(TICK, |_| self.clean_tick(progress, cancel), || {}, || f(Some(&sink)));
                 self.emitter.exec_tick(progress, Instant::now(), true);
                 result
             }
         }
+    }
+
+    /// One look of the JSON ticker during a clean.
+    fn clean_tick(&self, progress: &ExecProgress, cancel: &AtomicBool) {
+        if cancel.load(Ordering::SeqCst) {
+            progress.cancel_walk();
+        }
+        self.emitter.exec_tick(progress, Instant::now(), false);
     }
 }
 
@@ -596,5 +594,55 @@ mod tests {
         let kinds: Vec<_> = buf.events().iter().map(|e| e["event"].as_str().unwrap().to_owned()).collect();
         assert_eq!(kinds, ["walk", "phase", "items"], "an unchanged tick is not repeated, even as the last one");
         assert_eq!(buf.events()[0]["step"], "markers");
+    }
+
+    /// The CPU the ticker's own thread uses over a 2 s step during which
+    /// nothing changes, as a share of the wall time: the thread's clock, so
+    /// other tests in the process do not count.
+    fn idle_share(tick: impl Fn() + Sync) -> f64 {
+        use ddc_core::sys::usage::thread_cpu_time;
+        let first = Mutex::new(None);
+        let span = Mutex::new(None);
+        ticker(
+            TICK,
+            |_| {
+                first.lock().unwrap().get_or_insert_with(|| (thread_cpu_time().unwrap(), Instant::now()));
+                tick();
+            },
+            || {
+                let (cpu, at) = first.lock().unwrap().expect("ticked");
+                *span.lock().unwrap() = Some((thread_cpu_time().unwrap() - cpu, at.elapsed()));
+            },
+            || std::thread::sleep(Duration::from_secs(2)),
+        );
+        let (cpu, wall) = span.into_inner().unwrap().expect("ended");
+        assert!(wall >= Duration::from_millis(1500), "{wall:?}");
+        cpu.as_secs_f64() / wall.as_secs_f64()
+    }
+
+    fn json_reporter() -> Reporter {
+        Reporter { mode: Mode::Json, emitter: Emitter::to(Box::new(Buf::default())) }
+    }
+
+    #[test]
+    fn the_ticker_does_not_spin_between_ticks() {
+        let share = idle_share(|| {});
+        assert!(share < 0.01, "{:.2}% CPU", share * 100.0);
+    }
+
+    #[test]
+    fn json_walk_ticks_do_not_spin_while_the_count_stands() {
+        let reporter = json_reporter();
+        let progress = Progress::default();
+        let share = idle_share(|| reporter.walk_tick(&progress, WalkStep::Scan, None));
+        assert!(share < 0.01, "{:.2}% CPU", share * 100.0);
+    }
+
+    #[test]
+    fn json_clean_ticks_do_not_spin_while_the_clean_waits() {
+        let reporter = json_reporter();
+        let (progress, cancel) = (ExecProgress::default(), AtomicBool::new(false));
+        let share = idle_share(|| reporter.clean_tick(&progress, &cancel));
+        assert!(share < 0.01, "{:.2}% CPU", share * 100.0);
     }
 }
