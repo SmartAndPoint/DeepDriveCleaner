@@ -8,7 +8,7 @@ use std::sync::Mutex;
 
 use super::entries::ENTRY_RULES;
 use super::matcher::{self, ListingView};
-use super::{Catalog, Clones};
+use super::{Catalog, Clones, NeverOpen};
 use crate::class::RiskClass;
 use crate::scan::{DirCtx, DirListing, EntryKind, EntryMeta, OwnerKind, Post, Pre, SkipReason, Tag, Visitor};
 
@@ -120,12 +120,15 @@ impl<'c> RuleVisitor<'c> {
 impl Visitor for RuleVisitor<'_> {
     fn before_read(&self, dir: &DirCtx<'_>) -> Pre {
         let c = self.catalog;
-        // A user's skip at or above this directory (above a scan root).
-        if let Some(skip) = self.user_skips.iter().find(|s| dir.path.starts_with(s)) {
-            self.not_scanned.lock().unwrap_or_else(|p| p.into_inner()).push(skip.clone());
-            return Pre::Skip(SkipReason::Excluded);
+        match c.never_open(dir.path, &self.user_skips) {
+            Some(NeverOpen::UserSkip(skip)) => {
+                self.not_scanned.lock().unwrap_or_else(|p| p.into_inner()).push(skip.clone());
+                return Pre::Skip(SkipReason::Excluded);
+            }
+            Some(NeverOpen::NoTraverse) => return Pre::Skip(SkipReason::Excluded),
+            None => {}
         }
-        if c.no_traverse.contains_key(dir.path) || self.skips.iter().any(|s| s == dir.path) {
+        if self.skips.iter().any(|s| s == dir.path) {
             return Pre::Skip(SkipReason::Excluded);
         }
         // An exclude equal to this directory or above it (above a scan root).

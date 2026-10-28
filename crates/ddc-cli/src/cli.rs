@@ -24,6 +24,8 @@ pub enum Command {
     Clean(CleanArgs),
     /// List the rules by group: what each type is and whether settings.json can switch it off.
     Rules(RulesArgs),
+    /// Show what uses the whole startup disk, outside your home folder too (read-only).
+    Disk(DiskArgs),
     /// Scan in the background on a schedule and notify; never deletes anything.
     Schedule {
         #[command(subcommand)]
@@ -241,6 +243,29 @@ fn parse_size(s: &str) -> Result<u64, String> {
     };
     let n: f64 = num.trim().parse().map_err(|_| format!("not a size: {s:?}"))?;
     Ok((n * mult as f64) as u64)
+}
+
+#[derive(Debug, Args)]
+pub struct DiskArgs {
+    /// Print the report as JSON (schema: docs/disk.schema.json).
+    #[arg(long)]
+    pub json: bool,
+    /// Where the last scan and the last disk report live (default: ~/Library/Application Support/DeepDriveCleaner).
+    #[arg(long, value_name = "DIR")]
+    pub data_dir: Option<PathBuf>,
+    /// Worker threads (default: available parallelism).
+    #[arg(long)]
+    pub threads: Option<usize>,
+    /// Write progress events to stderr, one JSON line each (docs/progress.schema.json).
+    #[arg(long, value_enum, value_name = "FORMAT")]
+    pub progress: Option<ProgressFormat>,
+    /// Look for the system's folders and tools under this folder instead of
+    /// `/` (tests).
+    #[arg(long, hide = true, value_name = "DIR")]
+    pub system_root: Option<PathBuf>,
+    /// Entries read in each temporary folder before the rest is left unread (tests).
+    #[arg(long, hide = true, value_name = "N")]
+    pub temp_entry_budget: Option<u64>,
 }
 
 #[derive(Debug, Args)]

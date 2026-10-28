@@ -148,6 +148,11 @@ pub struct CmdOutput {
 pub trait CommandRunner {
     /// Absolute path of `program`, or `None` when not installed.
     fn find(&self, program: &str) -> Option<PathBuf>;
+    /// `exe` itself when it is an executable file: a system tool run by its
+    /// absolute path, never searched for.
+    fn at(&self, exe: &Path) -> Option<PathBuf> {
+        system::executable(exe).then(|| exe.to_path_buf())
+    }
     /// Runs without a shell, stdin closed, with `env` added to the
     /// environment; kills it after `timeout`.
     fn run(&self, exe: &Path, args: &[String], env: &[(&str, &str)], timeout: Duration) -> io::Result<CmdOutput>;
@@ -462,11 +467,17 @@ fn volumes_of(chosen: &[&PlanItem], env: &Env) -> BTreeMap<PathBuf, u64> {
 
 /// Number of local Time Machine snapshots (they keep deleted blocks).
 pub fn local_snapshots(commands: &dyn CommandRunner) -> usize {
-    let Some(tmutil) = commands.find("tmutil") else { return 0 };
-    commands
-        .run(&tmutil, &["listlocalsnapshots".to_owned(), "/".to_owned()], &[], Duration::from_secs(30))
-        .map(|out| out.stdout.lines().filter(|l| l.contains("com.apple.TimeMachine")).count())
-        .unwrap_or(0)
+    commands.find("tmutil").and_then(|tmutil| count_local_snapshots(commands, &tmutil)).unwrap_or(0)
+}
+
+/// Local Time Machine snapshots of `/` as `tmutil` at `exe` lists them;
+/// `None` when it cannot be run or fails.
+pub fn count_local_snapshots(commands: &dyn CommandRunner, exe: &Path) -> Option<usize> {
+    let out = commands
+        .run(exe, &["listlocalsnapshots".to_owned(), "/".to_owned()], &[], Duration::from_secs(30))
+        .ok()
+        .filter(|out| out.success)?;
+    Some(out.stdout.lines().filter(|l| l.contains("com.apple.TimeMachine")).count())
 }
 
 /// Walks everything about to be cleaned, collecting directories that hold a

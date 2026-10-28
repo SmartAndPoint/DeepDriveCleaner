@@ -1,0 +1,633 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DiskReport",
+  "description": "What uses the startup disk, the home folder and everything outside it\n(story \"Whole disk: what lies outside the home folder\"). Read-only:\nnothing in it is a finding, and nothing is selected.",
+  "type": "object",
+  "properties": {
+    "areas": {
+      "description": "The areas outside the home folder that exist on this Mac, in the\ntable's order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Area"
+      }
+    },
+    "cancelled": {
+      "description": "Stopped by a signal: the areas not finished are `partial`.",
+      "type": "boolean"
+    },
+    "container": {
+      "description": "The APFS container of the startup disk. Absent when neither\n`diskutil` nor `statfs` could read it.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Container"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ddc_version": {
+      "type": "string"
+    },
+    "duration_ms": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "generated_at": {
+      "description": "RFC 3339, UTC.",
+      "type": "string"
+    },
+    "home": {
+      "$ref": "#/$defs/HomeRow"
+    },
+    "not_counted": {
+      "$ref": "#/$defs/NotCounted"
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "simulators": {
+      "description": "Absent without developer tools.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Simulators"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "snapshots": {
+      "$ref": "#/$defs/Snapshots"
+    },
+    "walk": {
+      "description": "What this run's walk read, each inode once.",
+      "$ref": "#/$defs/WalkTotals"
+    }
+  },
+  "required": [
+    "schema_version",
+    "ddc_version",
+    "generated_at",
+    "duration_ms",
+    "cancelled",
+    "home",
+    "areas",
+    "snapshots",
+    "walk",
+    "not_counted"
+  ],
+  "$defs": {
+    "ActionId": {
+      "description": "The one-click tool an area can be freed with (story \"Whole disk: free\nspace with the owning tool\"); this report only names it.",
+      "type": "string",
+      "enum": [
+        "simctl-runtime-delete",
+        "brew-cleanup"
+      ]
+    },
+    "Area": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ActionId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "bytes": {
+          "description": "Allocated bytes that belong to this area alone, each inode once.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "dirs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "entries_read": {
+          "description": "Entries read, for an area walked under the entry budget.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "explanation": {
+          "description": "What it is.",
+          "type": "string"
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "frees": {
+          "description": "What frees it.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Stable id from the table in code (`applications`, `homebrew`, …).",
+          "type": "string"
+        },
+        "parent": {
+          "description": "The area inside which this one lies; its bytes are not in that one's.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "partial": {
+          "description": "Not walked to the end (the entry budget, or a stop): `bytes` is a\nlower bound.",
+          "type": "boolean"
+        },
+        "paths": {
+          "description": "The paths measured, through `/System/Volumes/Data`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "shared_bytes": {
+          "description": "Bytes of hard-linked files that also have links outside this area.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "title": {
+          "type": "string"
+        },
+        "unreadable": {
+          "description": "Folders and entries that could not be read.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "paths",
+        "title",
+        "explanation",
+        "frees",
+        "bytes",
+        "shared_bytes",
+        "files",
+        "dirs",
+        "unreadable",
+        "partial"
+      ]
+    },
+    "Container": {
+      "type": "object",
+      "properties": {
+        "capacity_bytes": {
+          "description": "The container's size; from `statfs`, what it uses plus the Data\nvolume's free bytes.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "in_use_bytes": {
+          "description": "What Disk Utility calls used.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "reference": {
+          "description": "`disk3`; absent from `statfs`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/ContainerSource"
+        },
+        "volumes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/VolumeRow"
+          }
+        }
+      },
+      "required": [
+        "source",
+        "capacity_bytes",
+        "in_use_bytes",
+        "volumes"
+      ]
+    },
+    "ContainerSource": {
+      "oneOf": [
+        {
+          "description": "`diskutil apfs list -plist`.",
+          "type": "string",
+          "const": "diskutil"
+        },
+        {
+          "description": "`statfs` per mounted volume: unmounted volumes are not measured.",
+          "type": "string",
+          "const": "statfs"
+        }
+      ]
+    },
+    "Device": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "udid": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "udid",
+        "name",
+        "state"
+      ]
+    },
+    "Held": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/HeldKind"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ]
+    },
+    "HeldKind": {
+      "oneOf": [
+        {
+          "description": "A cloud folder: reading it would download it.",
+          "type": "string",
+          "const": "cloud"
+        },
+        {
+          "description": "A folder in `settings.json`'s `skips`.",
+          "type": "string",
+          "const": "skip"
+        }
+      ]
+    },
+    "HomeRow": {
+      "type": "object",
+      "properties": {
+        "as_of": {
+          "description": "RFC 3339: the last scan's `generated_at`, or this report's.",
+          "type": "string"
+        },
+        "bytes": {
+          "description": "Allocated bytes, a hard link shared with an area included, as the\nscan's `scanned_bytes` counts them.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "partial": {
+          "description": "The walk stopped before it finished.",
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        },
+        "reclaimable_bytes": {
+          "description": "Bytes the scan could free, from `last-scan.json`'s classes; absent\nfor a walk.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "source": {
+          "$ref": "#/$defs/HomeSource"
+        },
+        "unreadable": {
+          "description": "Folders that could not be read.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "path",
+        "source",
+        "as_of",
+        "bytes",
+        "unreadable",
+        "partial"
+      ]
+    },
+    "HomeSource": {
+      "oneOf": [
+        {
+          "description": "`last-scan.json`: whole home, current schema, on the Data volume, at\nmost a day old.",
+          "type": "string",
+          "const": "last-scan"
+        },
+        {
+          "description": "Measured by this run, without opening the cloud folders or the skips.",
+          "type": "string",
+          "const": "walk"
+        }
+      ]
+    },
+    "InconsistentCause": {
+      "oneOf": [
+        {
+          "description": "The home row came from the last scan, and the home folder has grown\nor shrunk since.",
+          "type": "string",
+          "const": "stale-home-row"
+        },
+        {
+          "description": "APFS clones are counted once on each side, but stored once.",
+          "type": "string",
+          "const": "clones-counted-twice"
+        }
+      ]
+    },
+    "NotCounted": {
+      "description": "The Data volume's consumed bytes minus everything counted on it.",
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Signed and never clamped; absent when the Data volume was not measured.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "causes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InconsistentCause"
+          }
+        },
+        "counted_bytes": {
+          "description": "The home row plus every area, each inode once.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "data_volume_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "holds": {
+          "description": "What the walk did not open, by name.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Held"
+          }
+        },
+        "inconsistent": {
+          "description": "More was counted than the volume holds.",
+          "type": "boolean"
+        },
+        "unreadable": {
+          "description": "Folders no walk of this report could read.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "counted_bytes",
+        "inconsistent",
+        "holds",
+        "unreadable"
+      ]
+    },
+    "Runtime": {
+      "type": "object",
+      "properties": {
+        "booted": {
+          "description": "A device on this runtime is running.",
+          "type": "boolean"
+        },
+        "build": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "deletable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "devices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Device"
+          }
+        },
+        "identifier": {
+          "description": "The id `simctl runtime delete` takes.",
+          "type": "string"
+        },
+        "parent_mount_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "platform": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runtime_identifier": {
+          "description": "`com.apple.CoreSimulator.SimRuntime.iOS-27-1`, the key devices are\ngrouped under.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "size_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "state": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "identifier",
+        "devices",
+        "booted"
+      ]
+    },
+    "SimulatorStatus": {
+      "oneOf": [
+        {
+          "description": "The runtimes were listed.",
+          "type": "string",
+          "const": "listed"
+        },
+        {
+          "description": "`xcodebuild -checkFirstLaunchStatus` failed: listing them would\ninstall components with an administrator's password.",
+          "type": "string",
+          "const": "first-launch-pending"
+        },
+        {
+          "description": "`simctl` failed or printed what could not be read.",
+          "type": "string",
+          "const": "failed"
+        }
+      ]
+    },
+    "Simulators": {
+      "type": "object",
+      "properties": {
+        "listed_bytes": {
+          "description": "The runtimes' `sizeBytes` summed; compare with the\n`simulator-runtimes` area's bytes, which also hold assets no runtime\nlists.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runtimes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Runtime"
+          }
+        },
+        "status": {
+          "$ref": "#/$defs/SimulatorStatus"
+        }
+      },
+      "required": [
+        "status",
+        "runtimes",
+        "listed_bytes"
+      ]
+    },
+    "Snapshots": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "description": "Local Time Machine snapshots of `/`; absent when `tmutil` could not\ntell. Their size cannot be measured without root.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      }
+    },
+    "VolumeRow": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "description": "`disk3s5`; absent when not known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mount_point": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "description": "The APFS role, lowercase: `system`, `data`, `vm`, `preboot`,\n`recovery`, `update`, `xart`, `hardware`, or `none`.",
+          "type": "string"
+        },
+        "used_bytes": {
+          "description": "Bytes the volume consumes; absent when not measured.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "name",
+        "role"
+      ]
+    },
+    "WalkTotals": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "dirs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "files",
+        "dirs",
+        "bytes"
+      ]
+    }
+  }
+}

@@ -43,6 +43,16 @@ fn every_event_has_the_documented_shape_and_reads_back() {
             json!({"schema_version": 1, "event": "walk", "step": "scan", "files": 1, "dirs": 1, "bytes": 0}),
         ),
         (
+            line(ProgressEvent::Walk(WalkEvent {
+                step: WalkStep::Disk,
+                files: 7,
+                dirs: 3,
+                bytes: 8192,
+                files_expected: None,
+            })),
+            json!({"schema_version": 1, "event": "walk", "step": "disk", "files": 7, "dirs": 3, "bytes": 8192}),
+        ),
+        (
             line(ProgressEvent::Items(ItemsEvent {
                 done: 0,
                 n: 2,

@@ -33,6 +33,8 @@ public enum ProgressEvent: Sendable, Equatable {
         case recheck
         /// The clean's walk of the chosen items for keep markers.
         case markers
+        /// `ddc disk`: the whole disk, size only.
+        case disk
     }
 
     public struct Walk: Decodable, Sendable, Equatable {

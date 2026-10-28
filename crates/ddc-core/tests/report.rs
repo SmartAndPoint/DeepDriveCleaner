@@ -253,7 +253,14 @@ impl StatFs for TwoVolumes {
         } else {
             ("/System/Volumes/Data", 50)
         };
-        Ok(VolumeStats { fs_type: "apfs".into(), mount_point: mount.into(), available_bytes: free, total_bytes: 100 })
+        Ok(VolumeStats {
+            fs_type: "apfs".into(),
+            mount_point: mount.into(),
+            available_bytes: free,
+            total_bytes: 100,
+            free_bytes: free,
+            mounted_from: "/dev/disk9s1".into(),
+        })
     }
 }
 

@@ -7,6 +7,7 @@
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
 pub mod class;
+pub mod disk;
 pub mod env;
 pub mod exec;
 pub mod model;

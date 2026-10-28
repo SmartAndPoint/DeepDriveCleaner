@@ -811,6 +811,11 @@
           "description": "The clean's walk of the chosen items for keep markers.",
           "type": "string",
           "const": "markers"
+        },
+        {
+          "description": "`ddc disk`: the whole disk, size only.",
+          "type": "string",
+          "const": "disk"
         }
       ]
     }

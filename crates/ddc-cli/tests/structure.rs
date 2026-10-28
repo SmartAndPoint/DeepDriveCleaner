@@ -25,3 +25,33 @@ fn the_background_scan_runs_no_program_itself() {
         assert!(!code.contains(forbidden), "cmd/background.rs mentions {forbidden}");
     }
 }
+
+/// `ddc disk` only measures (story "Whole disk: what lies outside the home
+/// folder"): its sources reach no cleanup, start no program themselves, and
+/// never run `xcrun` or a first launch, which can ask for a password.
+#[test]
+fn the_disk_report_never_reaches_cleanup() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut files = vec![root.join("ddc-cli/src/cmd/disk.rs")];
+    for entry in std::fs::read_dir(root.join("ddc-core/src/disk")).unwrap() {
+        files.push(entry.unwrap().path());
+    }
+    for file in files {
+        let text = std::fs::read_to_string(&file).unwrap();
+        let code: String = text.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+        for forbidden in [
+            "Executor",
+            "build_plan",
+            "plan::",
+            "trash",
+            "Consent",
+            "remove_",
+            "Command::new",
+            "xcrun",
+            "runFirstLaunch",
+            "\"delete\"",
+        ] {
+            assert!(!code.contains(forbidden), "{} mentions {forbidden}", file.display());
+        }
+    }
+}

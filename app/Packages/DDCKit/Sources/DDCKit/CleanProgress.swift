@@ -134,7 +134,7 @@ extension CleanWording {
         switch step {
         case .markers:
             "The confirmed items are read for .ddc-keep files, so nothing you protected is cleaned."
-        case .recheck, .scan, nil:
+        case .recheck, .scan, .disk, nil:
             "The folders are read once more, so nothing is cleaned from an outdated scan. The total comes from your last scan."
         }
     }

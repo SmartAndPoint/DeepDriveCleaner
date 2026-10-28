@@ -54,7 +54,7 @@ public struct CleanTimings: Sendable, Equatable {
                 if walk.files > 0, markersFirst == nil { markersFirst = instant }
                 if let pending = markersPending { markersLast = pending }
                 markersPending = instant
-            case .scan:
+            case .scan, .disk:
                 break
             }
         case .walk, .items, .item:

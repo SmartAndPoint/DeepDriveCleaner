@@ -160,6 +160,15 @@ const PROJECT_MANIFESTS: &[&str] = &[
     "composer.json",
 ];
 
+/// Why a directory is never opened ([`Catalog::never_open`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NeverOpen<'s> {
+    /// At or under this skip of the user's.
+    UserSkip(&'s PathBuf),
+    /// A cloud folder.
+    NoTraverse,
+}
+
 /// The rule table resolved against a home directory.
 #[derive(Debug)]
 pub struct Catalog {
@@ -231,6 +240,25 @@ impl Catalog {
 
     pub fn home(&self) -> &Path {
         &self.home
+    }
+
+    /// Folders the walk never opens, sorted: the cloud folders.
+    pub fn no_traverse_paths(&self) -> Vec<&Path> {
+        let mut paths: Vec<&Path> = self.no_traverse.keys().map(PathBuf::as_path).collect();
+        paths.sort();
+        paths
+    }
+
+    /// What the walk does with `dir` before anything else, the same for every
+    /// walk of the home folder: a user's skip at or above it, or a folder
+    /// never traversed, is not opened (ADR "Cleanup safety model", the
+    /// cloud folders; story "Settings: folders, types, notifications").
+    pub fn never_open<'s>(&self, dir: &Path, user_skips: &'s [PathBuf]) -> Option<NeverOpen<'s>> {
+        // A user's skip at or above this directory (above a scan root).
+        if let Some(skip) = user_skips.iter().find(|s| dir.starts_with(s)) {
+            return Some(NeverOpen::UserSkip(skip));
+        }
+        self.no_traverse.contains_key(dir).then_some(NeverOpen::NoTraverse)
     }
 
     pub fn rules(&self) -> &'static [Rule] {

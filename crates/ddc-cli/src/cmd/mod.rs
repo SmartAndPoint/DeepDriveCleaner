@@ -4,6 +4,7 @@ mod background;
 mod clean;
 mod clean_items;
 mod diag;
+mod disk;
 mod du;
 mod notify;
 mod rules;
@@ -23,6 +24,7 @@ pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Scan(args) => scan::run(args),
         Command::Clean(args) => clean::run(args),
         Command::Rules(args) => rules::run(&args),
+        Command::Disk(args) => disk::run(args),
         Command::Notify { action } => notify::run(action),
         Command::Schedule { action } => schedule::run(action),
         Command::Du(args) => du::run(args),

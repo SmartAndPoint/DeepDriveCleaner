@@ -200,6 +200,25 @@ ddc rules                                         # every rule, by group
 ddc rules --json | jq -r '.rules[] | .id'         # rule ids for disabled_rules
 ```
 
+### `ddc disk`: what uses the whole disk
+
+```
+ddc disk [--json] [--progress json] [--threads N] [--data-dir DIR]
+```
+
+Shows what uses the startup disk, outside your home folder too: Applications, the shared Library, macOS's downloaded data, Homebrew, Conda, `/usr/local`, simulator runtimes, temporary folders, the sleep image and the other users. Each row says what it is and what frees it. It only measures: nothing in it is a finding, and it removes nothing.
+
+- The home folder row comes from the last `ddc scan` when that scan covered the whole home folder, on this disk, within a day; otherwise `ddc disk` measures it, without opening cloud folders or your skips.
+- **Not counted** is what the Data volume uses minus everything counted: the Spotlight index, folders only root can read, APFS metadata. When more was counted than the volume holds, it says why.
+- Temporary folders are read up to a budget of entries; past it the row reads "at least".
+- Simulator runtimes are listed only when Xcode has finished its first launch, so the report never asks for a password.
+- `--json` follows [`docs/disk.schema.json`](docs/disk.schema.json); the report is also saved as `last-disk.json` in the data directory. `--progress json` writes walk events with `"step": "disk"`.
+
+```
+ddc disk                                           # the table
+ddc disk --json | jq '.areas[] | {id, bytes}'      # area sizes
+```
+
 ### `ddc schedule`: scan in the background
 
 ```
@@ -234,6 +253,7 @@ ddc schedule status
 | Path | What |
 |---|---|
 | `~/Library/Application Support/DeepDriveCleaner/last-scan.json` | The last scan's report, which the app shows. `ddc clean --items` edits it after cleaning instead of scanning again; the next scan replaces it. |
+| `~/Library/Application Support/DeepDriveCleaner/last-disk.json` | The last `ddc disk` report; the next one replaces it. |
 | `~/Library/Application Support/DeepDriveCleaner/settings.json` | Settings shared by the app and the terminal (below). |
 | `~/Library/Application Support/DeepDriveCleaner/notify-state.json` | When the background scan last notified, so it does not repeat itself. |
 | `~/Library/Application Support/DeepDriveCleaner/lock` | Scans share it; a clean takes it alone. |

@@ -9,6 +9,10 @@ use crate::sys::statfs::VolumeStats;
 
 pub trait StatFs {
     fn statfs(&self, path: &Path) -> io::Result<VolumeStats>;
+    /// Every mounted file system.
+    fn mounts(&self) -> io::Result<Vec<VolumeStats>> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
 }
 
 pub struct SystemStatFs;
@@ -16,6 +20,9 @@ pub struct SystemStatFs;
 impl StatFs for SystemStatFs {
     fn statfs(&self, path: &Path) -> io::Result<VolumeStats> {
         crate::sys::statfs::statfs(path)
+    }
+    fn mounts(&self) -> io::Result<Vec<VolumeStats>> {
+        crate::sys::statfs::mounts()
     }
 }
 

@@ -195,6 +195,8 @@ mod tests {
                 mount_point: "/Volumes/Test".into(),
                 available_bytes: self.free,
                 total_bytes: self.total,
+                free_bytes: self.free,
+                mounted_from: "/dev/disk9s1".into(),
             })
         }
     }

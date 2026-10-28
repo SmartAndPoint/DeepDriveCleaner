@@ -14,6 +14,8 @@ use ddc_core::sys::procs::ProcInfo;
 #[derive(Default)]
 pub struct FakeCommands {
     pub tools: HashMap<&'static str, (bool, String)>,
+    /// Answers for one exact call (`"simctl runtime list -j"`), before `tools`.
+    pub answers: HashMap<String, (bool, String)>,
     pub calls: RefCell<Vec<String>>,
     /// The environment variables of each call, in the order of `calls`.
     pub envs: RefCell<Vec<Vec<String>>>,
@@ -27,20 +29,33 @@ impl FakeCommands {
         self.tools.insert(program, (success, stdout.to_owned()));
         self
     }
+
+    /// `program` answers `call` (its arguments joined by spaces) this way.
+    pub fn answer(mut self, program: &'static str, call: &str, success: bool, stdout: &str) -> Self {
+        self.tools.entry(program).or_insert((false, String::new()));
+        self.answers.insert(format!("{program} {call}"), (success, stdout.to_owned()));
+        self
+    }
 }
 
 impl CommandRunner for FakeCommands {
     fn find(&self, program: &str) -> Option<PathBuf> {
         self.tools.contains_key(program).then(|| PathBuf::from("/fake/bin").join(program))
     }
+    /// A system tool at an absolute path, known by its file name.
+    fn at(&self, exe: &Path) -> Option<PathBuf> {
+        let name = exe.file_name()?.to_str()?;
+        self.tools.contains_key(name).then(|| exe.to_path_buf())
+    }
     fn run(&self, exe: &Path, args: &[String], env: &[(&str, &str)], _: Duration) -> io::Result<CmdOutput> {
         let name = exe.file_name().unwrap().to_str().unwrap();
-        self.calls.borrow_mut().push(format!("{name} {}", args.join(" ")));
+        let call = format!("{name} {}", args.join(" "));
+        self.calls.borrow_mut().push(call.clone());
         self.envs.borrow_mut().push(env.iter().map(|(k, v)| format!("{k}={v}")).collect());
         if let Some(hook) = &self.on_run {
             hook();
         }
-        let (success, stdout) = self.tools[name].clone();
+        let (success, stdout) = self.answers.get(&call).unwrap_or(&self.tools[name]).clone();
         Ok(CmdOutput { success, code: Some(i32::from(!success)), stdout, stderr: String::new() })
     }
 }

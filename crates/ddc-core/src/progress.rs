@@ -83,6 +83,8 @@ pub enum WalkStep {
     Recheck,
     /// The clean's walk of the chosen items for keep markers.
     Markers,
+    /// `ddc disk`: the whole disk, size only.
+    Disk,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

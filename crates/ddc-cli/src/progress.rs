@@ -81,9 +81,18 @@ impl Reporter {
     /// The walk's final tick, from the finished report's totals: exact, where
     /// the live byte count counted a hard-linked file once per link.
     pub fn walk_done(&self, step: WalkStep, totals: &Totals, files_expected: Option<u64>) {
+        self.walk_done_counts(WalkEvent {
+            step,
+            files: totals.files,
+            dirs: totals.dirs,
+            bytes: totals.scanned_bytes,
+            files_expected,
+        });
+    }
+
+    /// The walk's final tick from counts other than a scan's totals.
+    pub fn walk_done_counts(&self, event: WalkEvent) {
         if self.mode == Mode::Json {
-            let event =
-                WalkEvent { step, files: totals.files, dirs: totals.dirs, bytes: totals.scanned_bytes, files_expected };
             self.emitter.walk(event, Instant::now(), true);
         }
     }

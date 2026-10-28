@@ -4,10 +4,12 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
+use crate::disk::DiskReport;
 use crate::env::Env;
 use crate::model::ScanReport;
 
 pub const LAST_SCAN: &str = "last-scan.json";
+pub const LAST_DISK: &str = "last-disk.json";
 const LOCK: &str = "lock";
 
 /// A held lock on `<data-dir>/lock`; released on drop.
@@ -57,6 +59,14 @@ pub fn try_lock(env: &Env, mode: LockMode) -> Result<DataLock, LockError> {
 pub fn write_last_scan(env: &Env, report: &ScanReport) -> io::Result<PathBuf> {
     let json = serde_json::to_vec_pretty(report).map_err(io::Error::other)?;
     write_atomic(&env.data_dir().join(LAST_SCAN), &json)
+}
+
+/// Writes `<data-dir>/last-disk.json` atomically. No lock: `ddc disk` only
+/// reads what a clean writes, and when two runs overlap the last to finish
+/// wins (story "Whole disk: what lies outside the home folder").
+pub fn write_last_disk(env: &Env, report: &DiskReport) -> io::Result<PathBuf> {
+    let json = serde_json::to_vec_pretty(report).map_err(io::Error::other)?;
+    write_atomic(&env.data_dir().join(LAST_DISK), &json)
 }
 
 /// The saved report, or `None` when absent or written by another schema version.

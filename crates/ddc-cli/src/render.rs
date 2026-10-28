@@ -1,10 +1,11 @@
-//! Human-readable scan report.
+//! Human-readable scan and disk reports.
 
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::Path;
 
 use ddc_core::class::{Category, RiskClass};
+use ddc_core::disk::{DiskReport, HeldKind, HomeSource, SimulatorStatus};
 use ddc_core::model::{Finding, NotSelected, ScanReport};
 use ddc_core::rules::Note;
 
@@ -232,6 +233,118 @@ pub fn report(w: &mut impl Write, r: &ScanReport, style: &Style) -> io::Result<(
                 .to_owned()
         };
         writeln!(w, "{} {n} folder{} could not be read.{hint}", style.dim("note:"), if n == 1 { "" } else { "s" })?;
+    }
+    Ok(())
+}
+
+/// The whole-disk report as a table (`ddc disk`).
+pub fn disk(w: &mut impl Write, r: &DiskReport, style: &Style) -> io::Result<()> {
+    let home = r.home.path.as_path();
+    match &r.container {
+        Some(c) => {
+            writeln!(w, "{} {} used of {}", style.bold("Startup disk"), human(c.in_use_bytes), human(c.capacity_bytes))?
+        }
+        None => writeln!(w, "{} (its volumes could not be read)", style.bold("Startup disk"))?,
+    }
+    if r.cancelled {
+        writeln!(w, "{}", style.dim("Stopped: rows marked \"at least\" were not finished."))?;
+    }
+    writeln!(w)?;
+    let row = |w: &mut dyn Write, title: &str, bytes: u64, partial: bool, note: &str| -> io::Result<()> {
+        let size = if partial { format!("at least {}", human(bytes)) } else { human(bytes) };
+        writeln!(w, "  {title:<28} {size:>20}  {}", style.dim(note))
+    };
+    let home_note = match r.home.source {
+        HomeSource::LastScan => format!("from the scan at {}", r.home.as_of),
+        HomeSource::Walk => "measured now".to_owned(),
+    };
+    row(w, &format!("Home folder {}", tilde(home, home)), r.home.bytes, r.home.partial, &home_note)?;
+    // Each nested area right under the one it lies in, when that one is listed.
+    let listed = |id: &Option<String>| id.as_ref().is_some_and(|id| r.areas.iter().any(|a| &a.id == id));
+    let ordered = r.areas.iter().filter(|a| !listed(&a.parent)).flat_map(|top| {
+        std::iter::once(top).chain(r.areas.iter().filter(move |a| a.parent.as_deref() == Some(top.id.as_str())))
+    });
+    for a in ordered {
+        let mut note = a.frees.clone();
+        if let Some(n) = a.entries_read.filter(|_| a.partial) {
+            note = format!("{} entries read; {note}", count(n));
+        }
+        if a.unreadable > 0 {
+            note = format!("{} unreadable; {note}", count(a.unreadable));
+        }
+        if a.id == "simulator-runtimes"
+            && let Some(s) = r.simulators.as_ref().filter(|s| s.status == SimulatorStatus::Listed)
+        {
+            let kept = a.bytes.saturating_sub(s.listed_bytes);
+            note = if kept > 0 {
+                format!("listed runtimes {}; {} more in their folders", human(s.listed_bytes), human(kept))
+            } else {
+                format!("listed runtimes {}", human(s.listed_bytes))
+            };
+        }
+        let title = if listed(&a.parent) { format!("  {}", a.title) } else { a.title.clone() };
+        row(w, &title, a.bytes, a.partial, &note)?;
+    }
+    let nc = &r.not_counted;
+    match nc.bytes {
+        Some(b) if nc.inconsistent => writeln!(
+            w,
+            "  {:<28} {:>20}  {}",
+            "Not counted",
+            format!("-{}", human(b.unsigned_abs())),
+            style
+                .dim("more was counted than the volume holds: the home row may be stale, or clones were counted twice")
+        )?,
+        Some(b) => row(
+            w,
+            "Not counted",
+            b.unsigned_abs(),
+            false,
+            "the Spotlight index, folders only root can read, APFS metadata",
+        )?,
+        None => writeln!(w, "  {:<28} {:>20}", "Not counted", "unknown")?,
+    }
+    for held in &nc.holds {
+        let what = match held.kind {
+            HeldKind::Cloud => "cloud folder, not read",
+            HeldKind::Skip => "in your skips, not read",
+        };
+        writeln!(w, "    {}  {}", tilde(&held.path, home), style.dim(what))?;
+    }
+    if nc.unreadable > 0 {
+        writeln!(w, "    {}", style.dim(&format!("{} folders could not be read", count(nc.unreadable))))?;
+    }
+
+    if let Some(s) = &r.simulators {
+        writeln!(w)?;
+        writeln!(w, "{}", style.bold("Simulator runtimes"))?;
+        if let Some(message) = &s.message {
+            writeln!(w, "  {message}")?;
+        }
+        for rt in &s.runtimes {
+            let name = rt.runtime_identifier.as_deref().unwrap_or(&rt.identifier);
+            let devices = format!(
+                "{} device{}{}",
+                rt.devices.len(),
+                if rt.devices.len() == 1 { "" } else { "s" },
+                if rt.booted { ", one running" } else { "" }
+            );
+            writeln!(w, "  {name:<48} {:>10}  {}", human(rt.size_bytes.unwrap_or(0)), style.dim(&devices))?;
+        }
+    }
+    if let Some(c) = &r.container {
+        writeln!(w)?;
+        writeln!(w, "{}", style.bold("Volumes"))?;
+        for v in c.volumes.iter().filter(|v| v.role != "data") {
+            let size = v.used_bytes.map_or_else(|| "not measured".to_owned(), human);
+            let note = if v.role == "vm" { "swap; a restart frees it" } else { "" };
+            writeln!(w, "  {:<28} {size:>20}  {}", format!("{} ({})", v.name, v.role), style.dim(note))?;
+        }
+    }
+    writeln!(w)?;
+    match r.snapshots.count {
+        Some(n) => writeln!(w, "Local Time Machine snapshots: {n} (their size needs root to measure)")?,
+        None => writeln!(w, "Local Time Machine snapshots: unknown")?,
     }
     Ok(())
 }

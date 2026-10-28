@@ -27,10 +27,7 @@ impl SystemCommands {
 
 impl CommandRunner for SystemCommands {
     fn find(&self, program: &str) -> Option<PathBuf> {
-        self.dirs
-            .iter()
-            .map(|d| d.join(program))
-            .find(|p| std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0))
+        self.dirs.iter().map(|d| d.join(program)).find(|p| executable(p))
     }
 
     /// The command gets its own process group: a timeout or a forwarded
@@ -87,6 +84,11 @@ impl CommandRunner for SystemCommands {
         let status = waited?;
         Ok(CmdOutput { success: status.success(), code: status.code(), stdout, stderr })
     }
+}
+
+/// Whether `path` is a file someone may execute (symlinks followed).
+pub(super) fn executable(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
 /// The macOS Trash through `NSFileManager` (no AppleScript, no Automation prompt).
