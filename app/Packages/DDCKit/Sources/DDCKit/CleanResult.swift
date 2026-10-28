@@ -78,11 +78,7 @@ public struct CleanResult: Sendable, Equatable {
                 tools.count += 1
                 tools.bytes += bytes
                 for command in commands where !command.success {
-                    let code = command.code.map { " (exit \($0))" } ?? " (interrupted)"
-                    failures.append(Failure(
-                        path: Wording.tilde(item.path, home: home),
-                        error: "\(([command.program] + command.args).joined(separator: " ")) failed\(code)"
-                    ))
+                    failures.append(Failure(path: Wording.tilde(item.path, home: home), error: failure(command)))
                 }
             case .skipped(let reason):
                 skipped.count += 1
@@ -128,5 +124,28 @@ public struct CleanResult: Sendable, Equatable {
             localSnapshots: report.localSnapshots,
             journal: report.journal
         )
+    }
+
+    /// "docker image prune failed: <its last line>", or "(exit 1)" when it printed nothing.
+    static func failure(_ command: CleanReport.CommandResult) -> String {
+        let said = command.output.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.last { !$0.isEmpty }
+        if let said { return "\(name(command)) failed: \(said)" }
+        return "\(name(command)) failed\(command.code.map { " (exit \($0))" } ?? " (interrupted)")"
+    }
+
+    /// A command without its options: `--name value` pairs and one-letter
+    /// flags go, so `docker --context desktop-linux image prune -f` reads
+    /// "docker image prune" and `go clean -modcache` stays whole.
+    static func name(_ command: CleanReport.CommandResult) -> String {
+        var words = [command.program]
+        var args = command.args[...]
+        while let arg = args.popFirst() {
+            if arg.hasPrefix("--"), !arg.contains("="), let value = args.first, !value.hasPrefix("-") {
+                args.removeFirst()
+            } else if !(arg.hasPrefix("-") && arg.count == 2) {
+                words.append(arg)
+            }
+        }
+        return words.joined(separator: " ")
     }
 }

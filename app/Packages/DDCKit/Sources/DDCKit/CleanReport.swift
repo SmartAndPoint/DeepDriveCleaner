@@ -22,6 +22,8 @@ public enum SkipReason: Sendable, Equatable, Hashable {
     case actionNotAllowed
     case incomplete
     case nativeUnavailable(program: String)
+    /// The runtime did not answer before its prune commands; `detail` says why.
+    case toolNotReady(program: String, detail: String)
     /// A picked file or folder is no longer one of its folder's entries.
     case notAnEntry
     /// A picked entry is locked now.
@@ -34,11 +36,11 @@ public enum SkipReason: Sendable, Equatable, Hashable {
         "missing", "not-a-directory", "symlink", "changed-since-scan", "parent-changed", "rule-mismatch",
         "outside-scan-roots", "scan-root", "protected", "project-root", "kept", "in-use", "in-use-unknown-cwd",
         "owner-running", "needs-confirmation", "action-not-allowed", "incomplete", "native-unavailable",
-        "not-an-entry", "entry-locked", "inside-another-item",
+        "tool-not-ready", "not-an-entry", "entry-locked", "inside-another-item",
     ]
 
     enum CodingKeys: String, CodingKey {
-        case reason, pid, name, program, lock
+        case reason, pid, name, program, detail, lock
     }
 
     /// Reads the reason from the container of the item it is flattened into.
@@ -64,6 +66,8 @@ public enum SkipReason: Sendable, Equatable, Hashable {
         case "action-not-allowed": self = .actionNotAllowed
         case "incomplete": self = .incomplete
         case "native-unavailable": self = .nativeUnavailable(program: try c.decode(String.self, forKey: .program))
+        case "tool-not-ready":
+            self = .toolNotReady(program: try c.decode(String.self, forKey: .program), detail: try c.decode(String.self, forKey: .detail))
         case "not-an-entry": self = .notAnEntry
         case "entry-locked": self = .entryLocked(try c.decode(EntryLock.self, forKey: .lock))
         case "inside-another-item": self = .insideAnotherItem
@@ -76,7 +80,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
 /// `clean --items --json`: what happened to each listed item.
 public struct CleanReport: Decodable, Sendable, Equatable {
     /// `CLEAN_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 2
+    public static let schemaVersion = 3
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)
@@ -182,6 +186,21 @@ public struct CleanReport: Decodable, Sendable, Equatable {
         public let args: [String]
         public let success: Bool
         public let code: Int32?
+        /// The last part of what the command printed; empty when it printed nothing.
+        public let output: String
+
+        private enum CodingKeys: String, CodingKey {
+            case program, args, success, code, output
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            program = try c.decode(String.self, forKey: .program)
+            args = try c.decode([String].self, forKey: .args)
+            success = try c.decode(Bool.self, forKey: .success)
+            code = try c.decodeIfPresent(Int32.self, forKey: .code)
+            output = try c.decodeIfPresent(String.self, forKey: .output) ?? ""
+        }
     }
 
     public struct VolumeSpace: Decodable, Sendable, Equatable {

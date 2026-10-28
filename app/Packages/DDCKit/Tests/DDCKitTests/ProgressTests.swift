@@ -6,17 +6,17 @@ import Testing
 /// words. The lines are in the shape `crates/ddc-core/tests/progress.rs` pins.
 @Suite("Progress events")
 struct ProgressTests {
-    static let preparing = #"{"schema_version":1,"event":"phase","phase":"preparing"}"#
-    static let cleaning = #"{"schema_version":1,"event":"phase","phase":"cleaning"}"#
+    static let preparing = #"{"schema_version":2,"event":"phase","phase":"preparing"}"#
+    static let cleaning = #"{"schema_version":2,"event":"phase","phase":"cleaning"}"#
 
     static func walk(_ step: String, _ files: UInt64, expected: UInt64? = nil) -> String {
         let tail = expected.map { #","files_expected":\#($0)"# } ?? ""
-        return #"{"schema_version":1,"event":"walk","step":"\#(step)","files":\#(files),"dirs":2,"bytes":4096\#(tail)}"#
+        return #"{"schema_version":2,"event":"walk","step":"\#(step)","files":\#(files),"dirs":2,"bytes":4096\#(tail)}"#
     }
 
     static func items(done: UInt64, n: UInt64, bytesDone: UInt64, bytesTotal: UInt64, current: String? = nil) -> String {
         let tail = current.map { #","current":\#($0)"# } ?? ""
-        return #"{"schema_version":1,"event":"items","done":\#(done),"n":\#(n),"bytes_done":\#(bytesDone),"bytes_total":\#(bytesTotal)\#(tail)}"#
+        return #"{"schema_version":2,"event":"items","done":\#(done),"n":\#(n),"bytes_done":\#(bytesDone),"bytes_total":\#(bytesTotal)\#(tail)}"#
     }
 
     static func current(_ i: UInt64, _ path: String, _ action: String, _ bytes: UInt64, tool: String? = nil) -> String {
@@ -25,7 +25,7 @@ struct ProgressTests {
     }
 
     static func item(_ i: UInt64, n: UInt64, _ path: String, _ action: String, _ bytes: UInt64, _ outcome: String) -> String {
-        #"{"schema_version":1,"event":"item","i":\#(i),"n":\#(n),"path":"\#(path)","action":"\#(action)","bytes":\#(bytes),\#(outcome)}"#
+        #"{"schema_version":2,"event":"item","i":\#(i),"n":\#(n),"path":"\#(path)","action":"\#(action)","bytes":\#(bytes),\#(outcome)}"#
     }
 
     static func event(_ line: String) throws -> ProgressEvent {
@@ -68,13 +68,13 @@ struct ProgressTests {
 
         for line in [
             "ddc: warning: x", "stopping after the current item", "", "{", "{}",
-            #"{"schema_version":1,"event":"new-event"}"#,
-            #"{"schema_version":1,"event":"phase","phase":"new-phase"}"#,
-            #"{"schema_version":1,"event":"item","i":1,"n":1,"path":"/x","action":"delete","bytes":1,"outcome":"new-outcome"}"#,
+            #"{"schema_version":2,"event":"new-event"}"#,
+            #"{"schema_version":2,"event":"phase","phase":"new-phase"}"#,
+            #"{"schema_version":2,"event":"item","i":1,"n":1,"path":"/x","action":"delete","bytes":1,"outcome":"new-outcome"}"#,
         ] {
             #expect(ProgressEvent.read(line) == nil, "\(line)")
         }
-        #expect(ProgressEvent.read(#"{"schema_version":2,"event":"phase","phase":"cleaning"}"#) == .otherVersion(2))
+        #expect(ProgressEvent.read(#"{"schema_version":3,"event":"phase","phase":"cleaning"}"#) == .otherVersion(3))
     }
 
     // MARK: - The reducer

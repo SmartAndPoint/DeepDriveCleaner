@@ -82,6 +82,25 @@ pub enum LocationCompare {
     Contains,
 }
 
+/// How a runtime shows it answers, before its prune commands run (ADR §1,
+/// `native-only`: "only when the daemon is running"). The executor runs the
+/// probe; the dry run runs nothing and reads `process` and `context_meta`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadyProbe {
+    pub program: &'static str,
+    pub args: &'static [&'static str],
+    /// The runtime's own process, by executable name.
+    pub process: &'static str,
+    /// The context's metadata file, relative to the docker config folder.
+    pub context_meta: &'static str,
+    /// Why it is not ready when it does not answer: a timeout, or no output.
+    pub down: &'static str,
+    /// Why it is not ready when its context's metadata file is missing.
+    pub no_context: &'static str,
+    /// A needle in the probe's last line, and why it is not ready then.
+    pub known: &'static [(&'static str, &'static str)],
+}
+
 /// A tool's own cleanup command. `{name}` in `args` is replaced by the
 /// finding's directory name (toolchain versions).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +108,8 @@ pub struct NativeCommand {
     pub program: &'static str,
     pub args: &'static [&'static str],
     pub location: Option<LocationProbe>,
+    /// Run once before the commands of an item; `None` runs them at once.
+    pub ready: Option<ReadyProbe>,
     /// Set for the command only, not for its location probe.
     pub env: &'static [(&'static str, &'static str)],
 }

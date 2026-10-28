@@ -5,7 +5,7 @@
 use super::{Clones, Matcher, Rule, Scope, TOMBSTONE};
 use crate::class::Category::*;
 use crate::class::RiskClass::*;
-use crate::class::{Fallback, LocationCompare, LocationProbe, NativeCommand, Removal};
+use crate::class::{Fallback, LocationCompare, LocationProbe, NativeCommand, ReadyProbe, Removal};
 
 const PY_LOCKS: &[&str] = &["uv.lock", "poetry.lock", "Pipfile.lock", "requirements*.txt"];
 const JS_LOCKS: &[&str] = &["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"];
@@ -72,7 +72,7 @@ const fn native_env(
     fallback: Fallback,
     env: &'static [(&'static str, &'static str)],
 ) -> Removal {
-    Removal::Native { cmd: NativeCommand { program, args, location: probe, env }, fallback }
+    Removal::Native { cmd: NativeCommand { program, args, location: probe, ready: None, env }, fallback }
 }
 
 const fn probe(
@@ -83,22 +83,42 @@ const fn probe(
     Some(LocationProbe { program, args, compare })
 }
 
+/// Why Docker Desktop is not ready when it does not answer; starting it helps.
+pub const DOCKER_DOWN: &str = "Docker Desktop is not running or not answering";
+
+/// Docker Desktop's engine answers on its own context. The context's
+/// metadata lives under the sha256 of its name, `desktop-linux`.
+const DOCKER_READY: ReadyProbe = ReadyProbe {
+    program: "docker",
+    args: &["--context", "desktop-linux", "version", "--format", "{{.Server.Version}}"],
+    process: "com.docker.backend",
+    context_meta: "contexts/meta/fe9c6bd7a66301f49ca9b6a70b217107cd1284598bfc254700c989b916da791e/meta.json",
+    down: DOCKER_DOWN,
+    no_context: "the desktop-linux context does not exist",
+    known: &[
+        ("does not exist", "the desktop-linux context does not exist"),
+        ("Cannot connect to the Docker daemon", DOCKER_DOWN),
+    ],
+};
+
 const DOCKER_PRUNE: &[NativeCommand] = &[
     NativeCommand {
         program: "docker",
         args: &["--context", "desktop-linux", "builder", "prune", "-f"],
         location: None,
+        ready: Some(DOCKER_READY),
         env: &[],
     },
     NativeCommand {
         program: "docker",
         args: &["--context", "desktop-linux", "image", "prune", "-f"],
         location: None,
+        ready: Some(DOCKER_READY),
         env: &[],
     },
 ];
 const PODMAN_PRUNE: &[NativeCommand] =
-    &[NativeCommand { program: "podman", args: &["image", "prune", "-f"], location: None, env: &[] }];
+    &[NativeCommand { program: "podman", args: &["image", "prune", "-f"], location: None, ready: None, env: &[] }];
 
 pub static RULES: &[Rule] = &[
     // ---- synthetic -------------------------------------------------------

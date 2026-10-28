@@ -80,6 +80,12 @@ pub enum SkipReason {
     NativeUnavailable {
         program: String,
     },
+    /// The runtime did not answer before its prune commands; nothing ran.
+    /// `detail` says why: not running, no context, or the tool's last line.
+    ToolNotReady {
+        program: String,
+        detail: String,
+    },
     /// A picked user-data item that is no longer an entry of its folder.
     NotAnEntry,
     /// A picked entry that is locked now.
@@ -203,6 +209,9 @@ pub struct Ports<'a> {
 
 /// Native cleanup commands may take long (Go module cache); then they are killed.
 pub const NATIVE_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// A runtime whose readiness probe does not answer within this is not ready.
+pub const READY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Told about the run as it goes, on the executing thread (story "CLI:
 /// progress events"): the progress events that must reach stderr in order.
@@ -420,10 +429,35 @@ fn act(
             match ran {
                 native::Native::Ran(result) => Outcome::Native { commands: vec![result] },
                 native::Native::Cancelled => Outcome::NotRun,
-                native::Native::Unavailable | native::Native::LocationMismatch => fallback(fb),
+                native::Native::Unavailable | native::Native::LocationMismatch | native::Native::NotReady(_) => {
+                    fallback(fb)
+                }
             }
         }
         Action::NativeOnly(cmds) => {
+            // A missing tool stays `native-unavailable`; the probe runs once,
+            // and no prune command runs when it fails.
+            if let Some(missing) = cmds.iter().find(|c| ports.commands.find(c.program).is_none()) {
+                return Outcome::Skipped(SkipReason::NativeUnavailable { program: missing.program.to_owned() });
+            }
+            if let Some(probe) = cmds.first().and_then(|c| c.ready) {
+                progress.tool(Some(probe.program));
+                let not_ready = native::ready(&probe, ports.commands, opts);
+                progress.tool(None);
+                match not_ready {
+                    None => {}
+                    Some(native::Native::NotReady(detail)) => {
+                        return Outcome::Skipped(SkipReason::ToolNotReady {
+                            program: probe.program.to_owned(),
+                            detail,
+                        });
+                    }
+                    Some(native::Native::Cancelled) => return Outcome::NotRun,
+                    Some(_) => {
+                        return Outcome::Skipped(SkipReason::NativeUnavailable { program: probe.program.to_owned() });
+                    }
+                }
+            }
             let mut results = Vec::new();
             for cmd in cmds {
                 if opts.cancelled() {
@@ -435,7 +469,7 @@ fn act(
                 match ran {
                     native::Native::Ran(result) => results.push(result),
                     native::Native::Cancelled => break,
-                    native::Native::Unavailable | native::Native::LocationMismatch => {
+                    native::Native::Unavailable | native::Native::LocationMismatch | native::Native::NotReady(_) => {
                         return Outcome::Skipped(SkipReason::NativeUnavailable { program: cmd.program.to_owned() });
                     }
                 }

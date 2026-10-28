@@ -8,6 +8,7 @@ use ddc_core::class::Fallback;
 use ddc_core::class::RiskClass;
 use ddc_core::exec::{ExecReport, Outcome, SkipReason};
 use ddc_core::plan::{Action, Plan, PlanItem};
+use ddc_core::rules::DOCKER_DOWN;
 use ddc_core::rules::entries::EntryLock;
 
 use crate::render::{Style, tilde};
@@ -237,9 +238,11 @@ pub fn reason(r: &SkipReason) -> String {
         SkipReason::InUse { pid, name } => format!("in use by {name} (pid {pid})"),
         SkipReason::InUseUnknownCwd { pid, name } => format!("possibly in use by {name} (pid {pid})"),
         SkipReason::OwnerRunning { pid, name } => format!("{name} is running (pid {pid})"),
-        SkipReason::NativeUnavailable { program } => {
-            format!("{program} is not available or its runtime is not running")
+        SkipReason::NativeUnavailable { program } => format!("{program} is not installed"),
+        SkipReason::ToolNotReady { detail, .. } if detail == DOCKER_DOWN => {
+            format!("{detail} — start it and run again")
         }
+        SkipReason::ToolNotReady { detail, .. } => detail.clone(),
         SkipReason::Missing => "already gone".to_owned(),
         SkipReason::NotADirectory => "no longer a directory".to_owned(),
         SkipReason::Symlink => "replaced by a symlink".to_owned(),
@@ -422,5 +425,21 @@ mod tests {
         assert!(matches!(run("q\n").0, Decision::Abort));
         assert!(matches!(run("").0, Decision::Abort));
         assert!(matches!(run("\nn\n").0, Decision::Abort));
+    }
+
+    #[test]
+    fn a_runtime_that_does_not_answer_says_what_to_do() {
+        let detail = "Docker Desktop is not running or not answering".to_owned();
+        assert_eq!(
+            reason(&SkipReason::ToolNotReady { program: "docker".into(), detail }),
+            "Docker Desktop is not running or not answering — start it and run again"
+        );
+        let detail = "the desktop-linux context does not exist".to_owned();
+        assert_eq!(
+            reason(&SkipReason::ToolNotReady { program: "docker".into(), detail }),
+            "the desktop-linux context does not exist",
+            "starting Docker Desktop does not create a missing context"
+        );
+        assert_eq!(reason(&SkipReason::NativeUnavailable { program: "docker".into() }), "docker is not installed");
     }
 }

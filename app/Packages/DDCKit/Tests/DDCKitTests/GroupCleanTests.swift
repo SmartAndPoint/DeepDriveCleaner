@@ -145,7 +145,7 @@ struct GroupCleanTests {
 
             """.utf8))
         try fake.put("clean-report.json", Data("""
-            {"schema_version": 2, "ddc_version": "0.2.1", "cancelled": false, "failed": 0, "local_snapshots": 0,
+            {"schema_version": 3, "ddc_version": "0.2.1", "cancelled": false, "failed": 0, "local_snapshots": 0,
              "journal": "/Users/example/Library/Logs/DeepDriveCleaner/actions.jsonl", "volumes": [],
              "items": [{"path": "/Users/example/Library/Caches/Google/Chrome", "dev": 16777232, "ino": 340634837,
                         "rule": "app.chrome-cache", "class": "safe", "action": "delete", "bytes": 303104, "outcome": "deleted"}]}

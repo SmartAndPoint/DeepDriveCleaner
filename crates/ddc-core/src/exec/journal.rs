@@ -16,8 +16,9 @@ use crate::plan::PlanItem;
 
 /// The journal's own version. Its lines carried the scan report's
 /// `SCHEMA_VERSION` (1) until area actions came, so it starts at 2; a
-/// version 1 line has no `kind` and is an item line.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 2;
+/// version 1 line has no `kind` and is an item line. 3: the skip reason
+/// `tool-not-ready`.
+pub const JOURNAL_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]

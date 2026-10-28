@@ -858,6 +858,27 @@
           ]
         },
         {
+          "description": "The runtime did not answer before its prune commands; nothing ran.\n`detail` says why: not running, no context, or the tool's last line.",
+          "type": "object",
+          "properties": {
+            "detail": {
+              "type": "string"
+            },
+            "program": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "const": "tool-not-ready"
+            }
+          },
+          "required": [
+            "reason",
+            "program",
+            "detail"
+          ]
+        },
+        {
           "description": "A picked user-data item that is no longer an entry of its folder.",
           "type": "object",
           "properties": {

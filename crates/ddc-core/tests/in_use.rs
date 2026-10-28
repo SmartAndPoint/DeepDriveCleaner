@@ -29,6 +29,12 @@ use ddc_core::sys::procs::ProcInfo;
 
 const HOUR: Duration = Duration::from_secs(3_600);
 
+/// Docker Desktop's readiness probe, as the fake runner keys it.
+const DOCKER_VERSION: &str = "--context desktop-linux version --format {{.Server.Version}}";
+/// The desktop-linux context's metadata, under `~/.docker`.
+const DOCKER_CONTEXT: &str =
+    ".docker/contexts/meta/fe9c6bd7a66301f49ca9b6a70b217107cd1284598bfc254700c989b916da791e/meta.json";
+
 struct Home {
     tree: TreeBuilder,
     data: tempfile::TempDir,
@@ -166,6 +172,15 @@ impl Home {
     }
 }
 
+/// Docker Desktop's backend, working inside its own folder.
+fn docker_backend(docker: &Path) -> ProcInfo {
+    ProcInfo {
+        cwd: Some(docker.join("Data")),
+        open_files: vec![docker.join("Data/vms/0/Docker.raw")],
+        ..app_process(707, "/Applications/Docker.app/Contents/MacOS/com.docker.backend")
+    }
+}
+
 fn in_use(pid: i32, name: &str) -> Outcome {
     Outcome::Skipped(SkipReason::InUse { pid, name: name.into() })
 }
@@ -265,19 +280,48 @@ fn a_runtime_prunes_while_its_daemon_works_inside_its_finding() {
     let home = Home::new();
     home.tree.file("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw", 50_000);
     let docker = home.path("Library/Containers/com.docker.docker");
+    home.tree.write(DOCKER_CONTEXT, "{}");
     let item = home.listed(&docker, ActionKind::NativeOnly, false);
-    let backend = ProcInfo {
-        cwd: Some(docker.join("Data")),
-        open_files: vec![docker.join("Data/vms/0/Docker.raw")],
-        ..app_process(707, "/Applications/Docker.app/Contents/MacOS/com.docker.backend")
-    };
-    let daemon = FakeProcs(vec![backend]);
-    let commands = FakeCommands::default().with("docker", true, "");
+    let daemon = FakeProcs(vec![docker_backend(&docker)]);
+    let commands = FakeCommands::default().with("docker", true, "").answer("docker", DOCKER_VERSION, true, "28.5.1\n");
 
+    assert_eq!(home.dry_run(std::slice::from_ref(&item), &commands, &daemon), [Prediction::WouldRun]);
+    assert!(commands.calls.borrow().is_empty(), "the dry run runs nothing: {:?}", commands.calls.borrow());
     let outcomes = home.predict_and_clean(&[item], &commands, &daemon, &daemon);
     let [Outcome::Native { commands: ran }] = &outcomes[..] else { panic!("{outcomes:?}") };
     assert_eq!(ran.len(), 2, "both prune commands");
     assert!(docker.join("Data/vms/0/Docker.raw").exists(), "the runtime's files are never removed by ddc");
+}
+
+#[test]
+fn the_dry_run_predicts_a_docker_desktop_that_cannot_answer_without_running_anything() {
+    let home = Home::new();
+    home.tree.file("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw", 50_000);
+    let docker = home.path("Library/Containers/com.docker.docker");
+    let item = home.listed(&docker, ActionKind::NativeOnly, false);
+    let not_ready = |detail: &str| SkipReason::ToolNotReady { program: "docker".into(), detail: detail.into() };
+
+    // No backend process: Docker Desktop is not running, and its probe fails as the clean runs it.
+    let commands = FakeCommands::default().with("docker", true, "").answer("docker", DOCKER_VERSION, false, "");
+    let quit = FakeProcs(vec![]);
+    let down = not_ready("Docker Desktop is not running or not answering");
+    assert_eq!(home.dry_run(std::slice::from_ref(&item), &commands, &quit), [Prediction::WouldSkip(down.clone())]);
+    assert!(commands.calls.borrow().is_empty(), "the dry run runs nothing: {:?}", commands.calls.borrow());
+    assert_eq!(home.predict_and_clean(std::slice::from_ref(&item), &commands, &quit, &quit), [Outcome::Skipped(down)]);
+    assert_eq!(*commands.calls.borrow(), [format!("docker {DOCKER_VERSION}")], "the clean probed, no prune ran");
+
+    // Running, but without the desktop-linux context.
+    let commands = FakeCommands::default()
+        .with("docker", true, "")
+        .answer("docker", DOCKER_VERSION, false, "")
+        .stderr_on("docker", DOCKER_VERSION, "context \"desktop-linux\" does not exist\n");
+    let running = FakeProcs(vec![docker_backend(&docker)]);
+    let missing = not_ready("the desktop-linux context does not exist");
+    assert_eq!(
+        home.predict_and_clean(&[item], &commands, &running, &running),
+        [Outcome::Skipped(missing)],
+        "predicted from the missing metadata file, said by the probe"
+    );
 }
 
 #[test]

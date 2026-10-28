@@ -8,6 +8,8 @@
 //! and native tools are only looked up, never run. The clean itself still
 //! rescans and re-checks; pins only a whole-tree walk sees may skip an item
 //! this predicted, and a tool reporting another location runs the fallback.
+//! A runtime's readiness probe is the executor's only: here its process and
+//! its context's metadata file stand in for it.
 //!
 //! A picked entry of the user's own folders gets the clean's entry checks
 //! instead (safety ADR, amendment of 2026-10-20), with its lock derived as
@@ -23,7 +25,7 @@ use serde::{Deserialize, Serialize};
 
 use super::guard::Guard;
 use super::{CommandRunner, ProcessTable, SkipReason};
-use crate::class::{Fallback, RiskClass};
+use crate::class::{Fallback, ReadyProbe, RiskClass};
 use crate::env::Env;
 use crate::model::{Finding, RemovalKind};
 use crate::plan::{Action, ActionKind, ListedItem, PlanItem, action_for};
@@ -130,7 +132,7 @@ pub fn preflight(
             None if trashed.iter().any(|t| item.path != *t && item.path.starts_with(t)) => {
                 (None, Prediction::WouldSkip(SkipReason::InsideAnotherItem))
             }
-            None => settle(check(item, catalog, &root_refs, &excludes, &guard, ports, env.home())),
+            None => settle(check(item, catalog, &root_refs, &excludes, &guard, ports, env)),
         };
         summary.items += 1;
         match &prediction {
@@ -171,7 +173,7 @@ fn check(
     excludes: &[PathBuf],
     guard: &Guard<'_>,
     ports: &PreflightPorts<'_>,
-    home: &Path,
+    env: &Env,
 ) -> Checked {
     let path = item.path.as_path();
     let skip = |reason| Err((None, reason));
@@ -179,7 +181,7 @@ fn check(
         return skip(SkipReason::Kept);
     }
     let Some(rule) = catalog.by_id(&item.rule) else { return skip(SkipReason::RuleMismatch) };
-    let class = effective_class(rule, path, roots, home);
+    let class = effective_class(rule, path, roots, env.home());
     if class != item.class {
         return skip(SkipReason::ChangedSinceScan);
     }
@@ -215,10 +217,26 @@ fn check(
                     SkipReason::NativeUnavailable { program: missing.program.to_owned() },
                 ));
             }
-            None => Prediction::WouldRun,
+            None => match cmds.first().and_then(|c| c.ready).and_then(|probe| not_ready(&probe, guard, env)) {
+                Some(reason) => return Err((Some(walked.bytes), reason)),
+                None => Prediction::WouldRun,
+            },
         },
     };
     Ok((walked.bytes, prediction))
+}
+
+/// What the executor's readiness probe would say, from what can be read
+/// without running it: the runtime's process, then its context's metadata.
+fn not_ready(probe: &ReadyProbe, guard: &Guard<'_>, env: &Env) -> Option<SkipReason> {
+    let detail = if !guard.running(probe.process) {
+        probe.down
+    } else if !env.docker_config().join(probe.context_meta).is_file() {
+        probe.no_context
+    } else {
+        return None;
+    };
+    Some(SkipReason::ToolNotReady { program: probe.program.to_owned(), detail: detail.to_owned() })
 }
 
 /// A picked entry, in the clean's order: the action, the folder itself and

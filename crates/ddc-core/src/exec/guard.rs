@@ -53,6 +53,8 @@ pub struct Guard<'a> {
     /// Per process: absolute paths it uses, and first components of relative
     /// paths whose base (cwd) is unknown.
     uses: Vec<Uses>,
+    /// Executable names in the snapshot, for the dry run's runtime check.
+    names: HashSet<String>,
     /// For the confirming re-read of one process, and the fresh read before a
     /// tool's command.
     procs: &'a dyn ProcessTable,
@@ -124,9 +126,15 @@ impl<'a> Guard<'a> {
             protected_ids,
             markers,
             uses: table.iter().map(uses).collect(),
+            names: table.iter().map(|p| p.name.clone()).collect(),
             apps: table.iter().filter_map(|p| Some((p.pid, p.app_bundle()?, p.name.clone()))).collect(),
             procs,
         }
+    }
+
+    /// A process named `name` was running at the snapshot.
+    pub fn running(&self, name: &str) -> bool {
+        self.names.contains(name)
     }
 
     /// Right before a tool's command: the open files read afresh, since a

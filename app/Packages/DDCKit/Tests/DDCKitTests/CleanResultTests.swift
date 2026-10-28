@@ -5,9 +5,9 @@ import Testing
 @Suite("Review window: the result")
 struct CleanResultTests {
     /// A report with every outcome, in the clean schema's shape.
-    private func report(_ items: [String]) throws -> CleanReport {
+    private func report(_ items: [String], version: Int = 3) throws -> CleanReport {
         let json = """
-            {"schema_version": 2, "ddc_version": "0.2.0", "cancelled": true, "failed": 2, "local_snapshots": 1,
+            {"schema_version": \(version), "ddc_version": "0.2.0", "cancelled": true, "failed": 2, "local_snapshots": 1,
              "journal": "/Users/example/Library/Logs/DeepDriveCleaner/actions.jsonl",
              "volumes": [{"mount_point": "/System/Volumes/Data", "free_before": 1000, "free_after": 4000},
                          {"mount_point": "/Volumes/Work", "free_before": 10, "free_after": 10}],
@@ -61,6 +61,35 @@ struct CleanResultTests {
         #expect(result.volumes.map(\.name) == ["The startup disk", "Work"])
         #expect(result.volumes[0].total == volumes.first?.totalBytes)
         #expect(result.volumes[1].total == nil)
+    }
+
+    @Test("Docker Desktop not answering is a skip that says why; a prune that failed says what docker said")
+    func dockerNotReady() throws {
+        let items = try ReviewFixture.items()
+        let confirmation = DDCKit.Confirmation(items, selection: try ReviewFixture.recordedSelection(items), deletePermanently: false)
+        let docker = #""rule": "vm.docker-desktop", "class": "review", "action": "native-only""#
+        let entries = [
+            #"{"path": "/Users/example/a", "dev": 1, "ino": 1, \#(docker), "bytes": 100, "outcome": "skipped", "reason": "tool-not-ready", "program": "docker", "detail": "Docker Desktop is not running or not answering"}"#,
+            #"{"path": "/Users/example/b", "dev": 1, "ino": 2, \#(docker), "bytes": 7, "outcome": "native", "commands": [{"program": "docker", "args": ["--context", "desktop-linux", "builder", "prune", "-f"], "success": true, "code": 0, "output": "Total reclaimed space: 0B"}, {"program": "docker", "args": ["--context", "desktop-linux", "image", "prune", "-f"], "success": false, "code": 1, "output": "Client: Docker Engine\nError response from daemon: a prune operation is already running\n"}]}"#,
+        ]
+        let report = try report(entries)
+
+        let notReady = SkipReason.toolNotReady(program: "docker", detail: "Docker Desktop is not running or not answering")
+        #expect(report.items[0].outcome == .skipped(notReady))
+        guard case .native(let commands) = report.items[1].outcome else { throw CancellationError() }
+        #expect(commands[0].output == "Total reclaimed space: 0B")
+        #expect(SkipReason.tags.contains("tool-not-ready"))
+        #expect(CleanWording.reason(notReady) == "Docker Desktop is not running or not answering")
+        #expect(CleanWording.reason(.nativeUnavailable(program: "docker")) == "docker is not installed")
+
+        let result = CleanResult.make(report: report, confirmation: confirmation, volumes: [])
+        #expect(result.causes.map(\.title) == ["Docker Desktop is not running or not answering"])
+        #expect(result.failures == [
+            CleanResult.Failure(path: "~/b", error: "docker image prune failed: Error response from daemon: a prune operation is already running"),
+        ])
+
+        // An older CLI's report, without the reason, is refused whole.
+        #expect(throws: CleanReport.ReadError.otherSchema(2)) { try self.report(entries, version: 2) }
     }
 
     @Test("more than three running apps are named three and counted")

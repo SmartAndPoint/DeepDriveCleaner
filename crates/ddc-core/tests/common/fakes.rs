@@ -34,6 +34,8 @@ pub struct FakeCommands {
     pub errors: HashMap<String, io::ErrorKind>,
     /// Runs on every call with the call, before it answers.
     pub on_call: Option<CallHook>,
+    /// The timeout of each call, in the order of `calls`.
+    pub timeouts: RefCell<Vec<Duration>>,
 }
 
 impl FakeCommands {
@@ -85,12 +87,13 @@ impl CommandRunner for FakeCommands {
         let name = exe.file_name()?.to_str()?;
         self.tools.contains_key(name).then(|| exe.to_path_buf())
     }
-    fn run(&self, exe: &Path, args: &[String], env: &[(&str, &str)], _: Duration) -> io::Result<CmdOutput> {
+    fn run(&self, exe: &Path, args: &[String], env: &[(&str, &str)], timeout: Duration) -> io::Result<CmdOutput> {
         let name = exe.file_name().unwrap().to_str().unwrap();
         let call = format!("{name} {}", args.join(" "));
         self.calls.borrow_mut().push(call.clone());
         self.exes.borrow_mut().push(exe.to_path_buf());
         self.envs.borrow_mut().push(env.iter().map(|(k, v)| format!("{k}={v}")).collect());
+        self.timeouts.borrow_mut().push(timeout);
         if let Some(hook) = &self.on_run {
             hook();
         }

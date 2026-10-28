@@ -29,6 +29,9 @@ use ddc_core::sys::procs::ProcInfo;
 
 const DAY: Duration = Duration::from_secs(86_400);
 
+/// Docker Desktop's readiness probe, as the fake runner keys it.
+const DOCKER_VERSION: &str = "--context desktop-linux version --format {{.Server.Version}}";
+
 struct Fx {
     t: TreeBuilder,
     data: tempfile::TempDir,
@@ -112,6 +115,12 @@ impl Fx {
         .unwrap()
     }
 
+    /// Docker Desktop's folder with its disk image, as the scan finds it.
+    fn docker_desktop(&self) -> PathBuf {
+        self.t.file("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw", 50_000);
+        self.t.path("Library/Containers/com.docker.docker")
+    }
+
     fn run_yes(&self, plan: &Plan) -> (ExecReport, MemoryJournal) {
         let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
         self.run(plan, consent, &FakeCommands::default(), &FakeProcs(vec![]))
@@ -147,7 +156,7 @@ fn deletes_selected_items_and_journals_each() {
     assert_eq!(journal.0.len(), 2, "one journal line per action");
     let e = journal.0.iter().find(|e| e.path == nm).unwrap();
     // The journal's own version, not the scan report's (safety ADR, amendment of 2026-10-28).
-    assert_eq!((e.rule.as_str(), e.method, e.schema_version), ("node.node_modules", "delete", 2));
+    assert_eq!((e.rule.as_str(), e.method, e.schema_version), ("node.node_modules", "delete", 3));
     let line = serde_json::to_value(e).unwrap();
     assert_eq!(line["kind"], "item");
     for key in ["ts", "path", "dev", "ino", "rule", "class", "method", "bytes", "outcome"] {
@@ -284,7 +293,7 @@ fn native_only_rules_never_delete_or_trash() {
     let (missing, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs(vec![]));
     assert!(matches!(outcome(&missing, &docker), Outcome::Skipped(SkipReason::NativeUnavailable { .. })));
 
-    let failing = FakeCommands::default().with("docker", false, "");
+    let failing = FakeCommands::default().with("docker", false, "").answer("docker", DOCKER_VERSION, true, "28.5.1\n");
     let (r, _) = fx.run(&plan, Consent::Interactive, &failing, &FakeProcs(vec![]));
     let Outcome::Native { commands } = outcome(&r, &docker) else { panic!("{:?}", outcome(&r, &docker)) };
     assert!(
@@ -296,6 +305,128 @@ fn native_only_rules_never_delete_or_trash() {
         fx.t.path("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw").exists(),
         "failure never falls back to deletion"
     );
+}
+
+// Story "VM images: Docker prune runs only while Docker Desktop answers":
+// the readiness probe before the prune commands.
+
+#[test]
+fn a_docker_desktop_that_does_not_answer_skips_its_item_and_runs_no_prune() {
+    let fx = Fx::new();
+    let docker = fx.docker_desktop();
+    let mut plan = fx.plan();
+    select_all(&mut plan);
+    let commands = FakeCommands::default().with("docker", true, "").answer("docker", DOCKER_VERSION, false, "");
+
+    let (r, journal) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs(vec![]));
+
+    let down = SkipReason::ToolNotReady {
+        program: "docker".into(),
+        detail: "Docker Desktop is not running or not answering".into(),
+    };
+    assert_eq!(outcome(&r, &docker), &Outcome::Skipped(down.clone()));
+    assert_eq!(*commands.calls.borrow(), [format!("docker {DOCKER_VERSION}")], "no prune command ran");
+    assert_eq!(*commands.timeouts.borrow(), [exec::READY_TIMEOUT]);
+    let entry = journal.0.iter().find(|e| e.path == docker).unwrap();
+    assert_eq!(entry.outcome, Outcome::Skipped(down));
+    let line = serde_json::to_value(entry).unwrap();
+    assert_eq!((&line["outcome"], &line["reason"]), (&"skipped".into(), &"tool-not-ready".into()));
+    assert_eq!(line["detail"], "Docker Desktop is not running or not answering", "the journal line says why");
+}
+
+#[test]
+fn the_probe_names_a_missing_context_or_says_what_docker_said() {
+    let fx = Fx::new();
+    let docker = fx.docker_desktop();
+    let mut plan = fx.plan();
+    select_all(&mut plan);
+    let said = |stderr: &str| {
+        FakeCommands::default().with("docker", true, "").answer("docker", DOCKER_VERSION, false, "").stderr_on(
+            "docker",
+            DOCKER_VERSION,
+            stderr,
+        )
+    };
+    let skipped =
+        |detail: &str| Outcome::Skipped(SkipReason::ToolNotReady { program: "docker".into(), detail: detail.into() });
+
+    let commands = said("context \"desktop-linux\" does not exist\n");
+    let (r, _) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs(vec![]));
+    assert_eq!(outcome(&r, &docker), &skipped("the desktop-linux context does not exist"));
+    assert_eq!(commands.calls.borrow().len(), 1, "{:?}", commands.calls.borrow());
+
+    let commands =
+        said("Cannot connect to the Docker daemon at unix:///x/docker.sock. Is the docker daemon running?\n");
+    let (r, _) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs(vec![]));
+    assert_eq!(outcome(&r, &docker), &skipped("Docker Desktop is not running or not answering"));
+
+    let commands = said("Client: Docker Engine\nerror during connect: the engine is updating\n\n");
+    let (r, _) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs(vec![]));
+    assert_eq!(outcome(&r, &docker), &skipped("error during connect: the engine is updating"), "its last line");
+    assert_eq!(commands.calls.borrow().len(), 1);
+}
+
+#[test]
+fn a_prune_that_fails_after_a_good_probe_carries_dockers_last_line() {
+    let fx = Fx::new();
+    let docker = fx.docker_desktop();
+    let mut plan = fx.plan();
+    select_all(&mut plan);
+    let image = "--context desktop-linux image prune -f";
+    let commands = FakeCommands::default()
+        .with("docker", true, "")
+        .answer("docker", DOCKER_VERSION, true, "28.5.1\n")
+        .answer("docker", image, false, "")
+        .stderr_on("docker", image, "Error response from daemon: a prune operation is already running\n");
+
+    let (r, _) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs(vec![]));
+
+    let Outcome::Native { commands: ran } = outcome(&r, &docker) else { panic!("{:?}", outcome(&r, &docker)) };
+    assert_eq!(ran.len(), 2, "the probe answered: both prune commands ran");
+    assert!(ran[0].success && !ran[1].success);
+    assert_eq!(ran[1].output, "Error response from daemon: a prune operation is already running");
+    assert_eq!(commands.calls.borrow()[0], format!("docker {DOCKER_VERSION}"), "the probe first, once");
+    assert_eq!(commands.calls.borrow().len(), 3);
+}
+
+#[test]
+fn a_probe_that_times_out_skips_and_a_cancel_during_it_runs_no_prune() {
+    let fx = Fx::new();
+    let docker = fx.docker_desktop();
+    let mut plan = fx.plan();
+    select_all(&mut plan);
+
+    let hung = FakeCommands::default().with("docker", true, "").error_on(
+        "docker",
+        DOCKER_VERSION,
+        std::io::ErrorKind::TimedOut,
+    );
+    let (r, _) = fx.run(&plan, Consent::Interactive, &hung, &FakeProcs(vec![]));
+    let down = SkipReason::ToolNotReady {
+        program: "docker".into(),
+        detail: "Docker Desktop is not running or not answering".into(),
+    };
+    assert_eq!(outcome(&r, &docker), &Outcome::Skipped(down));
+    assert_eq!(hung.calls.borrow().len(), 1, "{:?}", hung.calls.borrow());
+
+    // A signal while the probe runs: the probe's failure is the cancel, not a skip.
+    let cancel = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&cancel);
+    let probe = format!("docker {DOCKER_VERSION}");
+    let commands = FakeCommands {
+        on_call: Some(Box::new(move |call| {
+            if call == probe {
+                flag.store(true, Ordering::SeqCst);
+            }
+        })),
+        ..FakeCommands::default().with("docker", true, "").answer("docker", DOCKER_VERSION, false, "")
+    };
+    let opts = ExecOptions { cancel: &cancel, ..ExecOptions::default() };
+    let mut journal = MemoryJournal::default();
+    let r = fx.run_with(&plan, Consent::Interactive, &commands, &FakeProcs(vec![]), &mut journal, &opts);
+    assert_eq!(outcome(&r, &docker), &Outcome::NotRun);
+    assert!(r.cancelled);
+    assert_eq!(commands.calls.borrow().len(), 1, "no prune command: {:?}", commands.calls.borrow());
 }
 
 #[test]
@@ -753,7 +884,7 @@ fn progress_reaches_the_totals_with_native_only_bytes_left_out() {
     fx.t.write("q/node_modules/.ddc-keep", "");
     let progress = ExecProgress::default();
     let opts = ExecOptions { progress: Some(&progress), ..ExecOptions::default() };
-    let docker = FakeCommands::default().with("docker", true, "");
+    let docker = FakeCommands::default().with("docker", true, "").answer("docker", DOCKER_VERSION, true, "28.5.1\n");
 
     let r = fx.run_with(&plan, Consent::Interactive, &docker, &FakeProcs(vec![]), &mut MemoryJournal::default(), &opts);
 
@@ -945,7 +1076,7 @@ fn the_hook_says_cleaning_before_the_first_action_and_each_item_after_its_record
     let mut journal = LoggedJournal { log: Arc::clone(&recorder.log), inner: MemoryJournal::default() };
     let progress = ExecProgress::default();
     let opts = ExecOptions { progress: Some(&progress), events: Some(&recorder), ..ExecOptions::default() };
-    let docker = FakeCommands::default().with("docker", true, "");
+    let docker = FakeCommands::default().with("docker", true, "").answer("docker", DOCKER_VERSION, true, "28.5.1\n");
 
     fx.run_with(&plan, Consent::Interactive, &docker, &FakeProcs(vec![]), &mut journal, &opts);
 

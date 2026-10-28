@@ -1,5 +1,5 @@
-//! Process environment. This is the only place that reads `$HOME` and
-//! `DDC_DATA_DIR`; everything else receives paths through [`Env`], so tests
+//! Process environment. This is the only place that reads `$HOME`,
+//! `DDC_DATA_DIR` and `DOCKER_CONFIG`; everything else receives paths through [`Env`], so tests
 //! can point the whole tool at temporary directories.
 
 use std::io;
@@ -26,6 +26,8 @@ pub struct Env {
     now: SystemTime,
     /// Directories of `PATH`, where tools for native cleanup commands are looked up.
     path: Vec<PathBuf>,
+    /// `DOCKER_CONFIG`, where docker keeps its contexts; unset in tests.
+    docker_config: Option<PathBuf>,
 }
 
 impl Env {
@@ -48,7 +50,8 @@ impl Env {
             }
         };
         let path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
-        Ok(Self { home, data_dir, log_dir, now: SystemTime::now(), path })
+        let docker_config = std::env::var_os("DOCKER_CONFIG").filter(|v| !v.is_empty()).map(PathBuf::from);
+        Ok(Self { home, data_dir, log_dir, now: SystemTime::now(), path, docker_config })
     }
 
     /// Explicit environment for tests and embedding; `home` is canonicalized.
@@ -59,6 +62,7 @@ impl Env {
             log_dir: log_dir.to_path_buf(),
             now,
             path: Vec::new(),
+            docker_config: None,
         })
     }
 
@@ -99,5 +103,10 @@ impl Env {
 
     pub fn now(&self) -> SystemTime {
         self.now
+    }
+
+    /// docker's config folder: `DOCKER_CONFIG`, else `~/.docker`.
+    pub fn docker_config(&self) -> PathBuf {
+        self.docker_config.clone().unwrap_or_else(|| self.home.join(".docker"))
     }
 }
