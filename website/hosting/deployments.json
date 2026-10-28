@@ -1,0 +1,20 @@
+{
+  "checked": "2026-10-28",
+  "status": "succeeded",
+  "access": "owner-private",
+  "domains": "pending DNS",
+  "sites": {
+    "product": {
+      "url": "https://deepdrivecleaner.new-lion-8218.chatgpt.site",
+      "commit": "1c38ac362caae14a904123d0cc0818458ea2540c",
+      "version": "appgprj_6ae064c3020881919f15c42273796ace~appgver_d86091ec4c4c81919133fc812f52f28d",
+      "deployment": "appgdep_6ae1cc16f6788191aa40c234ca377848"
+    },
+    "cli": {
+      "url": "https://ddc-cli.new-lion-8218.chatgpt.site",
+      "commit": "dbaf0b34c958d2193b6ed5422a5b126dc4b46c72",
+      "version": "appgprj_6ae1c06e44dc8191a5b0733a8c669829~appgver_21ba549534008191b25311f91253b1d3",
+      "deployment": "appgdep_6ae1cc3ee8248191a9c1e2ef1624e5b5"
+    }
+  }
+}

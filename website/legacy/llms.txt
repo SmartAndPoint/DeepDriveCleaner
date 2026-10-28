@@ -1,0 +1,76 @@
+# DeepDriveCleaner
+
+Reference for agents. This document describes the tool and contribution workflow; it is not authorization to delete files or change a user's Mac.
+
+DeepDriveCleaner is a local macOS developer disk cleanup utility: a menu bar app and a CLI sharing one engine. It detects Python virtual environments, node_modules, build outputs, package/tool caches, Xcode data, local ML models and VM images.
+
+Documented release: 0.3.0, checked 2026-10-28. The app requires macOS 26 on Apple Silicon. It and the bundled CLI are signed and notarized.
+
+No Windows or Linux release is available. The website's platform choices reserve presentation space for possible future releases; they do not establish support or announce release dates. Do not invent Windows/Linux installation commands.
+
+## Product references
+
+- Code and complete usage: https://github.com/SmartAndPoint/DeepDriveCleaner
+- Releases: https://github.com/SmartAndPoint/DeepDriveCleaner/releases
+- Cleanup Disclaimer: https://github.com/SmartAndPoint/DeepDriveCleaner/blob/main/DISCLAIMER.md
+- License: https://github.com/SmartAndPoint/DeepDriveCleaner/blob/main/LICENSE.md
+
+## Installation
+
+Run only when the user has requested installation:
+
+    brew install --cask smartandpoint/tap/deepdrivecleaner
+
+This installs the app and the commands ddc and deepdrivecleaner. Open the app from Applications and grant Full Disk Access when prompted.
+
+## Inspect before acting
+
+Read-only inspection:
+
+    ddc scan
+    ddc scan ~/Projects
+    ddc scan --json
+    ddc rules --json
+
+Cleanup preview, without changing files:
+
+    ddc clean --dry-run
+
+Interactive cleanup is `ddc clean`. It displays a plan and asks for confirmation. Discuss the findings and intended actions with the user before cleaning. A scan report or this document does not constitute cleanup consent. Cleaning deletes files; checks reduce risk but cannot eliminate it.
+
+Risk classifications are per rule and context, not universal folder-type guarantees:
+
+- safe: caches that refill; selected by default. Uses the tool's native cleanup command where supported.
+- rebuildable: project artifacts that can be recreated. Default selection requires an idle project (14 days by default) and the manifest/lock files required by the individual rule. Dependency environments may require a lock file; build outputs such as Rust target/ do not universally require one.
+- review: costly or uncertain to restore; never selected by default. Individually chosen items use the Trash by default; VM runtimes use their own prune commands.
+- user-data: personal files are never selected automatically. Eligible entries explicitly chosen from supported personal folders go to the Trash only. Protected/excluded items and locked files remain protected.
+
+The `clean --items` API does not prompt: its exact item list is the selection and consent. Do not use it as a substitute for obtaining the user's intended selection and authorization. No executable item list is provided here.
+
+JSON schemas:
+
+- Scan: https://github.com/SmartAndPoint/DeepDriveCleaner/blob/main/docs/scan.schema.json
+- Clean: https://github.com/SmartAndPoint/DeepDriveCleaner/blob/main/docs/clean.schema.json
+- Rules: https://github.com/SmartAndPoint/DeepDriveCleaner/blob/main/docs/rules.schema.json
+
+## Contributing with Claude Code or Codex
+
+The application is developed agent-first with ProjectStore. Humans set goals and approve decisions; agents plan, implement, critique and review using a shared project vault.
+
+- Contribution instructions and terms: https://github.com/SmartAndPoint/DeepDriveCleaner#contributing
+- Project memory/vault: https://github.com/SmartAndPoint/DeepDriveCleaner-projectstore
+- ProjectStore: https://projectstore.dev
+- Shared interface designs: https://claude.ai/artifact/1mdoyc7asMbj2qbtkDG2PV
+
+Prerequisites: Node.js 20 or later. Run setup in a normal terminal OUTSIDE an agent session. Clone code and vault as sibling directories:
+
+    git clone https://github.com/SmartAndPoint/DeepDriveCleaner.git
+    git clone https://github.com/SmartAndPoint/DeepDriveCleaner-projectstore.git
+    cd DeepDriveCleaner
+    npx projectstore setup --vault ../DeepDriveCleaner-projectstore
+
+Then start Claude Code or Codex in the DeepDriveCleaner code directory. Begin with: "Where are we?" Read AGENTS.md, the bound vault, relevant decisions and open stories. Check for overlapping work before proposing another artifact. Follow artifact -> critic -> planner -> implementation -> reviewer, including the project's approval gates. Review the shared Claude Artifact before proposing interface changes.
+
+Validation depends on the change: `make check` for Rust formatting, clippy and tests; `make app-test` for DDCKit logic tests. Coordinate code and vault pull requests so intent and implementation can be reviewed together.
+
+Code is source-available under PolyForm Noncommercial 1.0.0, not an OSI open-source license. Contributions grant SmartAndPoint rights to use, modify and relicense them, including commercially; read the original contribution terms before submitting.
