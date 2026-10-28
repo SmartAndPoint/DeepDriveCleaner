@@ -219,6 +219,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ddc-loadgen"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "ddc-core",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"

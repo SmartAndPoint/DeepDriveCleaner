@@ -56,6 +56,34 @@ pub fn uid() -> u32 {
     unsafe { libc::getuid() }
 }
 
+/// Home folder of the real user from the password database, not `$HOME`:
+/// the load generator refuses targets on its file system whatever `$HOME`
+/// says (story "Synthetic load trees: large, wide, deep and hostile").
+pub fn real_home() -> Option<PathBuf> {
+    let mut buf = vec![0 as libc::c_char; 16 * 1024];
+    let mut pwd = MaybeUninit::<libc::passwd>::uninit();
+    let mut found: *mut libc::passwd = std::ptr::null_mut();
+    loop {
+        // SAFETY: every pointer is valid for the call and `buf` outlives the
+        // strings `pwd` points into, which are read before it is dropped.
+        let rc = unsafe { libc::getpwuid_r(libc::getuid(), pwd.as_mut_ptr(), buf.as_mut_ptr(), buf.len(), &mut found) };
+        match rc {
+            // The entry does not fit: retry with more room, up to 1 MiB.
+            libc::ERANGE if buf.len() < 1024 * 1024 => buf.resize(buf.len() * 4, 0),
+            0 if !found.is_null() => break,
+            _ => return None,
+        }
+    }
+    // SAFETY: `found` is non-null, so `pwd` was filled and `pw_dir` is a C string in `buf`.
+    let dir = unsafe { (*found).pw_dir };
+    if dir.is_null() {
+        return None;
+    }
+    // SAFETY: non-null and NUL-terminated, inside `buf`.
+    let dir = unsafe { CStr::from_ptr(dir) };
+    (!dir.to_bytes().is_empty()).then(|| PathBuf::from(OsStr::from_bytes(dir.to_bytes())))
+}
+
 /// Whether the process runs as root (the executor refuses to).
 pub fn is_root() -> bool {
     // SAFETY: no arguments, cannot fail.
@@ -335,6 +363,12 @@ pub(crate) fn parse_procargs(buf: &[u8], info: &mut ProcInfo) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn real_home_is_an_absolute_folder() {
+        let home = real_home().expect("the password database names a home");
+        assert!(home.is_absolute(), "{home:?}");
+    }
 
     #[test]
     fn procargs_layout_is_parsed() {

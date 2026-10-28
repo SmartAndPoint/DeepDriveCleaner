@@ -6,3 +6,11 @@ slow-timeout = { period = "30s", terminate-after = 4 }
 [profile.ci]
 retries = 0
 fail-fast = false
+
+# Load trees write 10⁴ entries each: at most 4 at a time, beside the other tests.
+[test-groups]
+load = { max-threads = 4 }
+
+[[profile.default.overrides]]
+filter = 'package(ddc-loadgen) & kind(test)'
+test-group = 'load'
