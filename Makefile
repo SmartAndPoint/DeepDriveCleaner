@@ -22,7 +22,7 @@ MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
 .PHONY: build fmt fmt-check clippy test check release install dist app app-test app-dist icons \
 	gate-fast gate nextest doctest clippy-dhat doc deny machete msrv release-check \
-	tools require-tools hooks coverage ci-green
+	tools require-tools hooks coverage ci-green golden-check golden-record loadgen-clean
 
 build:
 	$(CARGO) build --workspace
@@ -75,6 +75,19 @@ msrv:
 
 release-check:
 	$(CARGO) build --workspace --release --locked
+
+# Golden outputs of the S load trees (bench/golden/, story "Synthetic load trees:
+# large, wide, deep and hostile"). The check is part of `nextest`, so the gate runs
+# it; golden-record accepts a deliberate change. Review the diff before committing it.
+golden-check:
+	$(CARGO) nextest run -p ddc-cli --test golden_cli --locked
+
+golden-record:
+	DDC_UPDATE_GOLDEN=1 $(CARGO) nextest run -p ddc-cli --test golden_cli --locked
+
+# Removes the load trees `ddc-loadgen mktemp` left in $$TMPDIR (only marked ones).
+loadgen-clean:
+	$(CARGO) run -q -p ddc-loadgen --locked -- clean
 
 # Installs the pinned gate tools (.config/tools.mk) and the MSRV toolchain. A tool
 # already at its pinned version is kept. The version is read from the binary, not from

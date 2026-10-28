@@ -8,9 +8,10 @@ retries = 0
 fail-fast = false
 
 # Load trees write 10⁴ entries each: at most 4 at a time, beside the other tests.
+# The golden check builds one per profile too.
 [test-groups]
 load = { max-threads = 4 }
 
 [[profile.default.overrides]]
-filter = 'package(ddc-loadgen) & kind(test)'
+filter = '(package(ddc-loadgen) & kind(test)) | binary(golden_cli)'
 test-group = 'load'

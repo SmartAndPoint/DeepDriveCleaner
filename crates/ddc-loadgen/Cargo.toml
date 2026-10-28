@@ -17,5 +17,8 @@ serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 
+[dev-dependencies]
+libc.workspace = true
+
 [lints]
 workspace = true

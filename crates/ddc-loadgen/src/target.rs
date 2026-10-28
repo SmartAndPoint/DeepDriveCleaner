@@ -6,7 +6,7 @@
 
 use std::fs;
 use std::io;
-use std::os::unix::fs::MetadataExt as _;
+use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 
 use ddc_core::sys::{procs, statfs};
@@ -105,10 +105,14 @@ pub fn facts(target: &Path, device: Option<&str>) -> io::Result<Facts> {
 
 fn marked_temp(target: &Path) -> bool {
     // `$TMPDIR`, read outside `Env`: it only narrows where a tree may go.
-    let Ok(tmp) = std::env::temp_dir().canonicalize() else { return false };
+    std::env::temp_dir().canonicalize().is_ok_and(|tmp| marked_in(target, &tmp))
+}
+
+/// Whether `target` is a marked folder directly in `tmp` (canonical).
+fn marked_in(target: &Path, tmp: &Path) -> bool {
     let nonce = target.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_prefix(PREFIX));
     let marker = target.join(MARKER);
-    target.parent() == Some(tmp.as_path())
+    target.parent() == Some(tmp)
         && nonce.is_some_and(|n| !n.is_empty())
         && fs::symlink_metadata(target).is_ok_and(|m| m.is_dir() && m.uid() == procs::uid())
         && fs::symlink_metadata(&marker).is_ok_and(|m| m.is_file() && m.uid() == procs::uid())
@@ -127,6 +131,80 @@ pub fn marked() -> io::Result<tempfile::TempDir> {
         dir.path().file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_prefix(PREFIX)).unwrap_or_default();
     fs::write(dir.path().join(MARKER), nonce)?;
     Ok(dir)
+}
+
+/// A [`marked`] folder that gives back the permissions a profile locked
+/// before it is removed (tests): a failing test still leaves nothing behind.
+pub struct Scratch(tempfile::TempDir);
+
+impl Scratch {
+    pub fn new() -> io::Result<Self> {
+        marked().map(Self)
+    }
+
+    pub fn path(&self) -> &Path {
+        self.0.path()
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        unlock(self.0.path());
+    }
+}
+
+/// Removes every marked temporary folder of this user (`ddc-load-*` with
+/// its marker, by the same rule as the guard); returns what it removed.
+/// It cannot tell an abandoned tree from one a run in another worktree is
+/// still using: run it when no load test or build is running.
+pub fn clean() -> io::Result<Vec<PathBuf>> {
+    clean_in(&std::env::temp_dir().canonicalize()?)
+}
+
+/// [`clean`] in the canonical folder `tmp`. A folder that cannot be removed
+/// does not stop the others; the first failure is reported at the end.
+#[allow(clippy::disallowed_methods)] // only folders the guard accepts as the generator's own
+pub fn clean_in(tmp: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut removed = Vec::new();
+    let mut failed: Vec<(PathBuf, io::Error)> = Vec::new();
+    for entry in fs::read_dir(tmp)? {
+        let path = entry?.path();
+        let ours = path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(PREFIX));
+        if ours && marked_in(&path, tmp) {
+            unlock(&path);
+            match fs::remove_dir_all(&path) {
+                Ok(()) => removed.push(path),
+                Err(e) => failed.push((path, e)),
+            }
+        }
+    }
+    match failed.first() {
+        None => Ok(removed),
+        Some((path, e)) => Err(io::Error::other(format!(
+            "removed {}, could not remove {} folder(s); first {}: {e}",
+            removed.len(),
+            failed.len(),
+            path.display()
+        ))),
+    }
+}
+
+/// Gives back the permissions of folders a profile locked (`hostile`), so
+/// the tree can be removed. Paths past `PATH_MAX` are not followed; nothing
+/// is locked there.
+pub fn unlock(dir: &Path) {
+    let Ok(md) = fs::symlink_metadata(dir) else { return };
+    if !md.is_dir() || md.uid() != procs::uid() {
+        return;
+    }
+    if md.mode() & 0o700 != 0o700 {
+        let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o755));
+    }
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        if entry.file_type().is_ok_and(|t| t.is_dir()) {
+            unlock(&entry.path());
+        }
+    }
 }
 
 /// The folders of one run inside a checked target.

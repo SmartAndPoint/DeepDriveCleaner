@@ -1,0 +1,85 @@
+{
+  "cancelled": false,
+  "ddc_version": null,
+  "duration_ms": null,
+  "errors_total": 0,
+  "findings": [
+    {
+      "bytes": 10330112,
+      "category": "project-artifact",
+      "class": "rebuildable",
+      "dev": "<tree-dev>",
+      "dirs": 1,
+      "files": 4995,
+      "hint": "recreate: npm ci / pnpm install / yarn install",
+      "incomplete": false,
+      "ino": null,
+      "notes": [],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/wide/app/node_modules",
+      "project": {
+        "has_lockfile": true,
+        "idle_days": null,
+        "last_activity": "2024-01-01T00:00:00Z",
+        "root": "<run>/tree/wide/app"
+      },
+      "removal": "delete",
+      "rule": "node.node_modules",
+      "rule_class": "rebuildable",
+      "selected": true,
+      "shared_bytes": 0
+    }
+  ],
+  "full_disk_access": null,
+  "generated_at": null,
+  "home": "<run>/home",
+  "inaccessible": [],
+  "large_files": [],
+  "min_age_days": 14,
+  "scan_roots": [
+    "<run>/tree"
+  ],
+  "schema_version": 1,
+  "skipped": [],
+  "skipped_total": 0,
+  "totals": {
+    "classes": [
+      {
+        "bytes": 0,
+        "class": "safe",
+        "count": 0,
+        "selected_bytes": 0,
+        "selected_count": 0
+      },
+      {
+        "bytes": 10330112,
+        "class": "rebuildable",
+        "count": 1,
+        "selected_bytes": 10330112,
+        "selected_count": 1
+      },
+      {
+        "bytes": 0,
+        "class": "review",
+        "count": 0,
+        "selected_bytes": 0,
+        "selected_count": 0
+      },
+      {
+        "bytes": 0,
+        "class": "user-data",
+        "count": 0,
+        "selected_bytes": 0,
+        "selected_count": 0
+      }
+    ],
+    "dirs": 5,
+    "files": 9997,
+    "scanned_bytes": 15593472,
+    "selected_bytes": 10330112,
+    "selected_reclaimable_bytes": 10330112,
+    "unowned_bytes": 5263360
+  },
+  "volumes": null
+}

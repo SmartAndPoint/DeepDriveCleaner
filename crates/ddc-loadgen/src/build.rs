@@ -3,10 +3,12 @@
 //! path longer than `PATH_MAX` can be built. Modification times are set in
 //! a second pass, after every child exists.
 
-use std::fs::File;
+use std::ffi::OsStr;
+use std::fs::{self, File};
 use std::io::{self, Write as _};
 use std::os::fd::OwnedFd;
 use std::os::unix::ffi::OsStrExt as _;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
 
 use rustix::fs::{
@@ -20,6 +22,9 @@ const DIR: OFlags = OFlags::RDONLY.union(OFlags::DIRECTORY).union(OFlags::NOFOLL
 
 /// Builds `desc` inside the empty directory `tree`.
 pub fn build(desc: &Desc, tree: &Path) -> io::Result<()> {
+    // One handle per open ancestor: a chain to `PATH_MAX` is about 430 deep,
+    // past the default soft limit of 256.
+    ddc_core::sys::rlimit::raise_nofile_limit()?;
     let root = openat(rustix::fs::CWD, tree, DIR, Mode::empty())?;
     let block = content();
     walk(&root, &desc.nodes, |dir, node| create(dir, node, tree, &block))?;
@@ -30,7 +35,12 @@ pub fn build(desc: &Desc, tree: &Path) -> io::Result<()> {
         }
         _ => Ok(()),
     })?;
-    walk(&root, &desc.nodes, touch)
+    walk(&root, &desc.nodes, touch)?;
+    // Last, so their contents and times are already in place.
+    for path in &desc.locked {
+        fs::set_permissions(tree.join(OsStr::from_bytes(path)), fs::Permissions::from_mode(0o000))?;
+    }
+    Ok(())
 }
 
 /// Visits the nodes in order with their parent directory open. The nodes

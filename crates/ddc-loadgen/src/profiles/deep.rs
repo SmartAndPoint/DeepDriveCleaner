@@ -10,8 +10,7 @@ const DEPTH: usize = 200;
 // No `f`: each level holds a file named `f`.
 const LETTERS: &[u8] = b"abcdeghijklmnopqrstuvwxyz";
 
-pub fn desc(entries: u64, rng: &mut Rng) -> Desc {
-    let mut d = Desc::new();
+pub fn fill(d: &mut Desc, entries: u64, rng: &mut Rng) {
     for k in 0..3 {
         let mut at = format!("long/{}", "L".repeat(255)).into_bytes();
         for level in 0..3 {
@@ -41,5 +40,4 @@ pub fn desc(entries: u64, rng: &mut Rng) -> Desc {
         }
         k += 1;
     }
-    d
 }

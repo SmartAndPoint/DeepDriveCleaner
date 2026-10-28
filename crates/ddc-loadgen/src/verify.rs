@@ -17,22 +17,42 @@ use crate::target::Layout;
 
 /// The differences, one line each; empty when the scan matches.
 pub fn verify(m: &Manifest, layout: &Layout, home: &Path) -> anyhow::Result<Vec<String>> {
+    let (totals, found, planned) = scanned(layout, home)?;
+    let mut diffs = Vec::new();
+    if totals != m.totals {
+        diffs.push(format!("totals: expected {:?}, scanned {totals:?}", m.totals));
+    }
+    compare(&mut diffs, "finding", &m.findings, &found, |f| &f.path);
+    compare(&mut diffs, "plan item", &m.plan, &planned, |p| &p.path);
+    Ok(diffs)
+}
+
+/// For a tree that changes while it is scanned (`hostile`): every finding
+/// is one of the manifest's, by path and rule. Sizes and totals may differ.
+pub fn subset(m: &Manifest, layout: &Layout, home: &Path) -> anyhow::Result<Vec<String>> {
+    let (_, found, _) = scanned(layout, home)?;
+    let known: BTreeMap<&String, &String> = m.findings.iter().map(|f| (&f.path, &f.rule)).collect();
+    Ok(found
+        .iter()
+        .filter(|f| known.get(&f.path) != Some(&&f.rule))
+        .map(|f| format!("finding not in the manifest: {} ({})", f.path, f.rule))
+        .collect())
+}
+
+/// One scan and the default plan, in the manifest's terms.
+fn scanned(layout: &Layout, home: &Path) -> anyhow::Result<(Totals, Vec<Expected>, Vec<Planned>)> {
     let env = Env::with_paths(home, &layout.data, &layout.data.join("logs"), SystemTime::now())?;
     let opts = ScanOptions { roots: vec![layout.tree.clone()], ..ScanOptions::default() };
     let report = report::scan(&env, &opts, &Progress::default())?;
     let plan = build_plan(&report, &Catalog::builtin(env.home()), &PlanOptions::default());
     let rel = |p: &Path| show(p.strip_prefix(&layout.tree).unwrap_or(p).as_os_str().as_bytes());
 
-    let mut diffs = Vec::new();
     let totals = Totals {
         files: report.totals.files,
         dirs: report.totals.dirs,
         scanned_bytes: report.totals.scanned_bytes,
         errors: report.errors_total,
     };
-    if totals != m.totals {
-        diffs.push(format!("totals: expected {:?}, scanned {totals:?}", m.totals));
-    }
     let found: Vec<Expected> = report
         .findings
         .iter()
@@ -48,7 +68,6 @@ pub fn verify(m: &Manifest, layout: &Layout, home: &Path) -> anyhow::Result<Vec<
             incomplete: f.incomplete,
         })
         .collect();
-    compare(&mut diffs, "finding", &m.findings, &found, |f| &f.path);
     let planned: Vec<Planned> = plan
         .items
         .iter()
@@ -59,8 +78,7 @@ pub fn verify(m: &Manifest, layout: &Layout, home: &Path) -> anyhow::Result<Vec<
             selected: i.selected,
         })
         .collect();
-    compare(&mut diffs, "plan item", &m.plan, &planned, |p| &p.path);
-    Ok(diffs)
+    Ok((totals, found, planned))
 }
 
 fn compare<'a, T: PartialEq + std::fmt::Debug>(

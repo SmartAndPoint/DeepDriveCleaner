@@ -5,8 +5,7 @@
 use crate::desc::{Desc, join};
 use crate::rng::Rng;
 
-pub fn desc(entries: u64, rng: &mut Rng) -> Desc {
-    let mut d = Desc::new();
+pub fn fill(d: &mut Desc, entries: u64, rng: &mut Rng) {
     d.symlink("links/loop/self", "../loop");
     d.symlink("links/loop/a", "b");
     d.symlink("links/loop/b", "a");
@@ -41,5 +40,4 @@ pub fn desc(entries: u64, rng: &mut Rng) -> Desc {
         }
         i += 1;
     }
-    d
 }

@@ -1,0 +1,276 @@
+{
+  "areas": [
+    {
+      "bytes": 2330624,
+      "dirs": 125,
+      "explanation": "Apps installed for every user of this Mac.",
+      "files": 680,
+      "frees": "Delete an app you no longer use in Finder, or with its own uninstaller.",
+      "id": "applications",
+      "partial": false,
+      "paths": [
+        "<run>/tree/System/Volumes/Data/Applications"
+      ],
+      "shared_bytes": 0,
+      "title": "Applications",
+      "unreadable": 0
+    },
+    {
+      "bytes": 1212416,
+      "dirs": 70,
+      "explanation": "Support files, caches, fonts and plug-ins of apps for every user, and system settings.",
+      "files": 337,
+      "frees": "The app that put them there, or its uninstaller.",
+      "id": "library",
+      "partial": false,
+      "paths": [
+        "<run>/tree/System/Volumes/Data/Library"
+      ],
+      "shared_bytes": 0,
+      "title": "Library for all users",
+      "unreadable": 0
+    },
+    {
+      "bytes": 798720,
+      "dirs": 60,
+      "explanation": "Data macOS downloads: system assets, language models, voices and update files.",
+      "files": 248,
+      "frees": "macOS removes assets it no longer needs on its own.",
+      "id": "macos-assets",
+      "partial": false,
+      "paths": [
+        "<run>/tree/System/Volumes/Data/System"
+      ],
+      "shared_bytes": 0,
+      "title": "macOS downloaded data",
+      "unreadable": 0
+    },
+    {
+      "bytes": 0,
+      "dirs": 1,
+      "explanation": "Package managers and tools installed in /opt.",
+      "files": 0,
+      "frees": "The tool that installed them.",
+      "id": "opt",
+      "partial": false,
+      "paths": [
+        "<run>/tree/System/Volumes/Data/opt"
+      ],
+      "shared_bytes": 0,
+      "title": "/opt",
+      "unreadable": 0
+    },
+    {
+      "bytes": 528384,
+      "dirs": 42,
+      "explanation": "Tools installed by hand or by installers.",
+      "files": 164,
+      "frees": "The installer's uninstaller.",
+      "id": "usr-local",
+      "partial": false,
+      "paths": [
+        "<run>/tree/System/Volumes/Data/usr/local"
+      ],
+      "shared_bytes": 0,
+      "title": "/usr/local",
+      "unreadable": 0
+    },
+    {
+      "bytes": 540672,
+      "dirs": 46,
+      "explanation": "System databases, logs and other files macOS keeps in /private.",
+      "files": 161,
+      "frees": "macOS manages them.",
+      "id": "private",
+      "partial": false,
+      "paths": [
+        "<run>/tree/System/Volumes/Data/private"
+      ],
+      "shared_bytes": 0,
+      "title": "System files in /private",
+      "unreadable": 0
+    },
+    {
+      "bytes": 6488064,
+      "dirs": 2369,
+      "explanation": "Home folders of the other users of this Mac. Folders you cannot read are not counted.",
+      "files": 1933,
+      "frees": "Each user cleans their own home folder.",
+      "id": "users",
+      "partial": false,
+      "paths": [
+        "<run>/tree/System/Volumes/Data/Users"
+      ],
+      "shared_bytes": 0,
+      "title": "Other users",
+      "unreadable": 0
+    },
+    {
+      "bytes": 327680,
+      "dirs": 21,
+      "explanation": "Memory dumps written when a process crashes, if core dumps are on.",
+      "files": 84,
+      "frees": "Delete them in Terminal with an administrator's password.",
+      "id": "cores",
+      "partial": false,
+      "paths": [
+        "<run>/tree/System/Volumes/Data/cores"
+      ],
+      "shared_bytes": 0,
+      "title": "Crash dumps",
+      "unreadable": 0
+    },
+    {
+      "bytes": 552960,
+      "dirs": 46,
+      "explanation": "A macOS update downloaded and waiting to be installed.",
+      "files": 159,
+      "frees": "Installing the update.",
+      "id": "macos-update",
+      "parent": "library",
+      "partial": false,
+      "paths": [
+        "<run>/tree/System/Volumes/Data/Library/Updates"
+      ],
+      "shared_bytes": 0,
+      "title": "Downloaded macOS update",
+      "unreadable": 0
+    },
+    {
+      "action": "simctl-runtime-delete",
+      "bytes": 569344,
+      "dirs": 37,
+      "explanation": "Simulator runtimes of Xcode, with the caches and images CoreSimulator keeps beside them.",
+      "files": 169,
+      "frees": "Deleting a runtime you no longer use with simctl.",
+      "id": "simulator-runtimes",
+      "partial": false,
+      "paths": [
+        "<run>/tree/System/Volumes/Data/Library/Developer/CoreSimulator"
+      ],
+      "shared_bytes": 0,
+      "title": "Simulator runtimes",
+      "unreadable": 0
+    },
+    {
+      "action": "brew-cleanup",
+      "bytes": 1609728,
+      "dirs": 99,
+      "explanation": "Homebrew's formulae, casks and their old versions.",
+      "files": 507,
+      "frees": "brew cleanup removes old versions and old downloads.",
+      "id": "homebrew",
+      "parent": "opt",
+      "partial": false,
+      "paths": [
+        "<run>/tree/System/Volumes/Data/opt/homebrew"
+      ],
+      "shared_bytes": 0,
+      "title": "Homebrew",
+      "unreadable": 0
+    },
+    {
+      "bytes": 3551232,
+      "dirs": 531,
+      "entries_read": 1608,
+      "explanation": "Per-user temporary files and caches of apps and tools. Large folders are counted up to a limit.",
+      "files": 1078,
+      "frees": "Quitting the app that owns them, or restarting the Mac.",
+      "id": "temporary-folders",
+      "parent": "private",
+      "partial": false,
+      "paths": [
+        "<run>/tree/System/Volumes/Data/private/var/folders"
+      ],
+      "shared_bytes": 0,
+      "title": "Temporary folders",
+      "unreadable": 0
+    },
+    {
+      "bytes": 491520,
+      "dirs": 47,
+      "entries_read": 204,
+      "explanation": "The shared temporary folder /tmp.",
+      "files": 158,
+      "frees": "Restarting the Mac clears what is older than three days.",
+      "id": "tmp",
+      "parent": "private",
+      "partial": false,
+      "paths": [
+        "<run>/tree/System/Volumes/Data/private/tmp"
+      ],
+      "shared_bytes": 0,
+      "title": "/tmp",
+      "unreadable": 0
+    },
+    {
+      "bytes": 65536,
+      "dirs": 1,
+      "explanation": "The sleep image, a copy of memory written before the Mac sleeps.",
+      "files": 1,
+      "frees": "macOS manages it; it is about the size of the memory.",
+      "id": "sleep-image",
+      "parent": "private",
+      "partial": false,
+      "paths": [
+        "<run>/tree/System/Volumes/Data/private/var/vm"
+      ],
+      "shared_bytes": 0,
+      "title": "Sleep image",
+      "unreadable": 0
+    },
+    {
+      "bytes": 552960,
+      "dirs": 40,
+      "explanation": "The Shared folder every user can write to.",
+      "files": 165,
+      "frees": "Delete what you no longer need in Finder.",
+      "id": "shared",
+      "parent": "users",
+      "partial": false,
+      "paths": [
+        "<run>/tree/System/Volumes/Data/Users/Shared"
+      ],
+      "shared_bytes": 0,
+      "title": "Shared folder",
+      "unreadable": 0
+    }
+  ],
+  "cancelled": false,
+  "container": null,
+  "ddc_version": null,
+  "duration_ms": null,
+  "generated_at": null,
+  "home": {
+    "as_of": null,
+    "bytes": 0,
+    "partial": false,
+    "path": "<run>/tree/System/Volumes/Data/Users/load",
+    "source": "walk",
+    "unreadable": 0
+  },
+  "not_counted": {
+    "bytes": null,
+    "counted_bytes": 19619840,
+    "data_volume_bytes": null,
+    "holds": [
+      {
+        "kind": "cloud",
+        "path": "<run>/tree/System/Volumes/Data/Users/load/Library/CloudStorage"
+      },
+      {
+        "kind": "cloud",
+        "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Mobile Documents"
+      }
+    ],
+    "inconsistent": false,
+    "unreadable": 0
+  },
+  "schema_version": 1,
+  "snapshots": {},
+  "walk": {
+    "bytes": 19619840,
+    "dirs": 3535,
+    "files": 5844
+  }
+}

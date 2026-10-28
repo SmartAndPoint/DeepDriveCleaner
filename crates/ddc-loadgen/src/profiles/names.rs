@@ -30,7 +30,7 @@ const PLAIN: &[&[u8]] = &[
     b"..dots",
 ];
 
-pub fn desc(entries: u64, rng: &mut Rng, caps: FsCaps) -> Desc {
+pub fn fill(d: &mut Desc, entries: u64, rng: &mut Rng, caps: FsCaps) {
     let mut names: Vec<Vec<u8>> = PLAIN.iter().map(|n| n.to_vec()).collect();
     // `é` precomposed, and `e` + combining acute.
     names.push("caf\u{e9}".into());
@@ -46,7 +46,6 @@ pub fn desc(entries: u64, rng: &mut Rng, caps: FsCaps) -> Desc {
     if caps.invalid_utf8 {
         names.push(b"bad\xff\xfe".to_vec());
     }
-    let mut d = Desc::new();
     d.caps = Some(caps);
     let mut k = 0;
     while (d.len() as u64) < entries {
@@ -61,5 +60,4 @@ pub fn desc(entries: u64, rng: &mut Rng, caps: FsCaps) -> Desc {
         }
         k += 1;
     }
-    d
 }

@@ -12,6 +12,7 @@ publish = false
 
 [workspace.dependencies]
 ddc-core = { path = "crates/ddc-core" }
+ddc-loadgen = { path = "crates/ddc-loadgen" }
 anyhow = "1.0.100"
 clap = { version = "4.6", features = ["derive"] }
 humantime = "2.4"

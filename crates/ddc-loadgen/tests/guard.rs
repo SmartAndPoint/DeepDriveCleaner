@@ -74,3 +74,33 @@ fn a_mount_that_is_not_the_attached_image_is_refused() {
     let f = target::facts(dir.path(), Some("/dev/disk-not-attached")).unwrap();
     assert!(matches!(decide(&f), Err(Refusal::WrongDevice { .. })), "{f:?}");
 }
+
+/// `clean` removes only the generator's own folders, locked ones included,
+/// and leaves an unmarked or mismatched `ddc-load-*` folder alone.
+#[test]
+fn clean_removes_only_marked_folders() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp = tmp.path().canonicalize().unwrap();
+    let mark = |name: &str, nonce: Option<&str>| {
+        let dir = tmp.join(name);
+        fs::create_dir_all(dir.join("tree/sealed")).unwrap();
+        if let Some(n) = nonce {
+            fs::write(dir.join(MARKER), n).unwrap();
+        }
+        dir
+    };
+    let ours = mark("ddc-load-abc", Some("abc"));
+    fs::set_permissions(ours.join("tree/sealed"), fs::Permissions::from_mode(0o000)).unwrap();
+    let unmarked = mark("ddc-load-def", None);
+    let mismatched = mark("ddc-load-ghi", Some("xyz"));
+    let other = mark("unrelated", Some("unrelated"));
+
+    let removed = target::clean_in(&tmp).unwrap();
+    assert_eq!(removed, std::slice::from_ref(&ours));
+    assert!(!ours.exists());
+    for kept in [unmarked, mismatched, other] {
+        assert!(kept.exists(), "{}", kept.display());
+    }
+}

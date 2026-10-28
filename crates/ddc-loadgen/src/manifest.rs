@@ -211,21 +211,31 @@ impl<'d> Index<'d> {
         }
     }
 
+    /// Whether the scan sees `path`: not in a folder it never opens, nor
+    /// below one it cannot read.
+    fn seen(&self, path: &[u8]) -> bool {
+        !self.desc.unopened.iter().any(|u| within(path, u))
+            && !self.desc.unreadable.iter().any(|u| path != u.as_slice() && within(path, u))
+    }
+
     fn totals(&self) -> Totals {
-        let nodes: Vec<_> =
-            self.desc.nodes.iter().filter(|n| !self.desc.unopened.iter().any(|u| within(&n.path, u))).collect();
+        let nodes: Vec<_> = self.desc.nodes.iter().filter(|n| self.seen(&n.path)).collect();
         Totals {
             files: nodes.iter().filter(|n| n.kind != Kind::Dir).count() as u64,
             dirs: nodes.iter().filter(|n| n.kind == Kind::Dir).count() as u64 + 1,
             scanned_bytes: nodes.iter().map(|n| Self::alloc(&n.kind)).sum(),
-            errors: 0,
+            errors: self.desc.unreadable.iter().filter(|u| self.seen(u)).count() as u64,
         }
     }
 
     fn expect(&self, path: &[u8], rule: &'static Rule) -> Expected {
         // The nodes are sorted depth-first: a subtree is one run of them.
         let start = self.pos.get(path).copied().unwrap_or(self.desc.nodes.len());
-        let inside: Vec<_> = self.desc.nodes[start..].iter().take_while(|n| within(&n.path, path)).collect();
+        let inside: Vec<_> = self.desc.nodes[start..]
+            .iter()
+            .take_while(|n| within(&n.path, path))
+            .filter(|n| self.seen(&n.path))
+            .collect();
         let files: HashSet<&[u8]> = inside
             .iter()
             .filter_map(|n| match &n.kind {
@@ -255,7 +265,7 @@ impl<'d> Index<'d> {
             shared_bytes,
             files: inside.iter().filter(|n| n.kind != Kind::Dir).count() as u64,
             dirs: inside.iter().filter(|n| n.kind == Kind::Dir).count() as u64,
-            incomplete: false,
+            incomplete: self.desc.unreadable.iter().any(|u| within(u, path) && self.seen(u)),
         }
     }
 

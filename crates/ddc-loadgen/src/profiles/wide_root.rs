@@ -6,15 +6,15 @@
 use crate::desc::{Desc, join};
 use crate::rng::Rng;
 
-pub fn desc(entries: u64, rng: &mut Rng) -> Desc {
-    let mut d = Desc::new();
+pub fn fill(d: &mut Desc, entries: u64, rng: &mut Rng) {
+    let budget = entries.saturating_sub(d.len() as u64);
     let root = b"root";
     d.file(join(root, b".git/HEAD"), 0);
     d.file(join(root, b".git/index"), 0);
     d.file(join(root, b"requirements.txt"), 0);
     d.file(join(root, b"package.json"), 0);
     // A twentieth of the budget each for venvs and caches, three entries apiece.
-    let findings = (entries / 20 / 3).max(1);
+    let findings = (budget / 20 / 3).max(1);
     for i in 0..findings {
         let venv = join(root, format!("venv{i:05}").as_bytes());
         d.text(join(&venv, b"pyvenv.cfg"), "home = /usr/bin\n");
@@ -29,5 +29,4 @@ pub fn desc(entries: u64, rng: &mut Rng) -> Desc {
         d.file(join(root, format!("s{i:06}.txt").as_bytes()), 0);
         i += 1;
     }
-    d
 }

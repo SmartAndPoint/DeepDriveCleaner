@@ -18,6 +18,8 @@ struct Cli {
 enum Cmd {
     /// Create a marked temporary folder and print its path.
     Mktemp,
+    /// Remove every marked temporary folder of this user.
+    Clean,
     /// Build a tree and print its manifest.
     Build {
         profile: Profile,
@@ -48,6 +50,7 @@ enum Cmd {
 fn main() -> anyhow::Result<()> {
     let out = match Cli::parse().cmd {
         Cmd::Mktemp => serde_json::json!({ "path": target::mktemp()? }),
+        Cmd::Clean => serde_json::json!({ "removed": target::clean()? }),
         Cmd::Manifest { profile, entries, seed } => {
             let caps = FsCaps { case_insensitive: true, normalization_insensitive: true, invalid_utf8: false };
             let m = manifest::manifest(profile.name(), seed, &profile.desc(entries, seed, caps));

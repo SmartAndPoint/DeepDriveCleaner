@@ -10,11 +10,10 @@ use crate::desc::{Desc, join};
 use crate::fixtures;
 use crate::rng::Rng;
 
-pub fn desc(entries: u64, rng: &mut Rng) -> Desc {
+pub fn fill(d: &mut Desc, entries: u64, rng: &mut Rng) {
     let rules = fixtures::project_rules();
-    let mut d = Desc::new();
-    monorepo(&mut d, rng);
-    unowned_build(&mut d);
+    monorepo(d, rng);
+    unowned_build(d);
     let mut i = 0;
     while (d.len() as u64) < entries {
         let base = format!("projects/g{:02}/p{i:05}", i / 100).into_bytes();
@@ -22,9 +21,9 @@ pub fn desc(entries: u64, rng: &mut Rng) -> Desc {
         let rule = if i < rules.len() { rules[i] } else { *rng.pick(&rules) };
         d.file(join(&base, b".git/HEAD"), 0);
         d.file(join(&base, b".git/index"), 0);
-        let at = fixtures::project(&mut d, &base, rule, rng.chance(80));
+        let at = fixtures::project(d, &base, rule, rng.chance(80));
         let n = rng.range(5, 60);
-        fixtures::payload(&mut d, rng, &at, n);
+        fixtures::payload(d, rng, &at, n);
         if rng.chance(15) {
             d.fresh(join(&base, b".git/index"));
         }
@@ -36,7 +35,6 @@ pub fn desc(entries: u64, rng: &mut Rng) -> Desc {
         }
         i += 1;
     }
-    d
 }
 
 /// Packages under one git root that holds the lock file: activity is read in

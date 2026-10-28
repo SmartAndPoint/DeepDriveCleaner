@@ -22,6 +22,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+ddc-loadgen.workspace = true
 libc.workspace = true
 tempfile.workspace = true
 

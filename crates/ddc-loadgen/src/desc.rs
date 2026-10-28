@@ -70,6 +70,12 @@ pub struct Desc {
     pub planted: Vec<Planted>,
     /// Folders the scan never opens (cloud folders): not counted, nor anything in them.
     pub unopened: Vec<Vec<u8>>,
+    /// Folders the scan lists but cannot read: each is counted as a folder
+    /// and as one error, nothing inside it is counted, and the finding it
+    /// lies in is incomplete.
+    pub unreadable: Vec<Vec<u8>>,
+    /// Folders built with no permissions once their contents exist ([`Desc::lock`]).
+    pub locked: Vec<Vec<u8>>,
     /// What the file system accepted, for the profiles whose tree depends on it.
     pub caps: Option<FsCaps>,
     dirs: BTreeSet<Vec<u8>>,
@@ -132,6 +138,20 @@ impl Desc {
         if let Some(n) = self.nodes.iter_mut().rev().find(|n| n.path == path) {
             n.age = Age::Fresh;
         }
+    }
+
+    /// Makes the folder at `path` unreadable: built with mode 000, so the
+    /// scan lists it but cannot open it. Locked folders must not nest.
+    pub fn lock(&mut self, path: impl AsRef<[u8]>) {
+        let path = path.as_ref();
+        debug_assert!(
+            !self.locked.iter().any(|l| within(path, l) || within(l, path)),
+            "{} nests in another locked folder",
+            String::from_utf8_lossy(path)
+        );
+        self.dir(path);
+        self.locked.push(path.to_vec());
+        self.unreadable.push(path.to_vec());
     }
 
     pub fn plant(&mut self, path: impl AsRef<[u8]>, rule: &'static str) {

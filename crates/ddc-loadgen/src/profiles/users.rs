@@ -6,23 +6,27 @@ use crate::desc::{Desc, join};
 use crate::fixtures;
 use crate::rng::Rng;
 
-pub const HOME: &[u8] = b"Users/load";
+pub fn fill(d: &mut Desc, entries: u64, rng: &mut Rng) {
+    users(d, b"Users", entries, rng);
+}
 
-pub fn desc(entries: u64, rng: &mut Rng) -> Desc {
-    let mut d = Desc::new();
-    d.home = Some(HOME.to_vec());
-    d.dir(HOME);
+/// A `Users` folder at `users` until the tree holds `entries`: the home
+/// `<users>/load` and per-user folders around it.
+pub fn users(d: &mut Desc, users: &[u8], entries: u64, rng: &mut Rng) {
+    let home = join(users, b"load");
+    d.home = Some(home.clone());
+    d.dir(&home);
     for rule in fixtures::home_rules() {
-        fixtures::home(&mut d, HOME, rule, rng);
+        fixtures::home(d, &home, rule, rng);
     }
-    home_projects(&mut d, rng);
+    home_projects(d, &home, rng);
     let mut i = 0;
     while (d.len() as u64) < entries {
-        let user = format!("Users/u{i:05}").into_bytes();
+        let user = join(users, format!("u{i:05}").as_bytes());
         for app in 0..rng.range(1, 3) {
-            fixtures::payload(&mut d, rng, &join(&user, format!("Library/Caches/com.app{app}").as_bytes()), 4);
+            fixtures::payload(d, rng, &join(&user, format!("Library/Caches/com.app{app}").as_bytes()), 4);
         }
-        fixtures::payload(&mut d, rng, &join(&user, b".cache/tool"), 3);
+        fixtures::payload(d, rng, &join(&user, b".cache/tool"), 3);
         let cache = join(&user, b"Projects/p/__pycache__");
         d.file(join(&cache, b"m.pyc"), 1);
         d.plant(&cache, "python.pycache");
@@ -33,15 +37,14 @@ pub fn desc(entries: u64, rng: &mut Rng) -> Desc {
         }
         i += 1;
     }
-    d
 }
 
 /// Project artifacts in the home folder itself. Under a dot folder or
 /// `Library` they belong to an app and go to review. A `.git` in the home
 /// does not make the home a project root, so its fresh index does not keep
 /// `code/target`, whose own manifest is old.
-fn home_projects(d: &mut Desc, rng: &mut Rng) {
-    let at = |rel: &str| join(HOME, rel.as_bytes());
+fn home_projects(d: &mut Desc, home: &[u8], rng: &mut Rng) {
+    let at = |rel: &str| join(home, rel.as_bytes());
     d.file(at(".tool/x/uv.lock"), 0);
     d.text(at(".tool/x/.venv/pyvenv.cfg"), "home = /usr/bin\n");
     d.plant(at(".tool/x/.venv"), "python.venv");

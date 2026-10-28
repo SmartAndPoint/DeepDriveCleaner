@@ -7,7 +7,7 @@ use ddc_loadgen::{generate, target, verify};
 const S: u64 = 10_000;
 
 fn check(p: Profile) {
-    let dir = target::marked().unwrap();
+    let dir = target::Scratch::new().unwrap();
     let g = generate(p, S, 1, dir.path(), None).unwrap();
     assert_eq!(g.layout.tree.as_os_str().len(), target::ROOT_LEN);
     assert!(!g.manifest.findings.is_empty(), "{}: nothing planted", p.name());
@@ -36,6 +36,11 @@ fn deep() {
 }
 
 #[test]
+fn deep_path_max() {
+    check(Profile::DeepPathMax);
+}
+
+#[test]
 fn users() {
     check(Profile::Users);
 }
@@ -48,4 +53,19 @@ fn links() {
 #[test]
 fn names() {
     check(Profile::Names);
+}
+
+#[test]
+fn system_root() {
+    check(Profile::SystemRoot);
+}
+
+#[test]
+fn mixed() {
+    check(Profile::Mixed);
+}
+
+#[test]
+fn hostile() {
+    check(Profile::Hostile);
 }

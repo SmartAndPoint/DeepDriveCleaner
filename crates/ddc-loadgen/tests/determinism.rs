@@ -27,11 +27,11 @@ fn another_seed_gives_another_hash() {
 }
 
 #[test]
-fn only_names_depends_on_the_file_system() {
+fn only_names_and_mixed_depend_on_the_file_system() {
     let linux = FsCaps { case_insensitive: false, normalization_insensitive: false, invalid_utf8: true };
     for p in Profile::ALL {
         let same = hash(p, 7, APFS) == hash(p, 7, linux);
-        assert_eq!(same, p != Profile::Names, "{}", p.name());
+        assert_eq!(same, !matches!(p, Profile::Names | Profile::Mixed), "{}", p.name());
     }
 }
 
@@ -40,5 +40,30 @@ fn every_profile_has_about_the_requested_size() {
     for p in Profile::ALL {
         let m = manifest(p.name(), 1, &p.desc(S, 1, APFS));
         assert!((S..S + S / 50).contains(&m.entries), "{}: {} entries", p.name(), m.entries);
+    }
+}
+
+/// The S trees of seed 1, pinned: a change to a profile, the description or
+/// the manifest changes a hash, and the change is then deliberate. Update the
+/// table with `ddc-loadgen manifest <profile>` (APFS capabilities).
+const PINNED: &[(Profile, &str)] = &[
+    (Profile::Projects, "8aa6e9516b6f830c"),
+    (Profile::Wide, "8756587ab5d78167"),
+    (Profile::WideRoot, "1277cc49407eed0c"),
+    (Profile::Deep, "ff9ec73e270608ca"),
+    (Profile::DeepPathMax, "648cd98930695a03"),
+    (Profile::Users, "ae3b36c668000f20"),
+    (Profile::Links, "48fa1a46fe3a8adb"),
+    (Profile::Names, "58769f53aca9df23"),
+    (Profile::SystemRoot, "fd4b4d08b640b6a9"),
+    (Profile::Hostile, "653c3bec918eead1"),
+    (Profile::Mixed, "00af818e9751d314"),
+];
+
+#[test]
+fn the_s_hashes_are_pinned() {
+    assert_eq!(PINNED.len(), Profile::ALL.len(), "a profile without a pinned hash");
+    for (p, want) in PINNED {
+        assert_eq!(hash(*p, 1, APFS), *want, "{}", p.name());
     }
 }
