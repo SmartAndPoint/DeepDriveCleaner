@@ -8,7 +8,7 @@ mod areas;
 mod home;
 mod model;
 mod plist;
-mod simulators;
+pub(crate) mod simulators;
 pub(crate) mod visitor;
 
 use std::os::unix::fs::MetadataExt as _;
@@ -37,6 +37,11 @@ pub struct Sources {
     pub xcode_select: PathBuf,
     /// The real `simctl` of CoreSimulator, not the shim under `xcode-select -p`.
     pub simctl: PathBuf,
+    /// The Homebrew area's own `brew`, never the first one on the tool path.
+    pub brew: PathBuf,
+    /// Where simulator runtimes' assets live: a runtime's `parentMountPath`
+    /// must lie under it.
+    pub assets: PathBuf,
 }
 
 const SIMCTL: &str = "Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/Resources/bin/simctl";
@@ -54,6 +59,8 @@ impl Sources {
             tmutil: root.join("usr/bin/tmutil"),
             xcode_select: root.join("usr/bin/xcode-select"),
             simctl: root.join(SIMCTL),
+            brew: root.join("opt/homebrew/bin/brew"),
+            assets: root.join("System/Library/AssetsV2"),
         }
     }
 }
@@ -210,6 +217,7 @@ pub fn measure_with(
                 unreadable: t.unreadable,
                 partial: t.partial,
                 entries_read: def.budgeted.then(|| visitor.entries[i].load(Ordering::Relaxed)),
+                stale: false,
             }
         })
         .collect();

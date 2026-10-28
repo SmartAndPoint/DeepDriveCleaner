@@ -1,0 +1,410 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FreeReport",
+  "description": "What `ddc disk free` did, one report per listed action in list order.",
+  "type": "object",
+  "properties": {
+    "actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ActionReport"
+      }
+    },
+    "ddc_version": {
+      "type": "string"
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "journal": {
+      "description": "`actions.jsonl`; absent from a dry run.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "last_disk": {
+      "description": "`last-disk.json` after any action that ran.",
+      "$ref": "#/$defs/ReportEdit"
+    },
+    "last_scan": {
+      "description": "`last-scan.json` after a `brew-cleanup` that ran.",
+      "$ref": "#/$defs/ReportEdit"
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "schema_version",
+    "ddc_version",
+    "dry_run",
+    "actions",
+    "last_scan",
+    "last_disk"
+  ],
+  "$defs": {
+    "ActionId": {
+      "description": "The one-click tool an area can be freed with (story \"Whole disk: free\nspace with the owning tool\"); this report only names it.",
+      "type": "string",
+      "enum": [
+        "simctl-runtime-delete",
+        "brew-cleanup"
+      ]
+    },
+    "ActionList": {
+      "description": "The actions a person confirmed, as the app's sheet passes them.",
+      "type": "object",
+      "properties": {
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ListedAction"
+          }
+        },
+        "schema_version": {
+          "description": "[`FREE_SCHEMA_VERSION`].",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "actions"
+      ]
+    },
+    "ActionReport": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "area": {
+          "description": "The disk report's area: `simulator-runtimes` or `homebrew`.",
+          "type": "string"
+        },
+        "bytes_after": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "bytes_before": {
+          "description": "Allocated bytes of the folders the action frees; absent when they\nwere not measured (a skip in `settings.json`, or refused first).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "command": {
+          "description": "The program and its arguments, as run (or as it would run).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "description": "`NAME=value`, added to the environment.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "identifier": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output": {
+          "description": "The last part of the tool's output.",
+          "type": "string"
+        },
+        "preview": {
+          "description": "The tool's own dry run; only in a dry run.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Preview"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result": {
+          "$ref": "#/$defs/ActionResult"
+        },
+        "terminal_command": {
+          "description": "The same command for a person to paste into Terminal.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "area",
+        "command",
+        "env",
+        "terminal_command",
+        "result"
+      ]
+    },
+    "ActionResult": {
+      "oneOf": [
+        {
+          "description": "The tool succeeded and, for a runtime, the runtime left the list.",
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "freed"
+            }
+          },
+          "required": [
+            "status"
+          ]
+        },
+        {
+          "description": "The runtime left the list, and its folder did not shrink.",
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "removed-not-freed"
+            }
+          },
+          "required": [
+            "status"
+          ]
+        },
+        {
+          "description": "The runtime is still listed after the timeout, or ddc was stopped\nwhile it waited. CoreSimulator's daemon may still finish it.",
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "still-deleting"
+            }
+          },
+          "required": [
+            "status"
+          ]
+        },
+        {
+          "description": "The location probe refused it: nothing ran.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "$ref": "#/$defs/Refusal"
+            },
+            "status": {
+              "type": "string",
+              "const": "refused"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ]
+        },
+        {
+          "description": "The tool exited non-zero, timed out or was stopped.",
+          "type": "object",
+          "properties": {
+            "needs_admin": {
+              "description": "The output names a permission error: the Terminal command may\nneed an administrator.",
+              "type": "boolean"
+            },
+            "status": {
+              "type": "string",
+              "const": "failed"
+            }
+          },
+          "required": [
+            "status",
+            "needs_admin"
+          ]
+        },
+        {
+          "description": "A dry run: the probe passed.",
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "would-run"
+            }
+          },
+          "required": [
+            "status"
+          ]
+        },
+        {
+          "description": "A stop arrived before it started.",
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "not-run"
+            }
+          },
+          "required": [
+            "status"
+          ]
+        }
+      ]
+    },
+    "ListedAction": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "identifier": {
+          "description": "The runtime's asset id, as the disk report lists it; only on\n`simctl-runtime-delete`, and required there.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "action"
+      ]
+    },
+    "Preview": {
+      "description": "The tool's own dry run.",
+      "type": "object",
+      "properties": {
+        "estimate_bytes": {
+          "description": "What it would free: a runtime's measured folder, or what `brew\ncleanup -n` says it would free.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "lines": {
+          "description": "Its output, line by line, as printed.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "lines"
+      ]
+    },
+    "Refusal": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "not-deletable",
+            "no-developer-tools"
+          ]
+        },
+        {
+          "description": "No runtime, or more than one, has this identifier.",
+          "type": "string",
+          "const": "unknown-runtime"
+        },
+        {
+          "description": "Its `parentMountPath` is not under `/System/Library/AssetsV2/`.",
+          "type": "string",
+          "const": "not-under-assets"
+        },
+        {
+          "description": "Already in the state `Deleting`.",
+          "type": "string",
+          "const": "deleting"
+        },
+        {
+          "description": "No `runtimeIdentifier`: its devices cannot be joined to it.",
+          "type": "string",
+          "const": "no-runtime-identifier"
+        },
+        {
+          "description": "A device on it is not shut down: booted, booting or shutting down.",
+          "type": "string",
+          "const": "booted"
+        },
+        {
+          "description": "`simctl list devices -j` failed.",
+          "type": "string",
+          "const": "devices-unknown"
+        },
+        {
+          "description": "Its `path` lies in no `<hash>.asset` folder under AssetsV2.",
+          "type": "string",
+          "const": "no-asset-folder"
+        },
+        {
+          "description": "Xcode has not finished its first launch.",
+          "type": "string",
+          "const": "first-launch-pending"
+        },
+        {
+          "description": "`simctl` is missing, or `runtime list` failed.",
+          "type": "string",
+          "const": "simctl-failed"
+        },
+        {
+          "description": "No `/opt/homebrew/bin/brew`, or it would not say where it lives.",
+          "type": "string",
+          "const": "brew-missing"
+        },
+        {
+          "description": "`brew --prefix` is not the Homebrew area's folder.",
+          "type": "string",
+          "const": "prefix-mismatch"
+        },
+        {
+          "description": "`brew --cellar` is not inside the prefix.",
+          "type": "string",
+          "const": "cellar-outside"
+        },
+        {
+          "description": "`brew --cache` is not `~/Library/Caches/Homebrew`.",
+          "type": "string",
+          "const": "cache-mismatch"
+        }
+      ]
+    },
+    "ReportEdit": {
+      "description": "What happened to a saved report after the run.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "edited"
+          ]
+        },
+        {
+          "description": "Nothing that ran touched it, or a dry run.",
+          "type": "string",
+          "const": "unchanged"
+        },
+        {
+          "description": "Absent, or of another schema version or other roots: left alone.",
+          "type": "string",
+          "const": "skipped"
+        },
+        {
+          "description": "It could not be written; the run's own report is still right.",
+          "type": "string",
+          "const": "failed"
+        }
+      ]
+    }
+  }
+}

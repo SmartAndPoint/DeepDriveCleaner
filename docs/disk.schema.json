@@ -163,6 +163,10 @@
           "format": "uint64",
           "minimum": 0
         },
+        "stale": {
+          "description": "An area action ran on it after this report was measured (`ddc disk\nfree`): its numbers are from before. Absent when false.",
+          "type": "boolean"
+        },
         "title": {
           "type": "string"
         },

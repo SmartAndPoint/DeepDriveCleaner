@@ -35,6 +35,13 @@ import Synchronization
 ///   `--no-sizes`, else `agents.json`. With `agents-fast.gated` (or
 ///   `agents.gated`) it first waits for gate `agents-fast-go` (`agents-go`),
 ///   and exits with `agents-fast.exit` (`agents.exit`) when that exists.
+/// - `disk free --actions <file> [--dry-run] --json`: copies the list to
+///   `actions-<n>.json`. The dry run waits for gate `free-preview-go` when
+///   `free-preview.gated` exists, then prints `free-preview.json`. The run
+///   waits for gate `free-go`, copies `free-disk.json` over `lastDisk` when
+///   it exists, and exits with `free.exit` when that exists, else prints
+///   `free-report.json`. With `free.trap`, SIGTERM prints `free-stopped.json`
+///   and then ends the script by the signal.
 /// Gates replace sleeps, so the tests order runs without timing assumptions.
 /// The directory is removed when the fake goes away. A gate gives up when the
 /// directory is gone or after 30,000 polls (some minutes), so a test that fails or
@@ -115,6 +122,21 @@ final class FakeCLI: Sendable {
                   cat "$gates/clean-report.json"
                 fi ;;
               disk)
+                if [ "$2" = free ]; then
+                  n=$(ls "$gates" | grep -c '^actions-')
+                  cp "$4" "$gates/actions-$n.json"
+                  if [ "$5" = "--dry-run" ]; then
+                    [ -e "$gates/free-preview.gated" ] && gate free-preview-go
+                    cat "$gates/free-preview.json"
+                  else
+                    [ -e "$gates/free.trap" ] && trap 'cat "$gates/free-stopped.json"; echo "end $$ $*" >> "$log"; trap - TERM; kill -TERM $$' TERM
+                    gate free-go
+                    [ -e "$gates/free-disk.json" ] && cp "$gates/free-disk.json" "$lastdisk"
+                    if [ -e "$gates/free.exit" ]; then echo "end $$ $*" >> "$log"; exit "$(cat "$gates/free.exit")"; fi
+                    cat "$gates/free-report.json"
+                  fi
+                  echo "end $$ $*" >> "$log"; exit 0
+                fi
                 if [ "$2" = agents ]; then
                   a=agents; [ "$4" = --no-sizes ] && a=agents-fast
                   [ -e "$gates/$a.gated" ] && gate "$a-go"
@@ -160,6 +182,13 @@ final class FakeCLI: Sendable {
     /// The item lists the fake was given, in order.
     func lists() throws -> [Data] {
         try (0..<100).map { directory.appending(path: "items-\($0).json") }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            .map { try Data(contentsOf: $0) }
+    }
+
+    /// The action lists `disk free` was given, in order.
+    func actionLists() throws -> [Data] {
+        try (0..<100).map { directory.appending(path: "actions-\($0).json") }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
             .map { try Data(contentsOf: $0) }
     }

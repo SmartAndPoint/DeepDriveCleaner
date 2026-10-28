@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -10,6 +10,9 @@ use std::time::Duration;
 
 use ddc_core::exec::{CmdOutput, CommandRunner, ProcessTable, Trasher};
 use ddc_core::sys::procs::ProcInfo;
+
+/// Told each call of [`FakeCommands`] before it answers.
+pub type CallHook = Box<dyn Fn(&str)>;
 
 #[derive(Default)]
 pub struct FakeCommands {
@@ -21,6 +24,16 @@ pub struct FakeCommands {
     pub envs: RefCell<Vec<Vec<String>>>,
     /// Runs on every call (to simulate the world changing during a command).
     pub on_run: Option<Box<dyn Fn()>>,
+    /// The executable of each call, in the order of `calls`.
+    pub exes: RefCell<Vec<PathBuf>>,
+    /// Answers for one exact call, taken in order; the last one repeats.
+    pub sequences: RefCell<HashMap<String, VecDeque<(bool, String)>>>,
+    /// stderr for one exact call.
+    pub stderr: HashMap<String, String>,
+    /// One exact call fails to run (a timeout, say).
+    pub errors: HashMap<String, io::ErrorKind>,
+    /// Runs on every call with the call, before it answers.
+    pub on_call: Option<CallHook>,
 }
 
 impl FakeCommands {
@@ -35,6 +48,31 @@ impl FakeCommands {
         self.tools.entry(program).or_insert((false, String::new()));
         self.answers.insert(format!("{program} {call}"), (success, stdout.to_owned()));
         self
+    }
+
+    /// `program` answers `call` with each of `answers` in turn, then the last again.
+    pub fn answers_in_turn(mut self, program: &'static str, call: &str, answers: &[(bool, &str)]) -> Self {
+        self.tools.entry(program).or_insert((false, String::new()));
+        let queue = answers.iter().map(|(ok, out)| (*ok, (*out).to_owned())).collect();
+        self.sequences.get_mut().insert(format!("{program} {call}"), queue);
+        self
+    }
+
+    /// `call` of `program` also prints `text` on stderr.
+    pub fn stderr_on(mut self, program: &'static str, call: &str, text: &str) -> Self {
+        self.stderr.insert(format!("{program} {call}"), text.to_owned());
+        self
+    }
+
+    /// `call` of `program` cannot run: `run` returns an error of `kind`.
+    pub fn error_on(mut self, program: &'static str, call: &str, kind: io::ErrorKind) -> Self {
+        self.tools.entry(program).or_insert((false, String::new()));
+        self.errors.insert(format!("{program} {call}"), kind);
+        self
+    }
+
+    pub fn ran(&self, call: &str) -> bool {
+        self.calls.borrow().iter().any(|c| c == call)
     }
 }
 
@@ -51,12 +89,25 @@ impl CommandRunner for FakeCommands {
         let name = exe.file_name().unwrap().to_str().unwrap();
         let call = format!("{name} {}", args.join(" "));
         self.calls.borrow_mut().push(call.clone());
+        self.exes.borrow_mut().push(exe.to_path_buf());
         self.envs.borrow_mut().push(env.iter().map(|(k, v)| format!("{k}={v}")).collect());
         if let Some(hook) = &self.on_run {
             hook();
         }
-        let (success, stdout) = self.answers.get(&call).unwrap_or(&self.tools[name]).clone();
-        Ok(CmdOutput { success, code: Some(i32::from(!success)), stdout, stderr: String::new() })
+        if let Some(hook) = &self.on_call {
+            hook(&call);
+        }
+        if let Some(kind) = self.errors.get(&call) {
+            return Err(io::Error::from(*kind));
+        }
+        let queued = self
+            .sequences
+            .borrow_mut()
+            .get_mut(&call)
+            .and_then(|q| if q.len() > 1 { q.pop_front() } else { q.front().cloned() });
+        let (success, stdout) = queued.unwrap_or_else(|| self.answers.get(&call).unwrap_or(&self.tools[name]).clone());
+        let stderr = self.stderr.get(&call).cloned().unwrap_or_default();
+        Ok(CmdOutput { success, code: Some(i32::from(!success)), stdout, stderr })
     }
 }
 

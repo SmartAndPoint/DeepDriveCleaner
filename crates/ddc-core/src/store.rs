@@ -69,6 +69,24 @@ pub fn write_last_disk(env: &Env, report: &DiskReport) -> io::Result<PathBuf> {
     write_atomic(&env.data_dir().join(LAST_DISK), &json)
 }
 
+/// The saved disk report, or `None` when absent or written by another
+/// schema version (`ddc disk free` edits it).
+pub fn read_last_disk(env: &Env) -> io::Result<Option<DiskReport>> {
+    match fs::read(env.data_dir().join(LAST_DISK)) {
+        Ok(bytes) => {
+            let version = serde_json::from_slice::<serde_json::Value>(&bytes)
+                .ok()
+                .and_then(|v| v.get("schema_version")?.as_u64());
+            if version != Some(u64::from(crate::disk::DISK_SCHEMA_VERSION)) {
+                return Ok(None);
+            }
+            serde_json::from_slice(&bytes).map(Some).map_err(io::Error::other)
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 /// The saved report, or `None` when absent or written by another schema version.
 pub fn read_last_scan(env: &Env) -> io::Result<Option<ScanReport>> {
     match fs::read(env.data_dir().join(LAST_SCAN)) {

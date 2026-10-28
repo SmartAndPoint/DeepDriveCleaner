@@ -133,6 +133,11 @@ pub fn dropped_excludes(dropped: &[PathBuf], home: &Path) -> String {
     format!("--exclude replaces the folders settings.json protects; no longer protected: {}", names.join(", "))
 }
 
+/// Asks for one area action after its dry run, default No.
+pub fn confirm_area_action(question: &str, mut input: impl BufRead, w: &mut impl Write) -> io::Result<bool> {
+    Ok(yes(ask(&mut input, w, &format!("{question} [y/N] "))?))
+}
+
 fn yes(answer: Option<String>) -> bool {
     answer.is_some_and(|a| matches!(a.to_lowercase().as_str(), "y" | "yes"))
 }

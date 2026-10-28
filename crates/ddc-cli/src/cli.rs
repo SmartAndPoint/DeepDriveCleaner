@@ -275,6 +275,30 @@ pub struct DiskArgs {
 pub enum DiskAction {
     /// What coding-agent harnesses keep under your home folder, and their live sessions (read-only).
     Agents(AgentsArgs),
+    /// Free an area with its own tool: delete a simulator runtime, or run `brew cleanup`.
+    Free(FreeArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct FreeArgs {
+    /// Run exactly the actions in this list ("-" for stdin): the confirmation
+    /// of the app's sheet (schema: docs/disk-free.schema.json). Without it, a
+    /// terminal asks for each action.
+    #[arg(long, value_name = "FILE|-")]
+    pub actions: Option<PathBuf>,
+    /// Run each tool's own dry run instead: what it would remove, and how much.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Print the report as JSON (schema: docs/disk-free.schema.json).
+    #[arg(long)]
+    pub json: bool,
+    /// Where the last scan, the last disk report and the journal live (default: ~/Library/Application Support/DeepDriveCleaner).
+    #[arg(long, value_name = "DIR")]
+    pub data_dir: Option<PathBuf>,
+    /// Look for the system's folders and tools under this folder instead of
+    /// `/` (tests).
+    #[arg(long, hide = true, value_name = "DIR")]
+    pub system_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

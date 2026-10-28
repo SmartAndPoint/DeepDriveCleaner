@@ -11,6 +11,7 @@ pub mod class;
 pub mod disk;
 pub mod env;
 pub mod exec;
+pub mod free;
 pub mod model;
 pub mod notify;
 pub mod plan;

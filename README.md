@@ -57,7 +57,7 @@ This installs `~/.cargo/bin/deepdrivecleaner` and a `ddc` symlink to it. A local
 
 - **The popover** (click the icon) shows the last scan: what can be freed by risk class, the biggest finds, when the last scan ran, and Scan Now. The icon shows a turning arc while a scan or a clean runs, shows a small warning when something needs you (Full Disk Access, a failed scan), and goes grey while scans are paused (Pause Scans, in the icon's right-click menu).
 - **The Review window** lists every finding by group (a sidebar ordered by size, per risk class) or as one list you can filter and sort. You tick what to clean; safe and idle rebuildable items start ticked, review items never do. Clean N items… at the bottom cleans every tick; Clean N from <group>… in a group's Select all row cleans only that group's. Right-click a folder to show it in Finder or protect it with a `.ddc-keep` file.
-- **Whole disk** (Where Does the Rest Go? in the popover, or the last row of the Review sidebar) shows the startup disk as one bar: the home folder, with what the last scan can free in its class colours, then apps, system data, Homebrew, simulator runtimes and what could not be counted, one row each. Scan Whole Disk runs `ddc disk` beside any scan or clean, never on its own, and Stop keeps what it measured so far. Under the rows, **Coding agents** shows what Claude Code, Codex, Cursor and opencode keep and their live sessions, from `ddc disk agents`; it shows project folders and session names. Nothing in this view removes anything.
+- **Whole disk** (Where Does the Rest Go? in the popover, or the last row of the Review sidebar) shows the startup disk as one bar: the home folder, with what the last scan can free in its class colours, then apps, system data, Homebrew, simulator runtimes and what could not be counted, one row each. Scan Whole Disk runs `ddc disk` beside any scan or clean, never on its own, and Stop keeps what it measured so far. Under the rows, **Coding agents** shows what Claude Code, Codex, Cursor and opencode keep and their live sessions, from `ddc disk agents`; it shows project folders and session names. Two rows offer their owning tool's cleanup: Delete Runtime… on a downloaded simulator runtime no simulator runs on, and Clean Up Homebrew…. Each opens a sheet with the tool's own dry run and the exact command, and runs only after you confirm (`ddc disk free`); nothing else in this view removes anything.
 - **The confirmation sheet** lists every item with its action, checks each one with a dry run first, and names what would be skipped and why. Review items go to the Trash unless you choose Delete permanently for one. After the clean it shows what was deleted, moved to the Trash or skipped, grouped by cause.
 - **Your own files.** Downloads, Pictures, Movies, Music and iPhone and iPad backups list what they hold, largest first. Nothing in them is ever selected for you; you pick files and folders one by one, and they go to the Trash, never deleted. App libraries (Photos and others), partial downloads, unfinished backups and anything changed in the last 10 minutes are locked. Cloud folders (iCloud Drive and other File Provider folders) are not scanned.
 - **Settings** has Open at login for now.
@@ -227,6 +227,20 @@ ddc disk agents [--json] [--no-sizes] [--threads N] [--data-dir DIR]
 ddc disk agents --no-sizes                         # live sessions only
 ```
 
+`ddc disk free` frees two areas with their owning tool, and only what you confirm. It deletes a simulator runtime with `simctl runtime delete <identifier>`, and runs `brew cleanup` with `HOMEBREW_NO_AUTOREMOVE=1`, which removes old versions in the Cellar and old downloads. At a terminal it lists the actions available now with each tool's own dry run, then asks for each one, default No. Without a terminal it needs `--actions`, the exact list the app's sheet confirmed ([`docs/disk-free.schema.json`](docs/disk-free.schema.json)); no option skips the question.
+
+- A runtime is offered only when it lies under `/System/Library/AssetsV2/`, macOS says it can be deleted, and no simulator on it is booted. Xcode downloads its SDK's runtime again at the next build for it.
+- Right before each action it checks again where the runtime or Homebrew lives, and refuses with a reason when that changed. After the action it measures the folders again: freed, removed but not freed, or still deleting when CoreSimulator has not finished yet.
+- When a tool fails for lack of permission, the report gives the same command to paste into Terminal. `ddc` never asks for a password.
+- Every action is logged to `actions.jsonl`. `last-disk.json` marks the area as measured before the action, and `brew cleanup` measures the Homebrew cache finding of the last scan again.
+- `--dry-run` runs only each tool's own dry run: `simctl runtime delete <identifier> --dry-run` and `brew cleanup -n`.
+
+```
+ddc disk free [--actions FILE|-] [--dry-run] [--json] [--data-dir DIR]
+ddc disk free                                      # asks for each action
+ddc disk free --dry-run                            # what each tool would remove
+```
+
 ### `ddc schedule`: scan in the background
 
 ```
@@ -251,8 +265,8 @@ ddc schedule status
 
 | Code | Meaning |
 |---|---|
-| 0 | Done. `clean --items --json` exits 0 even when an item failed: the report says which. |
-| 1 | An error; in text mode, `clean` also exits 1 when an item failed. |
+| 0 | Done. `clean --items --json` and `disk free --json` exit 0 even when an item or action failed: the report says which. |
+| 1 | An error; in text mode, `clean` also exits 1 when an item failed, and `disk free` when an action failed. |
 | 2 | Refused before anything was touched: run as root, a malformed list, a forbidden option, or a confirmation that cannot be asked without a terminal. |
 | 75 | Busy: a clean is running, or a clean was asked for while another scan or clean runs. Try again when it ends. |
 

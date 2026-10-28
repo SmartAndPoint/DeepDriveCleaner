@@ -1,4 +1,4 @@
-//! Human-readable scan, disk and agents reports.
+//! Human-readable scan, disk, agents and disk-free reports.
 
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -6,7 +6,8 @@ use std::path::Path;
 
 use ddc_core::agents::{AgentsReport, RecordsState, RunningKind, SessionState, UnknownReason};
 use ddc_core::class::{Category, RiskClass};
-use ddc_core::disk::{DiskReport, HeldKind, HomeSource, SimulatorStatus};
+use ddc_core::disk::{ActionId, DiskReport, HeldKind, HomeSource, SimulatorStatus};
+use ddc_core::free::{ActionReport, ActionResult, FreeReport, Refusal, ReportEdit};
 use ddc_core::model::{Finding, NotSelected, ScanReport};
 use ddc_core::rules::Note;
 
@@ -443,6 +444,104 @@ pub fn agents(w: &mut impl Write, r: &AgentsReport, home: &Path, style: &Style) 
         writeln!(w, "{}", style.dim("Sizes were not measured (--no-sizes)."))?;
     }
     Ok(())
+}
+
+/// `ddc disk free`: one block per action, in list order.
+pub fn free(w: &mut impl Write, r: &FreeReport, home: &Path, style: &Style) -> io::Result<()> {
+    for (i, a) in r.actions.iter().enumerate() {
+        if i > 0 {
+            writeln!(w)?;
+        }
+        free_action(w, a, style)?;
+    }
+    if let Some(journal) = &r.journal {
+        writeln!(w, "\n{}", style.dim(&format!("Journal: {}", tilde(journal, home))))?;
+    }
+    for (name, edit) in [("last-scan.json", r.last_scan), ("last-disk.json", r.last_disk)] {
+        let note = match edit {
+            ReportEdit::Skipped => format!("{name} was not edited: absent, or of another version or other folders."),
+            ReportEdit::Failed => format!("{name} could not be saved."),
+            ReportEdit::Edited | ReportEdit::Unchanged => continue,
+        };
+        writeln!(w, "{}", style.dim(&note))?;
+    }
+    Ok(())
+}
+
+/// `Simulator runtime <id>`, `Homebrew cleanup`.
+pub fn action_title(action: ActionId, identifier: Option<&str>) -> String {
+    match (action, identifier) {
+        (ActionId::SimctlRuntimeDelete, Some(id)) => format!("Simulator runtime {id}"),
+        (ActionId::SimctlRuntimeDelete, None) => "Simulator runtime".to_owned(),
+        (ActionId::BrewCleanup, _) => "Homebrew cleanup".to_owned(),
+    }
+}
+
+fn free_action(w: &mut impl Write, a: &ActionReport, style: &Style) -> io::Result<()> {
+    let freed = match (a.bytes_before, a.bytes_after) {
+        (Some(before), Some(after)) => Some(before.saturating_sub(after)),
+        _ => None,
+    };
+    let result = match &a.result {
+        ActionResult::Freed => freed.map_or_else(|| "done".to_owned(), |b| format!("freed {}", human(b))),
+        ActionResult::RemovedNotFreed => {
+            format!("runtime removed, {} not freed", a.bytes_after.map_or_else(|| "its space".to_owned(), human))
+        }
+        ActionResult::StillDeleting => "still deleting: CoreSimulator may finish it later".to_owned(),
+        ActionResult::Refused { reason } => format!("refused: {}", refusal(*reason)),
+        ActionResult::Failed { .. } => "failed".to_owned(),
+        ActionResult::WouldRun => "would run".to_owned(),
+        ActionResult::NotRun => "not run: stopped".to_owned(),
+    };
+    writeln!(w, "{}  {result}", style.bold(&action_title(a.action, a.identifier.as_deref())))?;
+    match &a.result {
+        ActionResult::Failed { needs_admin } => {
+            let lead = if *needs_admin {
+                "It needs an administrator. To run it yourself, in Terminal:"
+            } else {
+                "The tool failed. To run it yourself, in Terminal:"
+            };
+            writeln!(w, "  {lead}\n    {}", a.terminal_command)?;
+        }
+        ActionResult::WouldRun => {
+            writeln!(w, "  {}", a.terminal_command)?;
+            if let Some(p) = &a.preview {
+                for line in &p.lines {
+                    writeln!(w, "    {}", style.dim(line))?;
+                }
+                if let Some(b) = p.estimate_bytes {
+                    writeln!(w, "  frees about {}", human(b))?;
+                }
+            }
+        }
+        _ => {}
+    }
+    if !a.output.is_empty() && matches!(a.result, ActionResult::Failed { .. }) {
+        for line in a.output.lines() {
+            writeln!(w, "    {}", style.dim(line))?;
+        }
+    }
+    Ok(())
+}
+
+pub fn refusal(r: Refusal) -> &'static str {
+    match r {
+        Refusal::UnknownRuntime => "no runtime with this identifier is listed",
+        Refusal::NotUnderAssets => "its mount path is not under /System/Library/AssetsV2",
+        Refusal::NotDeletable => "simctl lists it as not deletable",
+        Refusal::Deleting => "it is already being deleted",
+        Refusal::NoRuntimeIdentifier => "it has no runtime identifier, so its devices cannot be checked",
+        Refusal::Booted => "a simulator on it is running or not yet shut down",
+        Refusal::DevicesUnknown => "its devices could not be listed",
+        Refusal::NoAssetFolder => "its folder under AssetsV2 is not known, so its size cannot be measured",
+        Refusal::NoDeveloperTools => "Xcode's developer tools are not installed",
+        Refusal::FirstLaunchPending => "Xcode has not finished its first launch",
+        Refusal::SimctlFailed => "simctl failed",
+        Refusal::BrewMissing => "/opt/homebrew/bin/brew is missing or did not answer",
+        Refusal::PrefixMismatch => "brew --prefix is not /opt/homebrew",
+        Refusal::CellarOutside => "brew --cellar is not inside /opt/homebrew",
+        Refusal::CacheMismatch => "brew --cache is not ~/Library/Caches/Homebrew",
+    }
 }
 
 #[cfg(test)]

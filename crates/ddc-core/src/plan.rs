@@ -222,7 +222,7 @@ impl ListedItems {
 
 /// Absolute, without `.`, `..`, repeated or trailing separators: the path
 /// equals its own components joined again.
-fn normalised(path: &Path) -> bool {
+pub(crate) fn normalised(path: &Path) -> bool {
     path.is_absolute()
         && path.components().all(|c| matches!(c, Component::RootDir | Component::Normal(_)))
         && path.components().collect::<PathBuf>().as_os_str() == path.as_os_str()

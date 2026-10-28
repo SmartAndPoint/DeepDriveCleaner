@@ -52,6 +52,11 @@ public actor CLIRunner {
         /// `disk agents --json`, the Coding agents section: read-only, in a
         /// lane of its own.
         case diskAgents
+        /// `disk free --actions <file> --json`: takes the exclusive lock, so
+        /// it waits its turn in the queue, and a scan behind it waits for it.
+        case diskFree
+        /// `disk free --actions <file> --dry-run --json`: the shared lock.
+        case diskFreeDryRun
 
         /// Runs in a lane of its own, beside the queue.
         public var hasLane: Bool { self == .disk || self == .diskAgents }

@@ -4,7 +4,7 @@
 //! filter, no default selection, no prompt, no terminal needed.
 
 use std::collections::HashMap;
-use std::io::{IsTerminal as _, Read as _, Write as _};
+use std::io::{IsTerminal as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -37,7 +37,7 @@ use crate::{exit, progress, prompt};
 
 pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
     // Refused before the lock, the data directory or the journal is touched.
-    let bytes = match read_list(items) {
+    let bytes = match super::read_list(items) {
         Ok(bytes) => bytes,
         Err(e) => return refuse(&format!("cannot read {}: {e}", items.display())),
     };
@@ -223,16 +223,6 @@ fn prediction_text(p: &preflight::Prediction) -> String {
         preflight::Prediction::WouldTrash => "would move to Trash".to_owned(),
         preflight::Prediction::WouldRun => "would run its tool".to_owned(),
         preflight::Prediction::WouldSkip(why) => format!("would skip ({})", prompt::reason(why)),
-    }
-}
-
-fn read_list(items: &Path) -> std::io::Result<Vec<u8>> {
-    if items.as_os_str() == "-" {
-        let mut bytes = Vec::new();
-        std::io::stdin().lock().read_to_end(&mut bytes)?;
-        Ok(bytes)
-    } else {
-        std::fs::read(items)
     }
 }
 

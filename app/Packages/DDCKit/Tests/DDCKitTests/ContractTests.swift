@@ -337,7 +337,7 @@ struct ContractTests {
         }
         // `WalkStep.disk` exists too: the patterns name a run and its argument.
         #expect(files(/run\(\s*\.disk\b/) == ["DiskModel.swift"])
-        #expect(files(/"disk"/) == ["DiskModel.swift", "AgentsModel.swift"])
+        #expect(files(/"disk"/) == ["DiskModel.swift", "AgentsModel.swift", "DiskFreeRun.swift"])
         #expect(files(/\.scanDisk\(/) == ["DiskView.swift"], "the Scan Whole Disk button is the one caller")
         for file in ["ScheduledWork.swift", "PopoverModel.swift"] {
             #expect(!(try #require(sources[file])).contains(/DiskModel|scanDisk|\.disk\b/), "\(file) never runs a whole-disk scan")
@@ -366,6 +366,41 @@ struct ContractTests {
             let source = try #require(sources[file])
             #expect(!source.contains(/\.clean\b|"clean"|\.trash|removeItem|cleanConfirmedItems/), "\(file) removes nothing")
         }
+    }
+
+    @Test("only the sheet's confirm button runs disk free, and nothing scheduled does")
+    func freeCallers() throws {
+        let sources = try appSources()
+        func files(_ pattern: Regex<Substring>) -> Set<String> {
+            Set(sources.filter { $0.value.contains(pattern) }.map(\.key))
+        }
+        #expect(files(/func freeConfirmedActions\(/) == ["DiskFreeRun.swift"])
+        #expect(files(/\.freeConfirmedActions\(/) == ["AreaActionSheet.swift"], "the sheet's confirm button is the one caller")
+        #expect(files(/\.diskFree(?:DryRun)?\b/) == ["DiskFreeRun.swift"])
+        #expect(files(/"free"/) == ["DiskFreeRun.swift"])
+        #expect(files(/\.previewAction\(/) == ["DiskView.swift"], "a row's button opens the sheet")
+        // The one real run is the confirm button's.
+        let run = try #require(sources["DiskFreeRun.swift"])
+        #expect(run.matches(of: /runFree\([^)]*dryRun: false\)/).count == 1)
+        let confirmed = try #require(run.firstMatch(of: /func freeConfirmedActions\(\)[\s\S]*?\n    }\n/))
+        #expect(confirmed.output.contains(/runFree\([^)]*dryRun: false\)/))
+        for file in ["ScheduledWork.swift", "PopoverModel.swift", "AppDelegate.swift", "SchedulerAgent.swift", "ScanDue.swift"] {
+            #expect(!(try #require(sources[file])).contains(/diskFree|previewAction|freeConfirmedActions|"free"/), "\(file) never frees an area")
+        }
+    }
+
+    @Test("the disk free report and list are the CLI's: version and every enum")
+    func freeContracts() throws {
+        let source = try rustSource("crates/ddc-core/src/free/model.rs")
+        let version = try #require(source.firstMatch(of: /pub const FREE_SCHEMA_VERSION: u32 = (\d+);/))
+        #expect(Int(version.1) == FreeReport.schemaVersion)
+        #expect(Int(version.1) == AreaActionList.schemaVersion)
+        let free = try schema("disk-free")
+        #expect(Set(try values(free, "ReportEdit")) == Set(FreeReport.ReportEdit.allCases.map(\.rawValue)))
+        #expect(Set(try values(free, "Refusal")) == Set(FreeReport.Refusal.allCases.map(\.rawValue)))
+        #expect(Set(try values(free, "ActionResult", key: "status")) == Set(FreeReport.Outcome.tags))
+        #expect(Set(try values(free, "ActionId")) == Set(DiskReport.ActionId.allCases.map(\.rawValue)))
+        #expect(try rustSource("crates/ddc-core/src/free/mod.rs").contains("pub const STOPPED: &str = \"\(FreeWording.stopped)\";"))
     }
 
     @Test("the coding agents report is the CLI's: version and every enum")

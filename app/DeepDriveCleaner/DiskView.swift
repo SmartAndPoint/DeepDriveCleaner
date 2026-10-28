@@ -2,9 +2,11 @@ import DDCKit
 import SwiftUI
 
 /// The Whole disk view (artboard 13; story "Whole disk in the app"): the
-/// startup container as one bar, then a row per area. Read-only: nothing
-/// here removes anything. Used as the Review window's detail and in its own
-/// window; both show the one `DiskModel` and the one `AgentsModel`.
+/// startup container as one bar, then a row per area. Homebrew and each
+/// downloaded simulator runtime offer their owning tool's cleanup, through
+/// `AreaActionSheet` (story "Whole disk: free space with the owning tool").
+/// Used as the Review window's detail and in its own window; both show the
+/// one `DiskModel` and the one `AgentsModel`.
 struct DiskView: View {
     let model: DiskModel
     /// The Coding agents section: read again each time the view appears.
@@ -24,6 +26,12 @@ struct DiskView: View {
         }
         .task { await model.load() }
         .task { await agents.refresh() }
+        .sheet(isPresented: Binding(
+            get: { model.freeSheet != nil },
+            set: { shown in if !shown { Task { await model.closeFree() } } }
+        )) {
+            AreaActionSheet(model: model)
+        }
     }
 
     private var header: some View {
@@ -53,7 +61,7 @@ struct DiskView: View {
             if let measured = model.subtitle { parts.append(measured) }
         }
         let head = parts.filter { !$0.isEmpty }.joined(separator: " · ")
-        return (head.isEmpty ? "" : head + ". ") + "Nothing here is removed from this view."
+        return head
     }
 
     private func measuring(_ progress: DiskModel.Progress) -> String {
@@ -91,7 +99,7 @@ struct DiskView: View {
                         Legend(summary: summary)
                         VStack(spacing: 0) {
                             ForEach(summary.rows) { row in
-                                DiskRow(row: row)
+                                DiskRow(row: row, model: model)
                                 Divider()
                             }
                         }
@@ -185,6 +193,7 @@ private struct Legend: View {
 
 private struct DiskRow: View {
     let row: DiskSummary.Row
+    let model: DiskModel
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -194,8 +203,19 @@ private struct DiskRow: View {
                 if !row.note.isEmpty {
                     Text(row.note).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
+                if let offer = row.offer, let result = model.freeResults[offer.id] {
+                    Text(FreeWording.result(result, name: offer.name))
+                        .font(.system(size: 12))
+                        .foregroundStyle(result.result == .freed ? Color.secondary : ReportClassStyle.ink(.review))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 12)
+            if let offer = row.offer {
+                Button(offer.buttonTitle) { Task { await model.previewAction(offer) } }
+                    .controlSize(.small)
+                    .disabled(!model.canFree)
+            }
             Text(row.size).font(.system(size: 13)).monospacedDigit().fixedSize()
         }
         .padding(.leading, row.nested ? 24 : 0)

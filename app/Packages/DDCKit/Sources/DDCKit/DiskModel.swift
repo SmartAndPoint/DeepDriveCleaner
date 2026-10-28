@@ -4,10 +4,11 @@ import Observation
 /// The Whole disk view's state (story "Whole disk in the app", artboard 13):
 /// the last `last-disk.json`, Scan whole disk with its progress, and Stop.
 ///
-/// Read-only: nothing here frees space. `ddc disk` takes no lock, so its run
-/// goes to the runner's disk lane, beside the queue (ADR §1, amended
-/// 2026-10-28). The app never starts it on its own, and leaves a running one
-/// alone on quit: the CLI saves its report before it prints.
+/// `ddc disk` only measures and takes no lock, so its run goes to the
+/// runner's disk lane, beside the queue (ADR §1, amended 2026-10-28). The
+/// app never starts it on its own, and leaves a running one alone on quit:
+/// the CLI saves its report before it prints. Freeing an area with its
+/// owning tool is `DiskFreeRun.swift`, from a sheet the person confirms.
 @MainActor
 @Observable
 public final class DiskModel {
@@ -41,10 +42,39 @@ public final class DiskModel {
     public private(set) var message: String?
     public private(set) var now: Date
 
-    @ObservationIgnored private let runner: (any CLIRunning)?
-    @ObservationIgnored private let data: DataDirectory
-    @ObservationIgnored private let clock: @MainActor () -> Date
-    @ObservationIgnored private let log: @MainActor (String) -> Void
+    /// The sheet of one area action (story "Whole disk: free space with
+    /// the owning tool"): the tool's dry run, the confirmation, the run, the
+    /// result. Nil: no sheet.
+    public struct FreeSheet: Equatable, Sendable {
+        public enum Stage: Equatable, Sendable {
+            /// The tool's own dry run is queued or running.
+            case previewing
+            /// The dry run's report: `.wouldRun`, or refused with a reason.
+            case confirm(FreeReport.ActionReport)
+            /// Queued behind any scan or clean, or running.
+            case running
+            case result(FreeReport.ActionReport)
+            /// No report: why.
+            case failed(String)
+        }
+
+        public let offer: AreaActions.Offer
+        public var stage: Stage
+    }
+
+    public internal(set) var freeSheet: FreeSheet?
+    /// The last result of each action this session, by `Offer.id`, for its row.
+    public internal(set) var freeResults: [String: FreeReport.ActionReport] = [:]
+    /// After a `brew cleanup` edited `last-scan.json`: the popover reads it again.
+    @ObservationIgnored public var scanReportEdited: (@MainActor () async -> Void)?
+
+    @ObservationIgnored let runner: (any CLIRunning)?
+    @ObservationIgnored let data: DataDirectory
+    @ObservationIgnored let clock: @MainActor () -> Date
+    @ObservationIgnored let log: @MainActor (String) -> Void
+    /// Where the confirmed list is written for `--actions`.
+    @ObservationIgnored let temporaryDirectory: URL
+    @ObservationIgnored var freeTicket: CLIRunner.Ticket?
     @ObservationIgnored private var reportModified: Date?
     @ObservationIgnored private var scanTask: Task<Void, Never>?
     @ObservationIgnored private var ticket: CLIRunner.Ticket?
@@ -54,17 +84,29 @@ public final class DiskModel {
         runner: (any CLIRunning)?,
         data: DataDirectory,
         clock: @escaping @MainActor () -> Date = { .now },
-        log: @escaping @MainActor (String) -> Void = { _ in }
+        log: @escaping @MainActor (String) -> Void = { _ in },
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) {
         self.runner = runner
         self.data = data
         self.clock = clock
         self.log = log
+        self.temporaryDirectory = temporaryDirectory
         now = clock()
     }
 
-    public var canScan: Bool { runner != nil }
+    /// Not while an area action waits for its confirmation, is queued or
+    /// runs: the report it would write could miss what the action frees.
+    public var canScan: Bool { runner != nil && !freeRunning && !freeConfirming }
     public var scanning: Bool { progress != nil }
+    /// The rows' action buttons: not while the whole disk is measured, and
+    /// one sheet at a time.
+    public var canFree: Bool { runner != nil && !scanning && freeSheet == nil }
+    public var freeRunning: Bool { freeSheet?.stage == .running }
+    var freeConfirming: Bool {
+        if case .confirm? = freeSheet?.stage { return true }
+        return false
+    }
 
     public var loadedReport: DiskReport? {
         if case .loaded(let report) = report { return report }
@@ -126,6 +168,7 @@ public final class DiskModel {
             message = "The app's embedded CLI is missing, so it cannot measure the disk. Reinstall DeepDriveCleaner."
             return
         }
+        guard !freeRunning else { return }
         let task = Task { await run(runner) }
         scanTask = task
         await task.value
@@ -174,6 +217,8 @@ public final class DiskModel {
         {
             report = .loaded(read)
             reportModified = DataDirectory.modified(data.lastDisk)
+            // The new measure shows what the actions freed; their lines go.
+            freeResults = [:]
             log("whole-disk scan \(result.outcome == .done ? "done" : "stopped")")
             return
         }

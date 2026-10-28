@@ -115,7 +115,7 @@ pub struct HomeRow {
 
 /// The one-click tool an area can be freed with (story "Whole disk: free
 /// space with the owning tool"); this report only names it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum ActionId {
     SimctlRuntimeDelete,
@@ -152,6 +152,10 @@ pub struct Area {
     /// Entries read, for an area walked under the entry budget.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entries_read: Option<u64>,
+    /// An area action ran on it after this report was measured (`ddc disk
+    /// free`): its numbers are from before. Absent when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stale: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

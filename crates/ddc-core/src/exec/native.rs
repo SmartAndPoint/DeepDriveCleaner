@@ -21,7 +21,8 @@ pub struct CommandResult {
     pub output: String,
 }
 
-fn tail(stdout: &str, stderr: &str) -> String {
+/// The last 2000 characters of a command's output, for the journal.
+pub(crate) fn tail(stdout: &str, stderr: &str) -> String {
     let all = format!("{stdout}{stderr}");
     let start = all.char_indices().rev().nth(1999).map_or(0, |(i, _)| i);
     all[start..].trim().to_owned()

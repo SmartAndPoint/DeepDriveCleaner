@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "ddc_version": "0.4.0",
+  "dry_run": false,
+  "actions": [
+    {
+      "action": "brew-cleanup",
+      "area": "homebrew",
+      "command": ["/opt/homebrew/bin/brew", "cleanup"],
+      "env": ["HOMEBREW_NO_AUTOREMOVE=1", "HOMEBREW_NO_ENV_HINTS=1", "NO_COLOR=1"],
+      "terminal_command": "HOMEBREW_NO_AUTOREMOVE=1 HOMEBREW_NO_ENV_HINTS=1 NO_COLOR=1 /opt/homebrew/bin/brew cleanup",
+      "result": {"status": "freed"},
+      "bytes_before": 2147483648,
+      "bytes_after": 858993460,
+      "output": "Removing: /opt/homebrew/Cellar/wget/1.24.5... (92 files, 4.3MB)"
+    }
+  ],
+  "journal": "/Users/example/Library/Logs/DeepDriveCleaner/actions.jsonl",
+  "last_scan": "edited",
+  "last_disk": "edited"
+}

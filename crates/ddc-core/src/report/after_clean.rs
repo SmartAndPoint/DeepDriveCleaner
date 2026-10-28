@@ -15,8 +15,8 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use super::{ScanOptions, count_findings, hidden, sort_findings};
-use crate::exec::Outcome;
 use crate::exec::report::CleanReport;
+use crate::exec::{Outcome, VolumeSpace};
 use crate::model::{FolderEntryKind, ScanReport};
 use crate::rules::entries::ENTRY_RULES;
 use crate::rules::{Catalog, RuleVisitor};
@@ -129,7 +129,22 @@ pub fn edit(
             Outcome::Skipped(_) | Outcome::Failed { .. } | Outcome::NotRun => {}
         }
     }
-    edit.finish(clean);
+    edit.finish(&clean.volumes);
+}
+
+/// Edits `report` for findings a tool changed outside a clean: `ddc disk
+/// free`'s `brew cleanup` and the `cache.homebrew` finding (safety ADR,
+/// amendment of 2026-10-28). As [`edit`] does for a tool-cleaned item.
+pub fn edit_tool_cleaned(report: &mut ScanReport, remeasured: &HashMap<PathBuf, Remeasured>, opts: &ScanOptions) {
+    let mut edit = Edit { report, opts, removed: HashSet::new(), lines: Vec::new() };
+    for (path, r) in remeasured {
+        match r {
+            Remeasured::Gone => edit.remove(path, false, None),
+            Remeasured::Measured(m) => edit.resize(path, m),
+            Remeasured::Unknown => {}
+        }
+    }
+    edit.finish(&[]);
 }
 
 struct Edit<'a> {
@@ -297,7 +312,7 @@ impl Edit<'_> {
         totals.dirs = totals.dirs.saturating_sub(dirs);
     }
 
-    fn finish(self, clean: &CleanReport) {
+    fn finish(self, volumes: &[VolumeSpace]) {
         let Edit { report, removed, lines, .. } = self;
         let mut i = 0;
         report.findings.retain(|_| {
@@ -312,7 +327,7 @@ impl Edit<'_> {
         let before = report.skipped.len();
         report.skipped.retain(|l| !gone(&l.path));
         report.skipped_total = report.skipped_total.saturating_sub((before - report.skipped.len()) as u64);
-        for space in &clean.volumes {
+        for space in volumes {
             if let Some(v) = report.volumes.iter_mut().find(|v| v.mount_point == space.mount_point) {
                 v.free_bytes = space.free_after;
             }

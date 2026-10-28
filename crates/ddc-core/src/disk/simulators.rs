@@ -14,27 +14,69 @@ use super::Sources;
 use super::model::{Device, Runtime, SimulatorStatus, Simulators};
 use crate::exec::CommandRunner;
 
-const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
+pub(crate) const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// CoreSimulator's `simctl`, ready to run: Xcode has finished its first
+/// launch, and `DEVELOPER_DIR` names the selected developer folder.
+pub(crate) struct Simctl {
+    pub exe: PathBuf,
+    pub developer_dir: String,
+}
+
+impl Simctl {
+    pub fn env(&self) -> [(&str, &str); 1] {
+        [("DEVELOPER_DIR", self.developer_dir.as_str())]
+    }
+}
+
+/// Why [`locate`] found no `simctl` to run.
+pub(crate) enum Unready {
+    /// `xcode-select -p` fails or has no `xcodebuild` under it.
+    NoDeveloperTools,
+    FirstLaunchPending,
+    Missing,
+}
+
+/// Finds `simctl` as `ddc disk` does: never `xcrun`, never the shim.
+pub(crate) fn locate(commands: &dyn CommandRunner, sources: &Sources) -> Result<Simctl, Unready> {
+    let select = commands.at(&sources.xcode_select).ok_or(Unready::NoDeveloperTools)?;
+    let out = commands
+        .run(&select, &["-p".to_owned()], &[], TOOL_TIMEOUT)
+        .ok()
+        .filter(|o| o.success)
+        .ok_or(Unready::NoDeveloperTools)?;
+    let developer = PathBuf::from(out.stdout.trim());
+    if !developer.is_absolute() {
+        return Err(Unready::NoDeveloperTools);
+    }
+    let xcodebuild = commands.at(&developer.join("usr/bin/xcodebuild")).ok_or(Unready::NoDeveloperTools)?;
+    let developer_dir = developer.to_str().ok_or(Unready::NoDeveloperTools)?.to_owned();
+    let env = [("DEVELOPER_DIR", developer_dir.as_str())];
+    let ready =
+        commands.run(&xcodebuild, &["-checkFirstLaunchStatus".to_owned()], &env, TOOL_TIMEOUT).is_ok_and(|o| o.success);
+    if !ready {
+        return Err(Unready::FirstLaunchPending);
+    }
+    let exe = commands.at(&sources.simctl).ok_or(Unready::Missing)?;
+    Ok(Simctl { exe, developer_dir })
+}
 
 /// `None` without developer tools: `xcode-select -p` fails or has no
 /// `xcodebuild` under it (Command Line Tools only).
 pub(super) fn simulators(commands: &dyn CommandRunner, sources: &Sources) -> Option<Simulators> {
-    let select = commands.at(&sources.xcode_select)?;
-    let out = commands.run(&select, &["-p".to_owned()], &[], TOOL_TIMEOUT).ok().filter(|o| o.success)?;
-    let developer = PathBuf::from(out.stdout.trim());
-    if !developer.is_absolute() {
-        return None;
-    }
-    let xcodebuild = commands.at(&developer.join("usr/bin/xcodebuild"))?;
-    let env = [("DEVELOPER_DIR", developer.to_str()?)];
-    let ready =
-        commands.run(&xcodebuild, &["-checkFirstLaunchStatus".to_owned()], &env, TOOL_TIMEOUT).is_ok_and(|o| o.success);
-    if !ready {
-        return Some(failed(SimulatorStatus::FirstLaunchPending, "not measured until Xcode finishes its first launch"));
-    }
-    let Some(simctl) = commands.at(&sources.simctl) else {
-        return Some(failed(SimulatorStatus::Failed, "CoreSimulator's simctl is missing"));
+    let simctl = match locate(commands, sources) {
+        Ok(simctl) => simctl,
+        Err(Unready::NoDeveloperTools) => return None,
+        Err(Unready::FirstLaunchPending) => {
+            return Some(failed(
+                SimulatorStatus::FirstLaunchPending,
+                "not measured until Xcode finishes its first launch",
+            ));
+        }
+        Err(Unready::Missing) => return Some(failed(SimulatorStatus::Failed, "CoreSimulator's simctl is missing")),
     };
+    let Simctl { exe: simctl, developer_dir } = simctl;
+    let env = [("DEVELOPER_DIR", developer_dir.as_str())];
     let run = |args: &[&str]| {
         let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
         commands.run(&simctl, &args, &env, TOOL_TIMEOUT).ok().filter(|o| o.success).map(|o| o.stdout)
@@ -84,21 +126,21 @@ fn failed(status: SimulatorStatus, message: &str) -> Simulators {
 /// One entry of `simctl runtime list -j`; every field optional but the id.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct RawRuntime {
-    identifier: String,
-    runtime_identifier: Option<String>,
-    platform_identifier: Option<String>,
-    version: Option<String>,
-    build: Option<String>,
-    size_bytes: Option<u64>,
-    path: Option<PathBuf>,
-    parent_mount_path: Option<PathBuf>,
-    deletable: Option<bool>,
-    state: Option<String>,
+pub(crate) struct RawRuntime {
+    pub identifier: String,
+    pub runtime_identifier: Option<String>,
+    pub platform_identifier: Option<String>,
+    pub version: Option<String>,
+    pub build: Option<String>,
+    pub size_bytes: Option<u64>,
+    pub path: Option<PathBuf>,
+    pub parent_mount_path: Option<PathBuf>,
+    pub deletable: Option<bool>,
+    pub state: Option<String>,
 }
 
 /// A map keyed by the runtime's id (Xcode 15 and later), or a list.
-fn parse_runtimes(json: &str) -> Option<Vec<RawRuntime>> {
+pub(crate) fn parse_runtimes(json: &str) -> Option<Vec<RawRuntime>> {
     #[derive(Deserialize)]
     #[serde(untagged)]
     enum List {
@@ -114,14 +156,14 @@ fn parse_runtimes(json: &str) -> Option<Vec<RawRuntime>> {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct RawDevice {
-    udid: String,
-    name: String,
-    state: String,
+pub(crate) struct RawDevice {
+    pub udid: String,
+    pub name: String,
+    pub state: String,
 }
 
 /// `{"devices": {"<runtimeIdentifier>": [device, …]}}`.
-fn parse_devices(json: &str) -> Option<BTreeMap<String, Vec<RawDevice>>> {
+pub(crate) fn parse_devices(json: &str) -> Option<BTreeMap<String, Vec<RawDevice>>> {
     #[derive(Deserialize)]
     struct List {
         devices: BTreeMap<String, Vec<RawDevice>>,

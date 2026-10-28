@@ -78,7 +78,7 @@ public struct DiskReport: Decodable, Sendable, Equatable {
     }
 
     /// What frees an area with its owning tool (story "Whole disk: free
-    /// space with the owning tool"); this story only decodes it.
+    /// space with the owning tool").
     public enum ActionId: String, Decodable, Sendable, CaseIterable {
         case simctlRuntimeDelete = "simctl-runtime-delete"
         case brewCleanup = "brew-cleanup"
@@ -100,6 +100,11 @@ public struct DiskReport: Decodable, Sendable, Equatable {
         /// Not measured to the end: its size is a lower bound.
         public let partial: Bool
         public let entriesRead: UInt64?
+        /// `ddc disk free` ran on it after this report was measured: its
+        /// size is from before. The CLI leaves it out when false.
+        public let stale: Bool?
+
+        public var measuredBeforeAction: Bool { stale == true }
     }
 
     public enum SimulatorStatus: String, Decodable, Sendable, CaseIterable {

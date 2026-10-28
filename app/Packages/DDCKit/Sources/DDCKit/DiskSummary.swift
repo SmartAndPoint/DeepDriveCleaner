@@ -29,9 +29,12 @@ public struct DiskSummary: Sendable, Equatable {
         /// "80.0 GiB", "at least 2.0 GiB", or a text such as "unknown".
         public let size: String
         public let note: String
-        /// Lies inside the row above it (Homebrew inside /opt).
+        /// Lies inside the row above it (Homebrew inside /opt, a runtime
+        /// inside Simulator runtimes).
         public let nested: Bool
         public let tone: Tone
+        /// The row's button: Delete Runtime…, Clean Up Homebrew….
+        public var offer: AreaActions.Offer? = nil
     }
 
     /// "749.3 GiB used of 926.4 GiB", or nil without the container.
@@ -100,13 +103,27 @@ public struct DiskSummary: Sendable, Equatable {
         let ordered = report.areas.filter { !listed($0.parent) }.flatMap { top in
             [top] + report.areas.filter { $0.parent == top.id }
         }
+        let offers = AreaActions.offers(report)
         var outside: UInt64 = 0
         for area in ordered {
             outside += area.bytes
+            let measured = area.measuredBeforeAction ? " before cleanup" : ""
             rows.append(Row(
-                id: area.id, title: area.title, size: size(area.bytes, partial: area.partial),
-                note: note(area, simulators: report.simulators), nested: listed(area.parent), tone: .outside
+                id: area.id, title: area.title, size: size(area.bytes, partial: area.partial) + measured,
+                note: note(area, simulators: report.simulators), nested: listed(area.parent), tone: .outside,
+                offer: offers[area.id]
             ))
+            // Each listed runtime under its area; their sizes are in the area's.
+            if area.action == .simctlRuntimeDelete, let sims = report.simulators, sims.status == .listed {
+                for runtime in sims.runtimes {
+                    let id = AreaActions.runtimeRowID(runtime)
+                    rows.append(Row(
+                        id: id, title: AreaActions.name(runtime),
+                        size: runtime.sizeBytes.map(ByteSize.human) ?? "unknown",
+                        note: runtimeNote(runtime), nested: true, tone: .outside, offer: offers[id]
+                    ))
+                }
+            }
         }
         if outside > 0 { segments.append(Segment(tone: .outside, bytes: outside)) }
 
@@ -169,6 +186,20 @@ public struct DiskSummary: Sendable, Equatable {
             }
         }
         parts.append(area.frees)
+        return parts.joined(separator: " · ")
+    }
+
+    private static func runtimeNote(_ runtime: DiskReport.Runtime) -> String {
+        var parts = [Wording.items(runtime.devices.count, "simulator")]
+        if runtime.booted {
+            parts.append("A simulator on it is running")
+        } else if runtime.state == "Deleting" {
+            parts.append("Being deleted")
+        } else if runtime.deletable == false {
+            parts.append("macOS keeps it: simctl lists it as not deletable")
+        } else if !AreaActions.offersDelete(runtime) {
+            parts.append("Not a downloaded runtime, so it is not deleted from here")
+        }
         return parts.joined(separator: " · ")
     }
 

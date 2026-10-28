@@ -86,6 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let model {
             let disk = DiskModel(runner: runner, data: data, log: { AppLog.write($0) })
             self.disk = disk
+            // `brew cleanup` measured the Homebrew cache finding again: the popover shows the edited report.
+            disk.scanReportEdited = { _ = await model.reloadReport() }
             let agents = AgentsModel(runner: runner, log: { AppLog.write($0) })
             diskWindow = DiskWindowController(presence: presence, model: disk, agents: agents, popover: model)
             reviewWindow.wholeDisk = { DiskView(model: disk, agents: agents, popover: model) }

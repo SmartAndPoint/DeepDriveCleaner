@@ -58,3 +58,35 @@ fn the_disk_report_never_reaches_cleanup() {
         }
     }
 }
+
+/// `ddc disk free` runs only the two commands the safety ADR names
+/// (amendment of 2026-10-28): no item cleanup, no program started by hand,
+/// no `xcrun` or first launch, no `simctl runtime delete --keep-asset`, no
+/// `--prune`, no `sudo`, and no Homebrew `autoremove`.
+#[test]
+fn disk_free_runs_only_its_two_commands() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut files = vec![root.join("ddc-cli/src/cmd/disk_free.rs")];
+    for entry in std::fs::read_dir(root.join("ddc-core/src/free")).unwrap() {
+        files.push(entry.unwrap().path());
+    }
+    for file in files {
+        let text = std::fs::read_to_string(&file).unwrap();
+        for forbidden in [
+            "Executor",
+            "build_plan",
+            "trash",
+            "Consent",
+            "remove_",
+            "Command::new",
+            "xcrun",
+            "runFirstLaunch",
+            "keep-asset",
+            "prune",
+            "sudo",
+            "\"autoremove\"",
+        ] {
+            assert!(!text.contains(forbidden), "{} mentions {forbidden}", file.display());
+        }
+    }
+}

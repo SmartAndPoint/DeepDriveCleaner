@@ -21,8 +21,12 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-pub use journal::{FileJournal, Journal, JournalEntry, MemoryJournal};
+pub use journal::{
+    AreaActionEntry, AreaJournal, FileJournal, JOURNAL_SCHEMA_VERSION, Journal, JournalEntry, JournalKind,
+    MemoryAreaJournal, MemoryJournal,
+};
 pub use native::CommandResult;
+pub(crate) use native::tail;
 pub use progress::{CurrentItem, ExecPhase, ExecProgress, ExecSnapshot};
 pub use system::{SystemCommands, SystemProcesses, SystemTrash};
 
