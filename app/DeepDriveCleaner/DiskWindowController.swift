@@ -9,21 +9,27 @@ import SwiftUI
 final class DiskWindowController {
     private let presence: DockPresenceController
     private let model: DiskModel
+    private let agents: AgentsModel
     private let popover: PopoverModel
     private var window: NSWindow?
 
-    init(presence: DockPresenceController, model: DiskModel, popover: PopoverModel) {
+    init(presence: DockPresenceController, model: DiskModel, agents: AgentsModel, popover: PopoverModel) {
         self.presence = presence
         self.model = model
+        self.agents = agents
         self.popover = popover
     }
 
     func show() {
         // A window shown again does not run the view's `.task`: read a
-        // report written meanwhile, and today's date for "Measured today".
-        if window != nil { Task { await model.load() } }
+        // report written meanwhile, and today's date for "Measured today";
+        // list the coding agents again, as liveness is never kept.
+        if window != nil {
+            Task { await model.load() }
+            Task { await agents.refresh() }
+        }
         if window == nil {
-            let hosting = NSHostingController(rootView: DiskView(model: model, popover: popover).frame(minWidth: 640, minHeight: 480))
+            let hosting = NSHostingController(rootView: DiskView(model: model, agents: agents, popover: popover).frame(minWidth: 640, minHeight: 480))
             let window = NSWindow(contentViewController: hosting)
             window.title = "Whole Disk"
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]

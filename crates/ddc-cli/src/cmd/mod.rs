@@ -5,6 +5,7 @@ mod clean;
 mod clean_items;
 mod diag;
 mod disk;
+mod disk_agents;
 mod du;
 mod notify;
 mod rules;
@@ -17,13 +18,14 @@ use std::process::ExitCode;
 use ddc_core::env::Env;
 use ddc_core::settings::{self, Resolved, ScanFlags};
 
-use crate::cli::{Cli, Command};
+use crate::cli::{Cli, Command, DiskAction, DiskArgs};
 
 pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
         Command::Scan(args) => scan::run(args),
         Command::Clean(args) => clean::run(args),
         Command::Rules(args) => rules::run(&args),
+        Command::Disk(DiskArgs { action: Some(DiskAction::Agents(args)), .. }) => disk_agents::run(&args),
         Command::Disk(args) => disk::run(args),
         Command::Notify { action } => notify::run(action),
         Command::Schedule { action } => schedule::run(action),

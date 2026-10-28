@@ -57,7 +57,7 @@ This installs `~/.cargo/bin/deepdrivecleaner` and a `ddc` symlink to it. A local
 
 - **The popover** (click the icon) shows the last scan: what can be freed by risk class, the biggest finds, when the last scan ran, and Scan Now. The icon shows a turning arc while a scan or a clean runs, shows a small warning when something needs you (Full Disk Access, a failed scan), and goes grey while scans are paused (Pause Scans, in the icon's right-click menu).
 - **The Review window** lists every finding by group (a sidebar ordered by size, per risk class) or as one list you can filter and sort. You tick what to clean; safe and idle rebuildable items start ticked, review items never do. Clean N items… at the bottom cleans every tick; Clean N from <group>… in a group's Select all row cleans only that group's. Right-click a folder to show it in Finder or protect it with a `.ddc-keep` file.
-- **Whole disk** (Where Does the Rest Go? in the popover, or the last row of the Review sidebar) shows the startup disk as one bar: the home folder, with what the last scan can free in its class colours, then apps, system data, Homebrew, simulator runtimes and what could not be counted, one row each. Scan Whole Disk runs `ddc disk` beside any scan or clean, never on its own, and Stop keeps what it measured so far. Nothing in this view removes anything.
+- **Whole disk** (Where Does the Rest Go? in the popover, or the last row of the Review sidebar) shows the startup disk as one bar: the home folder, with what the last scan can free in its class colours, then apps, system data, Homebrew, simulator runtimes and what could not be counted, one row each. Scan Whole Disk runs `ddc disk` beside any scan or clean, never on its own, and Stop keeps what it measured so far. Under the rows, **Coding agents** shows what Claude Code, Codex, Cursor and opencode keep and their live sessions, from `ddc disk agents`; it shows project folders and session names. Nothing in this view removes anything.
 - **The confirmation sheet** lists every item with its action, checks each one with a dry run first, and names what would be skipped and why. Review items go to the Trash unless you choose Delete permanently for one. After the clean it shows what was deleted, moved to the Trash or skipped, grouped by cause.
 - **Your own files.** Downloads, Pictures, Movies, Music and iPhone and iPad backups list what they hold, largest first. Nothing in them is ever selected for you; you pick files and folders one by one, and they go to the Trash, never deleted. App libraries (Photos and others), partial downloads, unfinished backups and anything changed in the last 10 minutes are locked. Cloud folders (iCloud Drive and other File Provider folders) are not scanned.
 - **Settings** has Open at login for now.
@@ -218,6 +218,13 @@ Shows what uses the startup disk, outside your home folder too: Applications, th
 ```
 ddc disk                                           # the table
 ddc disk --json | jq '.areas[] | {id, bytes}'      # area sizes
+```
+
+`ddc disk agents` shows what coding-agent harnesses keep under your home folder: Claude Code, Codex, Cursor and opencode, with each one's folders and sizes, what of it runs, its live sessions and how many other transcripts it keeps. A Claude Code session is live while the process that wrote its record runs; a Codex thread is open while a process holds its lock file. It reads only the session records' named fields, the names of lock files and transcripts, the process list and sizes: never a transcript's content or a harness database. Its output shows project folders and session names. `--no-sizes` lists the sessions without measuring the folders, in a fraction of a second; `--json` follows [`docs/agents.schema.json`](docs/agents.schema.json). It saves nothing and removes nothing.
+
+```
+ddc disk agents [--json] [--no-sizes] [--threads N] [--data-dir DIR]
+ddc disk agents --no-sizes                         # live sessions only
 ```
 
 ### `ddc schedule`: scan in the background

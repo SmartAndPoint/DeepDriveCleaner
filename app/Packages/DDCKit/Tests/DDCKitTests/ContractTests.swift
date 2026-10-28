@@ -337,7 +337,7 @@ struct ContractTests {
         }
         // `WalkStep.disk` exists too: the patterns name a run and its argument.
         #expect(files(/run\(\s*\.disk\b/) == ["DiskModel.swift"])
-        #expect(files(/"disk"/) == ["DiskModel.swift"])
+        #expect(files(/"disk"/) == ["DiskModel.swift", "AgentsModel.swift"])
         #expect(files(/\.scanDisk\(/) == ["DiskView.swift"], "the Scan Whole Disk button is the one caller")
         for file in ["ScheduledWork.swift", "PopoverModel.swift"] {
             #expect(!(try #require(sources[file])).contains(/DiskModel|scanDisk|\.disk\b/), "\(file) never runs a whole-disk scan")
@@ -348,6 +348,37 @@ struct ContractTests {
             let body = try #require(delegate.firstMatch(of: Regex("func \(name)[\\s\\S]*?\n    }\n")))
             #expect(!String(body.0).localizedCaseInsensitiveContains("disk"), "\(name) leaves a whole-disk scan running")
         }
+    }
+
+    @Test("only the Whole disk view lists the coding agents, and nothing in the section removes anything")
+    func agentsCallers() throws {
+        let sources = try appSources()
+        func files(_ pattern: Regex<Substring>) -> Set<String> {
+            Set(sources.filter { $0.value.contains(pattern) }.map(\.key))
+        }
+        #expect(files(/run\(\s*\.diskAgents\b/) == ["AgentsModel.swift"])
+        #expect(files(/"agents"/) == ["AgentsModel.swift"])
+        #expect(files(/agents\??\.refresh\(/) == ["DiskView.swift", "DiskWindowController.swift", "AgentsSection.swift"], "the view appearing, the window shown again, and the Refresh button")
+        for file in ["ScheduledWork.swift", "PopoverModel.swift", "AppDelegate.swift"] {
+            #expect(!(try #require(sources[file])).contains(/diskAgents|agents\??\.refresh|AgentsModel\.(fast|sizes)Arguments/), "\(file) never lists the coding agents")
+        }
+        for file in ["AgentsModel.swift", "AgentsSummary.swift", "AgentsReport.swift", "AgentsSection.swift"] {
+            let source = try #require(sources[file])
+            #expect(!source.contains(/\.clean\b|"clean"|\.trash|removeItem|cleanConfirmedItems/), "\(file) removes nothing")
+        }
+    }
+
+    @Test("the coding agents report is the CLI's: version and every enum")
+    func agentsContracts() throws {
+        let source = try rustSource("crates/ddc-core/src/agents/model.rs")
+        let version = try #require(source.firstMatch(of: /pub const AGENTS_SCHEMA_VERSION: u32 = (\d+);/))
+        #expect(Int(version.1) == AgentsReport.schemaVersion)
+        let agents = try schema("agents")
+        #expect(Set(try values(agents, "HarnessId")) == Set(AgentsReport.HarnessID.allCases.map(\.rawValue)))
+        #expect(Set(try values(agents, "RunningKind")) == Set(AgentsReport.RunningKind.allCases.map(\.rawValue)))
+        #expect(Set(try values(agents, "RecordsState")) == Set(AgentsReport.RecordsState.allCases.map(\.rawValue)))
+        #expect(Set(try values(agents, "UnknownReason")) == Set(AgentsReport.UnknownReason.allCases.map(\.rawValue)))
+        #expect(Set(try values(agents, "SessionState")) == Set(AgentsReport.SessionState.allCases.map(\.rawValue)))
     }
 
     /// The app's Swift sources, comment lines stripped, by file name.

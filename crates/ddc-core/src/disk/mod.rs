@@ -9,7 +9,7 @@ mod home;
 mod model;
 mod plist;
 mod simulators;
-mod visitor;
+pub(crate) mod visitor;
 
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};

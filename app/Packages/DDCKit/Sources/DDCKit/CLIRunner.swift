@@ -22,20 +22,22 @@ extension CLIRunner: CLIRunning {}
 
 /// The one way the app runs the embedded CLI (ADR §1).
 ///
-/// Every run but `.disk` goes through one queue and never overlaps another:
+/// Every run but the lane kinds (`.disk`, `.diskAgents`) goes through one queue and never overlaps another:
 /// two that take the ddc lock would make one fail as busy, and `rules`,
 /// `notify` and `schedule` are queued too. A scan requested while a scan is queued
 /// or running joins it and gets the same result (its own arguments and
 /// `stderrLine` are not used); anything else waits its turn, so a clean
 /// requested during a scan starts when the scan ends.
 ///
-/// `.disk` takes no lock and writes nothing another command reads, so it runs
-/// in a lane of its own, beside the queue: it
-/// never waits for a run of the queue, and no run of the queue waits for it.
-/// The lane holds one run; a second `.disk` request joins it (ADR §1,
-/// amended 2026-10-28, story "Whole disk in the app").
+/// `.disk` and `.diskAgents` take no lock, and the app keeps what they write
+/// apart from any reader, so each runs in a lane of its own, beside the
+/// queue: it never waits for a run of the queue or of another lane, and
+/// nothing waits for it. A lane holds one run. A second request with the
+/// same arguments joins it; one with other arguments waits for it, then
+/// runs (ADR §1, amended 2026-10-28, stories "Whole disk in the app" and
+/// "Coding agents in the Whole disk view").
 public actor CLIRunner {
-    /// `.scan` and `.disk` coalesce: a scheduled `.backgroundScan` never hands
+    /// `.scan` and the lanes coalesce: a scheduled `.backgroundScan` never hands
     /// a caller another run's output, nor do `notify` and `schedule`.
     public enum Kind: Sendable, Equatable, Hashable {
         case scan, clean, dryRun, rules
@@ -47,6 +49,12 @@ public actor CLIRunner {
         case schedule
         /// `disk --json`, the whole-disk report: read-only, outside the queue.
         case disk
+        /// `disk agents --json`, the Coding agents section: read-only, in a
+        /// lane of its own.
+        case diskAgents
+
+        /// Runs in a lane of its own, beside the queue.
+        public var hasLane: Bool { self == .disk || self == .diskAgents }
     }
 
     /// Names one run, so it can be cancelled without touching another.
@@ -106,8 +114,8 @@ public actor CLIRunner {
     private let executable: URL
     private var last: Task<Result, Never>?
     private var queuedScan: (id: UUID, task: Task<Result, Never>)?
-    private var diskRun: (id: UUID, task: Task<Result, Never>)?
-    /// One entry per process running: the queue's and the disk lane's.
+    private var lanes: [Kind: (id: UUID, arguments: [String], task: Task<Result, Never>)] = [:]
+    /// One entry per process running: the queue's and the lanes'.
     private var running: [UUID: Running] = [:]
     private var cancelled: Set<Ticket> = []
 
@@ -116,9 +124,9 @@ public actor CLIRunner {
     }
 
     /// Runs the CLI with `arguments` after every earlier run of the queue has
-    /// ended; `.disk` at once, or joining the one running.
+    /// ended; a kind with a lane at once, or after its lane's run.
     public func run(_ kind: Kind, _ arguments: [String], options: Options) async -> Result {
-        if kind == .disk { return await runDisk(arguments, options: options) }
+        if kind.hasLane { return await runInLane(kind, arguments, options: options) }
         if kind == .scan, let scan = queuedScan {
             return await scan.task.value
         }
@@ -135,17 +143,21 @@ public actor CLIRunner {
         return await task.value
     }
 
-    /// The disk lane: never reads or sets `last`, so it neither waits for the
-    /// queue nor holds it up.
-    private func runDisk(_ arguments: [String], options: Options) async -> Result {
-        if let disk = diskRun { return await disk.task.value }
+    /// A lane: never reads or sets `last`, so it neither waits for the queue
+    /// nor holds it up. A request for other arguments never receives the
+    /// running one's output (`--no-sizes` is not the sizes report).
+    private func runInLane(_ kind: Kind, _ arguments: [String], options: Options) async -> Result {
+        while let lane = lanes[kind] {
+            if lane.arguments == arguments { return await lane.task.value }
+            _ = await lane.task.value
+        }
         let id = UUID()
         let task = Task {
             let result = await startUnlessCancelled(id: id, arguments, options: options)
-            if diskRun?.id == id { diskRun = nil }
+            if lanes[kind]?.id == id { lanes[kind] = nil }
             return result
         }
-        diskRun = (id, task)
+        lanes[kind] = (id, arguments, task)
         return await task.value
     }
 

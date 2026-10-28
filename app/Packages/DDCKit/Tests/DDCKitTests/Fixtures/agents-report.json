@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "ddc_version": "0.4.0",
+  "generated_at": "2026-10-28T14:00:05Z",
+  "duration_ms": 5100,
+  "sizes": true,
+  "harnesses": [
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "running": [
+        {
+          "pid": 501,
+          "kind": "cli"
+        },
+        {
+          "pid": 502,
+          "kind": "cli"
+        }
+      ],
+      "folders": [
+        {
+          "path": "/Users/example/.claude",
+          "nested": false,
+          "skipped": false,
+          "bytes": 6442450944,
+          "unreadable": 0
+        },
+        {
+          "path": "/Users/example/.claude/projects",
+          "nested": true,
+          "skipped": false,
+          "bytes": 5368709120,
+          "unreadable": 0
+        }
+      ],
+      "bytes": 6442450944,
+      "sessions": {
+        "records": "readable",
+        "list": [
+          {
+            "id": "0a1b2c3d-0000-4000-8000-000000000001",
+            "state": "live",
+            "started_at": "2026-10-28T13:41:00Z",
+            "status": "thinking-in-a-new-way",
+            "entrypoint": "sdk-future",
+            "name": "Fix the parser",
+            "cwd": "/Users/example/Projects/acme-web",
+            "future_field": {
+              "nested": true
+            }
+          },
+          {
+            "id": "0a1b2c3d-0000-4000-8000-000000000002",
+            "state": "stale",
+            "started_at": "2026-10-27T09:00:00Z",
+            "status": "idle",
+            "cwd": "/Users/example/Projects/old"
+          },
+          {
+            "state": "unknown"
+          }
+        ],
+        "transcripts": {
+          "count": 42,
+          "bytes": 1073741824,
+          "skipped": false
+        }
+      }
+    },
+    {
+      "id": "codex",
+      "name": "Codex",
+      "running": [
+        {
+          "pid": 601,
+          "kind": "app-server"
+        }
+      ],
+      "folders": [
+        {
+          "path": "/Users/example/.codex",
+          "nested": false,
+          "skipped": false,
+          "bytes": 2147483648,
+          "unreadable": 0
+        },
+        {
+          "path": "/Users/example/.codex/sessions",
+          "nested": true,
+          "skipped": false,
+          "bytes": 1610612736,
+          "unreadable": 0
+        }
+      ],
+      "bytes": 2147483648,
+      "sessions": {
+        "records": "readable",
+        "list": [
+          {
+            "id": "019a2b3c-0000-7000-8000-000000000003",
+            "state": "live",
+            "rollout_time": "2026-10-28T09-41-07"
+          }
+        ],
+        "transcripts": {
+          "count": 1,
+          "bytes": 1048576,
+          "skipped": false
+        }
+      }
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "running": [
+        {
+          "pid": 701,
+          "kind": "app"
+        }
+      ],
+      "folders": [
+        {
+          "path": "/Users/example/.cursor",
+          "nested": false,
+          "skipped": false,
+          "bytes": 524288000,
+          "unreadable": 0
+        }
+      ],
+      "bytes": 524288000
+    },
+    {
+      "id": "opencode",
+      "name": "opencode",
+      "running": [],
+      "folders": [
+        {
+          "path": "/Users/example/.local/share/opencode",
+          "nested": false,
+          "skipped": false,
+          "bytes": 104857600,
+          "unreadable": 2
+        }
+      ],
+      "bytes": 104857600
+    }
+  ]
+}

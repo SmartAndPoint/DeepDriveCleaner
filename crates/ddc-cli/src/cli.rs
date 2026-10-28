@@ -246,7 +246,10 @@ fn parse_size(s: &str) -> Result<u64, String> {
 }
 
 #[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
 pub struct DiskArgs {
+    #[command(subcommand)]
+    pub action: Option<DiskAction>,
     /// Print the report as JSON (schema: docs/disk.schema.json).
     #[arg(long)]
     pub json: bool,
@@ -266,6 +269,28 @@ pub struct DiskArgs {
     /// Entries read in each temporary folder before the rest is left unread (tests).
     #[arg(long, hide = true, value_name = "N")]
     pub temp_entry_budget: Option<u64>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DiskAction {
+    /// What coding-agent harnesses keep under your home folder, and their live sessions (read-only).
+    Agents(AgentsArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentsArgs {
+    /// Print the report as JSON (schema: docs/agents.schema.json).
+    #[arg(long)]
+    pub json: bool,
+    /// Do not measure the folders: only the sessions, in a fraction of a second.
+    #[arg(long)]
+    pub no_sizes: bool,
+    /// Where settings.json lives (default: ~/Library/Application Support/DeepDriveCleaner).
+    #[arg(long, value_name = "DIR")]
+    pub data_dir: Option<PathBuf>,
+    /// Worker threads (default: available parallelism).
+    #[arg(long)]
+    pub threads: Option<usize>,
 }
 
 #[derive(Debug, Args)]

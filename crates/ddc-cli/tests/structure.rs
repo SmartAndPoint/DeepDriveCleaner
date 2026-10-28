@@ -26,15 +26,18 @@ fn the_background_scan_runs_no_program_itself() {
     }
 }
 
-/// `ddc disk` only measures (story "Whole disk: what lies outside the home
-/// folder"): its sources reach no cleanup, start no program themselves, and
+/// `ddc disk` and `ddc disk agents` only measure (story "Whole disk: what
+/// lies outside the home folder"): its sources reach no cleanup, start no program themselves, and
 /// never run `xcrun` or a first launch, which can ask for a password.
 #[test]
 fn the_disk_report_never_reaches_cleanup() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    let mut files = vec![root.join("ddc-cli/src/cmd/disk.rs")];
-    for entry in std::fs::read_dir(root.join("ddc-core/src/disk")).unwrap() {
-        files.push(entry.unwrap().path());
+    let mut files = vec![root.join("ddc-cli/src/cmd/disk.rs"), root.join("ddc-cli/src/cmd/disk_agents.rs")];
+    // `ddc disk agents` too (story "Coding agents in the Whole disk view").
+    for dir in ["ddc-core/src/disk", "ddc-core/src/agents"] {
+        for entry in std::fs::read_dir(root.join(dir)).unwrap() {
+            files.push(entry.unwrap().path());
+        }
     }
     for file in files {
         let text = std::fs::read_to_string(&file).unwrap();

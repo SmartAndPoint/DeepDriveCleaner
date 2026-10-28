@@ -4,9 +4,11 @@ import SwiftUI
 /// The Whole disk view (artboard 13; story "Whole disk in the app"): the
 /// startup container as one bar, then a row per area. Read-only: nothing
 /// here removes anything. Used as the Review window's detail and in its own
-/// window; both show the one `DiskModel`.
+/// window; both show the one `DiskModel` and the one `AgentsModel`.
 struct DiskView: View {
     let model: DiskModel
+    /// The Coding agents section: read again each time the view appears.
+    let agents: AgentsModel
     /// The popover's report, summary and switched-on classes: the home
     /// folder's coloured part is the popover's number.
     let popover: PopoverModel
@@ -21,6 +23,7 @@ struct DiskView: View {
             content
         }
         .task { await model.load() }
+        .task { await agents.refresh() }
     }
 
     private var header: some View {
@@ -64,13 +67,17 @@ struct DiskView: View {
         case .loading:
             Spacer()
         case .none:
-            ContentUnavailableView {
-                Label("No Whole-Disk Scan Yet", systemImage: "internaldrive")
-            } description: {
-                Text("Scan Whole Disk measures what lies outside the home folder: apps, system data, Homebrew, simulator runtimes. It reads sizes only and takes a few minutes.")
+            withAgents {
+                ContentUnavailableView {
+                    Label("No Whole-Disk Scan Yet", systemImage: "internaldrive")
+                } description: {
+                    Text("Scan Whole Disk measures what lies outside the home folder: apps, system data, Homebrew, simulator runtimes. It reads sizes only and takes a few minutes.")
+                }
             }
         case .unreadable(let reason):
-            ContentUnavailableView("The Whole-Disk Report Could Not Be Read", systemImage: "exclamationmark.triangle", description: Text("\(reason) A new whole-disk scan replaces it."))
+            withAgents {
+                ContentUnavailableView("The Whole-Disk Report Could Not Be Read", systemImage: "exclamationmark.triangle", description: Text("\(reason) A new whole-disk scan replaces it."))
+            }
         case .loaded:
             if let summary = model.summary(scan: popover.loadedReport, summary: popover.summary, included: popover.included) {
                 ScrollView {
@@ -88,10 +95,22 @@ struct DiskView: View {
                                 Divider()
                             }
                         }
+                        AgentsSection(agents: agents).padding(.top, 12)
                     }
                     .padding(16)
                 }
             }
+        }
+    }
+
+    /// Without a whole-disk report, the Coding agents section still shows.
+    private func withAgents(@ViewBuilder _ empty: () -> some View) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                empty().frame(minHeight: 220)
+                AgentsSection(agents: agents)
+            }
+            .padding(16)
         }
     }
 }

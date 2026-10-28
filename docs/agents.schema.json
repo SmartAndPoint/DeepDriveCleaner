@@ -1,0 +1,362 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AgentsReport",
+  "description": "What coding-agent harnesses keep under the home folder, and their\nsessions (story \"Coding agents in the Whole disk view\"). Read-only, and\nnever stored: liveness is read again on every run.",
+  "type": "object",
+  "properties": {
+    "ddc_version": {
+      "type": "string"
+    },
+    "duration_ms": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "generated_at": {
+      "description": "RFC 3339, UTC.",
+      "type": "string"
+    },
+    "harnesses": {
+      "description": "The harnesses with at least one folder, in the table's order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Harness"
+      }
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "sizes": {
+      "description": "Whether the folders were walked; `false` under `--no-sizes`, and then\nevery `bytes` is absent.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_version",
+    "ddc_version",
+    "generated_at",
+    "duration_ms",
+    "sizes",
+    "harnesses"
+  ],
+  "$defs": {
+    "Folder": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Allocated bytes, each inode once; absent without sizes or when skipped.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "nested": {
+          "description": "Lies inside the harness's folder above it; its bytes are in that one's.",
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        },
+        "skipped": {
+          "description": "At or under a skip of `settings.json`: never opened, no bytes.",
+          "type": "boolean"
+        },
+        "unreadable": {
+          "description": "Folders and entries inside that could not be read: `bytes` is then a\nlower bound.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "path",
+        "nested",
+        "skipped",
+        "unreadable"
+      ]
+    },
+    "Harness": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "The top-level folders' bytes summed; absent without sizes.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "folders": {
+          "description": "The folders that exist; a nested one lies inside the one before it.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Folder"
+          }
+        },
+        "id": {
+          "$ref": "#/$defs/HarnessId"
+        },
+        "name": {
+          "description": "\"Claude Code\".",
+          "type": "string"
+        },
+        "running": {
+          "description": "Its processes that run now, by pid.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Running"
+          }
+        },
+        "sessions": {
+          "description": "Claude Code and Codex only.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Sessions"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "running",
+        "folders"
+      ]
+    },
+    "HarnessId": {
+      "type": "string",
+      "enum": [
+        "claude-code",
+        "codex",
+        "cursor",
+        "opencode"
+      ]
+    },
+    "RecordsState": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "readable"
+          ]
+        },
+        {
+          "description": "No session is called stale then: a changed format must not read as\n\"everything ended\".",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "Running": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/RunningKind"
+        },
+        "pid": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      "required": [
+        "pid",
+        "kind"
+      ]
+    },
+    "RunningKind": {
+      "description": "What ddc makes of a harness process.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "cli",
+            "app"
+          ]
+        },
+        {
+          "description": "Codex's daemon, which holds the threads its app has open.",
+          "type": "string",
+          "const": "app-server"
+        },
+        {
+          "description": "A binary of the harness that ddc cannot name, such as one inside\nanother app's bundle.",
+          "type": "string",
+          "const": "other"
+        }
+      ]
+    },
+    "Session": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entrypoint": {
+          "description": "As Claude Code wrote it (`cli`, `claude-desktop`, …).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Claude Code's `sessionId`, or the Codex thread id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rollout_time": {
+          "description": "The time in a Codex rollout's file name, as written there\n(`2026-10-28T09-41-07`); its time zone is not known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "started_at": {
+          "description": "RFC 3339, UTC, from Claude Code's `startedAt`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/SessionState"
+        },
+        "status": {
+          "description": "As Claude Code wrote it (`idle`, `busy`, …).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "state"
+      ]
+    },
+    "SessionState": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "live"
+          ]
+        },
+        {
+          "description": "A record left behind with no live process.",
+          "type": "string",
+          "const": "stale"
+        },
+        {
+          "description": "The record lacks what the test needs.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "Sessions": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "description": "Live first, then by start, then by id.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Session"
+          }
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnknownReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "records": {
+          "$ref": "#/$defs/RecordsState"
+        },
+        "transcripts": {
+          "$ref": "#/$defs/Transcripts"
+        }
+      },
+      "required": [
+        "records",
+        "list",
+        "transcripts"
+      ]
+    },
+    "Transcripts": {
+      "description": "The transcripts that no live session writes.",
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Allocated bytes; absent without sizes or when skipped.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "count": {
+          "description": "From their names; absent when their folder is skipped.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "skipped"
+      ]
+    },
+    "UnknownReason": {
+      "oneOf": [
+        {
+          "description": "The records folder does not exist.",
+          "type": "string",
+          "const": "missing"
+        },
+        {
+          "description": "The records folder could not be listed.",
+          "type": "string",
+          "const": "unreadable"
+        },
+        {
+          "description": "None of the candidate records parsed.",
+          "type": "string",
+          "const": "unparsed"
+        },
+        {
+          "description": "At or under a skip of `settings.json`.",
+          "type": "string",
+          "const": "skipped"
+        }
+      ]
+    }
+  }
+}

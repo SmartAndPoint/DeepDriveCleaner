@@ -86,8 +86,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let model {
             let disk = DiskModel(runner: runner, data: data, log: { AppLog.write($0) })
             self.disk = disk
-            diskWindow = DiskWindowController(presence: presence, model: disk, popover: model)
-            reviewWindow.wholeDisk = { DiskView(model: disk, popover: model) }
+            let agents = AgentsModel(runner: runner, log: { AppLog.write($0) })
+            diskWindow = DiskWindowController(presence: presence, model: disk, agents: agents, popover: model)
+            reviewWindow.wholeDisk = { DiskView(model: disk, agents: agents, popover: model) }
             // The store's writes reach the popover at once: ignored findings and the icon follow, with no scan.
             let store = SettingsStore(
                 url: data.settings,

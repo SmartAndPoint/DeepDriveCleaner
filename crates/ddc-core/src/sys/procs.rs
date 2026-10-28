@@ -64,6 +64,16 @@ pub fn is_root() -> bool {
 
 /// All processes of the real user id; unreadable details are left empty.
 pub fn current_user_processes() -> Vec<ProcInfo> {
+    user_processes(true)
+}
+
+/// [`current_user_processes`] without their open files, which it reads
+/// for every process: the cost of a list that only names them.
+pub fn current_user_processes_unopened() -> Vec<ProcInfo> {
+    user_processes(false)
+}
+
+fn user_processes(with_files: bool) -> Vec<ProcInfo> {
     // SAFETY: no arguments, cannot fail.
     let uid = unsafe { libc::getuid() };
     let argmax = argmax().unwrap_or(1 << 20);
@@ -76,7 +86,7 @@ pub fn current_user_processes() -> Vec<ProcInfo> {
             (bsd.pbi_uid == uid).then(|| {
                 let mut info = describe(pid, &bsd, argmax);
                 // This process and the tools it runs hold the clean's own descriptors.
-                if pid as u32 != own && bsd.pbi_ppid != own {
+                if with_files && pid as u32 != own && bsd.pbi_ppid != own {
                     info.open_files = vnode_files(pid, bsd.pbi_nfiles);
                 }
                 info
@@ -96,11 +106,51 @@ pub fn open_files(pid: i32) -> Vec<PathBuf> {
     }
 }
 
+/// A file a process has open, as the kernel describes it: no `stat` of the
+/// path is needed, so nothing here can make macOS ask (story "Coding agents
+/// in the Whole disk view").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenVnode {
+    /// As `MetadataExt::dev` gives it, so the pair compares with a `stat`.
+    pub dev: u64,
+    pub ino: u64,
+    pub path: Option<PathBuf>,
+}
+
+/// The files `pid` (a process of the current user) has open, with their
+/// device and inode; empty when it is gone or unreadable. Unlike the
+/// snapshot, this process's children are read too.
+pub fn open_vnodes(pid: i32) -> Vec<OpenVnode> {
+    match bsd_info(pid) {
+        Some(bsd) if bsd.pbi_uid == uid() => list_fds(pid, bsd.pbi_nfiles)
+            .into_iter()
+            .filter(|fd| fd.proc_fdtype == libc::PROX_FDTYPE_VNODE as u32)
+            .filter_map(|fd| fd_vnode(pid, fd.proc_fd))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// When a process started and whose it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProcStart {
+    pub uid: u32,
+    /// Seconds since the epoch.
+    pub sec: u64,
+    pub usec: u64,
+}
+
+/// The start of `pid`, of any user; `None` when there is no such process.
+pub fn process_start(pid: i32) -> Option<ProcStart> {
+    let bsd = bsd_info(pid)?;
+    Some(ProcStart { uid: bsd.pbi_uid, sec: bsd.pbi_start_tvsec, usec: bsd.pbi_start_tvusec })
+}
+
 fn vnode_files(pid: i32, nfiles: u32) -> Vec<PathBuf> {
     list_fds(pid, nfiles)
         .into_iter()
         .filter(|fd| fd.proc_fdtype == libc::PROX_FDTYPE_VNODE as u32)
-        .filter_map(|fd| vnode_path(pid, fd.proc_fd))
+        .filter_map(|fd| fd_vnode(pid, fd.proc_fd)?.path)
         .collect()
 }
 
@@ -146,9 +196,9 @@ struct VnodeFdInfoWithPath {
 
 const _: () = assert!(size_of::<VnodeFdInfoWithPath>() == 1200);
 
-/// The path of descriptor `fd`; `None` when it closed since the table was
-/// read, or when the file has no path any more (unlinked).
-fn vnode_path(pid: i32, fd: i32) -> Option<PathBuf> {
+/// Descriptor `fd`'s vnode; `None` when it closed since the table was read.
+/// Its path is `None` when the file has no path any more (unlinked).
+fn fd_vnode(pid: i32, fd: i32) -> Option<OpenVnode> {
     let mut info = MaybeUninit::<VnodeFdInfoWithPath>::zeroed();
     let size = size_of::<VnodeFdInfoWithPath>() as c_int;
     // SAFETY: `info` is writable for `size` bytes.
@@ -160,7 +210,13 @@ fn vnode_path(pid: i32, fd: i32) -> Option<PathBuf> {
     let info = unsafe { info.assume_init() };
     // SAFETY: as above.
     let path = unsafe { CStr::from_ptr(info.pvip.vip_path.as_ptr().cast()) };
-    (!path.to_bytes().is_empty()).then(|| PathBuf::from(OsStr::from_bytes(path.to_bytes())))
+    let stat = &info.pvip.vip_vi.vi_stat;
+    Some(OpenVnode {
+        // `st_dev` is an `i32`; std widens it with its sign.
+        dev: stat.vst_dev as i32 as i64 as u64,
+        ino: stat.vst_ino,
+        path: (!path.to_bytes().is_empty()).then(|| PathBuf::from(OsStr::from_bytes(path.to_bytes()))),
+    })
 }
 
 fn list_pids() -> Vec<i32> {
@@ -375,5 +431,32 @@ mod tests {
         assert!(seen.contains(&held), "{held:?} not in {seen:?}");
         let listed = listed.expect("the child is listed");
         assert!(listed.exe.is_some() && listed.open_files.is_empty(), "{listed:?}");
+    }
+
+    /// The kernel's `(dev, ino)` of an open file equals the one `stat` gives.
+    #[test]
+    fn open_vnodes_of_a_child_carry_the_stat_identity() {
+        use std::os::unix::fs::MetadataExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let held = dir.path().join("held.lock");
+        std::fs::write(&held, b"").unwrap();
+        let meta = std::fs::metadata(&held).unwrap();
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .stdin(std::fs::File::open(&held).unwrap())
+            .spawn()
+            .unwrap();
+        let seen = open_vnodes(child.id() as i32);
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(seen.iter().any(|v| v.dev == meta.dev() && v.ino == meta.ino()), "{meta:?} not in {seen:?}");
+    }
+
+    #[test]
+    fn this_process_started_before_now_as_this_user() {
+        let start = process_start(std::process::id() as i32).unwrap();
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        assert_eq!(start.uid, uid());
+        assert!(start.sec > 0 && start.sec <= now && start.usec < 1_000_000);
     }
 }

@@ -31,6 +31,10 @@ import Synchronization
 ///   saves its report before it prints, and prints it. With `disk.trap`,
 ///   SIGTERM copies and prints `disk-stopped.json` when it exists, then ends
 ///   the script by the signal.
+/// - `disk agents --json [--no-sizes]`: prints `agents-fast.json` for
+///   `--no-sizes`, else `agents.json`. With `agents-fast.gated` (or
+///   `agents.gated`) it first waits for gate `agents-fast-go` (`agents-go`),
+///   and exits with `agents-fast.exit` (`agents.exit`) when that exists.
 /// Gates replace sleeps, so the tests order runs without timing assumptions.
 /// The directory is removed when the fake goes away. A gate gives up when the
 /// directory is gone or after 30,000 polls (some minutes), so a test that fails or
@@ -111,6 +115,13 @@ final class FakeCLI: Sendable {
                   cat "$gates/clean-report.json"
                 fi ;;
               disk)
+                if [ "$2" = agents ]; then
+                  a=agents; [ "$4" = --no-sizes ] && a=agents-fast
+                  [ -e "$gates/$a.gated" ] && gate "$a-go"
+                  if [ -e "$gates/$a.exit" ]; then echo "end $$ $*" >> "$log"; exit "$(cat "$gates/$a.exit")"; fi
+                  cat "$gates/$a.json"
+                  echo "end $$ $*" >> "$log"; exit 0
+                fi
                 if [ -e "$gates/disk.trap" ]; then
                   trap 'if [ -e "$gates/disk-stopped.json" ]; then cp "$gates/disk-stopped.json" "$lastdisk"; cat "$gates/disk-stopped.json"; fi; echo "end $$ $*" >> "$log"; trap - TERM; kill -TERM $$' TERM
                 fi

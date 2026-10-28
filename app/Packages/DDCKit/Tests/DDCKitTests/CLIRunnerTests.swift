@@ -189,14 +189,14 @@ struct CLIRunnerTests {
         #expect(await scan.outcome == .done)
     }
 
-    @Test("a second disk request joins the running one")
+    @Test("a second disk request with the same arguments joins the running one")
     func joinedDisk() async throws {
         let fake = try FakeCLI()
         let runner = CLIRunner(executable: fake.executable)
 
         async let first = runner.run(.disk, ["wait", "disk"])
         try await fake.waitForStart("wait disk")
-        async let second = runner.run(.disk, ["wait", "other"])
+        async let second = runner.run(.disk, ["wait", "disk"])
         try await Task.sleep(for: .milliseconds(50))
         try fake.open("disk")
         let outcomes = await [first.outcome, second.outcome]
@@ -204,6 +204,43 @@ struct CLIRunnerTests {
         #expect(outcomes == [.done, .done])
         #expect(try fake.runs().filter { $0.event == "start" }.map(\.args) == ["wait disk"])
         #expect(await runner.run(.disk, ["exit", "0"]).outcome == .done, "the lane is free again")
+    }
+
+    // MARK: - The agents lane (story "Coding agents in the Whole disk view")
+
+    @Test("a disk agents run is delayed neither by a disk run at a gate nor by a queued scan")
+    func agentsBesideDiskAndQueue() async throws {
+        let fake = try FakeCLI()
+        let runner = CLIRunner(executable: fake.executable)
+
+        async let disk = runner.run(.disk, ["wait", "disk"])
+        try await fake.waitForStart("wait disk")
+        async let scan = runner.run(.scan, ["wait", "scan"])
+        try await fake.waitForStart("wait scan")
+        async let queued = runner.run(.clean, ["exit", "1"])
+        #expect(await runner.run(.diskAgents, ["exit", "0"]).outcome == .done)
+        #expect(!(try fake.runs().contains { $0.args == "exit 1" }), "the clean still waits for the scan")
+        try fake.open("disk")
+        try fake.open("scan")
+        #expect(await [disk.outcome, scan.outcome, queued.outcome] == [.done, .done, .error(status: 1)])
+    }
+
+    @Test("a disk agents request with other arguments waits for the running one, then runs")
+    func agentsOtherArgumentsWait() async throws {
+        let fake = try FakeCLI()
+        let runner = CLIRunner(executable: fake.executable)
+
+        async let fast = runner.run(.diskAgents, ["wait", "fast"])
+        try await fake.waitForStart("wait fast")
+        async let same = runner.run(.diskAgents, ["wait", "fast"])
+        async let sizes = runner.run(.diskAgents, ["wait", "sizes"])
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(try fake.runs().filter { $0.event == "start" }.map(\.args) == ["wait fast"], "the other waits")
+        try fake.open("fast")
+        try await fake.waitForStart("wait sizes")
+        try fake.open("sizes")
+        #expect(await [fast.outcome, same.outcome, sizes.outcome] == [.done, .done, .done])
+        #expect(try fake.runs().filter { $0.event == "start" }.map(\.args) == ["wait fast", "wait sizes"])
     }
 
     @Test("with a disk run and a scan running at once, each ticket stops its own run only", arguments: [true, false])

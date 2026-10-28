@@ -104,11 +104,14 @@ fn the_guide_covers_every_command_and_option_of_the_help() {
     for command in &top.commands {
         let part = section(guide, &format!("### `ddc {command}`"));
         let h = help(&[command]);
-        // A command with subcommands (`schedule`): each is shown, with its options.
-        let leaves: Vec<(String, Help)> = if h.commands.is_empty() {
-            vec![(command.clone(), h)]
+        // A command with subcommands (`schedule`): each is shown, with its
+        // options; one with options of its own too (`disk`) is shown itself.
+        let subs: Vec<(String, Help)> =
+            h.commands.iter().map(|sub| (format!("{command} {sub}"), help(&[command, sub]))).collect();
+        let leaves: Vec<(String, Help)> = if subs.is_empty() || !h.options.is_empty() {
+            std::iter::once((command.clone(), h)).chain(subs).collect()
         } else {
-            h.commands.iter().map(|sub| (format!("{command} {sub}"), help(&[command, sub]))).collect()
+            subs
         };
         let mut known: Vec<String> = vec!["--help".into(), "--version".into()];
         for (leaf, h) in &leaves {

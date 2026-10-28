@@ -22,7 +22,7 @@ fn entries_of(nlink: u64, size: u64) -> u64 {
     if nlink >= u64::from(u16::MAX) { linked.max((size / 32).saturating_sub(2)) } else { linked }
 }
 
-pub(super) struct DiskVisitor<'a> {
+pub(crate) struct DiskVisitor<'a> {
     pub catalog: &'a Catalog,
     /// Canonical: never opened, at or below.
     pub user_skips: &'a [PathBuf],

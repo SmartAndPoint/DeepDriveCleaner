@@ -6,6 +6,7 @@
 //! `unsafe`.
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
+pub mod agents;
 pub mod class;
 pub mod disk;
 pub mod env;

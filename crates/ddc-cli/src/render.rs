@@ -1,9 +1,10 @@
-//! Human-readable scan and disk reports.
+//! Human-readable scan, disk and agents reports.
 
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::Path;
 
+use ddc_core::agents::{AgentsReport, RecordsState, RunningKind, SessionState, UnknownReason};
 use ddc_core::class::{Category, RiskClass};
 use ddc_core::disk::{DiskReport, HeldKind, HomeSource, SimulatorStatus};
 use ddc_core::model::{Finding, NotSelected, ScanReport};
@@ -58,8 +59,13 @@ pub fn tilde(path: &Path, home: &Path) -> String {
         Ok(rel) => format!("~/{}", rel.display()),
         Err(_) => path.display().to_string(),
     };
-    shown
-        .chars()
+    escaped(&shown)
+}
+
+/// `text` with control and bidirectional format characters escaped, as
+/// [`tilde`] shows a path: for text another program wrote.
+fn escaped(text: &str) -> String {
+    text.chars()
         .map(|c| if c.is_control() || bidi(c) { c.escape_default().to_string() } else { c.to_string() })
         .collect()
 }
@@ -349,6 +355,96 @@ pub fn disk(w: &mut impl Write, r: &DiskReport, style: &Style) -> io::Result<()>
     Ok(())
 }
 
+/// `ddc disk agents`: per harness, what runs, its folders and its live
+/// sessions (story "Coding agents in the Whole disk view").
+pub fn agents(w: &mut impl Write, r: &AgentsReport, home: &Path, style: &Style) -> io::Result<()> {
+    if r.harnesses.is_empty() {
+        return writeln!(w, "No coding-agent harness keeps folders in {}.", tilde(home, home));
+    }
+    let size = |bytes: Option<u64>, unreadable: u64| match bytes {
+        Some(b) if unreadable > 0 => format!("at least {}", human(b)),
+        Some(b) => human(b),
+        None => String::new(),
+    };
+    for (i, h) in r.harnesses.iter().enumerate() {
+        if i > 0 {
+            writeln!(w)?;
+        }
+        let mut kinds: Vec<(&str, usize)> = Vec::new();
+        for p in &h.running {
+            let kind = match p.kind {
+                RunningKind::Cli => "CLI",
+                RunningKind::AppServer => "app-server",
+                RunningKind::App => "app",
+                RunningKind::Other => "other",
+            };
+            match kinds.iter_mut().find(|(k, _)| *k == kind) {
+                Some((_, n)) => *n += 1,
+                None => kinds.push((kind, 1)),
+            }
+        }
+        let runs = if kinds.is_empty() {
+            "not running".to_owned()
+        } else {
+            let parts: Vec<String> =
+                kinds.iter().map(|(k, n)| if *n == 1 { (*k).to_owned() } else { format!("{k} ×{n}") }).collect();
+            format!("running: {}", parts.join(", "))
+        };
+        let unreadable = h.folders.iter().filter(|f| !f.nested).map(|f| f.unreadable).sum();
+        writeln!(w, "{:<44} {:>14}  {}", style.bold(&h.name), size(h.bytes, unreadable), style.dim(&runs))?;
+        for f in &h.folders {
+            let indent = if f.nested { "    " } else { "  " };
+            let path = format!("{indent}{}", tilde(&f.path, home));
+            let note = if f.skipped {
+                "in your skips, not read".to_owned()
+            } else if f.unreadable > 0 {
+                format!("{} unreadable", count(f.unreadable))
+            } else {
+                String::new()
+            };
+            writeln!(w, "{path:<44} {:>14}  {}", size(f.bytes, f.unreadable), style.dim(&note))?;
+        }
+        let Some(s) = &h.sessions else { continue };
+        if s.records == RecordsState::Unknown {
+            let why = match s.reason {
+                Some(UnknownReason::Skipped) => "they are in your skips",
+                Some(UnknownReason::Missing) => "their folder is missing",
+                Some(UnknownReason::Unreadable) => "their folder could not be read",
+                Some(UnknownReason::Unparsed) | None => "their format is not known",
+            };
+            writeln!(w, "  {}", style.dim(&format!("ddc cannot read {}'s session records: {why}", h.name)))?;
+        }
+        for x in s.list.iter().filter(|x| x.state == SessionState::Live) {
+            let place = x
+                .cwd
+                .as_deref()
+                .and_then(Path::file_name)
+                .map(|n| n.to_string_lossy().into_owned())
+                .or_else(|| x.id.clone())
+                .map(|p| escaped(&p))
+                .unwrap_or_default();
+            let note: Vec<String> = [&x.status, &x.name].into_iter().flatten().map(|s| escaped(s)).collect();
+            let since = escaped(x.started_at.as_deref().or(x.rollout_time.as_deref()).unwrap_or_default());
+            let label = if h.id == ddc_core::agents::HarnessId::Codex { "open in Codex" } else { "live" };
+            writeln!(w, "  {label:<12} {place:<30} {}  {}", style.dim(&since), note.join(" · "))?;
+        }
+        let t = &s.transcripts;
+        match (t.skipped, t.count) {
+            (true, _) => writeln!(w, "  {}", style.dim("transcripts: in your skips, not read"))?,
+            (false, Some(n)) => {
+                let bytes = t.bytes.map(|b| format!(", {}", human(b))).unwrap_or_default();
+                writeln!(w, "  {}", style.dim(&format!("{} other transcripts{bytes}", count(n))))?;
+            }
+            (false, None) => {}
+        }
+    }
+    if !r.sizes {
+        writeln!(w)?;
+        writeln!(w, "{}", style.dim("Sizes were not measured (--no-sizes)."))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,6 +455,22 @@ mod tests {
         let shown = tilde(p, Path::new("/h"));
         assert!(!shown.chars().any(char::is_control), "{shown:?}");
         assert!(shown.starts_with("~/evil\\u{1b}[2J"));
+    }
+
+    #[test]
+    fn text_a_harness_wrote_is_escaped() {
+        let r: AgentsReport = serde_json::from_str(
+            r#"{"schema_version":1,"ddc_version":"0","generated_at":"x","duration_ms":0,"sizes":false,"harnesses":[
+              {"id":"claude-code","name":"Claude Code","running":[],"folders":[{"path":"/h/.claude","nested":false,"skipped":false,"unreadable":0}],
+               "sessions":{"records":"readable","list":[{"state":"live","cwd":"/h/cod\u202efdp.exe","status":"\u001b[2Jbusy","name":"n\u001b[31m"}],
+                 "transcripts":{"skipped":false}}}]}"#,
+        )
+        .unwrap();
+        let mut out = Vec::new();
+        agents(&mut out, &r, Path::new("/h"), &Style { color: false, all: false }).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(!text.chars().any(|c| (c.is_control() && c != '\n') || bidi(c)), "{text:?}");
+        assert!(text.contains("cod\\u{202e}fdp.exe") && text.contains("\\u{1b}[2Jbusy"), "{text}");
     }
 
     #[test]
