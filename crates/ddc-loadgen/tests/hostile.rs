@@ -37,6 +37,9 @@ fn a_scan_completes_while_the_tree_changes() {
         };
         (mutator.join().unwrap(), diffs)
     });
+    let path = dir.path().to_owned();
+    drop(dir);
+    assert!(!path.exists(), "{} is left behind", path.display());
     assert!(changes > 0, "the mutator changed nothing");
     assert!(diffs.is_empty(), "{}", diffs.join("\n"));
 }

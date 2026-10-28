@@ -1,6 +1,7 @@
 # The mandatory gate on GitHub (story "Mandatory gate before every commit", DDC-005):
-# `make gate` on every push and pull request. `make dist` refuses a commit whose run
-# here is not green (scripts/ci-green.sh).
+# `make gate` on every push and pull request, with coverage, the app's tests and the
+# M-size load trees beside it. `make dist` refuses a commit whose run here is not
+# green in every job, the load job included (scripts/ci-green.sh).
 name: Gate
 
 on:
@@ -43,8 +44,27 @@ jobs:
           cache-bin: false
       - run: make tools
       - run: make gate
-      # The M-size load checks join here with story "Synthetic load trees: large,
-      # wide, deep and hostile".
+
+  # Every load profile at M (10^5 entries) on a disposable disk image, each scanned and
+  # checked against its manifest (story "Synthetic load trees: large, wide, deep and
+  # hostile"). The S trees run inside `make gate`.
+  load:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+          key: load
+      - run: make load-image LOAD_PROFILE=all LOAD_SIZE=M
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: load-m
+          path: target/load
 
   coverage:
     runs-on: macos-26

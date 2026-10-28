@@ -51,7 +51,7 @@ pub struct Manifest {
     pub entries: u64,
     /// The home the manifest assumes, tree-relative; `None` = an empty home beside the tree.
     pub home: Option<String>,
-    /// Only for a profile whose tree depends on the file system (`names`).
+    /// Only for a profile whose tree depends on the file system (`names`, `mixed`).
     pub fs_caps: Option<FsCaps>,
     pub totals: Totals,
     /// Expected findings per rule.

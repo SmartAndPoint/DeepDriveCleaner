@@ -1,8 +1,10 @@
 //! Where a tree may be built, decided by file system identity, never by a
 //! path prefix. Two kinds of target are allowed: a fresh folder under the
 //! system temporary folder holding the generator's marker, and a disk image
-//! the generator attached itself. Anything on the file system of the real
-//! home or of `/` that is not the marked folder is refused.
+//! the generator attached itself (`scripts/load-image.sh`), whose volume
+//! root holds the same kind of marker. Anything on the file system of the
+//! real home or of `/` that is not the marked folder is refused. On macOS a
+//! marked temporary folder takes S trees only; larger ones go on an image.
 
 use std::fs;
 use std::io;
@@ -19,6 +21,10 @@ pub const ROOT_LEN: usize = 160;
 pub const PREFIX: &str = "ddc-load-";
 /// The marker file; it holds the folder name's random suffix.
 pub const MARKER: &str = ".ddc-loadgen";
+/// The largest tree a marked temporary folder takes (the S tier): millions
+/// of entries never land on the user's volume. Linux and Windows have no
+/// image (DDC-007), so there the folder takes any size.
+pub const TEMP_MAX: Option<u64> = if cfg!(target_os = "macos") { Some(10_000) } else { None };
 
 /// Facts about a target, read from the system by [`facts`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,9 +36,21 @@ pub struct Facts {
     /// A direct child of the temporary folder named `ddc-load-<nonce>`,
     /// owned by this user, with a marker that holds the nonce.
     pub marked_temp: bool,
-    /// For an image target: what `statfs` says is mounted there, and the
-    /// device `hdiutil attach` returned.
-    pub image: Option<(String, String)>,
+    /// The image's facts, for an image target.
+    pub image: Option<Image>,
+    /// The size asked for.
+    pub entries: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Image {
+    /// What `statfs` says is mounted at the target.
+    pub mounted: String,
+    /// The device `hdiutil attach` returned.
+    pub expected: String,
+    /// The volume's root is named `ddc-load-<nonce>`, is this user's, and
+    /// holds a marker with the nonce: an image `load-image.sh` attached.
+    pub marked: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,8 +59,12 @@ pub enum Refusal {
     WrongDevice { mounted: String, expected: String },
     /// An image target on the home's or the boot volume's file system.
     ImageOnSystemVolume,
+    /// An image target whose volume `load-image.sh` did not mark.
+    UnmarkedImage,
     /// Neither a marked temporary folder nor an image.
     Unmarked,
+    /// More entries than a marked temporary folder takes ([`TEMP_MAX`]).
+    TooLargeForTemp { entries: u64, max: u64 },
 }
 
 impl Refusal {
@@ -54,6 +76,14 @@ impl Refusal {
             Self::ImageOnSystemVolume => {
                 "the image target is on the home's or the boot volume's file system".to_owned()
             }
+            Self::UnmarkedImage => format!(
+                "the image's volume is not named {PREFIX}<nonce> with that nonce in {MARKER} at its root \
+                 (attach it with `make load-image`)"
+            ),
+            Self::TooLargeForTemp { entries, max } => format!(
+                "{entries} entries are more than a temporary folder takes ({max}); build on an image \
+                 with `make load-image`"
+            ),
             Self::Unmarked => format!(
                 "the target is neither a marked temporary folder ({PREFIX}* with {MARKER}, from `ddc-loadgen mktemp`) \
                  nor an attached image (--device)"
@@ -74,24 +104,32 @@ impl std::error::Error for Refusal {}
 pub fn decide(f: &Facts) -> Result<(), Refusal> {
     let on_system = f.target_dev == f.root_dev || f.target_dev == f.home_dev;
     match &f.image {
-        Some((mounted, expected)) if mounted != expected => {
-            Err(Refusal::WrongDevice { mounted: mounted.clone(), expected: expected.clone() })
+        Some(i) if i.mounted != i.expected => {
+            Err(Refusal::WrongDevice { mounted: i.mounted.clone(), expected: i.expected.clone() })
         }
         Some(_) if on_system => Err(Refusal::ImageOnSystemVolume),
+        Some(i) if !i.marked => Err(Refusal::UnmarkedImage),
         Some(_) => Ok(()),
-        None if f.marked_temp => Ok(()),
-        None => Err(Refusal::Unmarked),
+        None if !f.marked_temp => Err(Refusal::Unmarked),
+        None => match TEMP_MAX {
+            Some(max) if f.entries > max => Err(Refusal::TooLargeForTemp { entries: f.entries, max }),
+            _ => Ok(()),
+        },
     }
 }
 
-/// Reads the facts for `target`; `device` is the image's device for an image target.
-/// Without a real home to compare with, it fails rather than guess.
-pub fn facts(target: &Path, device: Option<&str>) -> io::Result<Facts> {
+/// Reads the facts for building `entries` entries in `target`; `device` is
+/// the image's device for an image target. Without a real home to compare
+/// with, it fails rather than guess.
+pub fn facts(target: &Path, device: Option<&str>, entries: u64) -> io::Result<Facts> {
     let target = target.canonicalize()?;
     let home = procs::real_home().ok_or_else(|| io::Error::other("the password database names no home folder"))?;
     let dev = |p: &Path| fs::metadata(p).map(|m| m.dev());
     let image = match device {
-        Some(d) => Some((statfs::statfs(&target)?.mounted_from, d.to_owned())),
+        Some(d) => {
+            let st = statfs::statfs(&target)?;
+            Some(Image { marked: holds_marker(&st.mount_point), mounted: st.mounted_from, expected: d.to_owned() })
+        }
         None => None,
     };
     Ok(Facts {
@@ -100,6 +138,7 @@ pub fn facts(target: &Path, device: Option<&str>) -> io::Result<Facts> {
         root_dev: dev(Path::new("/"))?,
         marked_temp: marked_temp(&target),
         image,
+        entries,
     })
 }
 
@@ -110,11 +149,16 @@ fn marked_temp(target: &Path) -> bool {
 
 /// Whether `target` is a marked folder directly in `tmp` (canonical).
 fn marked_in(target: &Path, tmp: &Path) -> bool {
-    let nonce = target.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_prefix(PREFIX));
-    let marker = target.join(MARKER);
-    target.parent() == Some(tmp)
-        && nonce.is_some_and(|n| !n.is_empty())
-        && fs::symlink_metadata(target).is_ok_and(|m| m.is_dir() && m.uid() == procs::uid())
+    target.parent() == Some(tmp) && holds_marker(target)
+}
+
+/// Whether `dir` is named `ddc-load-<nonce>`, is this user's, and holds a
+/// marker of this user's with the nonce.
+pub fn holds_marker(dir: &Path) -> bool {
+    let nonce = dir.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_prefix(PREFIX));
+    let marker = dir.join(MARKER);
+    nonce.is_some_and(|n| !n.is_empty())
+        && fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir() && m.uid() == procs::uid())
         && fs::symlink_metadata(&marker).is_ok_and(|m| m.is_file() && m.uid() == procs::uid())
         && fs::read_to_string(&marker).ok().as_deref() == nonce
 }
@@ -218,12 +262,13 @@ pub struct Layout {
     pub data: PathBuf,
 }
 
-/// Checks `target` with the guard, then lays out a run in it: a padding
-/// folder that brings `<target>/<pad>/tree` to [`ROOT_LEN`] bytes, and the
-/// tree, home and data folders in it. The tree must not exist yet.
-pub fn prepare(target: &Path, device: Option<&str>) -> anyhow::Result<Layout> {
+/// Checks `target` with the guard for a tree of `entries`, then lays out a
+/// run in it: a padding folder that brings `<target>/<pad>/tree` to
+/// [`ROOT_LEN`] bytes, and the tree, home and data folders in it. The tree
+/// must not exist yet.
+pub fn prepare(target: &Path, device: Option<&str>, entries: u64) -> anyhow::Result<Layout> {
     let target = target.canonicalize()?;
-    decide(&facts(&target, device)?)?;
+    decide(&facts(&target, device, entries)?)?;
     let room = ROOT_LEN.checked_sub(target.as_os_str().len() + "/".len() + "/tree".len()).filter(|&n| n > 0);
     let room = room.ok_or_else(|| {
         anyhow::anyhow!("the target path {} is too long for a {ROOT_LEN}-byte tree root", target.display())

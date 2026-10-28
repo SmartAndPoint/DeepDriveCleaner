@@ -1,5 +1,6 @@
 //! Every profile's S tree, built in a marked temporary folder and scanned
 //! in process, matches its manifest: findings, totals and the default plan.
+//! Dropped, it leaves nothing in the temporary folder.
 
 use ddc_loadgen::profiles::Profile;
 use ddc_loadgen::{generate, target, verify};
@@ -13,6 +14,10 @@ fn check(p: Profile) {
     assert!(!g.manifest.findings.is_empty(), "{}: nothing planted", p.name());
     let diffs = verify::verify(&g.manifest, &g.layout, &g.home).unwrap();
     assert!(diffs.is_empty(), "{}: {} differences:\n{}", p.name(), diffs.len(), diffs.join("\n"));
+    // Locked folders and paths past `PATH_MAX` included, nothing is left behind.
+    let path = dir.path().to_owned();
+    drop(dir);
+    assert!(!path.exists(), "{}: {} is left behind", p.name(), path.display());
 }
 
 #[test]

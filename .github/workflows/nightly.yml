@@ -39,6 +39,28 @@ jobs:
       - run: make tools
       - run: make gate
       - run: make coverage
-      # L-size load: story "Synthetic load trees: large, wide, deep and hostile".
       # Fuzzing: story "Coverage floor and property tests for the safety invariants".
       # AddressSanitizer: story "Memory and CPU under load: peak memory, leaks and CPU time".
+
+  # L-size load on its own runner, so a gate or coverage failure does not skip it and
+  # their builds do not share its disk: story "Synthetic load trees: large, wide, deep
+  # and hostile".
+  load:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+          key: load
+      - run: make load-image LOAD_PROFILE=mixed LOAD_SIZE=L
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: load-l
+          path: target/load

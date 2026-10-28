@@ -1,0 +1,140 @@
+#!/bin/bash
+# Builds load trees on a disposable APFS disk image (story "Synthetic load trees:
+# large, wide, deep and hostile", DDC-005): millions of entries never land on the
+# user's volume as entries, and one detach removes them. Needs no sudo and raises
+# no permission prompt.
+#
+#   scripts/load-image.sh <profile|all> <S|M|L|XL> [seed]
+#
+# Every profile is built with `ddc-loadgen build --verify --brief` in its own folder
+# on one image: a line per profile gives its build and scan times, and the image's
+# size on disk is printed at the end. A failed profile fails the run after every
+# profile has been tried. Outputs land in $LOAD_OUT (target/load).
+set -euo pipefail
+
+usage="usage: load-image.sh <profile|all> <S|M|L|XL> [seed]"
+profile=${1:?$usage}
+size=${2:?$usage}
+seed=${3:-1}
+loadgen=${LOADGEN:-target/release/ddc-loadgen}
+out=${LOAD_OUT:-target/load}
+
+# A sparse bundle grows with what is written; the cap only bounds it. It builds
+# 10-20 times faster than a single-file sparse image or a UDIF image (measured at S).
+case $size in
+  S) entries=10000 cap=4g ;;
+  M) entries=100000 cap=32g ;;
+  L) entries=1000000 cap=128g ;;
+  XL) entries=10000000 cap=512g ;;
+  *) echo "load-image: the size is S, M, L or XL, not $size" >&2; exit 2 ;;
+esac
+known=$("$loadgen" profiles | tr '\n' ' ')
+if [ "$profile" = all ]; then
+  profiles=$known
+else
+  case " $known" in
+    *" $profile "*) profiles=$profile ;;
+    *) echo "load-image: no profile $profile; one of: all $known" >&2; exit 2 ;;
+  esac
+fi
+
+tmp=$(getconf DARWIN_USER_TEMP_DIR)
+tmp=${tmp%/}
+
+# The whole disk of the attached image at $1, read from one `hdiutil info`, so an
+# image attached or detached meanwhile cannot shift the index; fails when no image
+# there is attached.
+disk_of() {
+  local info i path
+  info=$(hdiutil info -plist)
+  i=0
+  while path=$(plutil -extract "images.$i.image-path" raw -o - - <<<"$info" 2>/dev/null); do
+    if [ "$path" = "$1" ]; then
+      plutil -extract "images.$i.system-entities.0.dev-entry" raw -o - - <<<"$info"
+      return
+    fi
+    i=$((i + 1))
+  done
+  return 1
+}
+
+# Detaches the image at $1 if it is attached, then deletes it. When the detach
+# fails the image is kept, so a later run's sweep still finds it.
+discard() {
+  local disk
+  if disk=$(disk_of "$1"); then
+    if ! hdiutil detach -force -quiet "$disk"; then
+      echo "load-image: could not detach $disk; $1 is kept for the next run" >&2
+      return 1
+    fi
+  fi
+  rm -rf "$1"
+}
+
+# hdiutil now and then answers "Resource busy" on a hosted runner.
+retry() {
+  local n
+  for n in 1 2 3; do
+    "$@" && return 0
+    [ "$n" = 3 ] || sleep 5
+  done
+  return 1
+}
+
+# An image left by an interrupted run is named after its process: discard it once
+# that process is gone. A run still going in another worktree keeps its own.
+for stale in "$tmp"/ddc-image-*.sparsebundle; do
+  [ -e "$stale" ] || continue
+  pid=${stale##*/ddc-image-}
+  pid=${pid%%-*}
+  kill -0 "$pid" 2>/dev/null && continue
+  discard "$stale" || true
+done
+
+nonce=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+volume=ddc-load-$nonce
+image=$tmp/ddc-image-$$-$nonce.sparsebundle
+trap 'discard "$image" || true' EXIT
+
+retry hdiutil create -type SPARSEBUNDLE -fs APFS -volname "$volume" -size "$cap" -quiet "${image%.sparsebundle}"
+attach=$(retry hdiutil attach -nobrowse -owners on -plist "$image")
+device= mount= i=0
+while dev=$(plutil -extract "system-entities.$i.dev-entry" raw -o - - <<<"$attach" 2>/dev/null); do
+  if at=$(plutil -extract "system-entities.$i.mount-point" raw -o - - <<<"$attach" 2>/dev/null); then
+    device=$dev
+    mount=$at
+  fi
+  i=$((i + 1))
+done
+if [ -z "$mount" ]; then
+  echo "load-image: hdiutil attached $image but mounted no volume" >&2
+  exit 1
+fi
+
+# Before the first tree: Spotlight and fseventsd leave the volume alone, and the
+# marker tells the generator's guard this is its own image.
+touch "$mount/.metadata_never_index"
+mkdir -p "$mount/.fseventsd"
+touch "$mount/.fseventsd/no_log"
+printf '%s' "$nonce" >"$mount/.ddc-loadgen"
+
+mkdir -p "$out"
+field() { plutil -extract "$2" raw -o - "$1" 2>/dev/null || echo -; }
+seconds() { awk -v ms="$(field "$1" "$2")" 'BEGIN { if (ms == "-") print "-"; else printf "%.1f", ms / 1000 }'; }
+echo "image $image on $device at $mount; $size: $entries entries, seed $seed"
+printf '%-14s %10s %9s %9s %s\n' profile entries build_s scan_s differences
+failed=
+for p in $profiles; do
+  mkdir "$mount/$p"
+  json=$out/$size-$p.json
+  "$loadgen" build "$p" --entries "$entries" --seed "$seed" --into "$mount/$p" --device "$device" \
+    --verify --brief >"$json" || failed="$failed $p"
+  printf '%-14s %10s %9s %9s %s\n' "$p" "$(field "$json" entries)" "$(seconds "$json" build_ms)" \
+    "$(seconds "$json" verify_ms)" "$(field "$json" difference_count)"
+done
+echo "image size on disk: $(du -sh "$image" | cut -f1); volume used: $(df -h "$mount" | awk 'NR == 2 { print $3 }')"
+if [ -n "$failed" ]; then
+  echo "load-image: failed:$failed. A number under differences is a mismatch with the manifest" \
+    "(listed in $out/$size-<profile>.json); a dash is a build that did not finish (its message is above)." >&2
+  exit 1
+fi

@@ -22,7 +22,7 @@ MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
 .PHONY: build fmt fmt-check clippy test check release install dist app app-test app-dist icons \
 	gate-fast gate nextest doctest clippy-dhat doc deny machete msrv release-check \
-	tools require-tools hooks coverage ci-green golden-check golden-record loadgen-clean
+	tools require-tools hooks coverage ci-green golden-check golden-record loadgen-clean load-image
 
 build:
 	$(CARGO) build --workspace
@@ -84,6 +84,17 @@ golden-check:
 
 golden-record:
 	DDC_UPDATE_GOLDEN=1 $(CARGO) nextest run -p ddc-cli --test golden_cli --locked
+
+# Load trees past S on a disposable disk image, each scanned and checked against its
+# manifest: `make load-image LOAD_PROFILE=mixed LOAD_SIZE=L` (LOAD_PROFILE=all for every
+# profile; LOAD_SIZE is S, M, L or XL). CI runs every profile at M; the nightly run,
+# mixed at L.
+LOAD_PROFILE ?= mixed
+LOAD_SIZE ?= M
+LOAD_SEED ?= 1
+load-image:
+	$(CARGO) build --release -p ddc-loadgen --locked
+	LOADGEN=target/release/ddc-loadgen scripts/load-image.sh $(LOAD_PROFILE) $(LOAD_SIZE) $(LOAD_SEED)
 
 # Removes the load trees `ddc-loadgen mktemp` left in $$TMPDIR (only marked ones).
 loadgen-clean:

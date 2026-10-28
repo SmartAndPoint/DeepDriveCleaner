@@ -40,7 +40,7 @@ pub fn generate(
     target: &Path,
     device: Option<&str>,
 ) -> anyhow::Result<Generated> {
-    let layout = target::prepare(target, device)?;
+    let layout = target::prepare(target, device, entries)?;
     let caps = caps::probe(&layout.data.join("caps"))?;
     let desc = profile.desc(entries, seed, caps);
     let started = Instant::now();
