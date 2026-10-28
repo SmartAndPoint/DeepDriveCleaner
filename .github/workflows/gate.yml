@@ -11,9 +11,11 @@ on:
 permissions:
   contents: read
 
+# A pull request's newer run replaces its older one. Every pushed commit keeps its own
+# run, never queued behind or replaced by a later push: `make dist` reads the run of
+# its HEAD (scripts/ci-green.sh).
 concurrency:
-  group: gate-${{ github.ref }}
-  # Never cancel a push run: `make dist` reads its result.
+  group: gate-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
