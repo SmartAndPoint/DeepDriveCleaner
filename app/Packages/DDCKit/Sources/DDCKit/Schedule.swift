@@ -58,19 +58,24 @@ public struct Schedule: Sendable, Equatable {
         return calendar.weekdaySymbols[(weekday - 1) % 7]
     }
 
-    /// The Next scan line: "Off…" and "Paused…" first, else the date the
+    /// The Next scan line: "Off…" and "Paused…" first, else what the
     /// popover footer's seam gives. Nil hides the line: scheduling is on and
-    /// the seam has no date yet.
+    /// the seam says off (no scheduler).
     public func nextScanLine(
         paused: Bool,
-        next: Date?,
+        next scan: NextScan,
         now: Date,
         calendar: Calendar = .current,
         locale: Locale = .autoupdatingCurrent
     ) -> String? {
         if !enabled { return "Off: scan from the menu or with ddc scan" }
         if paused { return "Paused: the schedule is kept for Resume" }
-        guard let next else { return nil }
+        let next: Date
+        switch scan {
+        case .off: return nil
+        case .replaceOldScanFirst: return Wording.replaceOldScanFirst
+        case .at(let date): next = date
+        }
         // A missed slot, or a Resume: the next hourly check runs it.
         if next <= now { return "Within the hour" }
         let time = next.formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: calendar, timeZone: calendar.timeZone))
@@ -111,7 +116,9 @@ public protocol SchedulerControl: AnyObject {
     /// "Old background scan found": a `ddc schedule install` agent still runs.
     var legacyAgentFound: Bool { get }
     /// Replace It.
-    func replaceLegacyAgent()
+    func replaceLegacyAgent() async
+    /// Why the last Replace It changed nothing; nil when it did not fail.
+    var replaceFailure: String? { get }
 }
 
 /// What the "Scheduled scan" row says.
@@ -129,5 +136,6 @@ public final class NoSchedulerControl: SchedulerControl {
     public func scheduleChanged(_ schedule: Schedule) {}
     public var registration: SchedulerRegistration? { nil }
     public var legacyAgentFound: Bool { false }
-    public func replaceLegacyAgent() {}
+    public func replaceLegacyAgent() async {}
+    public var replaceFailure: String? { nil }
 }

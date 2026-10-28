@@ -18,7 +18,9 @@ struct PopoverView: View {
             content
             // Next to the buttons and Scan now, whose results they report.
             ForEach(model.notices) { notice in
-                NoticeRow(text: notice.text) { model.dismiss(notice) }
+                NoticeRow(text: notice.text, action: notice.action.map { action in (action.title, { model.perform(action) }) }) {
+                    model.dismiss(notice)
+                }
             }
             footer
         }
@@ -118,7 +120,8 @@ struct PopoverView: View {
                     .help("Open Privacy & Security → Full Disk Access")
                 }
                 Spacer()
-                Text(model.nextScanText)
+                // While paused the left says so, with Resume.
+                if !model.paused { Text(model.nextScanText) }
             }
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
@@ -371,12 +374,19 @@ private struct FindRow: View {
 
 private struct NoticeRow: View {
     let text: String
+    /// A button's title and what it does: Allow Notifications, Replace It.
+    var action: (title: String, run: () -> Void)?
     let dismiss: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "info.circle").foregroundStyle(.secondary)
-            Text(text).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(text).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                if let action {
+                    Button(action.title, action: action.run).controlSize(.small)
+                }
+            }
             Spacer(minLength: 0)
             Button(action: dismiss) { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)) }
                 .buttonStyle(.plain)

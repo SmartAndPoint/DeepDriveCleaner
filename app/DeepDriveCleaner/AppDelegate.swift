@@ -21,10 +21,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var reviewWindow = ReviewWindowController(presence: presence)
     private var review: ReviewModel?
     private var model: PopoverModel?
+    /// The hourly tick's work and the notification's answers.
+    private var work: ScheduledWork?
+    /// The scheduler agent: healed at every launch, Settings' scheduler control.
+    private var agent: SchedulerAgent?
+    /// The launch's heal; a `--scheduled` instance quits only after it.
+    private var healing: Task<Void, Never>?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Before launch ends, so a notification response that launched the app arrives.
         UNUserNotificationCenter.current().delegate = self
+        SystemNotifications.registerCategory()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -64,8 +71,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             probe: FullDiskAccessProbe(path: Self.tccDatabase),
             preferences: preferences,
             router: review,
-            // The due function arrives with "Background scan and notifications in the app".
-            nextScan: { nil },
+            nextScan: { [weak self] in self?.work?.next() ?? .off },
+            legacyAgentFound: { [weak self] in self?.agent?.legacyAgentFound ?? false },
             // The build script keeps the app's version equal to its CLI's.
             appVersion: version,
             log: { AppLog.write($0) }
@@ -77,15 +84,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 changed: { [weak model] in Task { await model?.refresh() } },
                 log: { AppLog.write($0) }
             )
+            let agent = SchedulerAgent(
+                service: SystemAgentService(),
+                store: store,
+                preferences: preferences,
+                runner: runner,
+                legacyPlist: LegacyAgent.plist(home: FileManager.default.homeDirectoryForCurrentUser),
+                bundlePath: Bundle.main.bundlePath,
+                notice: { [weak model] in model?.setNotice(id: PopoverModel.schedulerNotice, text: $0) },
+                // The migration flow also asks for notification permission.
+                askPermission: { [weak self] in await self?.work?.allowNotifications() },
+                log: { AppLog.write($0) }
+            )
+            let work = ScheduledWork(
+                popover: model,
+                preferences: preferences,
+                runner: runner,
+                notifications: SystemNotifications(),
+                legacyAgentFound: { [weak agent] in agent?.legacyAgentFound ?? false },
+                openNotificationSettings: Self.openNotificationSettings,
+                log: { AppLog.write($0) }
+            )
+            self.agent = agent
+            self.work = work
+            model.onNoticeAction = { [weak model] action in
+                switch action {
+                case .allowNotifications:
+                    Task { await work.allowNotifications() }
+                case .replaceOldScan:
+                    Task {
+                        await agent.replaceLegacy()
+                        await model?.refresh()
+                    }
+                }
+            }
             let settingsModel = SettingsModel(
                 store: store,
                 popover: model,
                 preferences: preferences,
-                // The scheduler arrives with "Background scan and notifications in the app".
-                scheduler: NoSchedulerControl(),
+                scheduler: agent,
                 commandLineTool: HelperLocator.commandLineTool(bundleURL: Bundle.main.bundleURL)
             )
             settings = SettingsWindowController(presence: presence, model: settingsModel, privacy: Self.privacy)
+            // At every launch with scheduled scans on: register (idempotent), which
+            // recovers an agent approved later or dropped when brew replaced the bundle.
+            healing = Task { await agent.heal() }
         }
         NSApp.mainMenu = MainMenu.make(
             about: { [weak self] in self?.presence.showAbout() },
@@ -121,9 +164,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        await MainActor.run {
-            AppLog.write("notification response in \(launchMode.mode) mode")
-            apply(launchMode.handle(.notificationResponse))
+        let action = response.actionIdentifier
+        await answer(action)
+    }
+
+    /// Review (or a click on the notification) and Remind Me Tomorrow. If the
+    /// app was quit, macOS launched it in normal mode to deliver this.
+    private func answer(_ action: String) async {
+        AppLog.write("notification response \(action) in \(launchMode.mode) mode")
+        apply(launchMode.handle(.notificationResponse))
+        guard let work else { return }
+        switch action {
+        case SystemNotifications.remindAction:
+            await work.remindTomorrow()
+        case SystemNotifications.reviewAction, UNNotificationDefaultActionIdentifier:
+            await work.review()
+        default:
+            break
         }
     }
 
@@ -152,20 +209,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.statusItem = statusItem
                 reviewWindow.returnToPopover = { [weak statusItem] in statusItem?.showPopover() }
                 AppLog.write("status item shown")
-                Task { await model.start() }
-            case .startScheduledWork:
-                // Skipped while paused (inside `scanNow`); otherwise unconditional
-                // until the due function of "Background scan and notifications
-                // in the app" decides whether a scan is due.
                 Task {
-                    await model.scanNow()
+                    await model.start()
+                    // The first normal launch after the first scan asks once; a tick never does.
+                    await work?.askPermissionOnce()
+                }
+            case .startScheduledWork:
+                // A scan if due, then the pending notification and its ack; quits after all.
+                Task {
+                    await healing?.value
+                    await work?.tick()
                     apply(launchMode.handle(.workFinished))
                 }
             case .scanIfDue:
-                // The due function arrives with "Background scan and notifications in the app".
                 AppLog.write("reopen of the running app: scan if due")
+                Task { await work?.tick() }
             case .frontWindows:
-                presence.frontAll()
+                // A Dock click activates the app; the hourly tick's `open -g` does not.
+                if NSApp.isActive { presence.frontAll() }
             case .quit:
                 Task { await quitAfterScheduledWork() }
             }
@@ -197,6 +258,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         openFullDiskAccess: { openPrivacySettings("Privacy_AllFiles") },
         openFilesAndFolders: { openPrivacySettings("Privacy_FilesAndFolders") }
     )
+
+    /// System Settings → Notifications: once the permission is denied,
+    /// macOS asks no more, so Allow Notifications opens it.
+    static func openNotificationSettings() {
+        let candidate = "x-apple.systempreferences:com.apple.Notifications-Settings.extension"
+        if let url = URL(string: candidate), NSWorkspace.shared.open(url) {
+            AppLog.write("opened \(candidate)")
+        } else {
+            AppLog.write("could not open the Notifications settings")
+        }
+    }
 
     /// Privacy & Security → `anchor` (Full Disk Access, Files and Folders).
     /// The anchor's form changed with System Settings; the manual check on

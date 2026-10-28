@@ -31,9 +31,36 @@ public final class PopoverModel {
     }
 
     public struct Notice: Identifiable, Equatable, Sendable {
+        /// What a notice's button does ("Background scan and notifications in the app").
+        public enum Action: Sendable, Equatable {
+            /// A scheduled run found the permission not asked yet (B4).
+            case allowNotifications
+            /// The 0.1.0 agent still runs; dismissing the notice declines.
+            case replaceOldScan
+
+            public var title: String {
+                switch self {
+                case .allowNotifications: "Allow Notifications"
+                case .replaceOldScan: "Replace It"
+                }
+            }
+        }
+
         public let id: String
         public let text: String
+        public var action: Action?
+
+        public init(id: String, text: String, action: Action? = nil) {
+            self.id = id
+            self.text = text
+            self.action = action
+        }
     }
+
+    /// The notices' ids the scheduler raises.
+    public static let permissionNotice = "permission"
+    public static let oldScanNotice = "old-scan"
+    public static let schedulerNotice = "scheduler"
 
     /// The running scan.
     public struct ScanProgress: Equatable, Sendable {
@@ -69,7 +96,8 @@ public final class PopoverModel {
     @ObservationIgnored private let probe: FullDiskAccessProbe
     @ObservationIgnored private let preferences: AppPreferences
     @ObservationIgnored private let router: any ReviewRouting
-    @ObservationIgnored private let nextScan: @MainActor () -> Date?
+    @ObservationIgnored private let nextScan: @MainActor () -> NextScan
+    @ObservationIgnored private let legacyAgentFound: @MainActor () -> Bool
     @ObservationIgnored private let clock: @MainActor () -> Date
     @ObservationIgnored private let log: @MainActor (String) -> Void
     @ObservationIgnored private let appVersion: String?
@@ -78,18 +106,22 @@ public final class PopoverModel {
     /// `settings.json` did not read; the warning lasts until it does, whatever its notice.
     private var settingsUnreadable = false
     @ObservationIgnored private var scanTask: Task<Void, Never>?
+    @ObservationIgnored private var scheduledTask: Task<ScheduledScan, Never>?
+    /// A notice's button: the app runs it (Allow Notifications, Replace It).
+    @ObservationIgnored public var onNoticeAction: (@MainActor (Notice.Action) -> Void)?
     @ObservationIgnored private var started = false
 
-    /// `runner` nil: the embedded CLI is missing. `nextScan` is the scheduler's
-    /// next slot ("Background scan and notifications in the app"), nil when
-    /// nothing is scheduled.
+    /// `runner` nil: the embedded CLI is missing. `nextScan` is the due
+    /// function's next scan ("Background scan and notifications in the app");
+    /// `legacyAgentFound` says whether the 0.1.0 agent's plist exists.
     public init(
         runner: (any CLIRunning)?,
         data: DataDirectory,
         probe: FullDiskAccessProbe,
         preferences: AppPreferences,
         router: any ReviewRouting,
-        nextScan: @escaping @MainActor () -> Date? = { nil },
+        nextScan: @escaping @MainActor () -> NextScan = { .off },
+        legacyAgentFound: @escaping @MainActor () -> Bool = { false },
         appVersion: String? = nil,
         clock: @escaping @MainActor () -> Date = { .now },
         log: @escaping @MainActor (String) -> Void = { _ in }
@@ -100,6 +132,7 @@ public final class PopoverModel {
         self.preferences = preferences
         self.router = router
         self.nextScan = nextScan
+        self.legacyAgentFound = legacyAgentFound
         self.appVersion = appVersion
         self.clock = clock
         self.log = log
@@ -177,8 +210,8 @@ public final class PopoverModel {
 
     public var nextScanText: String { Wording.nextScan(nextScan(), now: now) }
 
-    /// The scheduler's next slot, as the footer reads it; Settings' Next scan too.
-    public var nextScanDate: Date? { nextScan() }
+    /// The due function's next scan, as the footer reads it; Settings' Next scan too.
+    public var nextScanValue: NextScan { nextScan() }
 
     public var threshold: UInt64 { summary?.threshold ?? settings?.threshold ?? SharedSettings.defaultThreshold }
 
@@ -222,6 +255,7 @@ public final class PopoverModel {
         if runner == nil {
             setNotice("cli", "The app's embedded CLI is missing, so it cannot scan. Reinstall DeepDriveCleaner.")
         }
+        raiseSchedulerNotices()
         await loadRules()
     }
 
@@ -233,6 +267,7 @@ public final class PopoverModel {
         probeAccess()
         readPreferences()
         if DataDirectory.modified(data.settings) != settingsModified { loadSettings() }
+        raiseSchedulerNotices()
         // A clean writes the file when it ends; its reload, or the scan after it, shows it.
         if scan == nil, !cleaning, DataDirectory.modified(data.lastScan) != reportModified { await loadReport() }
     }
@@ -243,6 +278,22 @@ public final class PopoverModel {
     public func reloadReport() async -> Bool {
         await loadReport()
         return loadedReport != nil
+    }
+
+    /// Allow Notifications while a scheduled run left the flag (B4), and the
+    /// offer to replace the 0.1.0 agent while its plist exists and the offer
+    /// was not declined (B2).
+    private func raiseSchedulerNotices() {
+        if preferences.notificationPermissionPending {
+            setNotice(Self.permissionNotice, "A scheduled scan had something to tell you, but notifications are not allowed yet.", action: .allowNotifications)
+        } else {
+            clearNotice(Self.permissionNotice)
+        }
+        if legacyAgentFound() && !preferences.oldScanOfferDismissed {
+            setNotice(Self.oldScanNotice, "The background scan of the command-line tool still runs. The app can scan on its own schedule instead, with notifications you can act on.", action: .replaceOldScan)
+        } else {
+            clearNotice(Self.oldScanNotice)
+        }
     }
 
     private func probeAccess() {
@@ -335,6 +386,8 @@ public final class PopoverModel {
     }
 
     private func scan(whilePaused: Bool) async {
+        // A scheduled scan runs first; this one never joins it.
+        if let scheduledTask { _ = await scheduledTask.value }
         if let scanTask {
             await scanTask.value
             return
@@ -407,6 +460,68 @@ public final class PopoverModel {
         log("scan done")
     }
 
+    // MARK: - The scheduled scan
+
+    public enum ScheduledScan: Sendable, Equatable {
+        /// The scan ran; the report on disk is shown.
+        case scanned(NotifyDecision)
+        /// A clean held the lock: the scan stays due for the next tick.
+        case busy
+        case failed(String)
+    }
+
+    /// `scan --background --notify json`, for the due function's tick. It
+    /// waits for a scan the user started and never joins it: `.scan` would
+    /// hand it that scan's output, which carries no decision. The popover
+    /// shows it as scanning, with the elapsed time only.
+    public func scheduledScan() async -> ScheduledScan {
+        if let scanTask { await scanTask.value }
+        if let scheduledTask { _ = await scheduledTask.value }
+        guard let runner else { return .failed("The app's embedded CLI is missing.") }
+        let task = Task { await runScheduledScan(runner) }
+        scheduledTask = task
+        let result = await task.value
+        scheduledTask = nil
+        return result
+    }
+
+    private func runScheduledScan(_ runner: any CLIRunning) async -> ScheduledScan {
+        // As a user's scan: a failure's warning lasts until the next scan starts.
+        clearNotice("scan")
+        clearNotice("busy")
+        scan = ScanProgress(started: clock(), files: nil)
+        defer { scan = nil }
+        log("scheduled scan started")
+        // Never `--threshold`: settings.json's threshold wins.
+        let result = await runner.run(.backgroundScan, ["scan", "--background", "--notify", "json"])
+        now = clock()
+        probeAccess()
+        if result.outcome == .busy { return .busy }
+        if let message = CLIFailure.message(result.outcome, stderrTail: result.stderrTail) {
+            setNotice("scan", message)
+            log("scheduled scan ended \(result.outcome): \(result.stderrTail.suffix(3).joined(separator: " | "))")
+            return .failed(message)
+        }
+        let decoded: NotifyReport
+        do {
+            decoded = try NotifyReport.read(result.stdout)
+        } catch {
+            log("scheduled scan: the decision did not read: \(error)")
+            return .failed("The scheduled scan's result could not be read.")
+        }
+        switch decoded.status {
+        case .skipped(let reason):
+            log("scheduled scan skipped: \(reason)")
+            return .busy
+        case .scanned(let decision):
+            // The CLI saved the report; the Not readable list stays the app's own scan's.
+            if DataDirectory.modified(data.settings) != settingsModified { loadSettings() }
+            await loadReport()
+            log("scheduled scan done: notify \(decision.notify)")
+            return .scanned(decision)
+        }
+    }
+
     // MARK: - The review seam
 
     /// Review…, "See what was found", or a biggest find.
@@ -466,14 +581,37 @@ public final class PopoverModel {
         badgePending = true
     }
 
-    // MARK: - Notices
-
-    public func dismiss(_ notice: Notice) {
-        notices.removeAll { $0.id == notice.id }
+    /// Remind Me Tomorrow answers the notification: the badge goes.
+    public func clearBadge() {
+        preferences.clearBadge()
+        badgePending = false
     }
 
-    private func setNotice(_ id: String, _ text: String) {
-        let notice = Notice(id: id, text: text)
+    // MARK: - Notices
+
+    /// Dismissing the replace offer declines it: the popover stops offering,
+    /// Settings keeps it. Dismissing Allow Notifications drops the flag.
+    public func dismiss(_ notice: Notice) {
+        notices.removeAll { $0.id == notice.id }
+        switch notice.action {
+        case .replaceOldScan: preferences.setOldScanOfferDismissed()
+        case .allowNotifications: preferences.setNotificationPermissionPending(false)
+        case nil: break
+        }
+    }
+
+    /// A notice's button.
+    public func perform(_ action: Notice.Action) {
+        onNoticeAction?(action)
+    }
+
+    /// A notice from outside the popover (the scheduler agent); nil text withdraws it.
+    public func setNotice(id: String, text: String?) {
+        if let text { setNotice(id, text) } else { clearNotice(id) }
+    }
+
+    private func setNotice(_ id: String, _ text: String, action: Notice.Action? = nil) {
+        let notice = Notice(id: id, text: text, action: action)
         if let index = notices.firstIndex(where: { $0.id == id }) {
             notices[index] = notice
         } else {

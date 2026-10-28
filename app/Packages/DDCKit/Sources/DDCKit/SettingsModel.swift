@@ -31,6 +31,8 @@ public final class SettingsModel {
     public private(set) var deletePermanently: Bool
     public private(set) var registration: SchedulerRegistration?
     public private(set) var legacyAgentFound = false
+    /// Why the last Replace It changed nothing, under the Permissions row.
+    public private(set) var replaceFailure: String?
 
     @ObservationIgnored private let popover: PopoverModel
     @ObservationIgnored private let preferences: AppPreferences
@@ -71,6 +73,7 @@ public final class SettingsModel {
         deletePermanently = preferences.deleteReviewPermanently
         registration = scheduler.registration
         legacyAgentFound = scheduler.legacyAgentFound
+        replaceFailure = scheduler.replaceFailure
     }
 
     /// Why `settings.json` cannot be changed here; every pane that writes it says so.
@@ -151,7 +154,7 @@ public final class SettingsModel {
     /// "Off…", "Paused…", or the date the popover footer's seam gives; nil
     /// hides the line.
     public var nextScan: String? {
-        schedule.nextScanLine(paused: popover.paused, next: popover.nextScanDate, now: clock())
+        schedule.nextScanLine(paused: popover.paused, next: popover.nextScanValue, now: clock())
     }
 
     // MARK: - Automation
@@ -210,8 +213,8 @@ public final class SettingsModel {
 
     // MARK: - Permissions
 
-    public func replaceLegacyAgent() {
-        scheduler.replaceLegacyAgent()
-        legacyAgentFound = scheduler.legacyAgentFound
+    public func replaceLegacyAgent() async {
+        await scheduler.replaceLegacyAgent()
+        refresh()
     }
 }

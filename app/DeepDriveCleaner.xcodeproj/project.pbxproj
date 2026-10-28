@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		DDC0000000000000000000B1 /* DDCKit in Frameworks */ = {isa = PBXBuildFile; productRef = DDC00000000000000000003B /* DDCKit */; };
 		DDC0000000000000000000B2 /* com.smartandpoint.deepdrivecleaner.scheduler.plist in Copy Launch Agents */ = {isa = PBXBuildFile; fileRef = DDC0000000000000000000F2 /* com.smartandpoint.deepdrivecleaner.scheduler.plist */; };
+		DDC0000000000000000000B3 /* com.smartandpoint.deepdrivecleaner.scheduler-open.plist in Copy Launch Agents */ = {isa = PBXBuildFile; fileRef = DDC0000000000000000000F3 /* com.smartandpoint.deepdrivecleaner.scheduler-open.plist */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -19,6 +20,7 @@
 			dstSubfolderSpec = 1;
 			files = (
 				DDC0000000000000000000B2 /* com.smartandpoint.deepdrivecleaner.scheduler.plist in Copy Launch Agents */,
+				DDC0000000000000000000B3 /* com.smartandpoint.deepdrivecleaner.scheduler-open.plist in Copy Launch Agents */,
 			);
 			name = "Copy Launch Agents";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -28,6 +30,7 @@
 /* Begin PBXFileReference section */
 		DDC0000000000000000000F1 /* DeepDriveCleaner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DeepDriveCleaner.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DDC0000000000000000000F2 /* com.smartandpoint.deepdrivecleaner.scheduler.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = com.smartandpoint.deepdrivecleaner.scheduler.plist; sourceTree = "<group>"; };
+		DDC0000000000000000000F3 /* com.smartandpoint.deepdrivecleaner.scheduler-open.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "com.smartandpoint.deepdrivecleaner.scheduler-open.plist"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -76,6 +79,7 @@
 			isa = PBXGroup;
 			children = (
 				DDC0000000000000000000F2 /* com.smartandpoint.deepdrivecleaner.scheduler.plist */,
+				DDC0000000000000000000F3 /* com.smartandpoint.deepdrivecleaner.scheduler-open.plist */,
 			);
 			path = LaunchAgents;
 			sourceTree = "<group>";

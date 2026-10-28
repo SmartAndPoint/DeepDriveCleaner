@@ -1,3 +1,5 @@
+import Foundation
+
 /// How the app runs after a launch (ADR §5).
 ///
 /// A launch with `--scheduled` comes from the scheduler agent: no status item,
@@ -35,6 +37,15 @@ public struct LaunchMode: Sendable, Equatable {
     }
 
     public static let scheduledArgument = "--scheduled"
+    /// The bundled agent's argument (B6): `main.swift` hands the work on.
+    public static let tickArgument = "--tick"
+
+    /// What `--tick` passes to `/usr/bin/open`: the app by its own bundle
+    /// path, hidden and in the background, so a Debug copy and a release
+    /// copy never launch each other (B6).
+    public static func tickOpenArguments(bundleURL: URL) -> [String] {
+        ["-gj", bundleURL.path, "--args", scheduledArgument]
+    }
 
     public private(set) var mode: Mode = .starting
 

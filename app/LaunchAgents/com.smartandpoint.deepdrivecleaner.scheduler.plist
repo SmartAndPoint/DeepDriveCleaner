@@ -1,20 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- The scheduler (ADR "Menu bar app: Swift shell over the ddc CLI", §5), registered
-     by the app with SMAppService.agent. An hourly tick asks LaunchServices for the
-     app, so the scan runs in a process LaunchServices started and Full Disk Access
-     granted to the app applies; the app decides whether a scan is due. -->
+<!-- The scheduler (ADR "Menu bar app: Swift shell over the ddc CLI", §5, and its
+     note of 2026-10-28), registered by the app with SMAppService.agent. An hourly
+     tick runs the app's own binary with -tick, which opens the app by its bundle
+     path with -scheduled, so the scan runs in a process LaunchServices started and
+     Full Disk Access granted to the app applies; the app decides whether a scan is
+     due. A bundle program, so Login Items lists it under the app (B6). If macOS
+     refuses it, the app registers ...scheduler-open.plist instead. -->
 <plist version="1.0">
 <dict>
 	<key>Label</key>
 	<string>com.smartandpoint.deepdrivecleaner.scheduler</string>
+	<key>BundleProgram</key>
+	<string>Contents/MacOS/DeepDriveCleaner</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/usr/bin/open</string>
-		<string>-gjb</string>
-		<string>com.smartandpoint.deepdrivecleaner</string>
-		<string>--args</string>
-		<string>--scheduled</string>
+		<string>DeepDriveCleaner</string>
+		<string>--tick</string>
 	</array>
 	<key>StartCalendarInterval</key>
 	<dict>

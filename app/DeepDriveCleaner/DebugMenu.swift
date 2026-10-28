@@ -8,7 +8,7 @@ import UserNotifications
 /// Every result goes to `app.log`, where the owner reads the checks.
 @MainActor
 enum DebugMenu {
-    static let agentPlist = "com.smartandpoint.deepdrivecleaner.scheduler.plist"
+    static let agentPlist = SchedulerAgent.primaryPlist
 
     static func item(model: PopoverModel) -> NSMenuItem {
         let menu = NSMenu()

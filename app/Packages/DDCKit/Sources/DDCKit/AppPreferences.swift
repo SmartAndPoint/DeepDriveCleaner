@@ -20,6 +20,12 @@ public final class AppPreferences {
     public static let afterScheduledScanKey = "AfterScheduledScan"
     public static let workingHoursOnlyKey = "NotifyWorkingHoursOnly"
     public static let notReadableKey = "NotReadableFolders"
+    public static let lastScheduledScanKey = "LastScheduledScan"
+    public static let reminderScanKey = "ReminderScanAt"
+    public static let pendingNotificationKey = "PendingNotification"
+    public static let permissionPendingKey = "NotificationPermissionPending"
+    public static let permissionAskedKey = "NotificationPermissionAsked"
+    public static let oldScanOfferDismissedKey = "OldScanOfferDismissed"
 
     private let defaults: UserDefaults
 
@@ -68,11 +74,69 @@ public final class AppPreferences {
         )
     }
 
+    /// Turning scheduled scans off also drops the reminder scan and a
+    /// notification waiting for working hours (B9).
     public func setSchedule(_ schedule: Schedule) {
         defaults.set(schedule.enabled, forKey: Self.scheduleEnabledKey)
         defaults.set(schedule.repeats.rawValue, forKey: Self.scheduleRepeatKey)
         defaults.set(schedule.weekday, forKey: Self.scheduleWeekdayKey)
         defaults.set(schedule.hour, forKey: Self.scheduleHourKey)
+        if !schedule.enabled {
+            setReminderScan(nil)
+            setPendingNotification(nil)
+        }
+    }
+
+    // MARK: Scheduled scans ("Background scan and notifications in the app")
+
+    /// When the last scheduled scan ran: the due function's record, never
+    /// `last-scan.json`, which a Scan now or a terminal `ddc scan` also writes.
+    public var lastScheduledScan: Date? { defaults.object(forKey: Self.lastScheduledScanKey) as? Date }
+
+    public func setLastScheduledScan(_ date: Date) {
+        defaults.set(date, forKey: Self.lastScheduledScanKey)
+    }
+
+    /// The one extra scan Remind me tomorrow adds to a weekly schedule.
+    public var reminderScan: Date? { defaults.object(forKey: Self.reminderScanKey) as? Date }
+
+    public func setReminderScan(_ date: Date?) {
+        if let date { defaults.set(date, forKey: Self.reminderScanKey) } else { defaults.removeObject(forKey: Self.reminderScanKey) }
+    }
+
+    /// A decision held back by working hours; a newer one replaces it.
+    public var pendingNotification: PendingNotification? {
+        defaults.data(forKey: Self.pendingNotificationKey).flatMap { try? JSONDecoder().decode(PendingNotification.self, from: $0) }
+    }
+
+    public func setPendingNotification(_ pending: PendingNotification?) {
+        if let pending, let data = try? JSONEncoder().encode(pending) {
+            defaults.set(data, forKey: Self.pendingNotificationKey)
+        } else {
+            defaults.removeObject(forKey: Self.pendingNotificationKey)
+        }
+    }
+
+    /// A `--scheduled` instance found the notification permission not asked
+    /// yet (B4): the next popover open offers Allow Notifications.
+    public var notificationPermissionPending: Bool { defaults.bool(forKey: Self.permissionPendingKey) }
+
+    public func setNotificationPermissionPending(_ on: Bool) {
+        defaults.set(on, forKey: Self.permissionPendingKey)
+    }
+
+    /// The app asked for notification permission once already.
+    public var notificationPermissionAsked: Bool { defaults.bool(forKey: Self.permissionAskedKey) }
+
+    public func setNotificationPermissionAsked() {
+        defaults.set(true, forKey: Self.permissionAskedKey)
+    }
+
+    /// The popover's offer to replace the 0.1.0 agent was declined; Settings keeps it.
+    public var oldScanOfferDismissed: Bool { defaults.bool(forKey: Self.oldScanOfferDismissedKey) }
+
+    public func setOldScanOfferDismissed() {
+        defaults.set(true, forKey: Self.oldScanOfferDismissedKey)
     }
 
     /// "After a scheduled scan"; an unknown stored value reads as Notify me.

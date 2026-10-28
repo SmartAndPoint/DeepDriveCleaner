@@ -394,15 +394,15 @@ struct PopoverModelTests {
             try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: day, hour: hour)))
         }
         let gb = Locale(identifier: "en_GB")
-        #expect(Wording.nextScan(nil, now: now, calendar: calendar, locale: gb) == "Scheduled scans off")
-        #expect(Wording.nextScan(try at(19, 13), now: now, calendar: calendar, locale: gb) == "Next scan today, 13:00")
-        #expect(Wording.nextScan(try at(20, 10), now: now, calendar: calendar, locale: gb) == "Next scan tomorrow, 10:00")
-        #expect(Wording.nextScan(try at(26, 10), now: now, calendar: calendar, locale: gb) == "Next scan Monday, 10:00")
+        #expect(Wording.nextScan(.off, now: now, calendar: calendar, locale: gb) == "Scheduled scans off")
+        #expect(Wording.nextScan(.at(try at(19, 13)), now: now, calendar: calendar, locale: gb) == "Next scan today, 13:00")
+        #expect(Wording.nextScan(.at(try at(20, 10)), now: now, calendar: calendar, locale: gb) == "Next scan tomorrow, 10:00")
+        #expect(Wording.nextScan(.at(try at(26, 10)), now: now, calendar: calendar, locale: gb) == "Next scan Monday, 10:00")
         // The user's 12-hour clock; ICU puts a narrow no-break space before PM.
-        let us = Wording.nextScan(try at(19, 13), now: now, calendar: calendar, locale: Locale(identifier: "en_US"))
+        let us = Wording.nextScan(.at(try at(19, 13)), now: now, calendar: calendar, locale: Locale(identifier: "en_US"))
         #expect(us.replacingOccurrences(of: "\u{202F}", with: " ") == "Next scan today, 1:00 PM")
 
         let model = try makeModel(runner: nil, data: data, defaults: defaults)
-        #expect(model.nextScanText == "Scheduled scans off", "nothing schedules scans before the background story")
+        #expect(model.nextScanText == "Scheduled scans off", "no scheduler: the seam's default")
     }
 }

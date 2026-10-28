@@ -147,6 +147,9 @@ public enum Wording {
         }
     }
 
+    /// While the 0.1.0 agent runs, the app schedules nothing (B1).
+    public static let replaceOldScanFirst = "Replace the old background scan first"
+
     /// Where the report looked: "in your home folder", "in Work", "in 3 folders".
     public static func scope(roots: [String], home: String) -> String {
         switch roots.count {
@@ -162,11 +165,18 @@ public enum Wording {
     }
 
     /// The footer's next scheduled scan: "Next scan today, 13:00",
-    /// "Next scan tomorrow, 10:00", "Next scan Monday, 10:00", or
-    /// "Scheduled scans off" when nothing is scheduled. The time follows the
-    /// user's 12- or 24-hour clock.
-    public static func nextScan(_ next: Date?, now: Date, calendar: Calendar = .current, locale: Locale = .autoupdatingCurrent) -> String {
-        guard let next else { return "Scheduled scans off" }
+    /// "Next scan tomorrow, 10:00", "Next scan Monday, 10:00", "Next scan
+    /// within the hour" when one is due (a missed slot, a Resume), "Scheduled
+    /// scans off", or "Replace the old background scan first" while the 0.1.0
+    /// agent runs. The time follows the user's 12- or 24-hour clock.
+    public static func nextScan(_ scan: NextScan, now: Date, calendar: Calendar = .current, locale: Locale = .autoupdatingCurrent) -> String {
+        let next: Date
+        switch scan {
+        case .off: return "Scheduled scans off"
+        case .replaceOldScanFirst: return replaceOldScanFirst
+        case .at(let date): next = date
+        }
+        if next <= now { return "Next scan within the hour" }
         let time = next.formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: calendar, timeZone: calendar.timeZone))
         let day: String
         if calendar.isDate(next, inSameDayAs: now) {

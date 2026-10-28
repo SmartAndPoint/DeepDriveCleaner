@@ -42,10 +42,14 @@ struct PermissionsSettingsView: View {
                 }
                 if model.legacyAgentFound {
                     LabeledContent {
-                        Button("Replace It") { model.replaceLegacyAgent() }
+                        Button("Replace It") { Task { await model.replaceLegacyAgent() } }
                     } label: {
                         Text("Old background scan found")
                         Text("The command-line scan from ddc schedule install still runs. The app now scans on its own.")
+                    }
+                    if let failure = model.replaceFailure {
+                        Label(failure, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(ReportClassStyle.ink(.review))
                     }
                 }
             }

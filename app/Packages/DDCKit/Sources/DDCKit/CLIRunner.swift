@@ -28,8 +28,16 @@ extension CLIRunner: CLIRunning {}
 /// `stderrLine` are not used); anything else waits its turn, so a clean
 /// requested during a scan starts when the scan ends.
 public actor CLIRunner {
-    public enum Kind: Sendable, Equatable {
+    /// Only `.scan` coalesces: a scheduled `.backgroundScan` never hands
+    /// a caller another run's output, nor do `notify` and `schedule`.
+    public enum Kind: Sendable, Equatable, Hashable {
         case scan, clean, dryRun, rules
+        /// `scan --background --notify json`, the scheduled scan.
+        case backgroundScan
+        /// `notify ack` and `notify snooze`.
+        case notify
+        /// `schedule uninstall`, in the migration from the 0.1.0 agent.
+        case schedule
     }
 
     /// Names one run, so it can be cancelled without touching another.

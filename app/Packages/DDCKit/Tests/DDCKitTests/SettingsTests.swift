@@ -332,16 +332,18 @@ struct SettingsTests {
         #expect(read.hour == 23 && read.weekday == 2 && read.repeats == .daily)
     }
 
-    @Test("the Next scan line is the popover footer's seam; off reads Off…, paused reads Paused…, no date hides it")
+    @Test("the Next scan line is the popover footer's seam; off reads Off…, paused reads Paused…, no scheduler hides it")
     func nextScan() throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
-        var next: Date? = now.addingTimeInterval(3 * 3600)
+        var next = NextScan.at(now.addingTimeInterval(3 * 3600))
         let popover = try makeModel(runner: nil, data: data, defaults: defaults, nextScan: { next }, clock: { now })
         let model = settings(popover, clock: { now })
-        #expect(popover.nextScanDate == next)
+        #expect(popover.nextScanValue == next)
         #expect(model.nextScan == Schedule().nextScanLine(paused: false, next: next, now: now))
-        next = nil
-        #expect(model.nextScan == nil, "hidden until the scheduler fills the seam")
+        next = .replaceOldScanFirst
+        #expect(model.nextScan == "Replace the old background scan first")
+        next = .off
+        #expect(model.nextScan == nil, "hidden without a scheduler")
         model.setPaused(true)
         #expect(model.nextScan?.hasPrefix("Paused") == true)
         var off = Schedule()
@@ -353,7 +355,7 @@ struct SettingsTests {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
         calendar.locale = gb
-        let at = { (hours: Double) in Schedule().nextScanLine(paused: false, next: now.addingTimeInterval(hours * 3600), now: now, calendar: calendar, locale: gb) }
+        let at = { (hours: Double) in Schedule().nextScanLine(paused: false, next: .at(now.addingTimeInterval(hours * 3600)), now: now, calendar: calendar, locale: gb) }
         // 1_800_000_000 is a Friday, 08:00 UTC.
         #expect(at(2) == "Today at 10:00")
         #expect(at(26) == "Tomorrow at 10:00")
@@ -368,7 +370,8 @@ struct SettingsTests {
             func scheduleChanged(_ schedule: Schedule) { changes.append(schedule) }
             var registration: SchedulerRegistration? { .requiresApproval }
             var legacyAgentFound: Bool { true }
-            func replaceLegacyAgent() {}
+            func replaceLegacyAgent() async {}
+            var replaceFailure: String? { nil }
         }
         let recorder = Recorder()
         let popover = try makeModel(runner: nil, data: data, defaults: defaults)

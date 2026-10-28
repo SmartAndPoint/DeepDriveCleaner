@@ -19,7 +19,7 @@ DeepDriveCleaner · scanned ~ in 39.6s · 5.5M files · 544.8 GiB
 
 > **Built in the open with [ProjectStore](https://projectstore.dev).** Every decision, epic and story behind this code lives in a second public repository, [DeepDriveCleaner-projectstore](https://github.com/SmartAndPoint/DeepDriveCleaner-projectstore): the research, the ADRs, the acceptance criteria and the evidence each story was closed with. This repository is meant to be read as a worked example of that workflow, not only as a tool. See [Contributing](#contributing).
 
-Status: 0.2.4. macOS 26 on Apple Silicon. Settings beyond Open at login, and the app's own scheduled scans and notifications, come in 0.3.0; until then scheduled scans are the command line's (`ddc schedule install`).
+Status: 0.3.0. macOS 26 on Apple Silicon. The app now schedules scans itself and notifies with Review and Remind Me Tomorrow (Settings → Schedule).
 
 ## Install
 
@@ -211,6 +211,7 @@ ddc schedule uninstall
 - `install` installs (or updates) a LaunchAgent that scans daily, or weekly with `--interval weekly`. It notifies when at least `--threshold` can be freed (default: the settings' threshold, else 10G), or when a scanned disk is under 10 % free with something on it to clean. A threshold notification repeats after a fifth more or a week; a disk under 10 % free notifies at every scheduled scan until it is cleaned (`notify_low_disk: false` in `settings.json` turns that off). The background scan **never deletes anything**, and it skips the folders where macOS would show a permission prompt, because a prompt would block it. Once the Mac app runs the scheduled scan itself (0.3.0), `install` refuses: one scheduler at a time.
 - `status` shows whether the agent is installed, loaded and runs this binary.
 - `uninstall` removes the agent.
+- The Mac app's own schedule (Settings → Schedule) replaces this agent: the app offers Replace It while the agent exists, and `ddc schedule install` refuses while the app schedules.
 
 ```
 ddc schedule install --interval weekly --threshold 20G
@@ -284,6 +285,7 @@ These checks lower the risk; they do not remove it. See the [Disclaimer](#discla
 Without Full Disk Access some of `~/Library` cannot be read; the report lists those folders instead of guessing. Grant it to the app: System Settings → Privacy & Security → Full Disk Access → DeepDriveCleaner. The grant is tied to the app's identity (its Developer ID signature and bundle id) rather than to one copy of it, so it should survive `brew upgrade`; if the app reports no Full Disk Access after an upgrade, switch it off and on again in that list.
 
 - Run from Terminal, `ddc` is covered by Terminal's own grant, not the app's.
+- The app's own scheduled scans (Settings → Schedule) use the app's grant; they replace the agent of `ddc schedule install`, which refuses while the app schedules.
 - The background agent of `ddc schedule install` runs the binary inside the app. To let it scan everything, add `/Applications/DeepDriveCleaner.app/Contents/Helpers/deepdrivecleaner` to Full Disk Access (press ⇧⌘G in the file picker to type the path). Since 0.2.0 that path stays the same across upgrades. If you upgraded from 0.1.0, remove the old `Caskroom/deepdrivecleaner/0.1.0` entry.
 - A local `make install` build is not signed with the Developer ID and has to be granted again after every build.
 

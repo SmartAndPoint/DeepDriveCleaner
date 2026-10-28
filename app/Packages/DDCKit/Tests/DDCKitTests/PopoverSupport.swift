@@ -120,6 +120,9 @@ actor FakeRunner: CLIRunning {
     private var gate: CheckedContinuation<Void, Never>?
     private var released = false
     private let blocks: Bool
+    /// Replies to the scheduler's kinds (`backgroundScan`, `notify`,
+    /// `schedule`), each with what the run does first; done and empty by default.
+    private var replies: [CLIRunner.Kind: (result: CLIRunner.Result, effect: @Sendable () -> Void)] = [:]
 
     init(scan: CLIRunner.Result, rules: CLIRunner.Result? = nil, blocks: Bool = false) {
         scanResult = scan
@@ -140,6 +143,10 @@ actor FakeRunner: CLIRunning {
         case .dryRun, .clean:
             // The review tests that run these use `FakeCLI`; here they only count.
             return CLIRunner.Result(outcome: .done, stdout: Data(), stderrTail: [])
+        case .backgroundScan, .notify, .schedule:
+            guard let reply = replies[kind] else { return Self.done(Data()) }
+            reply.effect()
+            return reply.result
         default:
             for line in scanLines { options.stderrLine?(line) }
             if blocks && !released {
@@ -150,6 +157,16 @@ actor FakeRunner: CLIRunning {
     }
 
     func cancel(_ ticket: CLIRunner.Ticket) async {}
+
+    /// What runs of `kind` return, after `effect` (the uninstall deletes its plist).
+    func reply(_ kind: CLIRunner.Kind, _ result: CLIRunner.Result, effect: @escaping @Sendable () -> Void = {}) {
+        replies[kind] = (result, effect)
+    }
+
+    /// The arguments of every run of `kind`.
+    func arguments(of kind: CLIRunner.Kind) -> [[String]] {
+        zip(calls, arguments).filter { $0.0 == kind }.map(\.1)
+    }
 
     /// What the next scans return.
     func reply(scan: CLIRunner.Result) {
@@ -199,7 +216,8 @@ func makeModel(
     defaults: TempDefaults,
     router: FakeRouter = FakeRouter(),
     probeGranted: Bool = true,
-    nextScan: @escaping @MainActor () -> Date? = { nil },
+    nextScan: @escaping @MainActor () -> NextScan = { .off },
+    legacyAgentFound: @escaping @MainActor () -> Bool = { false },
     clock: @escaping @MainActor () -> Date = { Date(timeIntervalSince1970: 1_800_000_000) }
 ) throws -> PopoverModel {
     PopoverModel(
@@ -209,6 +227,7 @@ func makeModel(
         preferences: AppPreferences(defaults: defaults.defaults),
         router: router,
         nextScan: nextScan,
+        legacyAgentFound: legacyAgentFound,
         clock: clock
     )
 }

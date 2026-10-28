@@ -230,6 +230,44 @@ struct ContractTests {
         }
     }
 
+    // MARK: - Scheduled scans ("Background scan and notifications in the app")
+
+    @Test("the notify decision is the CLI's: version, statuses, reasons and skip causes")
+    func notifyContract() throws {
+        let source = try rustSource("crates/ddc-core/src/notify.rs")
+        let version = try #require(source.firstMatch(of: /pub const NOTIFY_SCHEMA_VERSION: u32 = (\d+);/))
+        #expect(Int(version.1) == NotifyReport.schemaVersion)
+        let notify = try schema("notify")
+        #expect(Set(try values(notify, "NotifyReason")) == Set(NotifyDecision.Reason.allCases.map(\.rawValue)))
+        #expect(Set(try values(notify, "SkipCause")) == ["busy"])
+        let branches = try #require(notify["oneOf"] as? [[String: Any]])
+        let statuses = branches.compactMap { (($0["properties"] as? [String: Any])?["status"] as? [String: Any])?["const"] as? String }
+        #expect(Set(statuses) == ["scanned", "skipped"])
+    }
+
+    @Test("the 0.1.0 agent is the CLI's: its label, 11 o'clock, and Monday as launchd's Weekday 1")
+    func legacyAgentContract() throws {
+        let source = try rustSource("crates/ddc-cli/src/launchd.rs")
+        let label = try #require(source.firstMatch(of: /pub const LABEL: &str = "([^"]+)";/))
+        #expect(String(label.1) == LegacyAgent.label)
+        #expect(source.contains("<key>Hour</key><integer>\(LegacyAgent.hour)</integer><key>Minute</key><integer>30</integer>"))
+        #expect(source.contains("<key>Weekday</key><integer>1</integer>"))
+        let plist = try rustSource("crates/ddc-cli/src/launchd.rs").firstMatch(of: /home\.join\("Library\/LaunchAgents"\)\.join\(format!\("\{LABEL\}\.plist"\)\)/)
+        #expect(plist != nil, "the plist path is ~/Library/LaunchAgents/<label>.plist")
+        #expect(LegacyAgent.plist(home: URL(filePath: "/Users/example")).path == "/Users/example/Library/LaunchAgents/com.smartandpoint.deepdrivecleaner.plist")
+    }
+
+    @Test("no DDCKit source imports UserNotifications or ServiceManagement")
+    func noSystemFrameworks() throws {
+        let dir = repositoryRoot().appending(path: "app/Packages/DDCKit/Sources/DDCKit")
+        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.hasSuffix(".swift") }
+        #expect(!files.isEmpty)
+        for file in files {
+            let text = try String(contentsOf: dir.appending(path: file), encoding: .utf8)
+            #expect(!text.contains(/import\s+(UserNotifications|ServiceManagement)\b/), "\(file)")
+        }
+    }
+
     // MARK: - HIG ("HIG pass: keyboard, colour, empty states and menus")
 
     @Test("buttons, menu items and window titles use title-style capitalization")
