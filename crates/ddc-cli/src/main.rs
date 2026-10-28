@@ -16,6 +16,8 @@ use std::process::ExitCode;
 use clap::Parser as _;
 
 fn main() -> ExitCode {
+    // A no-op unless built with `ddc-core/dhat-heap` (`make heap-profile`).
+    let _heap = ddc_core::heap::start();
     // `try_parse`, so help and usage errors get the warning too; `--version` does not.
     let parsed = cli::Cli::try_parse();
     if !matches!(&parsed, Err(e) if e.kind() == clap::error::ErrorKind::DisplayVersion) {

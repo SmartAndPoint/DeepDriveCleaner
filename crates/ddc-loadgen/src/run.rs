@@ -356,7 +356,7 @@ fn trashes(tree: &Path) -> anyhow::Result<PathBuf> {
 }
 
 /// The last lines of a run's output: the files go with the image's detach.
-fn tail(path: &Path) -> String {
+pub(crate) fn tail(path: &Path) -> String {
     let text = fs::read_to_string(path).unwrap_or_default();
     let lines: Vec<&str> = text.lines().collect();
     lines[lines.len().saturating_sub(20)..].join("\n")

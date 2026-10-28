@@ -12,6 +12,7 @@ pub mod disk;
 pub mod env;
 pub mod exec;
 pub mod free;
+pub mod heap;
 pub mod model;
 pub mod notify;
 pub mod plan;

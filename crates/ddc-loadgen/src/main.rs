@@ -9,7 +9,7 @@ use ddc_loadgen::desc::FsCaps;
 use ddc_loadgen::limits::{self, Mode};
 use ddc_loadgen::profiles::Profile;
 use ddc_loadgen::run::RunArgs;
-use ddc_loadgen::{generate, leaks, manifest, run, table, target, verify};
+use ddc_loadgen::{generate, heap, leaks, manifest, run, table, target, verify};
 
 #[derive(Parser)]
 #[command(about = "Deterministic load trees for DeepDriveCleaner's load tests")]
@@ -85,6 +85,29 @@ enum Cmd {
         /// The 1-minute load average when the whole run started (default: now).
         #[arg(long)]
         load_start: Option<f64>,
+    },
+    /// Build a tree and run one `scan --json` of it by a CLI built with
+    /// `ddc-core/dhat-heap`; its heap profile goes to `--out`.
+    Heap {
+        profile: Profile,
+        #[arg(long, default_value_t = 100_000)]
+        entries: u64,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// A marked temporary folder (`mktemp`) or an attached image's mount point.
+        #[arg(long)]
+        into: PathBuf,
+        /// The device `hdiutil attach` returned, for an image target.
+        #[arg(long)]
+        device: Option<String>,
+        /// The CLI built with `ddc-core/dhat-heap`.
+        #[arg(long)]
+        cli: PathBuf,
+        /// The size's name in the file name (default: S, M, L or XL from --entries).
+        #[arg(long)]
+        size: Option<String>,
+        #[arg(long, default_value = "target/dhat")]
+        out: PathBuf,
     },
     /// Print the limits from a small and a large run's tables (`make load-baseline`).
     Limits { small: PathBuf, large: PathBuf },
@@ -186,6 +209,20 @@ fn main() -> anyhow::Result<()> {
                 anyhow::bail!("leaks: {} profile(s) failed; see {}", failed.len(), failed.join(", "));
             }
             return Ok(());
+        }
+        Cmd::Heap { profile, entries, seed, into, device, cli, size, out } => {
+            let size = size.unwrap_or_else(|| size_name(entries));
+            let a = heap::HeapArgs {
+                profile,
+                entries,
+                seed,
+                into: &into,
+                device: device.as_deref(),
+                cli: &cli,
+                size: &size,
+                out: &out,
+            };
+            serde_json::to_value(heap::run(&a)?)?
         }
         Cmd::Limits { small, large } => {
             let read = |p: &PathBuf| -> anyhow::Result<_> { table::parse(&std::fs::read_to_string(p)?) };

@@ -17,6 +17,10 @@
 # each reading command, one clean), judged against bench/load-limits.tsv when
 # $LOAD_MODE is enforce. Each profile's rows land in $LOAD_OUT/<size>-<profile>.tsv,
 # all of them in $LOAD_OUT/load-<size>.tsv.
+#
+# With $LOAD_HEAP set instead, it names a CLI built with ddc-core/dhat-heap, and every
+# profile goes through `ddc-loadgen heap`: one scan, its heap profile in
+# $LOAD_OUT/dhat-<size>-<profile>.json (`make heap-profile`).
 set -euo pipefail
 
 usage="usage: load-image.sh <profile|all> <S|M|L|XL> [seed]"
@@ -144,6 +148,9 @@ for p in $profiles; do
       --commit "${LOAD_COMMIT:--}" --out "$out" --mode "${LOAD_MODE:-record}" \
       --load-start "$load_start" >"$json" || failed="$failed $p"
     [ -e "$out/$size-$p.tsv" ] && tables+=("$out/$size-$p.tsv")
+  elif [ -n "${LOAD_HEAP:-}" ]; then
+    "$loadgen" heap "$p" --entries "$entries" --seed "$seed" --into "$mount/$p" --device "$device" \
+      --cli "$LOAD_HEAP" --size "$size" --out "$out" >"$json" || failed="$failed $p"
   else
     "$loadgen" build "$p" --entries "$entries" --seed "$seed" --into "$mount/$p" --device "$device" \
       --verify --brief >"$json" || failed="$failed $p"

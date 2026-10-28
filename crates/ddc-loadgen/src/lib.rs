@@ -8,6 +8,7 @@ pub mod build;
 pub mod caps;
 pub mod desc;
 pub mod fixtures;
+pub mod heap;
 pub mod isolate;
 pub mod items;
 pub mod leaks;

@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+dhat = { workspace = true, optional = true }
 humantime.workspace = true
 libc.workspace = true
 rayon.workspace = true
@@ -19,13 +20,14 @@ thiserror.workspace = true
 trash.workspace = true
 
 [features]
-# Empty until their stories fill them; the gate already builds with them.
+# The gate builds with both, one at a time: they install a global allocator each.
 # Cost counters on the hot paths, for the complexity guard (story "Complexity guard:
-# operation counts and scaling exponents", DDC-005). Never in a release build.
+# operation counts and scaling exponents", DDC-005), empty until that story. Never in
+# a release build.
 op-stats = []
 # A dhat heap profile of one run (story "Memory and CPU under load: peak memory,
-# leaks and CPU time", DDC-005). Both will install a global allocator: never together.
-dhat-heap = []
+# leaks and CPU time", DDC-005): `make heap-profile`.
+dhat-heap = ["dep:dhat"]
 
 [dev-dependencies]
 schemars.workspace = true

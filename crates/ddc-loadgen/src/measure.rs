@@ -25,8 +25,10 @@ pub struct Measured {
     pub stderr: PathBuf,
 }
 
-/// Runs `cli args` with a cleared environment (`HOME`, `PATH` empty,
-/// `NO_COLOR`), its output in `<out>.stdout` and `<out>.stderr`. The caller
+/// Runs `cli args` in `home` with a cleared environment (`HOME`, `PATH`
+/// empty, `NO_COLOR`), its output in `<out>.stdout` and `<out>.stderr`.
+/// A relative `cli` is resolved against this process's directory, not
+/// `home`. The caller
 /// has checked the run ([`crate::isolate::decide`]).
 // The child is reaped by `wait4`, never by `Child::wait`, which would reap it
 // first and lose its usage.
@@ -34,12 +36,14 @@ pub struct Measured {
 pub fn measure(cli: &Path, home: &Path, args: &[OsString], out: &Path) -> io::Result<Measured> {
     let stdout = out.with_extension("stdout");
     let stderr = out.with_extension("stderr");
+    let cli = cli.canonicalize()?;
     let started = Instant::now();
     let child = Command::new(cli)
         .env_clear()
         .env("HOME", home)
         .env("PATH", "")
         .env("NO_COLOR", "1")
+        .current_dir(home)
         .args(args)
         .stdin(Stdio::null())
         .stdout(File::create(&stdout)?)
@@ -55,5 +59,25 @@ pub fn measure(cli: &Path, home: &Path, args: &[OsString], out: &Path) -> io::Re
             return Ok(Measured { wall: started.elapsed(), usage, threads_max, status, stdout, stderr });
         }
         std::thread::sleep(POLL);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `make load` passes `target/release/deepdrivecleaner`: a path relative
+    /// to the repository, while the child runs in its tree's home.
+    #[test]
+    fn a_relative_cli_runs_in_another_directory() {
+        let here = std::env::current_dir().unwrap();
+        let mut relative = PathBuf::new();
+        here.components().skip(1).for_each(|_| relative.push(".."));
+        relative.push("bin/echo");
+        assert!(relative.is_relative());
+        let home = tempfile::tempdir().unwrap();
+        let m = measure(&relative, home.path(), &[OsString::from("hi")], &home.path().join("echo")).unwrap();
+        assert!(m.status.success(), "{:?}", m.status);
+        assert_eq!(std::fs::read_to_string(&m.stdout).unwrap(), "hi\n");
     }
 }

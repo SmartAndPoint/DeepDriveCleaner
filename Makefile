@@ -22,7 +22,7 @@ MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
 .PHONY: build fmt fmt-check clippy test check release install dist app app-test app-dist icons \
 	gate-fast gate nextest doctest clippy-dhat doc deny machete msrv release-check \
-	tools require-tools hooks coverage ci-green golden-check golden-record loadgen-clean load-image load load-baseline bench-test leaks asan
+	tools require-tools hooks coverage ci-green golden-check golden-record loadgen-clean load-image load load-baseline heap-profile bench-test leaks asan
 
 build:
 	$(CARGO) build --workspace
@@ -128,6 +128,21 @@ load-baseline:
 	$(MAKE) load LOAD_PROFILE=all LOAD_SIZE=M LOAD_SEED=1 LOAD_REPEAT=3 LOAD_LIMITS=record
 	target/release/ddc-loadgen limits target/load/load-S.tsv target/load/load-M.tsv >target/load/load-limits.tsv
 	cp target/load/load-limits.tsv bench/load-limits.tsv
+
+# The allocation sites of one scan (dhat): HEAP_PROFILE at HEAP_SIZE on a disk image,
+# by a CLI built with ddc-core/dhat-heap in the `profiling` profile into target/dhat,
+# so it never replaces the release binary. bench/dhat_top.py prints the top 10 program
+# points by bytes live at the global peak and by total bytes, per entry.
+HEAP_PROFILE ?= mixed
+HEAP_SIZE ?= M
+heap-profile:
+	@[ "$(HEAP_PROFILE)" != all ] || { echo "make heap-profile: one profile at a time, not all" >&2; exit 2; }
+	CARGO_TARGET_DIR=target/dhat $(CARGO) build --profile profiling -p ddc-cli --features ddc-core/dhat-heap --locked
+	$(CARGO) build --release -p ddc-loadgen --locked
+	LOADGEN=target/release/ddc-loadgen LOAD_HEAP=target/dhat/profiling/deepdrivecleaner LOAD_OUT=target/dhat \
+	  scripts/load-image.sh $(HEAP_PROFILE) $(HEAP_SIZE) 1
+	python3 -I bench/dhat_top.py target/dhat/dhat-$(HEAP_SIZE)-$(HEAP_PROFILE).json \
+	  --entries $$(plutil -extract entries raw -o - target/dhat/$(HEAP_SIZE)-$(HEAP_PROFILE).json)
 
 # The tests of the bench scripts.
 bench-test:
