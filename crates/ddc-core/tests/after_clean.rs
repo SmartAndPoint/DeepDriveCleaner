@@ -60,7 +60,7 @@ impl Home {
     fn edited(&self, report: &ScanReport, items: Vec<CleanItem>, remeasured: &[(&Path, Remeasured)]) -> ScanReport {
         let remeasured: HashMap<PathBuf, Remeasured> = remeasured.iter().map(|(p, m)| (p.to_path_buf(), *m)).collect();
         let mut edited = report.clone();
-        after_clean::edit(&mut edited, &clean(items), &remeasured, &self.opts());
+        after_clean::edit(&mut edited, &clean(items), None, &remeasured, &self.opts());
         edited
     }
 }
@@ -172,6 +172,59 @@ fn skipped_failed_and_not_run_items_stay_and_an_item_the_report_does_not_hold_ed
     assert_eq!(home.edited(&before, items, &[(&path, Remeasured::Unknown)]), before);
 }
 
+/// Story "Review window: after a clean, only skips that can clear stay
+/// selected": with the re-check's walk at hand, a skipped or not-run item
+/// takes its finding from there, or leaves when it is gone from the disk;
+/// a failed one and a picked entry stay as they were.
+#[test]
+fn skipped_and_not_run_items_take_the_rechecks_finding_or_leave() {
+    let home = Home::new();
+    home.t.file("a/__pycache__/m.pyc", 10_000);
+    home.t.file("b/__pycache__/m.pyc", 10_000);
+    home.t.file("c/__pycache__/m.pyc", 10_000);
+    home.t.file("d/__pycache__/m.pyc", 10_000);
+    home.t.file("Downloads/kept.bin", 4_000);
+    let before = home.scan();
+    let [a, b, c, d] = ["a", "b", "c", "d"].map(|p| home.t.path(&format!("{p}/__pycache__")));
+    // `a` swapped for a larger folder, `b` gone, `c` and `d` swapped too.
+    for p in [&a, &b, &c, &d] {
+        fs::rename(p, p.with_file_name("old")).unwrap();
+    }
+    home.t.file("a/__pycache__/m.pyc", 30_000);
+    home.t.file("c/__pycache__/m.pyc", 10_000);
+    home.t.file("d/__pycache__/m.pyc", 10_000);
+    let fresh = home.scan();
+    let picked = home.t.path("Downloads/kept.bin");
+    let items = vec![
+        item(&a, "python.pycache", Some(10_000), Outcome::Skipped(SkipReason::ChangedSinceScan)),
+        item(&b, "python.pycache", Some(10_000), Outcome::Skipped(SkipReason::Missing)),
+        item(&c, "python.pycache", None, Outcome::NotRun),
+        item(&d, "python.pycache", Some(10_000), Outcome::Failed { error: "EPERM".to_owned() }),
+        item(&picked, "user.downloads", Some(4_000), Outcome::Skipped(SkipReason::ChangedSinceScan)),
+    ];
+
+    let mut after = before.clone();
+    after_clean::edit(&mut after, &clean(items), Some(&fresh), &HashMap::new(), &home.opts());
+
+    assert_eq!(finding(&after, &a), finding(&fresh, &a), "the re-check's identity and size");
+    assert!(!has(&after, &b), "gone from the disk, gone from the report");
+    assert_eq!(finding(&after, &c), finding(&fresh, &c));
+    assert_eq!(finding(&after, &d), finding(&before, &d), "a failed action is measured by the next scan");
+    let downloads = home.t.path("Downloads");
+    assert_eq!(finding(&after, &downloads), finding(&before, &downloads), "a picked entry is not a finding");
+    let (fa, fb) = (finding(&fresh, &a), finding(&before, &b));
+    let old_a = finding(&before, &a);
+    assert_eq!(after.totals.scanned_bytes, before.totals.scanned_bytes + fa.bytes - old_a.bytes - fb.bytes);
+    assert_eq!(after.totals.files, before.totals.files + fa.files - old_a.files - fb.files);
+    check_totals(&after);
+
+    // Without the re-check's walk (the report is the rescan's own), nothing moves.
+    let mut same = before.clone();
+    let items = vec![item(&a, "python.pycache", Some(10_000), Outcome::Skipped(SkipReason::ChangedSinceScan))];
+    after_clean::edit(&mut same, &clean(items), None, &HashMap::new(), &home.opts());
+    assert_eq!(same, before);
+}
+
 #[test]
 fn a_trashed_finding_moves_to_the_trash_of_its_volume_or_counts_as_deleted() {
     let home = Home::new();
@@ -234,7 +287,7 @@ fn a_tool_cleaned_item_is_at_its_new_size_or_gone() {
     opts.min_size = 8_192;
     let mut hidden = before.clone();
     let remeasured = HashMap::from([(path.clone(), Remeasured::Measured(small))]);
-    after_clean::edit(&mut hidden, &clean(native()), &remeasured, &opts);
+    after_clean::edit(&mut hidden, &clean(native()), None, &remeasured, &opts);
     let f = finding(&hidden, &path);
     assert!(f.ignored && !f.selected);
     assert_eq!((hidden.totals.ignored_count, hidden.totals.ignored_bytes), (1, 4_096));
@@ -375,7 +428,7 @@ fn lines_under_a_removed_path_leave_and_the_volumes_take_the_cleans_free_space()
     ];
 
     let mut after = before.clone();
-    after_clean::edit(&mut after, &done, &HashMap::new(), &home.opts());
+    after_clean::edit(&mut after, &done, None, &HashMap::new(), &home.opts());
 
     assert_eq!(after.inaccessible.iter().map(|l| l.path.clone()).collect::<Vec<_>>(), [home.t.path("r/locked")]);
     assert_eq!(after.errors_total, before.errors_total - 1);

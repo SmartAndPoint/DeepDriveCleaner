@@ -77,10 +77,29 @@ extension CleanWording {
     /// the skips that can clear, then those that need a scan, then the causes
     /// that never clear here. DeepDriveCleaner never quits an app itself.
     public static func advice(_ skips: SkipSummary) -> String {
-        var sentences: [String] = []
         let reasons = skips.reasons
-        // Can clear: the running apps, the processes holding a folder, the tools not ready.
-        if !skips.apps.isEmpty { sentences.append("Quit \(Wording.list(skips.apps)), then Check Again.") }
+        var sentences = clearing(reasons, again: "Check Again")
+        // Needs a new scan: Check Again would skip them again.
+        let rescan = reasons.filter { $0.afterClean == .rescan }.count
+        if rescan > 0 { sentences.append(changedSinceScan(rescan == skips.count ? "These items" : Wording.items(rescan), count: rescan)) }
+        // Never here: the cause, as the result names it.
+        var causes: [String] = []
+        for reason in reasons where reason.afterClean == .never {
+            let cause = Self.reason(reason)
+            if !causes.contains(cause) { causes.append(cause) }
+        }
+        sentences += causes.map { "\($0)." }
+        return sentences.joined(separator: " ")
+    }
+
+    /// What clears the skips of `reasons` that can clear: the running apps,
+    /// the processes holding a folder, the tools not ready. `again` is what
+    /// to do then: "Check Again" in the sheet, "clean again" in the result.
+    static func clearing(_ reasons: [SkipReason], again: String) -> [String] {
+        var sentences: [String] = []
+        var apps: [String] = []
+        for case .ownerRunning(_, let name) in reasons where !apps.contains(name) { apps.append(name) }
+        if !apps.isEmpty { sentences.append("Quit \(Wording.list(apps)), then \(again).") }
         // The processes known to hold a folder first, then the possible ones.
         var certain: [String] = []
         var possible: [String] = []
@@ -97,28 +116,20 @@ extension CleanWording {
         possible.removeAll { certain.contains($0) }
         for (lead, processes) in [("In use by", certain), ("Possibly in use by", possible)] where !processes.isEmpty {
             let ends = processes.count == 1 ? "it ends" : "they end"
-            sentences.append("\(lead) \(Wording.list(processes)); Check Again when \(ends).")
+            sentences.append("\(lead) \(Wording.list(processes)); \(again) when \(ends).")
         }
         var details: [String] = []
         for case .toolNotReady(_, let detail) in reasons where !details.contains(detail) { details.append(detail) }
-        sentences += details.map(toolNotReady)
+        sentences += details.map { toolNotReady($0, again: again) }
         if details.contains(where: { $0 == dockerDown || $0 == dockerNoContext }) {
             sentences.append("If you no longer use Docker Desktop, its folder is yours to delete in Finder.")
         }
-        // Needs a new scan: Check Again would skip them again.
-        let rescan = reasons.filter { $0.afterClean == .rescan }.count
-        if rescan > 0 {
-            let which = rescan == skips.count ? "These items" : Wording.items(rescan)
-            sentences.append("\(which) changed since the scan. Scan Again to see them as they are now.")
-        }
-        // Never here: the cause, as the result names it.
-        var causes: [String] = []
-        for reason in reasons where reason.afterClean == .never {
-            let cause = Self.reason(reason)
-            if !causes.contains(cause) { causes.append(cause) }
-        }
-        sentences += causes.map { "\($0)." }
-        return sentences.joined(separator: " ")
+        return sentences
+    }
+
+    /// "2 items changed since the scan. Scan Again to see them as they are now."
+    static func changedSinceScan(_ which: String, count: Int) -> String {
+        "\(which) changed since the scan. Scan Again to see \(count == 1 ? "it as it is" : "them as they are") now."
     }
 
     /// `DOCKER_DOWN` and the missing context of `crates/ddc-core/src/rules/catalog.rs`.
@@ -126,11 +137,11 @@ extension CleanWording {
     static let dockerNoContext = "the desktop-linux context does not exist"
 
     /// What to do about a tool that did not answer, by the CLI's detail.
-    public static func toolNotReady(_ detail: String) -> String {
+    public static func toolNotReady(_ detail: String, again: String = "Check Again") -> String {
         switch detail {
-        case dockerDown: "Start Docker Desktop, then Check Again."
-        case dockerNoContext: "The desktop-linux context is missing; open Docker Desktop once to create it, then Check Again."
-        default: "\(reason(.toolNotReady(program: "", detail: detail))). Check Again when it is ready."
+        case dockerDown: "Start Docker Desktop, then \(again)."
+        case dockerNoContext: "The desktop-linux context is missing; open Docker Desktop once to create it, then \(again)."
+        default: "\(reason(.toolNotReady(program: "", detail: detail))). \(again.prefix(1).uppercased() + again.dropFirst()) when it is ready."
         }
     }
 }

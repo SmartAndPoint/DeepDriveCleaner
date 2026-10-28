@@ -143,6 +143,8 @@ extension ReviewModel {
         volumes: [ScanReport.Volume],
         requested: ContinuousClock.Instant
     ) async {
+        // A clean that ends without a report must not select by an older one's.
+        selectAfterClean = false
         let (events, sink) = AsyncStream<RunEvent>.makeStream()
         var progress: CleanProgress?
         var timings = CleanTimings(requested: requested)
@@ -223,7 +225,10 @@ extension ReviewModel {
                     identities.insert(Identity(row.finding))
                 }
             }
-            cleaned = (identities, clock())
+            let ended = clock()
+            cleaned = (identities, ended)
+            lastClean = LastClean(report: report, ended: ended)
+            selectAfterClean = true
         } else if result.outcome == .done {
             stage = .stopped("The clean ended, but its report could not be read. The journal lists what was done.", journal: journal)
         } else if touched {
@@ -250,7 +255,7 @@ extension ReviewModel {
                 await rescan()
             }
             rescanning = nil
-            if sheet == nil { reload() }
+            if sheet == nil { reload(afterClean: true) }
         }
         setBusy(false)
     }

@@ -46,6 +46,13 @@ public struct CleanResult: Sendable, Equatable {
     public let failures: [Failure]
     public let localSnapshots: Int
     public let journal: String
+    /// The items that stay selected for the next clean (`Outcome.staysSelected`).
+    public let staysSelected: Int
+    /// The skips only a new scan clears (`AfterClean.rescan`): the result offers Scan Again.
+    public let needsRescan: Int
+    /// The skips that can clear (`AfterClean.keep`), in the report's order:
+    /// the result says what clears them.
+    public let canClear: [SkipReason]
 
     /// `confirmation` gives the size of an item the CLI refused before
     /// measuring it; `volumes` give each volume's total.
@@ -65,6 +72,8 @@ public struct CleanResult: Sendable, Equatable {
         var byCause: [CleanWording.Cause: (count: Int, bytes: UInt64, paths: [String])] = [:]
         var causeOrder: [CleanWording.Cause] = []
         var apps: [String] = []
+        var canClear: [SkipReason] = []
+        var needsRescan = 0
         for item in report.items {
             let bytes = size(item)
             switch item.outcome {
@@ -85,6 +94,11 @@ public struct CleanResult: Sendable, Equatable {
                 skipped.bytes += bytes
                 let cause = CleanWording.Cause.of(reason)
                 if case .ownerRunning(_, let name) = reason, !apps.contains(name) { apps.append(name) }
+                switch reason.afterClean {
+                case .keep: canClear.append(reason)
+                case .rescan: needsRescan += 1
+                case .never: break
+                }
                 if byCause[cause] == nil { causeOrder.append(cause) }
                 byCause[cause, default: (0, 0, [])].count += 1
                 byCause[cause, default: (0, 0, [])].bytes += bytes
@@ -122,15 +136,24 @@ public struct CleanResult: Sendable, Equatable {
             causes: sorted,
             failures: failures,
             localSnapshots: report.localSnapshots,
-            journal: report.journal
+            journal: report.journal,
+            staysSelected: report.items.filter(\.outcome.staysSelected).count,
+            needsRescan: needsRescan,
+            canClear: canClear
         )
     }
 
     /// "docker image prune failed: <its last line>", or "(exit 1)" when it printed nothing.
     static func failure(_ command: CleanReport.CommandResult) -> String {
+        "\(name(command)) failed\(said(command))"
+    }
+
+    /// What a failed command said, after "failed": ": <its last line>", or
+    /// " (exit 1)" when it printed nothing.
+    static func said(_ command: CleanReport.CommandResult) -> String {
         let said = command.output.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.last { !$0.isEmpty }
-        if let said { return "\(name(command)) failed: \(said)" }
-        return "\(name(command)) failed\(command.code.map { " (exit \($0))" } ?? " (interrupted)")"
+        if let said { return ": \(said)" }
+        return command.code.map { " (exit \($0))" } ?? " (interrupted)"
     }
 
     /// A command without its options: `--name value` pairs and one-letter

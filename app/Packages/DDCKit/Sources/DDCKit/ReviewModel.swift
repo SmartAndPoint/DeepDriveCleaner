@@ -74,6 +74,9 @@ public final class ReviewModel: ReviewRouting {
     public var collapsed: Set<GroupLayout.Key> = []
     /// Non-nil while the confirmation sheet shows.
     public internal(set) var sheet: Sheet?
+    /// The sheet as it was when it closed: drawn while it slides away, so the
+    /// dismiss never shows an empty panel.
+    public internal(set) var lastSheet: Sheet?
     public internal(set) var notice: String?
     public enum Rescan: Sendable, Equatable {
         /// The popover reads the report the clean saved, or scans after the
@@ -90,6 +93,12 @@ public final class ReviewModel: ReviewRouting {
     /// What the last clean deleted or moved to the Trash: locked in any
     /// report scanned before the clean ended, so they never come back selected.
     @ObservationIgnored var cleaned: (identities: Set<Identity>, ended: Date)?
+    /// The last clean's report and when it ended (story "Review window: after
+    /// a clean, only skips that can clear stay selected"): the rows' tool
+    /// notes read it until a scan newer than the clean replaces the report.
+    var lastClean: LastClean?
+    /// The reload after the clean has yet to apply its report to the selection.
+    @ObservationIgnored var selectAfterClean = false
 
     @ObservationIgnored let runner: (any CLIRunning)?
     @ObservationIgnored let data: DataDirectory
@@ -187,11 +196,22 @@ public final class ReviewModel: ReviewRouting {
         }
     }
 
-    /// The popover's report again, keeping the selection by `(path, dev, ino)`:
-    /// items that were skipped stay selected for the next clean.
+    /// The popover's report again, keeping the selection by `(path, dev, ino)`.
     public func reload() {
+        reload(afterClean: false)
+    }
+
+    /// `afterClean`: the reload that follows a clean, from `runClean` or the
+    /// result's Done. It applies the clean's report once: of the items it
+    /// lists, only the skips that can clear and the items it did not reach
+    /// stay selected. The other reloads (Settings, Scan Again) leave it pending.
+    func reload(afterClean: Bool) {
         guard sheet == nil, let snapshot = snapshot() else { return }
-        let kept = Set((items?.rows ?? []).filter { selection.contains($0.id) }.map { Identity($0.finding) })
+        var kept = Set((items?.rows ?? []).filter { selection.contains($0.id) }.map { Identity($0.finding) })
+        if afterClean, selectAfterClean, let report = lastClean?.report {
+            selectAfterClean = false
+            kept.subtract(report.items.filter { !$0.outcome.staysSelected }.map { Identity(path: $0.path, dev: $0.dev, ino: $0.ino) })
+        }
         let entry = self.entry
         let items = make(snapshot)
         self.items = items
@@ -234,9 +254,10 @@ public final class ReviewModel: ReviewRouting {
         if !protected.isEmpty {
             items = items.locking(Set(items.rows.filter { protected.contains(Identity($0.finding)) }.map(\.id)), as: .protected)
         }
+        // A scan that started after the clean ended knows what is gone, and what its tools did.
+        let scanned = Wording.date(rfc3339: snapshot.report.generatedAt) ?? .distantPast
+        if let lastClean, scanned > lastClean.ended { self.lastClean = nil }
         if let cleaned {
-            // A scan that started after the clean ended knows what is gone.
-            let scanned = Wording.date(rfc3339: snapshot.report.generatedAt) ?? .distantPast
             if scanned > cleaned.ended {
                 self.cleaned = nil
             } else {
@@ -244,6 +265,23 @@ public final class ReviewModel: ReviewRouting {
             }
         }
         return items
+    }
+
+    struct LastClean {
+        let report: CleanReport
+        let ended: Date
+        /// The items whose tool ran, for the rows' notes.
+        let tools: [Identity: CleanReport.Item]
+
+        init(report: CleanReport, ended: Date) {
+            self.report = report
+            self.ended = ended
+            var tools: [Identity: CleanReport.Item] = [:]
+            for item in report.items {
+                if case .native = item.outcome { tools[Identity(path: item.path, dev: item.dev, ino: item.ino)] = item }
+            }
+            self.tools = tools
+        }
     }
 
     struct Identity: Hashable {
@@ -261,6 +299,13 @@ public final class ReviewModel: ReviewRouting {
             self.dev = dev
             self.ino = ino
         }
+    }
+
+    /// A row's note when its tool ran in the last clean: "Pruned 3 min ago;
+    /// Docker Desktop shrinks its disk image later", or why it failed.
+    public func toolNote(for id: Int) -> String? {
+        guard let lastClean, let row = items?.row(id), let item = lastClean.tools[Identity(row.finding)] else { return nil }
+        return CleanWording.toolNote(item, ended: lastClean.ended, now: clock())
     }
 
     // MARK: - Selection
@@ -427,10 +472,12 @@ public final class ReviewModel: ReviewRouting {
             return
         case .confirm:
             stopWarnings()
+            lastSheet = sheet
             self.sheet = nil
         case .result, .stopped:
+            lastSheet = sheet
             self.sheet = nil
-            if rescanning == nil { reload() }
+            if rescanning == nil { reload(afterClean: true) }
         }
     }
 }

@@ -139,14 +139,18 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
     })?;
     let mut clean = CleanReport::new(&list.items, &listed.refused, &result, journal_path.clone());
     // `last-scan.json` follows what was done, after a cancel too.
-    let mut base = base.unwrap_or(scanned);
+    // An older report takes the re-check's findings for the items not touched.
+    let (mut base, fresh) = match base {
+        Some(previous) => (previous, Some(scanned)),
+        None => (scanned, None),
+    };
     let remeasured: HashMap<PathBuf, Remeasured> = clean
         .items
         .iter()
         .filter(|i| matches!(i.outcome, Outcome::Native { .. }))
         .map(|i| (i.path.clone(), after_clean::remeasure(&catalog, &i.rule, &i.path, &opts.walk)))
         .collect();
-    after_clean::edit(&mut base, &clean, &remeasured, &opts);
+    after_clean::edit(&mut base, &clean, fresh.as_ref(), &remeasured, &opts);
     clean.last_scan_saved = match store::write_last_scan(&env, &base) {
         Ok(_) => true,
         Err(e) => {

@@ -166,6 +166,24 @@ struct ContractTests {
         #expect(summary.contains(/stage == \.confirm && warnings != \.checking && !skipSummary\.nothingToClean/))
     }
 
+    @Test("the result's Scan Again closes the sheet and runs only the window's scanAgain(); the closing sheet draws its last stage")
+    func resultScanAgain() throws {
+        let sources = try appSources()
+        // Story "Review window: after a clean, only skips that can clear stay selected".
+        let view = try #require(sources["CleanResultView.swift"])
+        let button = try #require(view.firstMatch(of: /Button\("Scan Again"\) \{\n([\s\S]*?)\n\s*\}\n(?:\s*\.[^\n]*\n)*/))
+        let calls = button.1.matches(of: /model\.(\w+)\(/).map { String($0.1) }
+        #expect(calls == ["closeSheet", "scanAgain"], "\(calls)")
+        #expect(button.1.contains("Task { await model.scanAgain() }"))
+        #expect(!button.1.contains(/rescan\b|reloadReport|runner|\.run\(/))
+        #expect(button.0.contains(/\.disabled\(model\.isCleaning \|\| model\.rescanning != nil/), "off while cleaning or rescanning")
+        #expect(view.contains(/if result\.needsRescan > 0 \{\n\s*Button\("Scan Again"\)/), "offered only for items that changed")
+        let sheet = try #require(sources["ConfirmSheet.swift"])
+        #expect(sheet.contains("if let sheet = model.sheet ?? model.lastSheet {"))
+        let review = try #require(sources["ReviewView.swift"])
+        #expect(review.contains(".sheet(isPresented: Binding(get: { model.sheet != nil }"), "presented on the sheet itself, not the last one")
+    }
+
     @Test("the Docker details the sheet advises on are the catalog's")
     func dockerDetails() throws {
         let source = try rustSource("crates/ddc-core/src/rules/catalog.rs")

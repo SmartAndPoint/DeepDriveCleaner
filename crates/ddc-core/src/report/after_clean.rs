@@ -2,11 +2,17 @@
 //! the selection needs", gate decisions 5 and 6): the report the CLI read
 //! before the clean, edited by what the clean did, instead of a rescan.
 //!
-//! The edit subtracts the report's own figures, never the re-check's, and
-//! every subtraction stops at zero. An item the report does not hold edits
-//! nothing. The report drifts from the disk in a few figures until the next
-//! full scan replaces it: a picked folder's files and directories, and
-//! `unowned_bytes`.
+//! For what the clean removed, the edit subtracts the report's own figures,
+//! never the re-check's, and every subtraction stops at zero. A listed item
+//! the clean did not touch (skipped, or not run) takes the re-check's own
+//! finding, which the pruned walk measured whole (story "Review window:
+//! after a clean, only skips that can clear stay selected"): the report must
+//! not keep an identity the next clean skips again as changed since the
+//! scan. An item the report does not hold edits nothing. The report drifts
+//! from the disk in a few figures until the next full scan replaces it: a
+//! picked folder's files and directories, `unowned_bytes`, and the
+//! `large_files`, `inaccessible` and `skipped` lines under a refreshed item,
+//! which leave and come back with the next full scan.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -16,7 +22,7 @@ use std::path::{Path, PathBuf};
 
 use super::{ScanOptions, count_findings, hidden, sort_findings};
 use crate::exec::report::CleanReport;
-use crate::exec::{Outcome, VolumeSpace};
+use crate::exec::{Outcome, SkipReason, VolumeSpace};
 use crate::model::{FolderEntryKind, ScanReport};
 use crate::rules::entries::ENTRY_RULES;
 use crate::rules::{Catalog, RuleVisitor};
@@ -106,12 +112,14 @@ impl Visitor for Alone<'_> {
     }
 }
 
-/// Edits `report` by what `clean` did (gate decision 6). `remeasured`
-/// holds the tool-cleaned items; `opts` decides `ignored` for a finding
-/// whose size changed.
+/// Edits `report` by what `clean` did (gate decision 6). `fresh` is the
+/// re-check's walk when `report` is an older one: a skipped or not-run item
+/// takes its finding from there. `remeasured` holds the tool-cleaned items;
+/// `opts` decides `ignored` for a finding whose size changed.
 pub fn edit(
     report: &mut ScanReport,
     clean: &CleanReport,
+    fresh: Option<&ScanReport>,
     remeasured: &HashMap<PathBuf, Remeasured>,
     opts: &ScanOptions,
 ) {
@@ -125,8 +133,10 @@ pub fn edit(
                 Some(Remeasured::Measured(m)) => edit.resize(&item.path, m),
                 Some(Remeasured::Unknown) | None => {}
             },
-            // A listed finding skipped as `inside-another-item` left with its entry.
-            Outcome::Skipped(_) | Outcome::Failed { .. } | Outcome::NotRun => {}
+            Outcome::Skipped(reason) => edit.refresh(&item.path, fresh, gone_from_disk(reason)),
+            Outcome::NotRun => edit.refresh(&item.path, fresh, false),
+            // A failed action may have removed part of it: the next scan measures it.
+            Outcome::Failed { .. } => {}
         }
     }
     edit.finish(&clean.volumes);
@@ -145,6 +155,19 @@ pub fn edit_tool_cleaned(report: &mut ScanReport, remeasured: &HashMap<PathBuf, 
         }
     }
     edit.finish(&[]);
+}
+
+/// A skip whose finding is not on the disk as scanned: with no finding at
+/// its path in the re-check, it leaves the report.
+fn gone_from_disk(reason: &SkipReason) -> bool {
+    matches!(
+        reason,
+        SkipReason::Missing
+            | SkipReason::ChangedSinceScan
+            | SkipReason::RuleMismatch
+            | SkipReason::NotADirectory
+            | SkipReason::Symlink
+    )
 }
 
 struct Edit<'a> {
@@ -274,6 +297,44 @@ impl Edit<'_> {
                     contents.rest_bytes = contents.rest_bytes.saturating_sub(bytes).saturating_add(measure.unwrap_or(0))
                 }
             }
+        }
+    }
+
+    /// An item the clean did not touch, as the re-check found it. A picked
+    /// entry, or a finding inside another listed item (`inside-another-item`,
+    /// which left with it), is not edited.
+    fn refresh(&mut self, path: &Path, fresh: Option<&ScanReport>, drop_if_absent: bool) {
+        let Some(fresh) = fresh else { return };
+        let Some(i) = self.finding(path) else { return };
+        if self.report.findings[i].contents.is_some() {
+            return;
+        }
+        match fresh.findings.iter().find(|f| f.path == path) {
+            Some(new) => {
+                let new = new.clone();
+                let m = Measure {
+                    bytes: new.bytes,
+                    shared_bytes: new.shared_bytes,
+                    private_bytes: new.private_bytes,
+                    files: new.files,
+                    dirs: new.dirs,
+                    incomplete: new.incomplete,
+                };
+                self.resize(path, &m);
+                self.report.findings[i] = new;
+                self.resized(i);
+                self.lines.push(path.to_path_buf());
+            }
+            None if drop_if_absent => {
+                for j in self.at_or_under(path) {
+                    let f = self.report.findings[j].clone();
+                    self.drop_scanned(f.bytes, f.files, f.dirs);
+                    self.leave_entry(&f.path, f.bytes, None);
+                    self.removed.insert(j);
+                }
+                self.lines.push(path.to_path_buf());
+            }
+            None => {}
         }
     }
 

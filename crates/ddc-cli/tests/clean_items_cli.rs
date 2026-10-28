@@ -71,7 +71,11 @@ impl Fx {
     fn list(&self, rels: &[&str]) -> PathBuf {
         let out = self.ddc(&["scan", "--json"]).output().unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        self.list_of(&serde_json::from_slice(&out.stdout).unwrap(), rels)
+    }
+
+    /// The findings at these paths in `report`, as the app lists them.
+    fn list_of(&self, report: &serde_json::Value, rels: &[&str]) -> PathBuf {
         let items: Vec<serde_json::Value> = rels
             .iter()
             .map(|rel| {
@@ -711,6 +715,38 @@ fn a_pruned_clean_edits_the_report_it_read() {
     assert_eq!(total(&after, "scanned_bytes"), total(&before, "scanned_bytes") - sum("bytes"));
     assert_eq!(total(&after, "files"), total(&before, "files") - sum("files"));
     assert_eq!(total(&after, "dirs"), total(&before, "dirs") - sum("dirs"));
+}
+
+/// Story "Review window: after a clean, only skips that can clear stay
+/// selected": an item the clean skipped as changed takes the re-check's
+/// identity, so the app's next list from the saved report cleans it; a
+/// missing one leaves the report.
+#[test]
+fn a_skipped_item_is_saved_as_the_recheck_found_it() {
+    let fx = Fx::new();
+    fx.unrelated();
+    fx.write("r/__pycache__/m.cpython-312.pyc", &[2u8; 10_000]);
+    let list = fx.list(&["q/__pycache__", "p/node_modules", "r/__pycache__"]);
+    let old = found(&fx.last_scan(), &fx.path("p/node_modules")).unwrap()["ino"].clone();
+    fs::rename(fx.path("p/node_modules"), fx.path("p/node_modules.old")).unwrap();
+    fx.write("p/node_modules/dep/index.js", &[6u8; 20_000]);
+    fs::rename(fx.path("r/__pycache__"), fx.path("r/pycache.old")).unwrap();
+
+    let (clean, _, _) = fx.clean_json(&list);
+
+    assert_eq!(outcome(&clean, &fx.path("q/__pycache__")), &Outcome::Deleted);
+    assert_eq!(outcome(&clean, &fx.path("p/node_modules")), &Outcome::Skipped(SkipReason::ChangedSinceScan));
+    let missing = outcome(&clean, &fx.path("r/__pycache__"));
+    assert!(matches!(missing, Outcome::Skipped(SkipReason::Missing | SkipReason::ChangedSinceScan)), "{missing:?}");
+    let saved = fx.last_scan();
+    let swapped = found(&saved, &fx.path("p/node_modules")).expect("the swapped folder stays in the report");
+    assert_ne!(swapped["ino"], old, "with the identity it has now");
+    assert!(found(&saved, &fx.path("r/__pycache__")).is_none(), "a missing item leaves the report");
+
+    let (again, _, _) = fx.clean_json(&fx.list_of(&saved, &["p/node_modules"]));
+
+    assert_eq!(outcome(&again, &fx.path("p/node_modules")), &Outcome::Deleted, "{:?}", again.items);
+    assert!(!fx.path("p/node_modules").exists());
 }
 
 /// AC 6: a tool-cleaned item is measured again after its tool ran.

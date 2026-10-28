@@ -376,6 +376,10 @@ struct ItemRow: View {
                 if !second.isEmpty {
                     Text(second).font(.system(size: 11)).foregroundStyle(warns ? ReportClassStyle.ink(.review) : .secondary).lineLimit(1)
                 }
+                // Its tool ran in the last clean: said until the next scan.
+                if let note = model.toolNote(for: row.id) {
+                    Text(note).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 1) {

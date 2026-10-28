@@ -10,14 +10,15 @@ struct ConfirmSheet: View {
 
     var body: some View {
         Group {
-            if let sheet = model.sheet {
+            // While it slides away after Done or Back to Review, the stage it closed on.
+            if let sheet = model.sheet ?? model.lastSheet {
                 switch sheet.stage {
                 case .confirm:
                     ConfirmView(model: model, sheet: sheet)
                 case .cleaning(let phase):
                     CleaningView(model: model, phase: phase, confirmation: sheet.confirmation, progress: sheet.progress)
                 case .result(let result):
-                    CleanResultView(result: result, done: model.closeSheet)
+                    CleanResultView(model: model, result: result)
                 case .stopped(let text, let journal):
                     StoppedView(text: text, journal: journal, done: model.closeSheet)
                 }

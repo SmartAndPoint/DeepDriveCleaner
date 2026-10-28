@@ -3,10 +3,10 @@ import DDCKit
 import SwiftUI
 
 /// The result of a clean (artboard 6): the free space before and after, what
-/// was done, and what was left alone grouped by cause.
+/// was done, what was left alone grouped by cause, and what stays selected.
 struct CleanResultView: View {
+    @Bindable var model: ReviewModel
     let result: CleanResult
-    let done: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -63,7 +63,9 @@ struct CleanResultView: View {
                         }
                     }
                     .frame(maxHeight: 160)
-                    Text("They stay selected for the next clean.").font(.system(size: 12)).foregroundStyle(.secondary)
+                    if let advice = CleanWording.resultAdvice(result) {
+                        Text(advice).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
 
@@ -76,12 +78,24 @@ struct CleanResultView: View {
                 }
             }
 
+            if let stays = CleanWording.staysSelected(result) {
+                Text(stays).font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+
             HStack {
                 Button("Show the Journal") {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: result.journal)])
                 }
                 Spacer()
-                Button("Done", action: done).keyboardShortcut(.defaultAction)
+                // Items that changed since the scan: the window's own scan, after the sheet closes.
+                if result.needsRescan > 0 {
+                    Button("Scan Again") {
+                        model.closeSheet()
+                        Task { await model.scanAgain() }
+                    }
+                    .disabled(model.isCleaning || model.rescanning != nil || model.scansPaused)
+                }
+                Button("Done") { model.closeSheet() }.keyboardShortcut(.defaultAction)
             }
         }
     }
