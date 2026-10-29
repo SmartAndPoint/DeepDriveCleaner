@@ -90,6 +90,13 @@ public struct DiskReport: Decodable, Sendable, Equatable {
         case condaEnvRemove = "conda-env-remove"
         /// Its identifier is the install's prefix.
         case condaClean = "conda-clean"
+        /// `brew uninstall --formula` of one formula, every keg of it; its
+        /// identifier is the formula's `full_name` (story "Whole disk:
+        /// Homebrew packages, their sizes, and brew uninstall").
+        case brewUninstall = "brew-uninstall"
+        /// `brew uninstall --formula` of the formulae a removal left needed
+        /// by nothing; no identifier.
+        case brewUninstallOrphans = "brew-uninstall-orphans"
     }
 
     public struct Area: Decodable, Sendable, Equatable, Identifiable {

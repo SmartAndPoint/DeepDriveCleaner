@@ -7,7 +7,7 @@ import Foundation
 /// unreadable, and an unknown enum value is a decoding error.
 public struct FreeReport: Decodable, Sendable, Equatable {
     /// `FREE_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 2
+    public static let schemaVersion = 3
 
     public let schemaVersion: Int
     public let ddcVersion: String
@@ -126,6 +126,15 @@ public struct FreeReport: Decodable, Sendable, Equatable {
         case condaInUse = "conda-in-use"
         case condaSoftlinks = "conda-softlinks"
         case condaNotScoped = "conda-not-scoped"
+        case brewNotInstalled = "brew-not-installed"
+        case brewPinned = "brew-pinned"
+        case brewKegsChanged = "brew-kegs-changed"
+        case brewNeeded = "brew-needed"
+        case brewNotOrphan = "brew-not-orphan"
+        case brewServiceRunning = "brew-service-running"
+        case brewServiceRoot = "brew-service-root"
+        case brewServiceRegistered = "brew-service-registered"
+        case brewFieldMissing = "brew-field-missing"
 
         /// Why nothing ran, as a sentence's end: "It was not run: …".
         public var text: String {
@@ -157,6 +166,15 @@ public struct FreeReport: Decodable, Sendable, Equatable {
             case .condaInUse: "a running process uses the environment"
             case .condaSoftlinks: "an install links packages into its environments by symlink"
             case .condaNotScoped: "conda's package folders, set in a .condarc, cannot be limited to this one"
+            case .brewNotInstalled: "brew no longer lists it as installed"
+            case .brewPinned: "it is pinned: brew unpin it first"
+            case .brewKegsChanged: "its installed versions changed since you confirmed"
+            case .brewNeeded: "something installed still needs it"
+            case .brewNotOrphan: "it was installed on request, so it is no longer unneeded"
+            case .brewServiceRunning: "a service of yours is loaded for it; stop it with brew services first"
+            case .brewServiceRoot: "a root service is registered for it; its state is not known"
+            case .brewServiceRegistered: "a service of yours is registered for it but not running; remove it with brew services first"
+            case .brewFieldMissing: "brew listed a formula without a field DeepDriveCleaner needs"
             }
         }
     }
@@ -198,7 +216,7 @@ public struct ListedAreaAction: Encodable, Sendable, Equatable, Hashable {
 /// (menu bar ADR §6 item 11).
 public struct AreaActionList: Encodable, Sendable, Equatable {
     /// `FREE_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 2
+    public static let schemaVersion = 3
 
     public let actions: [ListedAreaAction]
 

@@ -111,6 +111,16 @@
           "description": "`conda clean` of one `/opt` install's package folder; its\nidentifier is the install's prefix.",
           "type": "string",
           "const": "conda-clean"
+        },
+        {
+          "description": "`brew uninstall --formula` of one formula, every keg of it; its\nidentifier is the formula's `full_name` (story \"Whole disk: Homebrew\npackages, their sizes, and brew uninstall\"). No area names it.",
+          "type": "string",
+          "const": "brew-uninstall"
+        },
+        {
+          "description": "`brew uninstall --formula` of the formulae a removal left needed by\nnothing; no identifier.",
+          "type": "string",
+          "const": "brew-uninstall-orphans"
         }
       ]
     },

@@ -495,7 +495,7 @@ pub fn free(w: &mut impl Write, r: &FreeReport, home: &Path, style: &Style) -> i
 }
 
 /// `Simulator runtime <id>`, `Homebrew cleanup`, `Conda environment <path>`,
-/// `Conda package cache of <prefix>`.
+/// `Conda package cache of <prefix>`, `Homebrew formula <full_name>`.
 pub fn action_title(action: ActionId, identifier: Option<&str>) -> String {
     match (action, identifier) {
         (ActionId::SimctlRuntimeDelete, Some(id)) => format!("Simulator runtime {id}"),
@@ -505,6 +505,9 @@ pub fn action_title(action: ActionId, identifier: Option<&str>) -> String {
         (ActionId::CondaEnvRemove, None) => "Conda environment".to_owned(),
         (ActionId::CondaClean, Some(prefix)) => format!("Conda package cache of {}", escaped(prefix)),
         (ActionId::CondaClean, None) => "Conda package cache".to_owned(),
+        (ActionId::BrewUninstall, Some(name)) => format!("Homebrew formula {}", escaped(name)),
+        (ActionId::BrewUninstall, None) => "Homebrew formula".to_owned(),
+        (ActionId::BrewUninstallOrphans, _) => "Homebrew formulae needed by nothing".to_owned(),
     }
 }
 
@@ -517,6 +520,9 @@ fn free_action(w: &mut impl Write, a: &ActionReport, style: &Style) -> io::Resul
         ActionResult::Freed => freed.map_or_else(|| "done".to_owned(), |b| format!("freed {}", human(b))),
         ActionResult::RemovedNotFreed if a.action == ActionId::CondaEnvRemove => {
             "conda finished, and the environment is still there: nothing freed".to_owned()
+        }
+        ActionResult::RemovedNotFreed if a.area == "homebrew" => {
+            "brew finished, and a keg is still in the Cellar: not all of it was freed".to_owned()
         }
         ActionResult::RemovedNotFreed => {
             format!("runtime removed, {} not freed", a.bytes_after.map_or_else(|| "its space".to_owned(), human))
@@ -655,6 +661,15 @@ pub fn refusal(r: Refusal) -> &'static str {
         Refusal::CondaInUse => "a running process uses the environment",
         Refusal::CondaSoftlinks => "an install links packages into its environments by symlink",
         Refusal::CondaNotScoped => "conda's package folders, set in a .condarc, cannot be limited to this one",
+        Refusal::BrewNotInstalled => "brew no longer lists it as installed",
+        Refusal::BrewPinned => "it is pinned: brew unpin it first",
+        Refusal::BrewKegsChanged => "its installed versions changed since you confirmed",
+        Refusal::BrewNeeded => "something installed still needs it",
+        Refusal::BrewNotOrphan => "it was installed on request, so it is no longer unneeded",
+        Refusal::BrewServiceRunning => brew_service(Service::Running),
+        Refusal::BrewServiceRoot => brew_service(Service::Root),
+        Refusal::BrewServiceRegistered => brew_service(Service::Registered),
+        Refusal::BrewFieldMissing => "brew listed a formula without a field ddc needs",
     }
 }
 

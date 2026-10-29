@@ -27,6 +27,8 @@ public enum AreaActions {
             case .brewCleanup: "Clean Up Homebrew…"
             case .condaEnvRemove: "Remove Environment…"
             case .condaClean: "Clean Package Cache…"
+            case .brewUninstall: "Uninstall…"
+            case .brewUninstallOrphans: "Uninstall Unneeded…"
             }
         }
 
@@ -37,6 +39,8 @@ public enum AreaActions {
             case .brewCleanup: "Clean up Homebrew?"
             case .condaEnvRemove: "Remove the conda environment \(name)?"
             case .condaClean: "Clean the package cache of \(name)?"
+            case .brewUninstall: "Uninstall \(name)?"
+            case .brewUninstallOrphans: "Uninstall what nothing needs now?"
             }
         }
 
@@ -51,6 +55,10 @@ public enum AreaActions {
                 "conda env remove deletes the environment's folder \(identifier ?? name) with the install's own conda. It does not go to the Trash and cannot be undone. Its packages stay in the install's package cache: the files it shares with the cache are freed only when Clean Package Cache… removes packages no environment uses."
             case .condaClean:
                 "conda clean removes the packages no environment uses, downloaded package archives, the index cache and logs from \(name)/pkgs, with the install's own conda. They do not go to the Trash. Packages your environments use stay, so less may be freed than the folder's size."
+            case .brewUninstall:
+                "brew uninstall removes every installed version of \(name) from /opt/homebrew/Cellar. It does not go to the Trash; brew install brings it back. Its configuration and data files stay where they are."
+            case .brewUninstallOrphans:
+                "brew uninstall removes these formulae, which nothing installed needs now. They do not go to the Trash; brew install brings any of them back."
             }
         }
 
@@ -60,6 +68,7 @@ public enum AreaActions {
             case .simctlRuntimeDelete: "simctl"
             case .brewCleanup: "brew"
             case .condaEnvRemove, .condaClean: "conda"
+            case .brewUninstall, .brewUninstallOrphans: "brew"
             }
         }
 
@@ -70,6 +79,7 @@ public enum AreaActions {
             case .brewCleanup: "Running brew cleanup…"
             case .condaEnvRemove: "Removing the environment…"
             case .condaClean: "Running conda clean…"
+            case .brewUninstall, .brewUninstallOrphans: "Running brew uninstall…"
             }
         }
 
@@ -81,6 +91,7 @@ public enum AreaActions {
             case .brewCleanup: "brew says this frees about \(size)."
             case .condaEnvRemove: "Only this environment holds \(size): that is what removing it frees."
             case .condaClean: "conda says this frees about \(size)."
+            case .brewUninstall, .brewUninstallOrphans: "Its kegs hold \(size)."
             }
         }
 
@@ -91,6 +102,7 @@ public enum AreaActions {
             case .brewCleanup: "Clean Up"
             case .condaEnvRemove: "Remove Environment"
             case .condaClean: "Clean Package Cache"
+            case .brewUninstall, .brewUninstallOrphans: "Uninstall"
             }
         }
     }

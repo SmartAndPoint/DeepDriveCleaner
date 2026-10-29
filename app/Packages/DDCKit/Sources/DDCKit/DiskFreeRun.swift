@@ -133,6 +133,9 @@ extension DiskModel {
 public enum FreeWording {
     /// `free::STOPPED`: the CLI's output of a tool it stopped.
     static let stopped = "stopped before the tool finished"
+    /// `free::NOT_STARTED`: brew's re-read before an uninstall could not be
+    /// made, or left too little time; the next line says why.
+    static let notStarted = "brew could not start; nothing was removed"
 
     /// One sentence; `name` is the offer's ("iOS 27.0 (24A100)", "Homebrew", "ml").
     public static func result(_ action: FreeReport.ActionReport, name: String) -> String {
@@ -141,6 +144,8 @@ public enum FreeWording {
             return action.freedBytes.map { "Freed \(ByteSize.human($0))." } ?? "Done."
         case .removedNotFreed where action.action == .condaEnvRemove:
             return "conda finished, but the environment's folder is still there: nothing was freed. Its folder may need an administrator; you can run the command in Terminal to see why."
+        case .removedNotFreed where action.area == "homebrew":
+            return "brew finished, but a version is still in /opt/homebrew/Cellar: not all of it was freed. You can run the command in Terminal to see why."
         case .removedNotFreed:
             let size = action.bytesAfter.map { " (\(ByteSize.human($0)))" } ?? ""
             return "The runtime is gone from simctl's list, but its folder did not get smaller\(size). macOS may free it later."
@@ -150,6 +155,10 @@ public enum FreeWording {
             return "Not run: \(reason.text)."
         case .failed(let needsAdmin):
             let tool = toolName(action.action)
+            if let output = action.output, output.hasPrefix(notStarted) {
+                let why = output.split(separator: "\n", maxSplits: 1).dropFirst().first.map { " \($0)." } ?? ""
+                return "brew could not start, so nothing was removed.\(why)"
+            }
             if action.output?.hasPrefix(stopped) == true {
                 return "Stopped before \(tool) finished. Part of it may have been removed; scan the whole disk again to see the space."
             }
@@ -164,12 +173,13 @@ public enum FreeWording {
     }
 
     /// Whether the sheet shows the tool's output and the command to run in
-    /// Terminal: after a failure, and after conda left an environment in
-    /// place, which it does without an error when it lacks the rights.
+    /// Terminal: after a failure, unless brew's check before an uninstall
+    /// kept it from starting, and after conda left an environment or brew
+    /// a keg in place, which they do without an error.
     public static func offersTerminal(_ action: FreeReport.ActionReport) -> Bool {
         switch action.result {
-        case .failed: true
-        case .removedNotFreed: action.action == .condaEnvRemove
+        case .failed: action.output?.hasPrefix(notStarted) != true
+        case .removedNotFreed: action.action == .condaEnvRemove || action.area == "homebrew"
         default: false
         }
     }
@@ -181,6 +191,7 @@ public enum FreeWording {
         case .brewCleanup: "brew cleanup"
         case .condaEnvRemove: "conda env remove"
         case .condaClean: "conda clean"
+        case .brewUninstall, .brewUninstallOrphans: "brew uninstall"
         }
     }
 }

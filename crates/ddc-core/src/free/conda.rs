@@ -5,16 +5,14 @@
 //! `CONDA_PKGS_DIRS`. Each runs from the install's own `bin/conda`, after
 //! the probe, and its dry run asks the same probe.
 
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
 use super::model::{ActionReport, ActionResult, Preview};
-use super::{FreeContext, measure, probe, report, run_failed, stopped};
+use super::{FreeContext, finish, measure, probe, report, run_failed};
 use crate::conda::{CLEAN, CLEAN_DRY_RUN, ENV_REMOVE, PKGS_DIRS_VAR, exe, first_json};
 use crate::disk::ActionId;
-use crate::exec::CmdOutput;
 
 /// `conda env remove -p <path> --yes`, by `exe`.
 pub(super) fn env_command(identifier: &str, exe: &Path, path: &str) -> ActionReport {
@@ -66,7 +64,8 @@ pub(super) fn env_run(ctx: &FreeContext<'_>, identifier: &str) -> ActionReport {
     // conda can exit 0 having removed nothing (an environment with no
     // package records, a folder it cannot write): still there is not freed.
     let still_there = std::fs::symlink_metadata(&target.path).is_ok();
-    finish(ctx, report, ran, if still_there { ActionResult::RemovedNotFreed } else { ActionResult::Freed })
+    let done = if still_there { ActionResult::RemovedNotFreed } else { ActionResult::Freed };
+    finish(ctx, report, ran, done, ctx.timeout)
 }
 
 /// What `conda clean --dry-run --json` says it would take: the sizes of the
@@ -122,33 +121,7 @@ pub(super) fn clean_run(ctx: &FreeContext<'_>, identifier: &str) -> ActionReport
     }
     let ran = ctx.commands.run(&target.exe, &report.command[1..], &[(PKGS_DIRS_VAR, &target.spelled)], ctx.timeout);
     report.bytes_after = measure::allocated_all(&folders, ctx.skips);
-    finish(ctx, report, ran, ActionResult::Freed)
-}
-
-/// The result of a command that ran: `done` when it succeeded, else a stop
-/// or a failure, as `brew cleanup`'s.
-fn finish(
-    ctx: &FreeContext<'_>,
-    mut report: ActionReport,
-    ran: std::io::Result<CmdOutput>,
-    done: ActionResult,
-) -> ActionReport {
-    match ran {
-        Ok(o) if o.success => {
-            report.output = crate::exec::tail(&o.stdout, &o.stderr);
-            report.with(done)
-        }
-        Ok(o) if ctx.cancelled() => {
-            report.output = crate::exec::tail(&o.stdout, &o.stderr);
-            stopped(report)
-        }
-        _ if ctx.cancelled() => stopped(report),
-        Ok(o) => run_failed(report, &crate::exec::tail(&o.stdout, &o.stderr)),
-        Err(e) if e.kind() == ErrorKind::TimedOut => {
-            run_failed(report, &format!("timed out after {} s", ctx.timeout.as_secs()))
-        }
-        Err(e) => run_failed(report, &e.to_string()),
-    }
+    finish(ctx, report, ran, ActionResult::Freed, ctx.timeout)
 }
 
 #[cfg(test)]

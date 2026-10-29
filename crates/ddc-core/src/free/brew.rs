@@ -3,11 +3,10 @@
 //! `HOMEBREW_NO_AUTOREMOVE` it would also uninstall dependencies nothing
 //! needs.
 
-use std::io::ErrorKind;
 use std::path::PathBuf;
 
 use super::model::{ActionReport, ActionResult, Preview};
-use super::{FreeContext, measure, probe, report, run_failed, stopped};
+use super::{FreeContext, finish, measure, probe, report, run_failed};
 use crate::brew::Budget;
 use crate::disk::ActionId;
 
@@ -61,22 +60,7 @@ pub(super) fn run(ctx: &FreeContext<'_>) -> ActionReport {
     }
     let ran = ctx.commands.run(&target.exe, &report.command[1..], &BREW_ENV, ctx.timeout);
     report.bytes_after = measure::allocated_all(&folders, ctx.skips);
-    match ran {
-        Ok(o) if o.success => {
-            report.output = crate::exec::tail(&o.stdout, &o.stderr);
-            report.with(ActionResult::Freed)
-        }
-        Ok(o) if ctx.cancelled() => {
-            report.output = crate::exec::tail(&o.stdout, &o.stderr);
-            stopped(report)
-        }
-        _ if ctx.cancelled() => stopped(report),
-        Ok(o) => run_failed(report, &crate::exec::tail(&o.stdout, &o.stderr)),
-        Err(e) if e.kind() == ErrorKind::TimedOut => {
-            run_failed(report, &format!("timed out after {} s", ctx.timeout.as_secs()))
-        }
-        Err(e) => run_failed(report, &e.to_string()),
-    }
+    finish(ctx, report, ran, ActionResult::Freed, ctx.timeout)
 }
 
 /// The two places it frees: the Cellar and the download cache.

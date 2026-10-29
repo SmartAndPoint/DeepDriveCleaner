@@ -88,6 +88,9 @@ pub struct AreaActionEntry {
     pub result: ActionResult,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub output: String,
+    /// What still needed a formula a `brew-uninstall` was refused for.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub needed_by: Vec<crate::brew::NeededBy>,
 }
 
 impl AreaActionEntry {
@@ -104,6 +107,7 @@ impl AreaActionEntry {
             bytes_after: action.bytes_after,
             result: action.result.clone(),
             output: action.output.clone(),
+            needed_by: action.needed_by.clone(),
         }
     }
 }

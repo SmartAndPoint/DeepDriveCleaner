@@ -131,6 +131,13 @@ pub enum ActionId {
     /// `conda clean` of one `/opt` install's package folder; its
     /// identifier is the install's prefix.
     CondaClean,
+    /// `brew uninstall --formula` of one formula, every keg of it; its
+    /// identifier is the formula's `full_name` (story "Whole disk: Homebrew
+    /// packages, their sizes, and brew uninstall"). No area names it.
+    BrewUninstall,
+    /// `brew uninstall --formula` of the formulae a removal left needed by
+    /// nothing; no identifier.
+    BrewUninstallOrphans,
 }
 
 /// Where the app sends the user for an area it does not free itself

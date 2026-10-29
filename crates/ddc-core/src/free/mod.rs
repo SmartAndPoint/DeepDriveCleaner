@@ -10,6 +10,7 @@ pub(crate) mod measure;
 mod model;
 pub(crate) mod probe;
 mod simctl;
+pub mod uninstall;
 
 use std::collections::HashMap;
 use std::io;
@@ -21,7 +22,7 @@ pub use model::*;
 
 use crate::disk::{ActionId, Sources};
 use crate::env::Env;
-use crate::exec::{AreaActionEntry, AreaJournal, CommandRunner, NATIVE_TIMEOUT, ProcessTable};
+use crate::exec::{AreaActionEntry, AreaJournal, CmdOutput, CommandRunner, NATIVE_TIMEOUT, ProcessTable};
 use crate::report::after_clean::{self, Remeasured};
 use crate::report::{ScanOptions, recheck};
 use crate::rules::Catalog;
@@ -44,6 +45,9 @@ pub struct FreeContext<'a> {
     pub timeout: Duration,
     /// Between two looks at the runtime list.
     pub poll: Duration,
+    /// What must be left of `timeout` after the re-read for `brew
+    /// uninstall` to start.
+    pub floor: Duration,
 }
 
 impl<'a> FreeContext<'a> {
@@ -55,7 +59,17 @@ impl<'a> FreeContext<'a> {
         procs: &'a dyn ProcessTable,
         cancel: &'a AtomicBool,
     ) -> Self {
-        Self { commands, sources, home, skips, procs, cancel, timeout: NATIVE_TIMEOUT, poll: Duration::from_secs(1) }
+        Self {
+            commands,
+            sources,
+            home,
+            skips,
+            procs,
+            cancel,
+            timeout: NATIVE_TIMEOUT,
+            poll: Duration::from_secs(1),
+            floor: Duration::from_secs(60),
+        }
     }
 
     fn cancelled(&self) -> bool {
@@ -76,6 +90,7 @@ pub fn run(ctx: &FreeContext<'_>, list: &ActionList, journal: &mut dyn AreaJourn
                 (ActionId::BrewCleanup, _) => brew::run(ctx),
                 (ActionId::CondaEnvRemove, Some(id)) => conda::env_run(ctx, id),
                 (ActionId::CondaClean, Some(id)) => conda::clean_run(ctx, id),
+                (ActionId::BrewUninstall | ActionId::BrewUninstallOrphans, _) => uninstall::run(ctx, confirmed(listed)),
                 // `ActionList::validate` refuses it before anything runs.
                 (ActionId::SimctlRuntimeDelete | ActionId::CondaEnvRemove | ActionId::CondaClean, None) => {
                     unreachable!("an action without its identifier")
@@ -98,6 +113,7 @@ pub fn dry_run(ctx: &FreeContext<'_>, list: &ActionList) -> Vec<ActionReport> {
             (ActionId::BrewCleanup, _) => brew::dry_run(ctx),
             (ActionId::CondaEnvRemove, Some(id)) => conda::env_dry_run(ctx, id),
             (ActionId::CondaClean, Some(id)) => conda::clean_dry_run(ctx, id),
+            (ActionId::BrewUninstall | ActionId::BrewUninstallOrphans, _) => uninstall::dry_run(ctx, confirmed(listed)),
             (ActionId::SimctlRuntimeDelete | ActionId::CondaEnvRemove | ActionId::CondaClean, None) => {
                 unreachable!("an action without its identifier")
             }
@@ -105,24 +121,30 @@ pub fn dry_run(ctx: &FreeContext<'_>, list: &ActionList) -> Vec<ActionReport> {
         .collect()
 }
 
+/// A `brew-uninstall` or `brew-uninstall-orphans`, as confirmed.
+fn confirmed(listed: &ListedAction) -> uninstall::Confirmed<'_> {
+    // Only those two reach it.
+    uninstall::Confirmed::of(listed).unwrap_or(uninstall::Confirmed::Orphans(&[]))
+}
+
 /// The actions the probe would let run now, for the terminal's prompt:
 /// each runtime that passes, then Homebrew when its `brew` is there, then
 /// each `/opt` conda install with its own `bin/conda`: its package folder,
-/// then its environments, as the file system lists them.
+/// then its environments, as the file system lists them. No formula is
+/// offered here: a package is removed from the app's list of them.
 pub fn available(ctx: &FreeContext<'_>) -> Vec<ListedAction> {
     let mut out: Vec<ListedAction> = simctl::available(ctx)
         .into_iter()
-        .map(|id| ListedAction { action: ActionId::SimctlRuntimeDelete, identifier: Some(id) })
+        .map(|id| ListedAction::new(ActionId::SimctlRuntimeDelete, Some(id)))
         .collect();
     if brew::available(ctx) {
-        out.push(ListedAction { action: ActionId::BrewCleanup, identifier: None });
+        out.push(ListedAction::new(ActionId::BrewCleanup, None));
     }
     for prefix in crate::conda::PREFIXES.iter().map(|p| ctx.sources.opt.join(p)) {
         if ctx.commands.at(&crate::conda::exe(&prefix)).is_none() {
             continue;
         }
-        let listed =
-            |action, path: &Path| ListedAction { action, identifier: Some(path.to_string_lossy().into_owned()) };
+        let listed = |action, path: &Path| ListedAction::new(action, Some(path.to_string_lossy().into_owned()));
         if prefix.join("pkgs").is_dir() {
             out.push(listed(ActionId::CondaClean, &prefix));
         }
@@ -141,7 +163,12 @@ fn not_run(ctx: &FreeContext<'_>, listed: &ListedAction) -> ActionReport {
             let args = vec!["runtime".into(), "delete".into(), id.unwrap_or_default().to_owned()];
             report(listed.action, id, &ctx.sources.simctl, &args, &[])
         }
-        _ => report(listed.action, id, &ctx.sources.brew, &["cleanup".into()], &brew::BREW_ENV),
+        (ActionId::BrewUninstall | ActionId::BrewUninstallOrphans, _) => {
+            uninstall::command(confirmed(listed), &ctx.sources.brew)
+        }
+        (ActionId::BrewCleanup, _) | (ActionId::CondaEnvRemove | ActionId::CondaClean, None) => {
+            report(listed.action, id, &ctx.sources.brew, &["cleanup".into()], &brew::BREW_ENV)
+        }
     };
     report.with(ActionResult::NotRun)
 }
@@ -170,6 +197,8 @@ fn report(
         bytes_after: None,
         output: String::new(),
         preview: None,
+        kegs: Vec::new(),
+        needed_by: Vec::new(),
     }
 }
 
@@ -188,6 +217,10 @@ fn run_failed(mut report: ActionReport, output: &str) -> ActionReport {
     report.with(ActionResult::Failed { needs_admin })
 }
 
+/// The first line of the `output` of a `brew-uninstall` whose command did
+/// not start: its re-read could not be made, or left too little time.
+pub const NOT_STARTED: &str = "brew could not start; nothing was removed";
+
 /// The first words of a stopped tool's `output`: the app words it as a
 /// stop, not as the tool's own failure.
 pub const STOPPED: &str = "stopped before the tool finished";
@@ -196,6 +229,33 @@ pub const STOPPED: &str = "stopped before the tool finished";
 fn stopped(mut report: ActionReport) -> ActionReport {
     report.output = if report.output.is_empty() { STOPPED.to_owned() } else { format!("{STOPPED}\n{}", report.output) };
     report.with(ActionResult::Failed { needs_admin: false })
+}
+
+/// The result of a command that ran within `timeout`: `done` when it
+/// succeeded, else a stop or a failure.
+fn finish(
+    ctx: &FreeContext<'_>,
+    mut report: ActionReport,
+    ran: io::Result<CmdOutput>,
+    done: ActionResult,
+    timeout: Duration,
+) -> ActionReport {
+    match ran {
+        Ok(o) if o.success => {
+            report.output = crate::exec::tail(&o.stdout, &o.stderr);
+            report.with(done)
+        }
+        Ok(o) if ctx.cancelled() => {
+            report.output = crate::exec::tail(&o.stdout, &o.stderr);
+            stopped(report)
+        }
+        _ if ctx.cancelled() => stopped(report),
+        Ok(o) => run_failed(report, &crate::exec::tail(&o.stdout, &o.stderr)),
+        Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+            run_failed(report, &format!("timed out after {} s", timeout.as_secs()))
+        }
+        Err(e) => run_failed(report, &e.to_string()),
+    }
 }
 
 /// One word for a POSIX shell: as is when it is plain, else in single quotes.

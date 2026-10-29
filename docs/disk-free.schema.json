@@ -65,6 +65,16 @@
           "description": "`conda clean` of one `/opt` install's package folder; its\nidentifier is the install's prefix.",
           "type": "string",
           "const": "conda-clean"
+        },
+        {
+          "description": "`brew uninstall --formula` of one formula, every keg of it; its\nidentifier is the formula's `full_name` (story \"Whole disk: Homebrew\npackages, their sizes, and brew uninstall\"). No area names it.",
+          "type": "string",
+          "const": "brew-uninstall"
+        },
+        {
+          "description": "`brew uninstall --formula` of the formulae a removal left needed by\nnothing; no identifier.",
+          "type": "string",
+          "const": "brew-uninstall-orphans"
         }
       ]
     },
@@ -137,6 +147,20 @@
             "string",
             "null"
           ]
+        },
+        "kegs": {
+          "description": "The kegs a `brew-uninstall` or `brew-uninstall-orphans` removes, as\nbrew listed them right before it ran, each measured by ddc.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/KegReport"
+          }
+        },
+        "needed_by": {
+          "description": "What still needs a confirmed formula, when that refused it.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NeededBy"
+          }
         },
         "output": {
           "description": "The last part of the tool's output.",
@@ -274,6 +298,37 @@
         }
       ]
     },
+    "KegReport": {
+      "description": "One keg of a formula brew removes.",
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Allocated bytes; absent under a skip of `settings.json`.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "formula": {
+          "description": "The formula's `full_name`.",
+          "type": "string"
+        },
+        "path": {
+          "description": "`<cellar>/<name>/<version>`, as brew spells the Cellar.",
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "formula",
+        "version",
+        "path"
+      ]
+    },
     "ListedAction": {
       "type": "object",
       "properties": {
@@ -281,16 +336,61 @@
           "$ref": "#/$defs/ActionId"
         },
         "identifier": {
-          "description": "As the disk report lists it: the runtime's asset id of\n`simctl-runtime-delete`, the environment's path of\n`conda-env-remove`, the install's prefix of `conda-clean`. Required\non those three, refused on `brew-cleanup`.",
+          "description": "As the disk report lists it: the runtime's asset id of\n`simctl-runtime-delete`, the environment's path of\n`conda-env-remove`, the install's prefix of `conda-clean`; as `ddc\ndisk brew-packages` lists it: the formula's `full_name` of\n`brew-uninstall`. Required on those four, refused on `brew-cleanup`\nand `brew-uninstall-orphans`.",
           "type": [
             "string",
             "null"
           ]
+        },
+        "kegs": {
+          "description": "The versions of the formula's kegs the person saw: `brew-uninstall`\nis refused when brew lists others right before it runs. Required on\n`brew-uninstall` only.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "names": {
+          "description": "The formulae, by `full_name`, the person confirmed as needed by\nnothing. Required on `brew-uninstall-orphans` only.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false,
       "required": [
         "action"
+      ]
+    },
+    "NeededBy": {
+      "description": "What still needs one formula: other formulae, by `full_name`, and casks.",
+      "type": "object",
+      "properties": {
+        "casks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "formula": {
+          "description": "The formula that is needed, by its `full_name`.",
+          "type": "string"
+        },
+        "formulae": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "formula"
       ]
     },
     "Preview": {
@@ -451,6 +551,51 @@
           "description": "conda's package folders, set in a `.condarc`, cannot be limited to\nthis one.",
           "type": "string",
           "const": "conda-not-scoped"
+        },
+        {
+          "description": "brew no longer lists the formula as installed.",
+          "type": "string",
+          "const": "brew-not-installed"
+        },
+        {
+          "description": "The formula is pinned.",
+          "type": "string",
+          "const": "brew-pinned"
+        },
+        {
+          "description": "brew lists other versions of it than the person confirmed.",
+          "type": "string",
+          "const": "brew-kegs-changed"
+        },
+        {
+          "description": "An installed formula or cask still needs it.",
+          "type": "string",
+          "const": "brew-needed"
+        },
+        {
+          "description": "A formula confirmed as needed by nothing was installed on request.",
+          "type": "string",
+          "const": "brew-not-orphan"
+        },
+        {
+          "description": "A service of the user's is loaded for it.",
+          "type": "string",
+          "const": "brew-service-running"
+        },
+        {
+          "description": "A root service is registered for it.",
+          "type": "string",
+          "const": "brew-service-root"
+        },
+        {
+          "description": "The user's service is registered but not running.",
+          "type": "string",
+          "const": "brew-service-registered"
+        },
+        {
+          "description": "brew listed a formula without a field ddc needs: what needs what\nis not known.",
+          "type": "string",
+          "const": "brew-field-missing"
         }
       ]
     },

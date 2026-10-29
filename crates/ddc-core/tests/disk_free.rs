@@ -141,7 +141,7 @@ static COUNT: AtomicUsize = AtomicUsize::new(0);
 fn one(action: ActionId, identifier: Option<&str>) -> ActionList {
     ActionList {
         schema_version: FREE_SCHEMA_VERSION,
-        actions: vec![ListedAction { action, identifier: identifier.map(str::to_owned) }],
+        actions: vec![ListedAction::new(action, identifier.map(str::to_owned))],
     }
 }
 
@@ -329,8 +329,8 @@ fn a_stop_during_the_wait_ends_it_as_still_deleting_and_journals_it() {
     let list = ActionList {
         schema_version: FREE_SCHEMA_VERSION,
         actions: vec![
-            ListedAction { action: ActionId::SimctlRuntimeDelete, identifier: Some("A".into()) },
-            ListedAction { action: ActionId::BrewCleanup, identifier: None },
+            ListedAction::new(ActionId::SimctlRuntimeDelete, Some("A".into())),
+            ListedAction::new(ActionId::BrewCleanup, None),
         ],
     };
     let mut journal = MemoryAreaJournal::default();
@@ -427,8 +427,8 @@ fn the_dry_run_runs_each_tools_own_dry_run_and_changes_nothing() {
     let list = ActionList {
         schema_version: FREE_SCHEMA_VERSION,
         actions: vec![
-            ListedAction { action: ActionId::SimctlRuntimeDelete, identifier: Some("A".into()) },
-            ListedAction { action: ActionId::BrewCleanup, identifier: None },
+            ListedAction::new(ActionId::SimctlRuntimeDelete, Some("A".into())),
+            ListedAction::new(ActionId::BrewCleanup, None),
         ],
     };
 
@@ -527,37 +527,94 @@ fn every_malformed_list_is_refused_whole() {
     let cases: Vec<(&str, ActionListError)> = vec![
         ("{", ActionListError::Syntax(String::new())),
         (r#"{"schema_version": 1, "actions": [{"action": "brew-cleanup"}]}"#, ActionListError::Version(1)),
-        (r#"{"schema_version": 2, "actions": []}"#, ActionListError::Empty),
+        (r#"{"schema_version": 3, "actions": []}"#, ActionListError::Empty),
         (
-            r#"{"schema_version": 2, "actions": [{"action": "brew-cleanup"}, {"action": "brew-cleanup"}]}"#,
+            r#"{"schema_version": 3, "actions": [{"action": "brew-cleanup"}, {"action": "brew-cleanup"}]}"#,
             ActionListError::Duplicate("brew-cleanup".into()),
         ),
         (
-            r#"{"schema_version": 2, "actions": [{"action": "simctl-runtime-delete", "identifier": "A"}, {"action": "simctl-runtime-delete", "identifier": "A"}]}"#,
+            r#"{"schema_version": 3, "actions": [{"action": "simctl-runtime-delete", "identifier": "A"}, {"action": "simctl-runtime-delete", "identifier": "A"}]}"#,
             ActionListError::Duplicate("simctl-runtime-delete A".into()),
         ),
         (
-            r#"{"schema_version": 2, "actions": [{"action": "brew-cleanup", "identifier": "x"}]}"#,
-            ActionListError::IdentifierOnBrew,
+            r#"{"schema_version": 3, "actions": [{"action": "brew-cleanup", "identifier": "x"}]}"#,
+            ActionListError::UnexpectedIdentifier(ActionId::BrewCleanup),
         ),
         (
-            r#"{"schema_version": 2, "actions": [{"action": "simctl-runtime-delete"}]}"#,
+            r#"{"schema_version": 3, "actions": [{"action": "simctl-runtime-delete"}]}"#,
             ActionListError::MissingIdentifier(ActionId::SimctlRuntimeDelete),
         ),
         (
-            r#"{"schema_version": 2, "actions": [{"action": "conda-env-remove"}]}"#,
+            r#"{"schema_version": 3, "actions": [{"action": "conda-env-remove"}]}"#,
             ActionListError::MissingIdentifier(ActionId::CondaEnvRemove),
         ),
         (
-            r#"{"schema_version": 2, "actions": [{"action": "conda-clean"}]}"#,
+            r#"{"schema_version": 3, "actions": [{"action": "conda-clean"}]}"#,
             ActionListError::MissingIdentifier(ActionId::CondaClean),
         ),
-        (r#"{"schema_version": 2, "actions": [{"action": "rm-rf"}]}"#, ActionListError::Syntax(String::new())),
         (
-            r#"{"schema_version": 2, "actions": [{"action": "brew-cleanup", "force": true}]}"#,
+            r#"{"schema_version": 3, "actions": [{"action": "brew-uninstall", "kegs": ["1.0"]}]}"#,
+            ActionListError::MissingIdentifier(ActionId::BrewUninstall),
+        ),
+        (
+            r#"{"schema_version": 3, "actions": [{"action": "brew-uninstall", "identifier": "wget"}]}"#,
+            ActionListError::MissingKegs,
+        ),
+        (
+            r#"{"schema_version": 3, "actions": [{"action": "brew-uninstall", "identifier": "wget", "kegs": []}]}"#,
+            ActionListError::MissingKegs,
+        ),
+        (
+            r#"{"schema_version": 3, "actions": [{"action": "brew-uninstall", "identifier": "--cask", "kegs": ["1"]}]}"#,
+            ActionListError::BadName("--cask".into()),
+        ),
+        (
+            r#"{"schema_version": 3, "actions": [{"action": "brew-uninstall", "identifier": "", "kegs": ["1"]}]}"#,
+            ActionListError::BadName(String::new()),
+        ),
+        (
+            r#"{"schema_version": 3, "actions": [{"action": "brew-uninstall", "identifier": "wget", "kegs": ["1", "1"]}]}"#,
+            ActionListError::Duplicate("1".into()),
+        ),
+        (
+            r#"{"schema_version": 3, "actions": [{"action": "brew-uninstall", "identifier": "wget", "kegs": ["1"], "names": ["a"]}]}"#,
+            ActionListError::NamesMisplaced(ActionId::BrewUninstall),
+        ),
+        (r#"{"schema_version": 3, "actions": [{"action": "brew-uninstall-orphans"}]}"#, ActionListError::MissingNames),
+        (
+            r#"{"schema_version": 3, "actions": [{"action": "brew-uninstall-orphans", "names": []}]}"#,
+            ActionListError::MissingNames,
+        ),
+        (
+            r#"{"schema_version": 3, "actions": [{"action": "brew-uninstall-orphans", "names": ["a", "--zap"]}]}"#,
+            ActionListError::BadName("--zap".into()),
+        ),
+        (
+            r#"{"schema_version": 3, "actions": [{"action": "brew-uninstall-orphans", "identifier": "a", "names": ["a"]}]}"#,
+            ActionListError::UnexpectedIdentifier(ActionId::BrewUninstallOrphans),
+        ),
+        (
+            r#"{"schema_version": 3, "actions": [{"action": "brew-uninstall-orphans", "names": ["a"], "kegs": ["1"]}]}"#,
+            ActionListError::KegsMisplaced(ActionId::BrewUninstallOrphans),
+        ),
+        (
+            r#"{"schema_version": 3, "actions": [{"action": "brew-uninstall-orphans", "names": ["a"]}, {"action": "brew-uninstall-orphans", "names": ["b"]}]}"#,
+            ActionListError::Duplicate("brew-uninstall-orphans".into()),
+        ),
+        (
+            r#"{"schema_version": 3, "actions": [{"action": "brew-cleanup", "kegs": ["1"]}]}"#,
+            ActionListError::KegsMisplaced(ActionId::BrewCleanup),
+        ),
+        (
+            r#"{"schema_version": 3, "actions": [{"action": "conda-clean", "identifier": "/opt/miniconda3", "names": ["a"]}]}"#,
+            ActionListError::NamesMisplaced(ActionId::CondaClean),
+        ),
+        (r#"{"schema_version": 3, "actions": [{"action": "rm-rf"}]}"#, ActionListError::Syntax(String::new())),
+        (
+            r#"{"schema_version": 3, "actions": [{"action": "brew-cleanup", "force": true}]}"#,
             ActionListError::Syntax(String::new()),
         ),
-        (r#"{"schema_version": 2, "actions": [], "yes": true}"#, ActionListError::Syntax(String::new())),
+        (r#"{"schema_version": 3, "actions": [], "yes": true}"#, ActionListError::Syntax(String::new())),
     ];
     for (json, want) in cases {
         let got = ActionList::parse(json.as_bytes()).unwrap_err();
@@ -566,9 +623,16 @@ fn every_malformed_list_is_refused_whole() {
             want => assert_eq!(got, want, "{json}"),
         }
     }
-    let two = r#"{"schema_version": 2, "actions": [{"action": "simctl-runtime-delete", "identifier": "A"},
+    let two = r#"{"schema_version": 3, "actions": [{"action": "simctl-runtime-delete", "identifier": "A"},
         {"action": "simctl-runtime-delete", "identifier": "B"}, {"action": "brew-cleanup"}]}"#;
     assert_eq!(ActionList::parse(two.as_bytes()).unwrap().actions.len(), 3);
+    let brew = r#"{"schema_version": 3, "actions": [
+        {"action": "brew-uninstall", "identifier": "python@3.13", "kegs": ["3.13.0", "3.13.1"]},
+        {"action": "brew-uninstall", "identifier": "user/tap/foo", "kegs": ["0.1"]},
+        {"action": "brew-uninstall-orphans", "names": ["libidn2", "libunistring"]}]}"#;
+    let parsed = ActionList::parse(brew.as_bytes()).unwrap();
+    assert_eq!(parsed.actions[0].kegs.as_deref(), Some(&["3.13.0".to_owned(), "3.13.1".to_owned()][..]));
+    assert_eq!(parsed.actions[2].names.as_ref().map(Vec::len), Some(2));
 }
 
 #[test]
@@ -583,8 +647,8 @@ fn available_offers_the_runtimes_the_probe_passes_and_homebrew() {
     assert_eq!(
         offered,
         [
-            ListedAction { action: ActionId::SimctlRuntimeDelete, identifier: Some("A".into()) },
-            ListedAction { action: ActionId::BrewCleanup, identifier: None },
+            ListedAction::new(ActionId::SimctlRuntimeDelete, Some("A".into())),
+            ListedAction::new(ActionId::BrewCleanup, None),
         ]
     );
     assert!(deletes(&commands).is_empty());
@@ -621,6 +685,8 @@ fn report_of(action: ActionId, identifier: Option<&str>, result: ActionResult) -
         bytes_after: None,
         output: String::new(),
         preview: None,
+        kegs: Vec::new(),
+        needed_by: Vec::new(),
     }
 }
 
@@ -1016,7 +1082,7 @@ fn a_package_folder_conda_could_clean_beyond_is_refused_in_the_dry_run_too() {
 fn the_conda_dry_runs_ask_the_probe_and_estimate_without_removing() {
     let fx = Fx::new().with_conda();
     let commands = fx.conda(&fx.conda_settings(|_| {}));
-    let named = |action, p: PathBuf| ListedAction { action, identifier: Some(p.to_string_lossy().into_owned()) };
+    let named = |action, p: PathBuf| ListedAction::new(action, Some(p.to_string_lossy().into_owned()));
     let list = ActionList {
         schema_version: FREE_SCHEMA_VERSION,
         actions: vec![named(ActionId::CondaEnvRemove, fx.opt_env()), named(ActionId::CondaClean, fx.opt_conda())],
@@ -1044,7 +1110,7 @@ fn available_offers_each_opt_installs_package_cache_and_environments() {
     fx.t.dir(&format!("{MINICONDA}/envs/not-one"));
     let commands = fx.conda(&fx.conda_settings(|_| {}));
     let offered = free::available(&fx.ctx(&commands, &[]));
-    let named = |action, p: PathBuf| ListedAction { action, identifier: Some(p.to_string_lossy().into_owned()) };
+    let named = |action, p: PathBuf| ListedAction::new(action, Some(p.to_string_lossy().into_owned()));
     assert_eq!(
         offered,
         [

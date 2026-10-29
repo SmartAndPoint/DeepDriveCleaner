@@ -477,6 +477,7 @@ struct ContractTests {
         #expect(Set(try values(free, "ActionResult", key: "status")) == Set(FreeReport.Outcome.tags))
         #expect(Set(try values(free, "ActionId")) == Set(DiskReport.ActionId.allCases.map(\.rawValue)))
         #expect(try rustSource("crates/ddc-core/src/free/mod.rs").contains("pub const STOPPED: &str = \"\(FreeWording.stopped)\";"))
+        #expect(try rustSource("crates/ddc-core/src/free/mod.rs").contains("pub const NOT_STARTED: &str = \"\(FreeWording.notStarted)\";"))
     }
 
     @Test("the coding agents report is the CLI's: version and every enum")

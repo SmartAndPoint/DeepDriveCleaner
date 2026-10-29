@@ -74,7 +74,7 @@ struct DiskFreeTests {
                 json["actions"] = actions
             })
         }
-        for version in [1, 3] {
+        for version in [2, 4] {
             #expect(throws: ScanReport.ReadError.otherSchema(version)) {
                 try FreeReport.read(Fixture.edited("free-report") { $0["schema_version"] = version })
             }
@@ -94,13 +94,13 @@ struct DiskFreeTests {
 
         let list = AreaActionList(actions: [Self.brew.listed, ListedAreaAction(action: .simctlRuntimeDelete, identifier: "A")])
         #expect(String(decoding: try list.encoded(), as: UTF8.self)
-            == #"{"actions":[{"action":"brew-cleanup"},{"action":"simctl-runtime-delete","identifier":"A"}],"schema_version":2}"#)
+            == #"{"actions":[{"action":"brew-cleanup"},{"action":"simctl-runtime-delete","identifier":"A"}],"schema_version":3}"#)
         let conda = AreaActionList(actions: [
             ListedAreaAction(action: .condaEnvRemove, identifier: "/opt/miniconda3/envs/ml"),
             ListedAreaAction(action: .condaClean, identifier: "/opt/miniconda3"),
         ])
         #expect(String(decoding: try conda.encoded(), as: UTF8.self)
-            == #"{"actions":[{"action":"conda-env-remove","identifier":"/opt/miniconda3/envs/ml"},{"action":"conda-clean","identifier":"/opt/miniconda3"}],"schema_version":2}"#)
+            == #"{"actions":[{"action":"conda-env-remove","identifier":"/opt/miniconda3/envs/ml"},{"action":"conda-clean","identifier":"/opt/miniconda3"}],"schema_version":3}"#)
     }
 
     // MARK: - Which rows offer an action
@@ -271,6 +271,30 @@ struct DiskFreeTests {
         #expect(FreeWording.result(failed, name: "/opt/miniconda3").hasPrefix("conda clean could not remove everything without an administrator."))
         let refused = try edited(.condaEnvRemove, ["status": "refused", "reason": "conda-not-writable"])
         #expect(FreeWording.result(refused, name: "ml") == "Not run: your user cannot write it: conda needs an administrator.")
+
+        func brew(_ result: [String: Any], output: String? = nil) throws -> FreeReport.ActionReport {
+            try FreeReport.read(Fixture.edited("free-report") { json in
+                var actions = json["actions"] as! [[String: Any]]
+                actions[0]["action"] = "brew-uninstall"
+                actions[0]["area"] = "homebrew"
+                actions[0]["identifier"] = "wget"
+                actions[0]["result"] = result
+                actions[0]["output"] = output
+                json["actions"] = actions
+            }).actions[0]
+        }
+        let notStarted = try brew(["status": "failed", "needs_admin": false],
+                                  output: "brew could not start; nothing was removed\nthe check took 590 s of 600 s; try again")
+        #expect(FreeWording.result(notStarted, name: "wget") == "brew could not start, so nothing was removed. the check took 590 s of 600 s; try again.")
+        #expect(!FreeWording.offersTerminal(notStarted))
+        let uninstallFailed = try brew(["status": "failed", "needs_admin": false], output: "Error: something")
+        #expect(FreeWording.result(uninstallFailed, name: "wget") == "brew uninstall failed. You can run the command in Terminal to see why.")
+        #expect(FreeWording.offersTerminal(uninstallFailed))
+        let kegLeft = try brew(["status": "removed-not-freed"])
+        #expect(FreeWording.result(kegLeft, name: "wget").hasPrefix("brew finished, but a version is still in /opt/homebrew/Cellar"))
+        #expect(FreeWording.offersTerminal(kegLeft))
+        let needed = try brew(["status": "refused", "reason": "brew-needed"])
+        #expect(FreeWording.result(needed, name: "wget") == "Not run: something installed still needs it.")
     }
 
     // MARK: - The runs
@@ -302,7 +326,7 @@ struct DiskFreeTests {
         #expect(m.freeResults[Self.brew.id] == result)
         #expect(edited == 1, "the popover reads the edited last-scan.json again")
         #expect(try fake.actionLists().map { String(decoding: $0, as: UTF8.self) } == Array(
-            repeating: #"{"actions":[{"action":"brew-cleanup"}],"schema_version":2}"#, count: 2
+            repeating: #"{"actions":[{"action":"brew-cleanup"}],"schema_version":3}"#, count: 2
         ))
         let runs = try fake.runs().filter { $0.event == "start" }.map(\.args)
         #expect(runs.count == 2 && runs[0].hasSuffix("--dry-run --json") && runs[1].hasSuffix(".json --json"))

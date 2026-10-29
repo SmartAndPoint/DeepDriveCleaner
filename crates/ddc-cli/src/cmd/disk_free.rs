@@ -143,6 +143,8 @@ fn ask(ctx: &FreeContext<'_>, env: &Env, args: &FreeArgs, style: &Style) -> anyh
                 "Clean {}'s package cache? It removes the packages no environment uses, and old downloads.",
                 render::escaped(listed.identifier.as_deref().unwrap_or_default())
             ),
+            // `free::available` offers no formula: the app removes those.
+            ddc_core::disk::ActionId::BrewUninstall | ddc_core::disk::ActionId::BrewUninstallOrphans => continue,
         };
         if prompt::confirm_area_action(&what, std::io::stdin().lock(), &mut out)? {
             chosen.push(listed);

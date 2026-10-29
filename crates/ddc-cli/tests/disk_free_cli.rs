@@ -138,8 +138,8 @@ esac"#
     }
 }
 
-const RUNTIME: &str = r#"{"schema_version": 2, "actions": [{"action": "simctl-runtime-delete", "identifier": "A"}]}"#;
-const BREW: &str = r#"{"schema_version": 2, "actions": [{"action": "brew-cleanup"}]}"#;
+const RUNTIME: &str = r#"{"schema_version": 3, "actions": [{"action": "simctl-runtime-delete", "identifier": "A"}]}"#;
+const BREW: &str = r#"{"schema_version": 3, "actions": [{"action": "brew-cleanup"}]}"#;
 
 fn report(out: &Output) -> FreeReport {
     serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
@@ -169,9 +169,9 @@ fn there_is_no_yes() {
 fn a_malformed_list_is_refused_whole_before_anything_runs() {
     let fx = Fx::new();
     for list in [
-        r#"{"schema_version": 2, "actions": [{"action": "brew-cleanup", "now": true}]}"#,
-        r#"{"schema_version": 2, "actions": [{"action": "brew-cleanup"}, {"action": "simctl-runtime-delete"}]}"#,
-        r#"{"schema_version": 2, "actions": [{"action": "brew-cleanup"}, {"action": "brew-cleanup"}]}"#,
+        r#"{"schema_version": 3, "actions": [{"action": "brew-cleanup", "now": true}]}"#,
+        r#"{"schema_version": 3, "actions": [{"action": "brew-cleanup"}, {"action": "simctl-runtime-delete"}]}"#,
+        r#"{"schema_version": 3, "actions": [{"action": "brew-cleanup"}, {"action": "brew-cleanup"}]}"#,
         "not json",
     ] {
         let out = fx.free(list, &["--json"]);
@@ -292,7 +292,7 @@ fn a_permission_error_fails_with_the_terminal_command_and_exits_1_in_text() {
 #[test]
 fn a_refused_action_runs_nothing_and_the_run_still_exits_0() {
     let fx = Fx::new();
-    let list = r#"{"schema_version": 2, "actions": [{"action": "simctl-runtime-delete", "identifier": "all"}]}"#;
+    let list = r#"{"schema_version": 3, "actions": [{"action": "simctl-runtime-delete", "identifier": "all"}]}"#;
     let out = fx.free(list, &["--json"]);
     assert!(out.status.success());
     let r = report(&out);
@@ -368,7 +368,7 @@ esac"#
     }
 
     fn conda_list(&self, action: &str, identifier: &str) -> String {
-        serde_json::json!({"schema_version": 2, "actions": [{"action": action, "identifier": identifier}]}).to_string()
+        serde_json::json!({"schema_version": 3, "actions": [{"action": action, "identifier": identifier}]}).to_string()
     }
 }
 
