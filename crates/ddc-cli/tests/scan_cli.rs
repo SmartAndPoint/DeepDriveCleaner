@@ -177,3 +177,57 @@ fn a_scan_with_progress_json_emits_walk_ticks_ending_at_the_report_totals() {
         (&totals["files"], &totals["dirs"], &totals["scanned_bytes"])
     );
 }
+
+/// The line a scan of other roots prints when it saves into the app's data
+/// folder (story "Review window: say when the saved scan is not of the home
+/// folder").
+const APP_SHOWS: &str = "The app will show this report until its next scan.";
+
+fn shows_line(out: &Output) -> bool {
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8_lossy(&out.stderr).contains(APP_SHOWS)
+}
+
+#[test]
+fn scan_of_other_roots_into_the_app_data_folder_says_the_app_shows_it() {
+    let (tmp, home) = fixture();
+    let other = tmp.path().canonicalize().unwrap().join("other");
+    fs::create_dir_all(other.join("x")).unwrap();
+    let other = other.to_str().unwrap();
+
+    assert!(shows_line(&ddc(&home, &["scan", other])));
+    assert!(home.join("Library/Application Support/DeepDriveCleaner/last-scan.json").is_file());
+    let inside = home.join("p");
+    assert!(shows_line(&ddc(&home, &["scan", inside.to_str().unwrap()])), "a part of the home is other roots too");
+
+    let data = tmp.path().join("data");
+    assert!(!shows_line(&ddc(&home, &["scan", other, "--data-dir", data.to_str().unwrap()])));
+    let by_var = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
+        .env_clear()
+        .env("HOME", &home)
+        .env("PATH", "")
+        .env("DDC_DATA_DIR", &data)
+        .args(["scan", other])
+        .output()
+        .unwrap();
+    assert!(!shows_line(&by_var));
+    assert!(!shows_line(&ddc(&home, &["scan"])), "no paths: the settings' own roots");
+}
+
+#[test]
+fn scan_of_the_settings_roots_by_path_says_nothing() {
+    let (tmp, home) = fixture();
+    let root = tmp.path().canonicalize().unwrap();
+    let other = root.join("other");
+    fs::create_dir_all(&other).unwrap();
+    let data = home.join("Library/Application Support/DeepDriveCleaner");
+    fs::create_dir_all(&data).unwrap();
+    let roots = serde_json::json!({ "schema_version": 1, "roots": [home, other] });
+    fs::write(data.join("settings.json"), roots.to_string()).unwrap();
+
+    assert!(!shows_line(&ddc(&home, &["scan", other.to_str().unwrap(), home.to_str().unwrap()])));
+    // Through a path that is not canonical, as the walk normalizes it.
+    let dotted = format!("{}/../home", home.display());
+    assert!(shows_line(&ddc(&home, &["scan", &dotted])), "one of two settings roots is other roots");
+    assert!(!shows_line(&ddc(&home, &["scan", &dotted, other.to_str().unwrap()])));
+}

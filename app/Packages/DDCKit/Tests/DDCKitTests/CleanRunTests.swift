@@ -33,7 +33,8 @@ struct ReviewRequestTests {
             data: data.directory,
             probe: try data.probe(granted: true),
             preferences: AppPreferences(defaults: defaults.defaults),
-            router: review
+            router: review,
+            home: "/Users/example"
         )
         popover = model
         await model.start()

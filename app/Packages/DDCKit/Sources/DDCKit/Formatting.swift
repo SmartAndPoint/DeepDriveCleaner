@@ -164,6 +164,22 @@ public enum Wording {
         }
     }
 
+    /// The notice for a report that is not of the app's roots
+    /// (`ReportScope`); nil for one that is. One root by its path, several
+    /// counted as `scope` counts them. A report made under another home
+    /// (`reportHome`) says so: its `~` is not the user's.
+    public static func reportScope(_ scope: ReportScope, roots: [String], home: String, reportHome: String? = nil) -> String? {
+        if scope == .outside, let reportHome, ReportScope.canonical(reportHome) != ReportScope.canonical(home) {
+            return "This report is of another home folder, \(escaped(reportHome)), not of yours. Scan Now replaces it."
+        }
+        let what = roots.count == 1 ? tilde(roots[0], home: home) : "\(roots.count) folders"
+        switch scope {
+        case .same: return nil
+        case .inside: return "This report is of \(what) only. Scan Now covers your home folder and the folders in Settings."
+        case .outside: return "This report is of \(what), not of your home folder and the folders in Settings. Scan Now replaces it."
+        }
+    }
+
     /// The footer's next scheduled scan: "Next scan today, 13:00",
     /// "Next scan tomorrow, 10:00", "Next scan Monday, 10:00", "Next scan
     /// within the hour" when one is due (a missed slot, a Resume), "Scheduled

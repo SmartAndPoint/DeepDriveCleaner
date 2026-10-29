@@ -24,6 +24,12 @@ struct ReviewView: View {
             if let notice = model.notice {
                 Banner(systemImage: "info.circle", text: notice)
             }
+            // A report of other roots (`ddc scan <path>` in the terminal), above the groups.
+            if let scope = model.scopeNotice, !model.wholeDisk {
+                Banner(systemImage: "exclamationmark.triangle", text: scope, action: model.scansPaused ? nil : (
+                    "Scan Now", model.rescanning == nil, { Task { await model.scanAgain() } }
+                ))
+            }
             // The user's "Skip entirely" folders: not read, so nothing there is listed.
             if let notScanned = model.items?.notScanned {
                 Banner(systemImage: "eye.slash", text: notScanned)
@@ -458,6 +464,8 @@ struct CheckBox: View {
 struct Banner: View {
     let systemImage: String?
     let text: String
+    /// A button's title, whether it is enabled, and what it does.
+    var action: (title: String, enabled: Bool, run: () -> Void)?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -466,8 +474,11 @@ struct Banner: View {
             } else {
                 ProgressView().controlSize(.small)
             }
-            Text(text).font(.system(size: 12))
+            Text(text).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
             Spacer()
+            if let action {
+                Button(action.title, action: action.run).controlSize(.small).disabled(!action.enabled)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

@@ -57,7 +57,8 @@ struct RealCLISettingsTests {
             data: data,
             probe: FullDiskAccessProbe(path: root.appending(path: "TCC.db")),
             preferences: preferences,
-            router: FakeRouter()
+            router: FakeRouter(),
+            home: home.path
         )
         let settings = SettingsModel(store: SettingsStore(url: data.settings), popover: popover, preferences: preferences, home: home.path)
         let archive = home.appending(path: "archive").path

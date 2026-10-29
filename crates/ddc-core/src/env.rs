@@ -28,6 +28,9 @@ pub struct Env {
     path: Vec<PathBuf>,
     /// `DOCKER_CONFIG`, where docker keeps its contexts; unset in tests.
     docker_config: Option<PathBuf>,
+    /// Neither `--data-dir` nor `DDC_DATA_DIR` was given: the data directory
+    /// is the app's, so a scan saved here is the one the app shows.
+    default_data_dir: bool,
 }
 
 impl Env {
@@ -43,6 +46,7 @@ impl Env {
         let home = home.canonicalize().map_err(|source| EnvError::Home { path: home.clone(), source })?;
         let data_dir =
             data_dir.or_else(|| std::env::var_os(Self::DATA_DIR_VAR).filter(|v| !v.is_empty()).map(PathBuf::from));
+        let default_data_dir = data_dir.is_none();
         let (data_dir, log_dir) = match data_dir {
             Some(dir) => (dir.clone(), dir.join("logs")),
             None => {
@@ -51,7 +55,7 @@ impl Env {
         };
         let path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
         let docker_config = std::env::var_os("DOCKER_CONFIG").filter(|v| !v.is_empty()).map(PathBuf::from);
-        Ok(Self { home, data_dir, log_dir, now: SystemTime::now(), path, docker_config })
+        Ok(Self { home, data_dir, log_dir, now: SystemTime::now(), path, docker_config, default_data_dir })
     }
 
     /// Explicit environment for tests and embedding; `home` is canonicalized.
@@ -63,6 +67,7 @@ impl Env {
             now,
             path: Vec::new(),
             docker_config: None,
+            default_data_dir: false,
         })
     }
 
@@ -95,6 +100,12 @@ impl Env {
 
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
+    }
+
+    /// Whether the data directory is the default one, the app's: neither
+    /// `--data-dir` nor `DDC_DATA_DIR` was given.
+    pub fn data_dir_is_default(&self) -> bool {
+        self.default_data_dir
     }
 
     pub fn log_dir(&self) -> &Path {

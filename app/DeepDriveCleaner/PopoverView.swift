@@ -66,7 +66,14 @@ struct PopoverView: View {
                 Button("Scan Now") { Task { await model.scanNow() } }.disabled(!model.canScan)
             }
         case .nothingFound:
-            StateBlock(title: "Nothing found to clean", text: "The last scan found nothing to free \(model.scope).", note: model.withoutAccessNote) {
+            StateBlock(
+                title: "Nothing found to clean",
+                text: model.scopeNotice ?? "The last scan found nothing to free \(model.scope).",
+                note: model.withoutAccessNote
+            ) {
+                if model.scopeNotice != nil {
+                    Button("Scan Now") { Task { await model.scanNow() } }.disabled(!model.canScan)
+                }
                 if (model.summary?.foundBytes ?? 0) > 0 {
                     Button("See What Was Found") { model.review() }.buttonStyle(.link)
                 }
@@ -77,8 +84,11 @@ struct PopoverView: View {
             StateBlock(
                 title: "Nothing worth cleaning",
                 text: "\(ByteSize.human(summary?.reclaimable ?? 0)) could be freed, under your \(ByteSize.human(model.threshold)) notification threshold.",
-                note: model.withoutAccessNote
+                note: model.scopeNotice ?? model.withoutAccessNote
             ) {
+                if model.scopeNotice != nil {
+                    Button("Scan Now") { Task { await model.scanNow() } }.disabled(!model.canScan)
+                }
                 Button("See What Was Found") { model.review() }.buttonStyle(.link)
                 WholeDiskLink(open: openWholeDisk)
             }
@@ -148,10 +158,20 @@ private struct FoundView: View {
                 Text(ByteSize.human(model.selectedToClean))
                     .font(.system(size: 34, weight: .bold))
                     .monospacedDigit()
-                Text("of \(ByteSize.human(summary.foundBytes)) found \(model.scope). Nothing is removed until you confirm.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let scope = model.scopeNotice {
+                    Text("of \(ByteSize.human(summary.foundBytes)) found.\(model.reportScope == .inside ? " Nothing is removed until you confirm." : "")")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                    // A report of other roots (`ddc scan <path>` in the terminal).
+                    Text(scope).font(.system(size: 12)).foregroundStyle(ReportClassStyle.ink(.review))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Scan Now") { Task { await model.scanNow() } }.disabled(!model.canScan).controlSize(.small)
+                } else {
+                    Text("of \(ByteSize.human(summary.foundBytes)) found \(model.scope). Nothing is removed until you confirm.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if let frees = model.freesAbout {
                     Text("Frees about \(frees): the rest is shared with copies that stay on disk.")
                         .font(.system(size: 12))
@@ -194,7 +214,7 @@ private struct FoundView: View {
                 }
                 .controlSize(.large)
                 .buttonStyle(.borderedProminent)
-                .disabled(model.selectedToClean == 0)
+                .disabled(!model.canCleanSelected)
             }
         }
     }

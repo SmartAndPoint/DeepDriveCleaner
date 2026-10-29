@@ -101,6 +101,7 @@ public final class PopoverModel {
     @ObservationIgnored private let clock: @MainActor () -> Date
     @ObservationIgnored private let log: @MainActor (String) -> Void
     @ObservationIgnored private let appVersion: String?
+    @ObservationIgnored private let home: String
     @ObservationIgnored private var reportModified: Date?
     @ObservationIgnored private var settingsModified: Date?
     /// `settings.json` did not read; the warning lasts until it does, whatever its notice.
@@ -124,8 +125,10 @@ public final class PopoverModel {
         legacyAgentFound: @escaping @MainActor () -> Bool = { false },
         appVersion: String? = nil,
         clock: @escaping @MainActor () -> Date = { .now },
-        log: @escaping @MainActor (String) -> Void = { _ in }
+        log: @escaping @MainActor (String) -> Void = { _ in },
+        home: String = FileManager.default.homeDirectoryForCurrentUser.path
     ) {
+        self.home = home.count > 1 && home.hasSuffix("/") ? String(home.dropLast()) : home
         self.runner = runner
         self.data = data
         self.probe = probe
@@ -202,6 +205,20 @@ public final class PopoverModel {
         loadedReport.map { Wording.scope(roots: $0.scanRoots, home: $0.home) } ?? "in your home folder"
     }
 
+    /// Whether the report is of the app's roots; nil without a report or
+    /// without readable settings (the CLI refuses those too). Computed when
+    /// the report or the settings change, never on a redraw.
+    public private(set) var reportScope: ReportScope?
+
+    /// The popover's line in place of "found in …" for a report of other roots.
+    public var scopeNotice: String? {
+        guard let reportScope, let report = loadedReport else { return nil }
+        return Wording.reportScope(reportScope, roots: report.scanRoots, home: home, reportHome: report.home)
+    }
+
+    /// Clean selected…: not for a report of folders outside the app's roots.
+    public var canCleanSelected: Bool { selectedToClean > 0 && reportScope != .outside }
+
     /// The report's own fact, whatever the probe says now.
     public var withoutAccessNote: String? {
         guard let report = loadedReport, !report.fullDiskAccess else { return nil }
@@ -270,6 +287,8 @@ public final class PopoverModel {
         raiseSchedulerNotices()
         // A clean writes the file when it ends; its reload, or the scan after it, shows it.
         if scan == nil, !cleaning, DataDirectory.modified(data.lastScan) != reportModified { await loadReport() }
+        // A disk plugged in or out changes the app's roots with no file changed.
+        updateScope()
     }
 
     /// The report a clean edited and saved, read at once, during the clean
@@ -368,6 +387,13 @@ public final class PopoverModel {
 
     private func recompute() {
         summary = loadedReport.map { ReportSummary.make(report: $0, settings: settings, rules: rules) }
+        updateScope()
+    }
+
+    private func updateScope() {
+        let scope = loadedReport.flatMap { ReportScope.of(report: $0, settings: settings, home: home) }
+        // Once a minute and on every open: a write would redraw what reads it.
+        if scope != reportScope { reportScope = scope }
     }
 
     // MARK: - Scan now
@@ -531,6 +557,7 @@ public final class PopoverModel {
 
     /// Clean selected…: the confirmation sheet, never a clean from here.
     public func cleanSelected() {
+        guard reportScope != .outside else { return }
         route(ReviewRequest(group: nil, classes: included, confirm: true))
     }
 

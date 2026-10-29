@@ -78,6 +78,12 @@ public final class ReviewModel: ReviewRouting {
     /// dismiss never shows an empty panel.
     public internal(set) var lastSheet: Sheet?
     public internal(set) var notice: String?
+    /// Whether the report is of the app's roots (story "Review window: say
+    /// when the saved scan is not of the home folder"); nil when
+    /// `settings.json` cannot be read. Set when the rows are built.
+    public internal(set) var reportScope: ReportScope?
+    /// The notice above the groups for a report of other roots, with Scan Now.
+    public internal(set) var scopeNotice: String?
     public enum Rescan: Sendable, Equatable {
         /// The popover reads the report the clean saved, or scans after the
         /// clean: the window reloads when it ends.
@@ -112,6 +118,7 @@ public final class ReviewModel: ReviewRouting {
     @ObservationIgnored let temporaryDirectory: URL
     @ObservationIgnored let clock: @MainActor () -> Date
     @ObservationIgnored let log: @MainActor (String) -> Void
+    @ObservationIgnored let home: String
     /// Folders "Protect this folder" marked; locked until a scan reports them as protected.
     @ObservationIgnored private var protected: Set<Identity> = []
     @ObservationIgnored var dryRun: (ticket: CLIRunner.Ticket, task: Task<Void, Never>)?
@@ -147,8 +154,10 @@ public final class ReviewModel: ReviewRouting {
         paused: @escaping @MainActor () -> Bool = { false },
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         clock: @escaping @MainActor () -> Date = { .now },
-        log: @escaping @MainActor (String) -> Void = { _ in }
+        log: @escaping @MainActor (String) -> Void = { _ in },
+        home: String = FileManager.default.homeDirectoryForCurrentUser.path
     ) {
+        self.home = home.count > 1 && home.hasSuffix("/") ? String(home.dropLast()) : home
         self.runner = runner
         self.data = data
         self.preferences = preferences
@@ -182,6 +191,8 @@ public final class ReviewModel: ReviewRouting {
             items = nil
             selection = []
             entry = nil
+            reportScope = nil
+            scopeNotice = nil
             return
         }
         let items = make(snapshot)
@@ -250,6 +261,9 @@ public final class ReviewModel: ReviewRouting {
         protected = protected.filter { FileManager.default.fileExists(atPath: String(decoding: $0.path, as: UTF8.self) + "/" + KeepMarker.name) }
         // Unreadable: the report's own flags stand, as in the popover.
         let settings = try? SharedSettings.read(at: data.settings)
+        let report = snapshot.report
+        reportScope = ReportScope.of(report: report, settings: settings, home: home)
+        scopeNotice = reportScope.flatMap { Wording.reportScope($0, roots: report.scanRoots, home: home, reportHome: report.home) }
         var items = ReviewItems.make(report: snapshot.report, settings: settings, rules: snapshot.rules)
         if !protected.isEmpty {
             items = items.locking(Set(items.rows.filter { protected.contains(Identity($0.finding)) }.map(\.id)), as: .protected)
@@ -371,7 +385,7 @@ public final class ReviewModel: ReviewRouting {
     /// Whether "Protect this folder" is offered: never for a file, nor
     /// inside a device backup.
     public func canProtect(_ id: Int) -> Bool {
-        guard let items, let row = items.row(id) else { return false }
+        guard let items, let row = items.row(id), reportScope != .outside else { return false }
         return row.selectable && items.canProtect(row)
     }
 
@@ -401,7 +415,7 @@ public final class ReviewModel: ReviewRouting {
     /// open the sheet.
     public func canClean(scope: [Int]?) -> Bool {
         let rows = scope.map(selectedRows(in:)) ?? selectedRows
-        return !rows.isEmpty && sheet == nil && rescanning == nil && !isCleaning
+        return !rows.isEmpty && sheet == nil && rescanning == nil && !isCleaning && reportScope != .outside
     }
 
     /// A group's Select all row: "2 of 3 · 7.2 GiB".
@@ -446,7 +460,7 @@ public final class ReviewModel: ReviewRouting {
         // them: the scope crosses it by identity.
         let scoped = scope.map { ids in Set(ids.compactMap { items?.row($0).map { Identity($0.finding) } }) }
         refreshSettings()
-        guard sheet == nil, !isCleaning, rescanning == nil, let items else { return }
+        guard sheet == nil, !isCleaning, rescanning == nil, reportScope != .outside, let items else { return }
         var picked = selection
         if let scoped {
             picked = picked.filter { id in items.row(id).map { scoped.contains(Identity($0.finding)) } ?? false }

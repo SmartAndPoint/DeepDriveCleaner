@@ -65,7 +65,8 @@ struct RealCLICleanTests {
             present: { true },
             rescan: { _ = await runner.run(.scan, ["scan", "--json"]) },
             reloadReport: { true },
-            temporaryDirectory: root
+            temporaryDirectory: root,
+            home: home.path
         )
         _ = review.open(ReviewRequest(group: nil, classes: [.safe], confirm: false))
         let items = try #require(review.items)

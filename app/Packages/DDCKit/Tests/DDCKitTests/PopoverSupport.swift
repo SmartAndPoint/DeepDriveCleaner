@@ -219,7 +219,8 @@ func makeModel(
     probeGranted: Bool = true,
     nextScan: @escaping @MainActor () -> NextScan = { .off },
     legacyAgentFound: @escaping @MainActor () -> Bool = { false },
-    clock: @escaping @MainActor () -> Date = { Date(timeIntervalSince1970: 1_800_000_000) }
+    clock: @escaping @MainActor () -> Date = { Date(timeIntervalSince1970: 1_800_000_000) },
+    home: String = "/Users/example"
 ) throws -> PopoverModel {
     PopoverModel(
         runner: runner,
@@ -229,6 +230,7 @@ func makeModel(
         router: router,
         nextScan: nextScan,
         legacyAgentFound: legacyAgentFound,
-        clock: clock
+        clock: clock,
+        home: home
     )
 }

@@ -82,6 +82,7 @@ func makeReview(
     defaults: TempDefaults,
     events: ReviewEvents = ReviewEvents(),
     clock: @escaping @MainActor () -> Date = { Date(timeIntervalSince1970: 2_000_000_000) },
+    home: String = "/Users/example",
     snapshot: @escaping @MainActor () -> ReviewSnapshot?
 ) -> ReviewModel {
     ReviewModel(
@@ -98,7 +99,8 @@ func makeReview(
         reloadReport: { events.reloadReport() },
         paused: { events.paused },
         temporaryDirectory: data.url,
-        clock: clock
+        clock: clock,
+        home: home
     )
 }
 
