@@ -7,6 +7,7 @@
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
 pub mod agents;
+pub mod brew;
 pub mod class;
 pub mod conda;
 pub mod disk;
