@@ -35,6 +35,9 @@ public struct DiskSummary: Sendable, Equatable {
         public let tone: Tone
         /// The row's button: Delete Runtime…, Clean Up Homebrew….
         public var offer: AreaActions.Offer? = nil
+        /// Show in Finder, Open Software Update; nil for a row with nothing
+        /// to press.
+        public var reveal: AreaActions.Reveal? = nil
     }
 
     /// "749.3 GiB used of 926.4 GiB", or nil without the container.
@@ -111,7 +114,7 @@ public struct DiskSummary: Sendable, Equatable {
             rows.append(Row(
                 id: area.id, title: area.title, size: size(area.bytes, partial: area.partial) + measured,
                 note: note(area, simulators: report.simulators), nested: listed(area.parent), tone: .outside,
-                offer: offers[area.id]
+                offer: offers[area.id], reveal: AreaActions.reveal(area)
             ))
             // Each listed runtime under its area; their sizes are in the area's.
             if area.action == .simctlRuntimeDelete, let sims = report.simulators, sims.status == .listed {

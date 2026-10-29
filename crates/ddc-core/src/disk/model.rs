@@ -6,7 +6,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of [`DiskReport`]; the scan report has its own. A new enum
-/// variant needs a bump: the app decodes strictly.
+/// variant needs a bump: the app decodes strictly, except [`AreaReveal`],
+/// which it reads leniently (an unknown value is no button).
 pub const DISK_SCHEMA_VERSION: u32 = 1;
 
 /// What uses the startup disk, the home folder and everything outside it
@@ -122,6 +123,17 @@ pub enum ActionId {
     BrewCleanup,
 }
 
+/// Where the app sends the user for an area it does not free itself
+/// (story "Whole disk: Show in Finder and the honest action for each row").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum AreaReveal {
+    /// Show in Finder: the area's folders, by their firmlinked paths.
+    Finder,
+    /// Open Software Update in System Settings.
+    SoftwareUpdate,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Area {
     /// Stable id from the table in code (`applications`, `homebrew`, …).
@@ -138,6 +150,10 @@ pub struct Area {
     pub frees: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<ActionId>,
+    /// What the app offers besides the tool's action; absent for an area
+    /// that has nothing to press.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reveal: Option<AreaReveal>,
     /// Allocated bytes that belong to this area alone, each inode once.
     pub bytes: u64,
     /// Bytes of hard-linked files that also have links outside this area.

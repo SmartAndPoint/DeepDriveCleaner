@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime};
 use common::fakes::FakeCommands;
 use common::{TreeBuilder, alloc, reference_alloc};
 use ddc_core::disk::{
-    self, ContainerSource, DiskOptions, DiskPorts, DiskReport, HeldKind, HomeSource, InconsistentCause,
+    self, AreaReveal, ContainerSource, DiskOptions, DiskPorts, DiskReport, HeldKind, HomeSource, InconsistentCause,
     SimulatorStatus, Sources,
 };
 use ddc_core::env::Env;
@@ -561,6 +561,85 @@ fn snapshots_are_counted_when_tmutil_answers() {
     assert_eq!(r.snapshots.count, None);
     let r = fx.measure(&diskutil(1 << 40), &DiskOptions::default());
     assert_eq!(r.snapshots.count, None, "no tmutil: unknown, not zero");
+}
+
+/// Story "Whole disk: Show in Finder and the honest action for each row":
+/// the table's action for each row. A new area must be added here too.
+#[test]
+fn every_area_has_the_reveal_of_the_story_table() {
+    use AreaReveal::{Finder, SoftwareUpdate};
+    let table: &[(&str, Option<AreaReveal>)] = &[
+        ("applications", Some(Finder)),
+        ("library", Some(Finder)),
+        ("macos-assets", None),
+        ("opt", Some(Finder)),
+        ("usr-local", Some(Finder)),
+        ("private", None),
+        ("users", None),
+        ("cores", Some(Finder)),
+        ("macos-update", Some(SoftwareUpdate)),
+        ("simulator-runtimes", Some(Finder)),
+        ("homebrew", Some(Finder)),
+        ("conda", Some(Finder)),
+        ("temporary-folders", None),
+        ("tmp", None),
+        ("sleep-image", None),
+        ("shared", Some(Finder)),
+    ];
+    let mut ids: Vec<&str> = disk::AREAS.iter().map(|d| d.id).collect();
+    let mut named: Vec<&str> = table.iter().map(|(id, _)| *id).collect();
+    ids.sort_unstable();
+    named.sort_unstable();
+    assert_eq!(ids, named, "every area of the table, and no other");
+    for (id, reveal) in table {
+        let def = disk::AREAS.iter().find(|d| d.id == *id).unwrap();
+        assert_eq!(def.reveal, *reveal, "{id}");
+    }
+}
+
+#[test]
+fn the_report_carries_each_areas_reveal() {
+    let fx = Fixture::new();
+    fx.file("Applications/App.app/x", 4096);
+    fx.file("Library/Updates/update.pkg", 4096);
+    fx.file("private/etc/x", 4096);
+    let r = fx.measure(&diskutil(1 << 40), &DiskOptions::default());
+    let json = serde_json::to_value(&r).unwrap();
+    let reveal = |id: &str| {
+        let areas = json["areas"].as_array().unwrap();
+        areas.iter().find(|a| a["id"] == id).unwrap().get("reveal").cloned()
+    };
+    assert_eq!(reveal("applications"), Some(serde_json::json!("finder")));
+    assert_eq!(reveal("macos-update"), Some(serde_json::json!("software-update")));
+    assert_eq!(reveal("private"), None, "no key for a row with nothing to press");
+}
+
+#[test]
+fn the_disk_schema_names_area_reveal() {
+    let schema = serde_json::to_value(schemars::schema_for!(DiskReport)).unwrap();
+    let def = &schema["$defs"]["AreaReveal"];
+    // `enum: [...]`, or `oneOf` with a `const` per documented variant.
+    fn values(v: &serde_json::Value, out: &mut Vec<String>) {
+        match v {
+            serde_json::Value::Object(map) => {
+                for (key, value) in map {
+                    match (key.as_str(), value) {
+                        ("enum", serde_json::Value::Array(items)) => {
+                            out.extend(items.iter().filter_map(|i| i.as_str().map(str::to_owned)))
+                        }
+                        ("const", serde_json::Value::String(s)) => out.push(s.clone()),
+                        _ => values(value, out),
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => items.iter().for_each(|i| values(i, out)),
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    values(def, &mut found);
+    found.sort_unstable();
+    assert_eq!(found, ["finder", "software-update"], "{def}");
 }
 
 #[test]

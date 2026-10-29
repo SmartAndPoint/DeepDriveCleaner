@@ -250,6 +250,7 @@ struct ContractTests {
         #expect(Set(try values(disk, "ContainerSource")) == Set(DiskReport.ContainerSource.allCases.map(\.rawValue)))
         #expect(Set(try values(disk, "HomeSource")) == Set(DiskReport.HomeSource.allCases.map(\.rawValue)))
         #expect(Set(try values(disk, "ActionId")) == Set(DiskReport.ActionId.allCases.map(\.rawValue)))
+        #expect(Set(try values(disk, "AreaReveal")) == Set(DiskReport.AreaReveal.allCases.map(\.rawValue)))
         #expect(Set(try values(disk, "SimulatorStatus")) == Set(DiskReport.SimulatorStatus.allCases.map(\.rawValue)))
         #expect(Set(try values(disk, "InconsistentCause")) == Set(DiskReport.InconsistentCause.allCases.map(\.rawValue)))
         #expect(Set(try values(disk, "HeldKind")) == Set(DiskReport.HeldKind.allCases.map(\.rawValue)))

@@ -6,7 +6,8 @@ import Foundation
 ///
 /// As with `ScanReport`, the schema version is read first: a report of
 /// another version is unreadable as a whole, never half-decoded. Every enum
-/// is strict: an unknown value is a decoding error.
+/// is strict: an unknown value is a decoding error, except `AreaReveal`: an
+/// unknown one is no button.
 public struct DiskReport: Decodable, Sendable, Equatable {
     /// `DISK_SCHEMA_VERSION` of the CLI this app embeds.
     public static let schemaVersion = 1
@@ -92,6 +93,9 @@ public struct DiskReport: Decodable, Sendable, Equatable {
         public let explanation: String
         public let frees: String
         public let action: ActionId?
+        /// Show in Finder or Open Software Update; nil for a row with
+        /// nothing to press, and for a value this app does not know.
+        public let reveal: AreaReveal?
         public let bytes: UInt64
         public let sharedBytes: UInt64
         public let files: UInt64
@@ -105,6 +109,39 @@ public struct DiskReport: Decodable, Sendable, Equatable {
         public let stale: Bool?
 
         public var measuredBeforeAction: Bool { stale == true }
+
+        private enum CodingKeys: String, CodingKey {
+            case id, paths, parent, title, explanation, frees, action, reveal, bytes, sharedBytes, files, dirs
+            case unreadable, partial, entriesRead, stale
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            paths = try c.decode([String].self, forKey: .paths)
+            parent = try c.decodeIfPresent(String.self, forKey: .parent)
+            title = try c.decode(String.self, forKey: .title)
+            explanation = try c.decode(String.self, forKey: .explanation)
+            frees = try c.decode(String.self, forKey: .frees)
+            action = try c.decodeIfPresent(ActionId.self, forKey: .action)
+            reveal = try c.decodeIfPresent(String.self, forKey: .reveal).flatMap(AreaReveal.init(rawValue:))
+            bytes = try c.decode(UInt64.self, forKey: .bytes)
+            sharedBytes = try c.decode(UInt64.self, forKey: .sharedBytes)
+            files = try c.decode(UInt64.self, forKey: .files)
+            dirs = try c.decode(UInt64.self, forKey: .dirs)
+            unreadable = try c.decode(UInt64.self, forKey: .unreadable)
+            partial = try c.decode(Bool.self, forKey: .partial)
+            entriesRead = try c.decodeIfPresent(UInt64.self, forKey: .entriesRead)
+            stale = try c.decodeIfPresent(Bool.self, forKey: .stale)
+        }
+    }
+
+    /// Where the app sends the user for an area it does not free itself
+    /// (story "Whole disk: Show in Finder and the honest action for each
+    /// row"). Not `Decodable`: `Area` reads it leniently.
+    public enum AreaReveal: String, Sendable, CaseIterable {
+        case finder
+        case softwareUpdate = "software-update"
     }
 
     public enum SimulatorStatus: String, Decodable, Sendable, CaseIterable {

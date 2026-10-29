@@ -4,7 +4,7 @@
 //! `/usr/share/firmlinks`, `/Applications` and the Data path are one folder,
 //! and the Data path alone counts it once.
 
-use super::model::ActionId;
+use super::model::{ActionId, AreaReveal};
 
 pub struct AreaDef {
     pub id: &'static str,
@@ -19,6 +19,9 @@ pub struct AreaDef {
     pub explanation: &'static str,
     pub frees: &'static str,
     pub action: Option<ActionId>,
+    /// Where the app sends the user, besides `action` (story "Whole disk:
+    /// Show in Finder and the honest action for each row").
+    pub reveal: Option<AreaReveal>,
     /// Walked under the entry budget ([`super::DiskOptions::temp_entry_budget`]).
     pub budgeted: bool,
 }
@@ -33,6 +36,7 @@ const fn area(id: &'static str, paths: &'static [&'static str], title: &'static 
         explanation: "",
         frees: "",
         action: None,
+        reveal: None,
         budgeted: false,
     }
 }
@@ -42,11 +46,13 @@ pub static AREAS: &[AreaDef] = &[
     AreaDef {
         explanation: "Apps installed for every user of this Mac.",
         frees: "Delete an app you no longer use in Finder, or with its own uninstaller.",
+        reveal: Some(AreaReveal::Finder),
         ..area("applications", &["Applications"], "Applications")
     },
     AreaDef {
         explanation: "Support files, caches, fonts and plug-ins of apps for every user, and system settings.",
         frees: "The app that put them there, or its uninstaller.",
+        reveal: Some(AreaReveal::Finder),
         ..area("library", &["Library"], "Library for all users")
     },
     AreaDef {
@@ -57,11 +63,13 @@ pub static AREAS: &[AreaDef] = &[
     AreaDef {
         explanation: "Package managers and tools installed in /opt.",
         frees: "The tool that installed them.",
+        reveal: Some(AreaReveal::Finder),
         ..area("opt", &["opt"], "/opt")
     },
     AreaDef {
         explanation: "Tools installed by hand or by installers.",
         frees: "The installer's uninstaller.",
+        reveal: Some(AreaReveal::Finder),
         ..area("usr-local", &["usr/local"], "/usr/local")
     },
     AreaDef {
@@ -76,13 +84,15 @@ pub static AREAS: &[AreaDef] = &[
     },
     AreaDef {
         explanation: "Memory dumps written when a process crashes, if core dumps are on.",
-        frees: "Delete them in Terminal with an administrator's password.",
+        frees: "Delete them in Finder; it asks for an administrator's password.",
+        reveal: Some(AreaReveal::Finder),
         ..area("cores", &["cores"], "Crash dumps")
     },
     AreaDef {
         explanation: "A macOS update downloaded and waiting to be installed.",
         frees: "Installing the update.",
         parent: Some("library"),
+        reveal: Some(AreaReveal::SoftwareUpdate),
         ..area("macos-update", &["Library/Updates"], "Downloaded macOS update")
     },
     AreaDef {
@@ -90,6 +100,7 @@ pub static AREAS: &[AreaDef] = &[
         explanation: "Simulator runtimes of Xcode, with the caches and images CoreSimulator keeps beside them.",
         frees: "Deleting a runtime you no longer use with simctl.",
         action: Some(ActionId::SimctlRuntimeDelete),
+        reveal: Some(AreaReveal::Finder),
         ..area("simulator-runtimes", &["Library/Developer/CoreSimulator"], "Simulator runtimes")
     },
     AreaDef {
@@ -97,12 +108,14 @@ pub static AREAS: &[AreaDef] = &[
         frees: "brew cleanup removes old versions and old downloads.",
         action: Some(ActionId::BrewCleanup),
         parent: Some("opt"),
+        reveal: Some(AreaReveal::Finder),
         ..area("homebrew", &["opt/homebrew"], "Homebrew")
     },
     AreaDef {
         explanation: "A conda installation with its environments and package cache.",
         frees: "conda clean --all removes the package cache; conda env remove removes an environment.",
         parent: Some("opt"),
+        reveal: Some(AreaReveal::Finder),
         ..area("conda", &["opt/miniconda3", "opt/anaconda3", "opt/miniforge3"], "Conda")
     },
     AreaDef {
@@ -129,6 +142,7 @@ pub static AREAS: &[AreaDef] = &[
         explanation: "The Shared folder every user can write to.",
         frees: "Delete what you no longer need in Finder.",
         parent: Some("users"),
+        reveal: Some(AreaReveal::Finder),
         ..area("shared", &["Users/Shared"], "Shared folder")
     },
 ];

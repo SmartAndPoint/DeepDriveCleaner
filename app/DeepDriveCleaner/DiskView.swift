@@ -211,6 +211,9 @@ private struct DiskRow: View {
                 }
             }
             Spacer(minLength: 12)
+            if let reveal = row.reveal {
+                RevealButton(reveal: reveal).controlSize(.small)
+            }
             if let offer = row.offer {
                 Button(offer.buttonTitle) { Task { await model.previewAction(offer) } }
                     .controlSize(.small)
@@ -221,5 +224,8 @@ private struct DiskRow: View {
         .padding(.leading, row.nested ? 24 : 0)
         .padding(.vertical, 8)
         .accessibilityElement(children: .combine)
+        .contextMenu {
+            if let reveal = row.reveal { RevealButton(reveal: reveal) }
+        }
     }
 }

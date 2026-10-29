@@ -53,6 +53,47 @@ public enum AreaActions {
         }
     }
 
+    /// A row's way out where DeepDriveCleaner does not act itself (story
+    /// "Whole disk: Show in Finder and the honest action for each row").
+    public enum Reveal: Sendable, Equatable {
+        /// The folders to select, by the paths the user knows.
+        case finder([String])
+        case softwareUpdate
+
+        public var title: String {
+            switch self {
+            case .finder: "Show in Finder"
+            case .softwareUpdate: "Open Software Update"
+            }
+        }
+    }
+
+    /// The Software Update pane of System Settings.
+    public static let softwareUpdateURL = URL(string: "x-apple.systempreferences:com.apple.Software-Update-Settings.extension")!
+
+    /// The area's reveal, its paths through the firmlinks.
+    public static func reveal(_ area: DiskReport.Area) -> Reveal? {
+        switch area.reveal {
+        case .finder: .finder(area.paths.map(userPath))
+        case .softwareUpdate: .softwareUpdate
+        case nil: nil
+        }
+    }
+
+    /// `/System/Volumes/Data/opt/miniconda3` → `/opt/miniconda3`: the
+    /// disk report spells areas through the Data volume, and Finder would
+    /// open inside it. Only at a path boundary.
+    public static func userPath(_ path: String) -> String {
+        let data = "/System/Volumes/Data"
+        if path == data { return "/" }
+        return path.hasPrefix(data + "/") ? String(path.dropFirst(data.count)) : path
+    }
+
+    /// The paths that exist now: a folder may be gone since the report.
+    public static func existing(_ paths: [String], exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> [String] {
+        paths.filter(exists)
+    }
+
     /// The offers of `report`, by the id of the row they belong to: the
     /// Homebrew area's row, and one row per runtime (`runtimeRowID`).
     public static func offers(_ report: DiskReport) -> [String: Offer] {

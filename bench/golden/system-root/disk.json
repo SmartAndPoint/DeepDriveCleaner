@@ -11,6 +11,7 @@
       "paths": [
         "<run>/tree/System/Volumes/Data/Applications"
       ],
+      "reveal": "finder",
       "shared_bytes": 0,
       "title": "Applications",
       "unreadable": 0
@@ -26,6 +27,7 @@
       "paths": [
         "<run>/tree/System/Volumes/Data/Library"
       ],
+      "reveal": "finder",
       "shared_bytes": 0,
       "title": "Library for all users",
       "unreadable": 0
@@ -56,6 +58,7 @@
       "paths": [
         "<run>/tree/System/Volumes/Data/opt"
       ],
+      "reveal": "finder",
       "shared_bytes": 0,
       "title": "/opt",
       "unreadable": 0
@@ -71,6 +74,7 @@
       "paths": [
         "<run>/tree/System/Volumes/Data/usr/local"
       ],
+      "reveal": "finder",
       "shared_bytes": 0,
       "title": "/usr/local",
       "unreadable": 0
@@ -110,12 +114,13 @@
       "dirs": 21,
       "explanation": "Memory dumps written when a process crashes, if core dumps are on.",
       "files": 84,
-      "frees": "Delete them in Terminal with an administrator's password.",
+      "frees": "Delete them in Finder; it asks for an administrator's password.",
       "id": "cores",
       "partial": false,
       "paths": [
         "<run>/tree/System/Volumes/Data/cores"
       ],
+      "reveal": "finder",
       "shared_bytes": 0,
       "title": "Crash dumps",
       "unreadable": 0
@@ -132,6 +137,7 @@
       "paths": [
         "<run>/tree/System/Volumes/Data/Library/Updates"
       ],
+      "reveal": "software-update",
       "shared_bytes": 0,
       "title": "Downloaded macOS update",
       "unreadable": 0
@@ -148,6 +154,7 @@
       "paths": [
         "<run>/tree/System/Volumes/Data/Library/Developer/CoreSimulator"
       ],
+      "reveal": "finder",
       "shared_bytes": 0,
       "title": "Simulator runtimes",
       "unreadable": 0
@@ -165,6 +172,7 @@
       "paths": [
         "<run>/tree/System/Volumes/Data/opt/homebrew"
       ],
+      "reveal": "finder",
       "shared_bytes": 0,
       "title": "Homebrew",
       "unreadable": 0
@@ -231,6 +239,7 @@
       "paths": [
         "<run>/tree/System/Volumes/Data/Users/Shared"
       ],
+      "reveal": "finder",
       "shared_bytes": 0,
       "title": "Shared folder",
       "unreadable": 0

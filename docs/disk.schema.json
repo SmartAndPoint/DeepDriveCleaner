@@ -157,6 +157,17 @@
             "type": "string"
           }
         },
+        "reveal": {
+          "description": "What the app offers besides the tool's action; absent for an area\nthat has nothing to press.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AreaReveal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "shared_bytes": {
           "description": "Bytes of hard-linked files that also have links outside this area.",
           "type": "integer",
@@ -189,6 +200,21 @@
         "dirs",
         "unreadable",
         "partial"
+      ]
+    },
+    "AreaReveal": {
+      "description": "Where the app sends the user for an area it does not free itself\n(story \"Whole disk: Show in Finder and the honest action for each row\").",
+      "oneOf": [
+        {
+          "description": "Show in Finder: the area's folders, by their firmlinked paths.",
+          "type": "string",
+          "const": "finder"
+        },
+        {
+          "description": "Open Software Update in System Settings.",
+          "type": "string",
+          "const": "software-update"
+        }
       ]
     },
     "Container": {

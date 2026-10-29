@@ -210,6 +210,7 @@ pub fn measure_with(
                 explanation: def.explanation.to_owned(),
                 frees: def.frees.to_owned(),
                 action: def.action,
+                reveal: def.reveal,
                 bytes: t.bytes,
                 shared_bytes: t.shared_bytes,
                 files: t.files,
