@@ -424,6 +424,14 @@ public final class ReviewModel: ReviewRouting {
         let selectable = scope.filter { items?.row($0)?.selectable == true }.count
         return Wording.scopeSummary(selected: rows.count, of: selectable, bytes: rows.reduce(0) { $0 + $1.finding.bytes })
     }
+
+    /// A User data folder's picked row: "2 picked · 3.1 GiB", counted as the
+    /// sheet counts them.
+    public func pickedSummary(_ scope: [Int]) -> String {
+        let rows = selectedRows(in: scope)
+        return Wording.picked(count: rows.count, bytes: rows.reduce(0) { $0 + $1.finding.bytes })
+    }
+
     /// "frees about": `native-only` items left out, as `Confirmation.reclaimable` does.
     public var selectedReclaimable: UInt64 {
         selectedRows.filter { $0.action != .nativeOnly }.reduce(0) { $0 + $1.finding.reclaimableBytes }

@@ -51,6 +51,18 @@ public enum Wording {
         "Clean \(number(count)) from \(group)…"
     }
 
+    /// A User data folder's own button (story "User data: move a folder's
+    /// picked files to the Trash from that folder"): "Move 2 from Movies to
+    /// the Trash…"; with nothing picked, "Move to the Trash…".
+    public static func moveFrom(_ count: Int, group: String) -> String {
+        count == 0 ? "Move to the Trash…" : "Move \(number(count)) from \(group) to the Trash…"
+    }
+
+    /// That folder's row: "2 picked · 3.1 GiB", or what to do with nothing picked.
+    public static func picked(count: Int, bytes: UInt64) -> String {
+        count == 0 ? "Pick files below to move them to the Trash" : "\(number(count)) picked · \(ByteSize.human(bytes))"
+    }
+
     /// What a group's Select all row acts on: "2 of 3 · 7.2 GiB"; with
     /// nothing selected, "0 of 3".
     public static func scopeSummary(selected: Int, of total: Int, bytes: UInt64) -> String {

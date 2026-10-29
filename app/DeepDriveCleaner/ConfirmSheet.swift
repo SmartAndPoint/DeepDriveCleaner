@@ -38,7 +38,7 @@ private struct ConfirmView: View {
         let home = confirmation.home
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Clean \(Wording.items(confirmation.items.count))?").font(.system(size: 20, weight: .semibold))
+                Text(CleanWording.sheetTitle(confirmation)).font(.system(size: 20, weight: .semibold))
                 Text(CleanWording.sheetHeader(sheet))
                     .foregroundStyle(.secondary)
                 if let notCounted = CleanWording.notCounted(confirmation) {
@@ -101,7 +101,7 @@ private struct ConfirmView: View {
                 Button("Back to Review") { model.closeSheet() }.keyboardShortcut(.cancelAction)
                 // Not the default button: Return never starts a clean. Off while
                 // the check runs, and when every item would be skipped.
-                Button("Clean \(Wording.items(confirmation.items.count))", role: .destructive) { model.cleanConfirmedItems() }
+                Button(CleanWording.sheetAction(confirmation), role: .destructive) { model.cleanConfirmedItems() }
                     .buttonStyle(.borderedProminent)
                     .disabled(model.isCleaning || !sheet.cleanAllowed)
             }

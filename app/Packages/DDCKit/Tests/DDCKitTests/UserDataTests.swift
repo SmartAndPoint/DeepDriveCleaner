@@ -5,12 +5,14 @@ import Testing
 /// The groups report with the user's own folders listing entries (story
 /// "User data: pick your own files for the Trash"). Findings 0 to 10 as in
 /// `ReviewFixture`, then 11, a `node_modules` inside `~/Downloads/Project`.
-/// Downloads lists four entries and Pictures two; their rows follow.
+/// Downloads lists four entries and Pictures two; their rows follow. With
+/// `movies`, 12 Movies (two entries and the iMovie library), 13 Telegram and
+/// 14 WhatsApp (no entries) come before them.
 enum UserDataFixture {
     static let home = "/Users/example"
     static let downloadsBytes: UInt64 = 3_000_000_000
 
-    static func report(skipped: [(path: String, reason: String)] = []) throws -> Data {
+    static func report(skipped: [(path: String, reason: String)] = [], movies: Bool = false) throws -> Data {
         var json = try #require(try JSONSerialization.jsonObject(with: Fixture.data("scan-report-groups")) as? [String: Any])
         var findings = try #require(json["findings"] as? [[String: Any]])
         var nested = findings[4]
@@ -36,13 +38,32 @@ enum UserDataFixture {
             "rest_count": 0,
             "rest_bytes": 0,
         ]
+        if movies {
+            var folder = findings[10]
+            folder.removeValue(forKey: "contents")
+            for (n, name) in ["Movies", "Telegram", "WhatsApp"].enumerated() {
+                folder["path"] = "\(home)/\(name)"
+                folder["rule"] = "user.\(name.lowercased())"
+                folder["ino"] = 300 + n
+                findings.append(folder)
+            }
+            findings[12]["contents"] = [
+                "entries": [
+                    entry("Movies/Holiday.mov", "file", 2_000_000_000, ino: 301),
+                    entry("Movies/Export", "folder", 900_000_000, ino: 302),
+                    entry("Movies/iMovie Library.imovielibrary", "folder", 500_000_000, ino: 303, ["lock": ["reason": "app-managed", "app": "iMovie"]]),
+                ],
+                "rest_count": 0,
+                "rest_bytes": 0,
+            ]
+        }
         json["findings"] = findings
         json["skipped"] = skipped.map { ["path": "\(home)/\($0.path)", "reason": $0.reason] }
         return try JSONSerialization.data(withJSONObject: json)
     }
 
-    static func items(skipped: [(path: String, reason: String)] = []) throws -> ReviewItems {
-        ReviewItems.make(report: try ScanReport.read(report(skipped: skipped)), settings: try Fixture.groupsSettings(), rules: try Fixture.rules())
+    static func items(skipped: [(path: String, reason: String)] = [], movies: Bool = false) throws -> ReviewItems {
+        ReviewItems.make(report: try ScanReport.read(report(skipped: skipped, movies: movies)), settings: try Fixture.groupsSettings(), rules: try Fixture.rules())
     }
 
     private static func entry(_ rel: String, _ kind: String, _ bytes: UInt64, ino: Int, _ extra: [String: Any] = [:]) -> [String: Any] {

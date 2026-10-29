@@ -160,10 +160,28 @@ struct ContractTests {
         let confirmed = try #require(run.firstMatch(of: /func cleanConfirmedItems\(\)[\s\S]*?\n    }\n/))
         #expect(confirmed.output.contains(/guard let sheet, sheet\.cleanAllowed,/), "cleanConfirmedItems() guards on cleanAllowed")
         let sheet = try #require(sources["ConfirmSheet.swift"])
-        let button = try #require(sheet.firstMatch(of: /Button\("Clean [^\n]*\{ model\.cleanConfirmedItems\(\) \}\n(?:\s*\.[^\n]*\n)*/))
+        // The label is computed ("Clean 2 items", "Move to the Trash"): the
+        // button is found by its call.
+        let button = try #require(sheet.firstMatch(of: /Button\([^\n]*\{ model\.cleanConfirmedItems\(\) \}\n(?:\s*\.[^\n]*\n)*/))
+        #expect(button.output.contains("role: .destructive"))
         #expect(button.output.contains(/\.disabled\([^\n]*!sheet\.cleanAllowed/), "the Clean button is off unless the clean is allowed")
         let summary = try #require(sources["SkipSummary.swift"])
         #expect(summary.contains(/stage == \.confirm && warnings != \.checking && !skipSummary\.nothingToClean/))
+    }
+
+    @Test("a User data folder draws no Select all; its Move row has no checkbox and only opens the scoped sheet")
+    func userDataPickedRow() throws {
+        // Story "User data: move a folder's picked files to the Trash from that folder".
+        let view = try #require(try appSources()["ReviewGroupsView.swift"])
+        #expect(view.matches(of: /SelectAllRow\(/).count == 1, "drawn in one place")
+        #expect(view.contains(/if let all = layout\.selectAll[^\n]*\{\n\s*SelectAllRow\(/), "only where the layout has Select all")
+        let row = try #require(view.firstMatch(of: /struct PickedRow[\s\S]*?\n}\n/)).output
+        for forbidden in ["CheckBox(", "toggleAll(", "set(", "selection", "cleanConfirmedItems"] {
+            #expect(!row.contains(forbidden), "PickedRow uses \(forbidden)")
+        }
+        #expect(row.matches(of: /Button\s*[({]/).count == 1, "one button")
+        let actions = row.matches(of: /Button\s*\{([^}]*)\}/).map { $0.1.trimmingCharacters(in: .whitespaces) }
+        #expect(actions == ["model.openSheet(scope: ids)"])
     }
 
     @Test("the result's Scan Again closes the sheet and runs only the window's scanAgain(); the closing sheet draws its last stage")

@@ -23,6 +23,9 @@ struct GroupView: View {
             if let all = layout.selectAll, !all.isEmpty {
                 SelectAllRow(model: model, ids: all, group: entry.group, total: "\(Wording.items(layout.count, "folder")) · \(ByteSize.human(layout.bytes))")
                 Divider()
+            } else if !layout.pickScope.isEmpty {
+                PickedRow(model: model, ids: layout.pickScope, group: entry.group)
+                Divider()
             }
             if layout.count == 0 && layout.lines(collapsed: []).isEmpty {
                 if model.query.isEmpty {
@@ -138,6 +141,38 @@ private struct SelectAllRow: View {
             }
         }
         // The list's rows start about 16 pt in: line its checkbox up with theirs.
+        .padding(.leading, 16 + GroupView.checkIndent)
+        .padding(.trailing, 20)
+        .frame(minHeight: 40)
+        .background(Color.primary.opacity(0.04))
+    }
+}
+
+/// A User data folder's picked entries: no checkbox, since nothing here is
+/// picked for the user; its button moves the picks among them only (story
+/// "User data: move a folder's picked files to the Trash from that folder").
+private struct PickedRow: View {
+    @Bindable var model: ReviewModel
+    let ids: [Int]
+    /// The sidebar group, for "Move 2 from Movies to the Trash…".
+    let group: String
+
+    var body: some View {
+        let label = Wording.moveFrom(model.selectedRows(in: ids).count, group: group)
+        HStack(spacing: 10) {
+            Text(model.pickedSummary(ids)).font(.system(size: 12)).foregroundStyle(.secondary).monospacedDigit().fixedSize()
+            Spacer()
+            // The same sheet as Clean N items…, holding this folder's picks
+            // only. No shortcut: Return stays the footer's.
+            Button { model.openSheet(scope: ids) } label: {
+                Text(label).lineLimit(1).truncationMode(.middle)
+            }
+            .buttonStyle(.bordered)
+            .frame(maxWidth: 320)
+            .help(label)
+            .disabled(!model.canClean(scope: ids))
+        }
+        // In line with the rows' checkboxes.
         .padding(.leading, 16 + GroupView.checkIndent)
         .padding(.trailing, 20)
         .frame(minHeight: 40)

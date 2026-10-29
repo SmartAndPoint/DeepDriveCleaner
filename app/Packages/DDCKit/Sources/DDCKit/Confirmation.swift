@@ -91,6 +91,9 @@ public struct Confirmation: Sendable, Equatable {
     private var counting: [Item] { items.filter { $0.effectiveAction != .nativeOnly } }
     /// Items the Trash takes: the space stays used until it is emptied.
     public var trashCount: Int { items.filter { $0.effectiveAction == .trash }.count }
+    /// Every item goes to the Trash, by its action as the sheet now sets it:
+    /// the sheet says "Move", not "Clean".
+    public var movesOnlyToTrash: Bool { !items.isEmpty && trashCount == items.count }
 
     /// "Safe · 1,919 items · 76.5 GiB", for every class that has items.
     public var classRows: [ClassRow] {

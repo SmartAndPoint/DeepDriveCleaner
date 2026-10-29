@@ -153,6 +153,11 @@ public struct GroupLayout: Sendable, Equatable {
     public let notScanned: [String]
     /// The Trash's group: an Open the Trash button, nothing to select.
     public internal(set) var opensTrash = false
+    /// The entries shown that can be picked, which the folder's Move button
+    /// acts on (story "User data: move a folder's picked files to the Trash
+    /// from that folder"). Empty for every shape but the entries one, so a
+    /// group never has both this and Select all.
+    public internal(set) var pickScope: [Int] = []
 
     /// The lines with folded subgroups showing their heading only.
     public func lines(collapsed: Set<Key>) -> [Line] {
@@ -259,7 +264,8 @@ extension ReviewItems {
             bytes: items.reduce(0) { $0 + $1.row.finding.bytes },
             blocks: items.isEmpty ? [] : [.entries(Self.ordered(items))],
             rest: count == 0 ? nil : CleanWording.rest(count: count, bytes: bytes),
-            notScanned: []
+            notScanned: [],
+            pickScope: items.filter { $0.row.selectable }.map(\.id)
         )
     }
 

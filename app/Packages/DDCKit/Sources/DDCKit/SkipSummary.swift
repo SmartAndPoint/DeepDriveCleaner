@@ -56,6 +56,19 @@ extension ReviewModel.Sheet {
 }
 
 extension CleanWording {
+    /// The sheet's title: "Move 2 items to the Trash?" when every item goes
+    /// there (story "User data: move a folder's picked files to the Trash
+    /// from that folder"), otherwise "Clean 2 items?".
+    public static func sheetTitle(_ confirmation: Confirmation) -> String {
+        let items = Wording.items(confirmation.items.count)
+        return confirmation.movesOnlyToTrash ? "Move \(items) to the Trash?" : "Clean \(items)?"
+    }
+
+    /// The sheet's button, worded as its title.
+    public static func sheetAction(_ confirmation: Confirmation) -> String {
+        confirmation.movesOnlyToTrash ? "Move to the Trash" : "Clean \(Wording.items(confirmation.items.count))"
+    }
+
     /// The sheet's header: "1.6 GiB selected · frees about 0.4 GiB; 1.2 GiB
     /// will be skipped", or "… frees about 1.6 GiB before the check" while
     /// the check waits for a scan.
