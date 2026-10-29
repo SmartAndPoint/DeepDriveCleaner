@@ -452,3 +452,96 @@ fn a_conda_action_under_a_held_lock_exits_75_and_runs_no_conda() {
     assert!(fx.root.join("sys/System/Volumes/Data/opt/miniconda3/envs/old").exists());
     drop(held);
 }
+
+// Story "Whole disk: free the checked areas in one sheet": the app's checked
+// list is one `--actions` list of several actions, run in order under one lock.
+
+const ASSET_B: &str = "sys/System/Library/AssetsV2/com_apple_MobileAsset_iOSSimulatorRuntime/b.asset";
+const TWO_RUNTIMES: &str = r#"{"schema_version": 3, "actions": [{"action": "simctl-runtime-delete", "identifier": "A"}, {"action": "simctl-runtime-delete", "identifier": "B"}]}"#;
+
+impl Fx {
+    /// A second downloaded runtime, `B`, in its own asset folder beside
+    /// `A`'s; simctl lists each until its own `deleted-<id>` marker exists.
+    fn with_two_runtimes(self) -> Self {
+        let r = self.root.display().to_string();
+        self.write(&format!("{ASSET_B}/AssetData/runtime.dmg"), 200_000);
+        let runtime = |id: &str, version: &str, size: u32, asset: &str| {
+            let data = format!("{r}/{asset}/AssetData");
+            format!(
+                r#""{id}": {{"identifier": "{id}", "runtimeIdentifier": "com.apple.CoreSimulator.SimRuntime.iOS-{}", "version": "{version}", "sizeBytes": {size}, "deletable": true, "state": "Ready", "path": "{data}", "parentMountPath": "{data}"}}"#,
+                version.replace('.', "-")
+            )
+        };
+        let a = runtime("A", "27.1", 300_000, ASSET);
+        let b = runtime("B", "26.0", 200_000, ASSET_B);
+        self.tool(
+            &format!("sys/{SIMCTL}"),
+            &format!(
+                r#"echo "$* | $DEVELOPER_DIR" >> {r}/simctl-calls
+case "$*" in
+  "runtime list -j")
+    sep=""
+    printf '{{'
+    if [ ! -f {r}/deleted-A ]; then printf '%s' '{a}'; sep=","; fi
+    if [ ! -f {r}/deleted-B ]; then printf '%s%s' "$sep" '{b}'; fi
+    echo '}}' ;;
+  "list devices -j") echo '{{"devices": {{}}}}' ;;
+  "runtime delete A --dry-run") echo "Would delete runtime A" ;;
+  "runtime delete B --dry-run") echo "Would delete runtime B" ;;
+  "runtime delete A") : > {r}/deleted-A; /bin/rm -rf {r}/{ASSET} ;;
+  "runtime delete B") : > {r}/deleted-B; /bin/rm -rf {r}/{ASSET_B} ;;
+  *) exit 1 ;;
+esac"#
+            ),
+        );
+        self
+    }
+}
+
+#[test]
+fn two_runtimes_in_one_list_run_in_order_each_journaled_and_both_leave_the_saved_disk_report() {
+    let fx = Fx::new().with_two_runtimes();
+    let disk = fx.ddc(&["--json"]).output().unwrap();
+    assert!(disk.status.success(), "{}", String::from_utf8_lossy(&disk.stderr));
+    let before = store::read_last_disk(&fx.env()).unwrap().unwrap().simulators.unwrap();
+    let listed: Vec<&str> = before.runtimes.iter().map(|rt| rt.identifier.as_str()).collect();
+    assert_eq!(listed.len(), 2, "{listed:?}");
+    assert_eq!(before.listed_bytes, 500_000);
+    fs::write(fx.root.join("simctl-calls"), "").unwrap();
+
+    // The sheet's dry run: both in one call, each would run, nothing changes.
+    let dry = fx.free(TWO_RUNTIMES, &["--dry-run", "--json"]);
+    assert!(dry.status.success(), "{}", String::from_utf8_lossy(&dry.stderr));
+    let preview = report(&dry);
+    let ids: Vec<Option<&str>> = preview.actions.iter().map(|a| a.identifier.as_deref()).collect();
+    assert_eq!(ids, [Some("A"), Some("B")]);
+    assert!(preview.actions.iter().all(|a| a.result == ActionResult::WouldRun));
+    assert!(fx.journal().is_empty() && !fx.root.join("deleted-A").exists() && !fx.root.join("deleted-B").exists());
+
+    let out = fx.free(TWO_RUNTIMES, &["--json"]);
+
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let r = report(&out);
+    let ids: Vec<Option<&str>> = r.actions.iter().map(|a| a.identifier.as_deref()).collect();
+    assert_eq!(ids, [Some("A"), Some("B")], "one report per action, in the list's order");
+    assert!(r.actions.iter().all(|a| a.result == ActionResult::Freed), "{:?}", r.actions);
+    let root = fx.root.display();
+    let deletes: Vec<String> =
+        fx.calls("simctl").into_iter().filter(|c| c.contains("delete") && !c.contains("dry-run")).collect();
+    assert_eq!(deletes, [format!("runtime delete A | {root}/sys/Dev"), format!("runtime delete B | {root}/sys/Dev")]);
+
+    let journal = fx.journal();
+    assert_eq!(journal.len(), 2, "one line per action");
+    for (line, id) in journal.iter().zip(["A", "B"]) {
+        assert_eq!(line["kind"], "area-action");
+        assert_eq!(line["identifier"], id);
+        assert_eq!(line["result"]["status"], "freed");
+    }
+
+    assert_eq!(r.last_disk, ReportEdit::Edited);
+    let saved = store::read_last_disk(&fx.env()).unwrap().unwrap();
+    assert!(saved.areas.iter().find(|a| a.id == "simulator-runtimes").unwrap().stale);
+    let sims = saved.simulators.unwrap();
+    assert!(sims.runtimes.is_empty(), "both left the list");
+    assert_eq!(sims.listed_bytes, 0, "the sum of those that remain");
+}
