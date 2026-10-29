@@ -54,6 +54,42 @@ impl Visitor for Alone {
     }
 }
 
+/// [`allocated`] of each of `paths`, in one walk: an inode two of them
+/// share is counted under the first that reaches it. `Some(0)` for one
+/// that does not exist; `None` for one under a skip, one that cannot be
+/// read, or one inside another of them. A skip is compared with each path
+/// as given and with every link in it resolved: brew spells the Cellar
+/// through `/opt`, the skips are canonical.
+pub(crate) fn regions(paths: &[PathBuf], skips: &[PathBuf]) -> Vec<Option<u64>> {
+    let skipped = |p: &Path| skips.iter().any(|s| p.starts_with(s) || s.starts_with(p));
+    let canonical: Vec<Option<Option<PathBuf>>> = paths
+        .iter()
+        .map(|path| {
+            if skipped(path) {
+                return None;
+            }
+            match std::fs::symlink_metadata(path) {
+                Ok(_) => path.canonicalize().ok().filter(|c| !skipped(c)).map(Some),
+                Err(e) if e.kind() == ErrorKind::NotFound => Some(None),
+                Err(_) => None,
+            }
+        })
+        .collect();
+    let roots: Vec<PathBuf> = canonical.iter().flatten().flatten().cloned().collect();
+    let walked = if roots.is_empty() {
+        None
+    } else {
+        scan::walk(&roots, &NullVisitor, &WalkOptions::default(), &Progress::default()).ok()
+    };
+    canonical
+        .into_iter()
+        .map(|c| match c? {
+            None => Some(0),
+            Some(root) => walked.as_ref()?.roots.iter().find(|r| r.path == root).map(|r| r.bytes),
+        })
+        .collect()
+}
+
 /// The sum of [`allocated`] over `paths`; `None` when any is not measured.
 pub(crate) fn allocated_all(paths: &[PathBuf], skips: &[PathBuf]) -> Option<u64> {
     paths.iter().map(|p| allocated(p, skips)).sum()

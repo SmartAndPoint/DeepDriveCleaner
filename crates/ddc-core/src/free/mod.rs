@@ -6,9 +6,9 @@
 
 pub mod brew;
 pub mod conda;
-mod measure;
+pub(crate) mod measure;
 mod model;
-mod probe;
+pub(crate) mod probe;
 mod simctl;
 
 use std::collections::HashMap;

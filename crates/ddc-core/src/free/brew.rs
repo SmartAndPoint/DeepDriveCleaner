@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use super::model::{ActionReport, ActionResult, Preview};
 use super::{FreeContext, measure, probe, report, run_failed, stopped};
+use crate::brew::Budget;
 use crate::disk::ActionId;
 
 /// Every `brew` call's environment, the probe's and the dry run's included,
@@ -27,7 +28,7 @@ pub(super) fn available(ctx: &FreeContext<'_>) -> bool {
 
 pub(super) fn dry_run(ctx: &FreeContext<'_>) -> ActionReport {
     let report = command(&ctx.sources.brew);
-    let target = match probe::brew(ctx.commands, ctx.sources, ctx.home, &BREW_ENV) {
+    let target = match probe::brew(ctx.commands, ctx.sources, ctx.home, &BREW_ENV, &Budget::new(ctx.timeout)) {
         Ok(t) => t,
         Err(reason) => return report.with(ActionResult::Refused { reason }),
     };
@@ -48,7 +49,7 @@ pub(super) fn dry_run(ctx: &FreeContext<'_>) -> ActionReport {
 
 pub(super) fn run(ctx: &FreeContext<'_>) -> ActionReport {
     let report = command(&ctx.sources.brew);
-    let target = match probe::brew(ctx.commands, ctx.sources, ctx.home, &BREW_ENV) {
+    let target = match probe::brew(ctx.commands, ctx.sources, ctx.home, &BREW_ENV, &Budget::new(ctx.timeout)) {
         Ok(t) => t,
         Err(reason) => return report.with(ActionResult::Refused { reason }),
     };

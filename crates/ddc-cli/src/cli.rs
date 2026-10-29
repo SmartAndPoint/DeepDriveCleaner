@@ -282,6 +282,22 @@ pub enum DiskAction {
     Agents(AgentsArgs),
     /// Free an area with its own tool: delete a simulator runtime, or run `brew cleanup`.
     Free(FreeArgs),
+    /// The Homebrew formulae you installed, their sizes and what they need (read-only).
+    BrewPackages(BrewPackagesArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct BrewPackagesArgs {
+    /// Print the listing as JSON (schema: docs/brew-packages.schema.json).
+    #[arg(long)]
+    pub json: bool,
+    /// Where settings.json lives (default: ~/Library/Application Support/DeepDriveCleaner).
+    #[arg(long, value_name = "DIR")]
+    pub data_dir: Option<PathBuf>,
+    /// Look for the system's folders and tools under this folder instead of
+    /// `/` (tests).
+    #[arg(long, hide = true, value_name = "DIR")]
+    pub system_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

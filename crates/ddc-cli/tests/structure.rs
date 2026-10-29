@@ -32,7 +32,11 @@ fn the_background_scan_runs_no_program_itself() {
 #[test]
 fn the_disk_report_never_reaches_cleanup() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    let mut files = vec![root.join("ddc-cli/src/cmd/disk.rs"), root.join("ddc-cli/src/cmd/disk_agents.rs")];
+    let mut files = vec![
+        root.join("ddc-cli/src/cmd/disk.rs"),
+        root.join("ddc-cli/src/cmd/disk_agents.rs"),
+        root.join("ddc-cli/src/cmd/disk_brew_packages.rs"),
+    ];
     // `ddc disk agents` too (story "Coding agents in the Whole disk view").
     for dir in ["ddc-core/src/disk", "ddc-core/src/agents"] {
         for entry in std::fs::read_dir(root.join(dir)).unwrap() {

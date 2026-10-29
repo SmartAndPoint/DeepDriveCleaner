@@ -1,13 +1,22 @@
 //! What Homebrew says is installed (story "Whole disk: Homebrew packages,
 //! their sizes, and brew uninstall"): fixtures of `brew info --json=v2
-//! --installed` and `brew services list --json`. No brew runs here.
+//! --installed` and `brew services list --json`, and the listing of `ddc
+//! disk brew-packages` from a fake `brew` and kegs in a temporary folder.
+//! No real brew runs here.
 
 mod common;
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 
-use common::TreeBuilder;
-use ddc_core::brew::{self, Graph, Service, Services, info, services};
+use common::fakes::FakeCommands;
+use common::{TreeBuilder, reference_alloc};
+use ddc_core::brew::listing::{self, ListError};
+use ddc_core::brew::{
+    self, BrewPackages, Graph, NotOffered, Package, Service, Services, ServicesState, info, services,
+};
+use ddc_core::disk::Sources;
+use ddc_core::free::Refusal;
 use serde_json::{Value, json};
 
 /// A formula of `brew info --json=v2 --installed`: each keg's version and
@@ -265,4 +274,225 @@ fn a_service_job_is_judged_by_its_status_its_user_and_its_plist() {
     assert!(!Service::Unreadable.allows_removal() && !Service::Root.allows_removal());
     assert_eq!(Services::NotKnown.of("nginx", &home), Service::NotKnown);
     assert_eq!(Services::Unreadable.of("nginx", &home), Service::Unreadable);
+}
+
+/// The Homebrew area under a temporary system root: `/opt` is the firmlink
+/// of `/System/Volumes/Data/opt`, as in `tests/disk_free.rs`.
+struct Area {
+    t: TreeBuilder,
+    sources: Sources,
+    home: PathBuf,
+}
+
+const CELLAR: &str = "sys/System/Volumes/Data/opt/homebrew/Cellar";
+
+impl Area {
+    fn new() -> Self {
+        let t = TreeBuilder::new();
+        t.dir("home/Library/Caches/Homebrew");
+        t.dir(CELLAR);
+        t.symlink("System/Volumes/Data/opt", "sys/opt");
+        let sources = Sources::under(&t.path("sys"));
+        let home = t.path("home");
+        Self { t, sources, home }
+    }
+
+    /// A keg of `len` bytes at `Cellar/<name>/<version>`.
+    fn keg(&self, name: &str, version: &str, len: usize) -> PathBuf {
+        self.t.file(&format!("{CELLAR}/{name}/{version}/bin/{name}"), len);
+        self.t.path(&format!("{CELLAR}/{name}/{version}"))
+    }
+
+    /// `brew services` is part of this brew.
+    fn with_services(&self) {
+        self.t.dir("sys/System/Volumes/Data/opt/homebrew/Library/Homebrew/services");
+    }
+
+    /// The area's `brew`, answering the probe, `info` with `installed` and
+    /// `services list` with `services`.
+    fn brew(&self, installed: &str, services: &str) -> FakeCommands {
+        let prefix = self.t.path("sys/opt/homebrew");
+        FakeCommands::default()
+            .with("brew", false, "")
+            .answer("brew", "--prefix", true, &format!("{}\n", prefix.display()))
+            .answer("brew", "--cellar", true, &format!("{}\n", prefix.join("Cellar").display()))
+            .answer("brew", "--cache", true, &format!("{}\n", self.home.join("Library/Caches/Homebrew").display()))
+            .answer("brew", "info --json=v2 --installed", true, installed)
+            .answer("brew", "services list --json", true, services)
+    }
+
+    fn list(&self, commands: &FakeCommands, skips: &[PathBuf]) -> Result<BrewPackages, ListError> {
+        listing::list(commands, &self.sources, &self.home, skips)
+    }
+}
+
+fn package<'a>(listed: &'a BrewPackages, full_name: &str) -> &'a Package {
+    listed.formulae.iter().find(|p| p.full_name == full_name).unwrap_or_else(|| panic!("{full_name} is listed"))
+}
+
+/// The fixture with `lima` and the tap's `foo` installed on request too,
+/// `curl` pinned, and `leftover` installed as a dependency nothing needs.
+fn listing_fixture() -> String {
+    let mut doc: Value = serde_json::from_str(&fixture()).unwrap();
+    for f in doc["formulae"].as_array_mut().unwrap() {
+        match f["full_name"].as_str().unwrap() {
+            "lima" | "user/tap/foo" => f["installed"][0]["installed_on_request"] = json!(true),
+            "curl" => f["pinned"] = json!(true),
+            _ => {}
+        }
+    }
+    doc["formulae"].as_array_mut().unwrap().push(formula("leftover", &[("1", false)], Some(&[])));
+    doc.to_string()
+}
+
+#[test]
+fn the_listing_measures_each_keg_and_offers_what_nothing_needs() {
+    let a = Area::new();
+    a.with_services();
+    let wget = a.keg("wget", "1.25.0", 96 * 1024);
+    let old = a.keg("python@3.13", "3.13.0", 64 * 1024);
+    let new = a.keg("python@3.13", "3.13.1", 48 * 1024);
+    let idn = a.keg("libidn2", "2.3.7", 16 * 1024);
+    let unistring = a.keg("libunistring", "1.3", 8 * 1024);
+    let commands = a.brew(&listing_fixture(), "[]");
+    let listed = a.list(&commands, &[]).unwrap();
+
+    assert_eq!(listed.schema_version, brew::BREW_PACKAGES_SCHEMA_VERSION);
+    assert_eq!(listed.services, ServicesState::Listed);
+    assert_eq!(listed.cellar, a.t.path("sys/opt/homebrew/Cellar"));
+    // On request only, largest first.
+    let names: Vec<&str> = listed.formulae.iter().map(|p| p.full_name.as_str()).collect();
+    assert_eq!(&names[..2], ["python@3.13", "wget"]);
+    assert!(!names.contains(&"openssl@3") && !names.contains(&"leftover"));
+    assert_eq!(listed.orphans, ["leftover"]);
+
+    // Sizes are ddc's, from the kegs; brew's JSON has none.
+    let w = package(&listed, "wget");
+    assert_eq!(w.kegs[0].path, a.t.path("sys/opt/homebrew/Cellar/wget/1.25.0"));
+    assert_eq!(w.bytes, Some(reference_alloc(&wget)));
+    assert_eq!(w.not_offered, None);
+    assert_eq!(w.service, Service::None);
+    assert_eq!(w.would_orphan, ["libidn2", "libunistring"]);
+    assert_eq!(w.would_orphan_bytes, Some(reference_alloc(&idn) + reference_alloc(&unistring)));
+    let openssl = w.dependencies.iter().find(|d| d.full_name == "openssl@3").unwrap();
+    assert!(!openssl.alone && !openssl.on_request);
+    assert_eq!(openssl.bytes, Some(0), "a keg not on disk measures 0");
+    assert!(w.dependencies.iter().find(|d| d.full_name == "libidn2").unwrap().alone);
+
+    // Two kegs: offered, each measured.
+    let p = package(&listed, "python@3.13");
+    assert_eq!(p.kegs.iter().map(|k| k.version.as_str()).collect::<Vec<_>>(), ["3.13.0", "3.13.1"]);
+    assert_eq!(p.kegs[0].bytes, Some(reference_alloc(&old)));
+    assert_eq!(p.kegs[1].bytes, Some(reference_alloc(&new)));
+    assert_eq!(p.bytes, Some(reference_alloc(&old) + reference_alloc(&new)));
+    assert_eq!(p.not_offered, None);
+
+    // Needed by a formula and a cask; a tap formula named by its full_name.
+    let lima = package(&listed, "lima");
+    assert_eq!(lima.not_offered, Some(NotOffered::Needed));
+    assert_eq!(lima.needed_by, ["colima"]);
+    assert_eq!(lima.needed_by_casks, ["tools"]);
+    let foo = package(&listed, "user/tap/foo");
+    assert_eq!(foo.name, "foo");
+    assert_eq!(foo.needed_by, ["bar", "baz"]);
+    assert_eq!(foo.not_offered, Some(NotOffered::Needed));
+    assert_eq!(package(&listed, "curl").not_offered, Some(NotOffered::Pinned));
+    let git = package(&listed, "git");
+    assert_eq!(git.not_offered, None);
+    assert_eq!(git.kept_pinned, ["pcre2"]);
+
+    // Every call ran under the four variables, the probe's included.
+    assert_eq!(
+        *commands.calls.borrow(),
+        [
+            "brew --prefix",
+            "brew --cellar",
+            "brew --cache",
+            "brew info --json=v2 --installed",
+            "brew services list --json"
+        ]
+    );
+    for env in commands.envs.borrow().iter() {
+        assert_eq!(*env, brew::ENV.map(|(k, v)| format!("{k}={v}")), "every brew call's environment");
+    }
+}
+
+#[test]
+fn without_brews_services_command_none_runs_and_the_state_is_not_known() {
+    let a = Area::new();
+    let commands = a.brew(&listing_fixture(), "[]");
+    let listed = a.list(&commands, &[]).unwrap();
+    assert_eq!(listed.services, ServicesState::NotKnown);
+    assert!(!commands.ran("brew services list --json"));
+    let w = package(&listed, "wget");
+    assert_eq!((w.service, w.not_offered), (Service::NotKnown, None));
+}
+
+#[test]
+fn a_service_job_keeps_its_formula_from_being_offered() {
+    let a = Area::new();
+    a.with_services();
+    let missing = a.home.join("Library/LaunchAgents/homebrew.mxcl.wget.plist");
+    let list = json!([
+        {"name": "wget", "status": "none", "user": "root", "file": missing, "exit_code": null},
+        {"name": "python@3.13", "status": "scheduled", "user": "someone", "file": null, "exit_code": null},
+    ]);
+    let listed = a.list(&a.brew(&listing_fixture(), &list.to_string()), &[]).unwrap();
+    let w = package(&listed, "wget");
+    assert_eq!((w.service, w.not_offered), (Service::Root, Some(NotOffered::Service)));
+    let p = package(&listed, "python@3.13");
+    assert_eq!((p.service, p.not_offered), (Service::Running, Some(NotOffered::Service)));
+    assert_eq!(package(&listed, "bar").not_offered, None);
+}
+
+#[test]
+fn services_that_cannot_be_read_offer_nothing() {
+    let a = Area::new();
+    a.with_services();
+    let listed = a.list(&a.brew(&listing_fixture(), "Error: not JSON"), &[]).unwrap();
+    assert_eq!(listed.services, ServicesState::Unreadable);
+    assert!(listed.formulae.iter().all(|p| p.not_offered.is_some()), "{:?}", listed.formulae);
+    assert_eq!(package(&listed, "wget").not_offered, Some(NotOffered::ServicesUnreadable));
+}
+
+#[test]
+fn a_keg_under_a_skip_is_not_measured() {
+    let a = Area::new();
+    let wget = a.keg("wget", "1.25.0", 16 * 1024);
+    let listed = a.list(&a.brew(&listing_fixture(), "[]"), &[wget]).unwrap();
+    let w = package(&listed, "wget");
+    assert_eq!((w.kegs[0].bytes, w.bytes), (None, None));
+    assert_eq!(listed.formulae.last().unwrap().full_name, "wget", "one not measured comes last");
+}
+
+#[test]
+fn a_formula_missing_a_field_offers_nothing() {
+    let a = Area::new();
+    let mut doc: Value = serde_json::from_str(&listing_fixture()).unwrap();
+    doc["formulae"][0].as_object_mut().unwrap().remove("pinned");
+    let listed = a.list(&a.brew(&doc.to_string(), "[]"), &[]).unwrap();
+    assert_eq!(listed.incomplete, ["wget"]);
+    assert!(listed.formulae.iter().all(|p| p.not_offered == Some(NotOffered::FieldMissing)));
+}
+
+#[test]
+#[allow(clippy::disallowed_methods)] // DDC_UPDATE_SCHEMA regenerates the committed file
+fn committed_brew_packages_schema_is_current() {
+    let schema = serde_json::to_string_pretty(&schemars::schema_for!(BrewPackages)).unwrap() + "\n";
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/brew-packages.schema.json");
+    if std::env::var_os("DDC_UPDATE_SCHEMA").is_some() {
+        std::fs::write(&path, &schema).unwrap();
+    }
+    let committed = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(committed == schema, "docs/brew-packages.schema.json is stale: run DDC_UPDATE_SCHEMA=1 cargo test");
+}
+
+#[test]
+fn nothing_is_listed_when_brew_fails_or_is_not_the_areas() {
+    let a = Area::new();
+    let failing = a.brew("", "[]").answer("brew", "info --json=v2 --installed", false, "Error: offline");
+    assert!(matches!(a.list(&failing, &[]), Err(ListError::Info(_))));
+    let elsewhere = a.brew(&listing_fixture(), "[]").answer("brew", "--prefix", true, "/usr/local\n");
+    assert_eq!(a.list(&elsewhere, &[]), Err(ListError::Probe(Refusal::PrefixMismatch)));
+    assert!(!elsewhere.ran("brew info --json=v2 --installed"));
 }

@@ -227,6 +227,12 @@ ddc disk agents [--json] [--no-sizes] [--threads N] [--data-dir DIR]
 ddc disk agents --no-sizes                         # live sessions only
 ```
 
+`ddc disk brew-packages` lists the Homebrew formulae you installed, largest first. Each size is measured by ddc from the formula's kegs in the Cellar, every installed version on its own line; brew's own list has no sizes. Under each formula it names the dependencies only it needs and their size, and says why its removal would not be offered: another formula or a cask needs it, it is pinned, or a `brew services` job is registered for it. It asks `/opt/homebrew/bin/brew` for its installed formulae (`brew info`, which can take many seconds) and its service jobs (`brew services list`), with `HOMEBREW_NO_AUTO_UPDATE=1`. `--json` follows [`docs/brew-packages.schema.json`](docs/brew-packages.schema.json). It saves nothing and removes nothing.
+
+```
+ddc disk brew-packages [--json] [--data-dir DIR]
+```
+
 `ddc disk free` frees three areas with their owning tool, and only what you confirm. It deletes a simulator runtime with `simctl runtime delete <identifier>`, runs `brew cleanup` with `HOMEBREW_NO_AUTOREMOVE=1`, which removes old versions in the Cellar and old downloads, and runs an `/opt` conda install's own `bin/conda`: `conda env remove -p <path>` for one environment, and `conda clean` of the unused packages, the downloads, the index cache and the logs, with `CONDA_PKGS_DIRS` set to the install's `pkgs` alone. At a terminal it lists the actions available now with each tool's own dry run, then asks for each one, default No. Without a terminal it needs `--actions`, the exact list the app's sheet confirmed ([`docs/disk-free.schema.json`](docs/disk-free.schema.json)); no option skips the question.
 
 - A runtime is offered only when it lies under `/System/Library/AssetsV2/`, macOS says it can be deleted, and no simulator on it is booted. Xcode downloads its SDK's runtime again at the next build for it.

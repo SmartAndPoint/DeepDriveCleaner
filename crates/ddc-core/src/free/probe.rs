@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::model::Refusal;
+use crate::brew::Budget;
 use crate::conda::{self, same_folder};
 use crate::disk::Sources;
 use crate::disk::simulators::{RawDevice, RawRuntime};
@@ -67,22 +68,26 @@ fn strictly_under(path: &Path, root: &Path) -> bool {
 /// The Homebrew of the area, as the probe found it.
 pub(crate) struct BrewTarget {
     pub exe: PathBuf,
+    /// As `brew --prefix` printed it.
+    pub prefix: PathBuf,
     pub cellar: PathBuf,
     pub cache: PathBuf,
 }
 
 /// `brew` is the area's own; `--prefix` is the area's folder, `--cellar`
-/// inside it, `--cache` the `cache.homebrew` rule's folder.
+/// inside it, `--cache` the `cache.homebrew` rule's folder. Each query
+/// has what is left of `budget`, at most `TOOL_TIMEOUT`.
 pub(crate) fn brew(
     commands: &dyn CommandRunner,
     sources: &Sources,
     home: &Path,
     env: &[(&str, &str)],
+    budget: &Budget,
 ) -> Result<BrewTarget, Refusal> {
     let exe = commands.at(&sources.brew).ok_or(Refusal::BrewMissing)?;
     let ask = |flag: &str| -> Result<PathBuf, Refusal> {
         let out = commands
-            .run(&exe, &[flag.to_owned()], env, crate::disk::simulators::TOOL_TIMEOUT)
+            .run(&exe, &[flag.to_owned()], env, budget.remaining().min(crate::disk::simulators::TOOL_TIMEOUT))
             .ok()
             .filter(|o| o.success)
             .ok_or(Refusal::BrewMissing)?;
@@ -113,7 +118,7 @@ pub(crate) fn brew(
     if !same {
         return Err(Refusal::CacheMismatch);
     }
-    Ok(BrewTarget { exe, cellar, cache: ours })
+    Ok(BrewTarget { exe, prefix, cellar, cache: ours })
 }
 
 /// The conda of an `/opt` install, as the probe found it, and the folder

@@ -8,13 +8,16 @@
 
 pub mod graph;
 pub mod info;
+pub mod listing;
+mod model;
 pub mod services;
 
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub use graph::{Graph, NeededBy, Node};
 pub use info::Installed;
+pub use model::*;
 pub use services::{Service, Services};
 
 use crate::exec::CommandRunner;
@@ -45,6 +48,35 @@ pub fn short(name: &str) -> &str {
 /// neither, the command would clone the tap.
 pub fn has_services(prefix: &Path) -> bool {
     prefix.join("Library/Homebrew/services").exists() || prefix.join("Library/Taps/homebrew/homebrew-services").exists()
+}
+
+/// One time limit shared by every brew command of a step (menu bar ADR §6,
+/// amendment of 2026-10-29): the probe's three queries, the re-read and
+/// the removal together, so the lock is held for at most one limit.
+#[derive(Debug, Clone, Copy)]
+pub struct Budget {
+    start: Instant,
+    total: Duration,
+}
+
+impl Budget {
+    /// Starts now.
+    pub fn new(total: Duration) -> Self {
+        Self { start: Instant::now(), total }
+    }
+
+    pub fn total(&self) -> Duration {
+        self.total
+    }
+
+    pub fn elapsed(&self) -> Duration {
+        self.start.elapsed()
+    }
+
+    /// What is left, zero once it is spent.
+    pub fn remaining(&self) -> Duration {
+        self.total.saturating_sub(self.start.elapsed())
+    }
 }
 
 /// Why brew's answer cannot be used.

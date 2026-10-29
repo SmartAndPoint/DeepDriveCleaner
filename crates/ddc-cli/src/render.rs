@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use ddc_core::agents::{AgentsReport, RecordsState, RunningKind, SessionState, UnknownReason};
+use ddc_core::brew::{BrewPackages, NotOffered, Service, ServicesState};
 use ddc_core::class::{Category, RiskClass};
 use ddc_core::disk::{ActionId, DiskReport, HeldKind, HomeSource, SimulatorStatus};
 use ddc_core::free::{ActionReport, ActionResult, FreeReport, Refusal, ReportEdit};
@@ -555,6 +556,72 @@ fn free_action(w: &mut impl Write, a: &ActionReport, style: &Style) -> io::Resul
         }
     }
     Ok(())
+}
+
+/// `ddc disk brew-packages`: each formula installed on request, largest
+/// first, its kegs when it has more than one, what only it holds, and why
+/// a removal is not offered.
+pub fn brew_packages(w: &mut impl Write, r: &BrewPackages, home: &Path, style: &Style) -> io::Result<()> {
+    let size = |bytes: Option<u64>| bytes.map_or_else(|| "not measured".to_owned(), human);
+    let names = |list: &[String]| list.iter().map(|n| escaped(n)).collect::<Vec<_>>().join(", ");
+    if r.formulae.is_empty() {
+        writeln!(w, "No formula installed on request in {}.", tilde(&r.cellar, home))?;
+    }
+    for p in &r.formulae {
+        let note = match p.not_offered {
+            None => String::new(),
+            Some(NotOffered::Needed) => {
+                let casks: Vec<String> = p.needed_by_casks.iter().map(|c| format!("cask {c}")).collect();
+                format!("needed by {}", names(&[p.needed_by.clone(), casks].concat()))
+            }
+            Some(NotOffered::Pinned) => "pinned".to_owned(),
+            Some(NotOffered::Service) => brew_service(p.service).to_owned(),
+            Some(NotOffered::ServicesUnreadable) => "its service state could not be read".to_owned(),
+            Some(NotOffered::FieldMissing) => "brew listed a formula without a field ddc needs".to_owned(),
+        };
+        writeln!(w, "{:<40} {:>14}  {}", style.bold(&escaped(&p.full_name)), size(p.bytes), style.dim(&note))?;
+        if p.kegs.len() > 1 {
+            for k in &p.kegs {
+                writeln!(w, "  {:<38} {:>14}", escaped(&k.version), size(k.bytes))?;
+            }
+        }
+        if !p.would_orphan.is_empty() {
+            let alone = format!("only it needs {} ({})", names(&p.would_orphan), size(p.would_orphan_bytes));
+            writeln!(w, "  {}", style.dim(&alone))?;
+        }
+        if !p.kept_pinned.is_empty() {
+            writeln!(w, "  {}", style.dim(&format!("kept, pinned: {}", names(&p.kept_pinned))))?;
+        }
+    }
+    if !r.orphans.is_empty() {
+        writeln!(w, "\n{}", style.dim(&format!("Needed by nothing now: {}.", names(&r.orphans))))?;
+    }
+    if r.services == ServicesState::NotKnown {
+        writeln!(
+            w,
+            "{}",
+            style.dim("This brew has no services command: whether a service is registered is not known.")
+        )?;
+    }
+    if !r.incomplete.is_empty() {
+        let missing = format!("brew listed {} without a field ddc needs: nothing is offered.", names(&r.incomplete));
+        writeln!(w, "{}", style.dim(&missing))?;
+    }
+    Ok(())
+}
+
+/// Why a formula's service keeps its removal from being offered.
+pub fn brew_service(s: Service) -> &'static str {
+    match s {
+        Service::Running => "a service of yours is loaded for it; stop it with brew services first",
+        Service::Root => "a root service is registered for it; its state is not known",
+        Service::Registered => {
+            "a service of yours is registered for it but not running; remove it with brew services first"
+        }
+        Service::Unreadable => "its service state could not be read",
+        Service::NotKnown => "whether a service is registered for it is not known",
+        Service::None => "no service of yours registered with launchd",
+    }
 }
 
 pub fn refusal(r: Refusal) -> &'static str {

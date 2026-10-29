@@ -1,0 +1,305 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BrewPackages",
+  "description": "The formulae installed on request under the Homebrew area.",
+  "type": "object",
+  "properties": {
+    "cellar": {
+      "description": "`brew --cellar`: each keg is `<cellar>/<name>/<version>`.",
+      "type": "string"
+    },
+    "ddc_version": {
+      "type": "string"
+    },
+    "formulae": {
+      "description": "The formulae installed on request, largest first, one not measured\nafter every measured one.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Package"
+      }
+    },
+    "incomplete": {
+      "description": "Formulae brew listed without a field ddc needs; while one is\nlisted, no removal is offered.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "orphans": {
+      "description": "What is orphaned now, by `full_name`: installed as a dependency,\nunpinned, and needed by no formula outside the set and no cask.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "prefix": {
+      "description": "`brew --prefix`, as brew printed it.",
+      "type": "string"
+    },
+    "schema_version": {
+      "description": "[`BREW_PACKAGES_SCHEMA_VERSION`].",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "services": {
+      "description": "Whether brew's service jobs could be read.",
+      "$ref": "#/$defs/ServicesState"
+    }
+  },
+  "required": [
+    "schema_version",
+    "ddc_version",
+    "prefix",
+    "cellar",
+    "services",
+    "formulae",
+    "orphans"
+  ],
+  "$defs": {
+    "Dependency": {
+      "type": "object",
+      "properties": {
+        "alone": {
+          "description": "Only this formula holds it: its removal orphans it.",
+          "type": "boolean"
+        },
+        "bytes": {
+          "description": "Its kegs together.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "full_name": {
+          "type": "string"
+        },
+        "on_request": {
+          "description": "Installed on request: it stays.",
+          "type": "boolean"
+        },
+        "pinned": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "full_name",
+        "on_request",
+        "pinned",
+        "alone"
+      ]
+    },
+    "Keg": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Allocated bytes, each inode once; absent when a skip of\n`settings.json` lies at, above or under it, or it could not be read.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "path": {
+          "description": "`<cellar>/<name>/<version>`.",
+          "type": "string"
+        },
+        "version": {
+          "description": "`installed[].version`, as brew printed it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "path"
+      ]
+    },
+    "NotOffered": {
+      "description": "Why a removal is not offered, worded by the app.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "pinned"
+          ]
+        },
+        {
+          "description": "An installed formula or cask needs it.",
+          "type": "string",
+          "const": "needed"
+        },
+        {
+          "description": "A service job is registered for it ([`Package::service`] says which).",
+          "type": "string",
+          "const": "service"
+        },
+        {
+          "description": "brew's services could not be read.",
+          "type": "string",
+          "const": "services-unreadable"
+        },
+        {
+          "description": "A formula brew listed lacks a field ddc needs.",
+          "type": "string",
+          "const": "field-missing"
+        }
+      ]
+    },
+    "Package": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "The kegs together; absent when one was not measured.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "dependencies": {
+          "description": "What its kegs need, recursively, among the installed formulae,\nlargest first.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Dependency"
+          }
+        },
+        "full_name": {
+          "description": "What a removal names: `user/tap/foo` for a tap formula.",
+          "type": "string"
+        },
+        "kegs": {
+          "description": "One per `installed[]` entry, in brew's order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Keg"
+          }
+        },
+        "kept_pinned": {
+          "description": "Pinned dependencies that would be orphans: kept.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "description": "The Cellar rack's name.",
+          "type": "string"
+        },
+        "needed_by": {
+          "description": "The installed formulae that need it, by `full_name`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "needed_by_casks": {
+          "description": "The installed casks whose `depends_on formula:` names it.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "not_offered": {
+          "description": "Why its removal is not offered; absent when it is.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NotOffered"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "service": {
+          "$ref": "#/$defs/Service"
+        },
+        "would_orphan": {
+          "description": "What its removal would leave needed by nothing, by `full_name`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "would_orphan_bytes": {
+          "description": "Their kegs together: what the dependencies it alone holds take.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "name",
+        "full_name",
+        "pinned",
+        "kegs",
+        "service",
+        "dependencies",
+        "would_orphan"
+      ]
+    },
+    "Service": {
+      "description": "A formula's service, as the listing and the re-read judge it.",
+      "oneOf": [
+        {
+          "description": "No service of the user's registered with launchd.",
+          "type": "string",
+          "const": "none"
+        },
+        {
+          "description": "brew could not be asked: the removal is offered with a note.",
+          "type": "string",
+          "const": "not-known"
+        },
+        {
+          "description": "`brew services list` failed: nothing is offered.",
+          "type": "string",
+          "const": "unreadable"
+        },
+        {
+          "description": "A job with a `status` other than `none`.",
+          "type": "string",
+          "const": "running"
+        },
+        {
+          "description": "A root service is registered for it; its state is not known.",
+          "type": "string",
+          "const": "root"
+        },
+        {
+          "description": "The user's plist is registered but not running.",
+          "type": "string",
+          "const": "registered"
+        }
+      ]
+    },
+    "ServicesState": {
+      "oneOf": [
+        {
+          "description": "`brew services list --json` answered.",
+          "type": "string",
+          "const": "listed"
+        },
+        {
+          "description": "brew has no `services` command without fetching it: not asked.",
+          "type": "string",
+          "const": "not-known"
+        },
+        {
+          "description": "It failed, or printed what ddc cannot read: no removal is offered.",
+          "type": "string",
+          "const": "unreadable"
+        }
+      ]
+    }
+  }
+}

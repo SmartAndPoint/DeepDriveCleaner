@@ -6,6 +6,7 @@ mod clean_items;
 mod diag;
 mod disk;
 mod disk_agents;
+mod disk_brew_packages;
 mod disk_free;
 mod du;
 mod notify;
@@ -28,6 +29,7 @@ pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Rules(args) => rules::run(&args),
         Command::Disk(DiskArgs { action: Some(DiskAction::Agents(args)), .. }) => disk_agents::run(&args),
         Command::Disk(DiskArgs { action: Some(DiskAction::Free(args)), .. }) => disk_free::run(&args),
+        Command::Disk(DiskArgs { action: Some(DiskAction::BrewPackages(args)), .. }) => disk_brew_packages::run(&args),
         Command::Disk(args) => disk::run(args),
         Command::Notify { action } => notify::run(action),
         Command::Schedule { action } => schedule::run(action),
