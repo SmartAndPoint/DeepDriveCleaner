@@ -5,11 +5,13 @@
 //! prints a fixture; nothing real is run.
 
 use std::fs;
+use std::io::Write as _;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
 use ddc_core::brew::{BREW_PACKAGES_SCHEMA_VERSION, BrewPackages, NotOffered, ServicesState};
+use ddc_core::free::{ActionResult, FreeReport, Refusal};
 use serde_json::json;
 
 struct Fx {
@@ -51,6 +53,7 @@ case "$*" in
   "info --json=v2 --installed") if [ -f {r}/offline ]; then echo "Error: Failure while executing curl" >&2; exit 1; fi
     /bin/cat {r}/info.json ;;
   "services list --json") echo '[]' ;;
+  "uninstall --formula wget") /bin/mv {r}/sys/System/Volumes/Data/opt/homebrew/Cellar/wget {r}/uninstalled ;;
   *) exit 1 ;;
 esac"#
             ),
@@ -86,6 +89,28 @@ esac"#
             .stdin(Stdio::null())
             .output()
             .unwrap()
+    }
+
+    /// `ddc disk free --actions - <args>` with `list` on stdin.
+    fn free(&self, list: &str, args: &[&str]) -> Output {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
+            .env_clear()
+            .env("HOME", self.root.join("home"))
+            .env("PATH", "")
+            .env("NO_COLOR", "1")
+            .args(["disk", "free", "--actions", "-"])
+            .args(args)
+            .arg("--data-dir")
+            .arg(self.root.join("data"))
+            .arg("--system-root")
+            .arg(self.root.join("sys"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(list.as_bytes()).unwrap();
+        child.wait_with_output().unwrap()
     }
 
     fn calls(&self) -> Vec<String> {
@@ -161,4 +186,75 @@ fn a_brew_elsewhere_is_not_asked_for_its_packages() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("brew --prefix is not /opt/homebrew"), "{err}");
     assert!(!fx.calls().iter().any(|c| c.starts_with("info")));
+}
+
+/// The list the app's sheet writes for a formula of the listing.
+fn uninstall(listed: &BrewPackages, full_name: &str) -> String {
+    let p = listed.formulae.iter().find(|p| p.full_name == full_name).unwrap();
+    let kegs: Vec<&str> = p.kegs.iter().map(|k| k.version.as_str()).collect();
+    json!({"schema_version": 3, "actions": [{"action": "brew-uninstall", "identifier": full_name, "kegs": kegs}]})
+        .to_string()
+}
+
+fn free_report(out: &Output) -> FreeReport {
+    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+        panic!("{e}: {}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    })
+}
+
+#[test]
+fn a_listed_formula_is_uninstalled_by_brew_only_after_the_check() {
+    let fx = Fx::new();
+    let listed: BrewPackages = serde_json::from_slice(&fx.run(&["--json"]).stdout).unwrap();
+    let list = uninstall(&listed, "wget");
+    let rack = fx.root.join("sys/System/Volumes/Data/opt/homebrew/Cellar/wget");
+
+    let dry = free_report(&fx.free(&list, &["--dry-run", "--json"]));
+    assert_eq!(dry.actions[0].result, ActionResult::WouldRun);
+    assert_eq!(dry.actions[0].kegs.len(), 1);
+    assert!(rack.exists());
+    assert!(!fx.calls().iter().any(|c| c.starts_with("uninstall")), "a dry run never uninstalls");
+
+    let out = fx.free(&list, &["--json"]);
+    let ran = free_report(&out);
+    assert_eq!(ran.actions[0].result, ActionResult::Freed, "{:?}", ran.actions[0]);
+    assert!(ran.actions[0].bytes_before.unwrap() >= 40_000);
+    assert_eq!(ran.actions[0].bytes_after, Some(0));
+    assert!(!rack.exists());
+    let calls = fx.calls();
+    let tail: Vec<&str> = calls.iter().rev().take(3).rev().map(String::as_str).collect();
+    assert_eq!(
+        tail,
+        [
+            "info --json=v2 --installed | 1 1 1 1",
+            "services list --json | 1 1 1 1",
+            "uninstall --formula wget | 1 1 1 1"
+        ],
+        "the check right before brew uninstall, every call under the four variables"
+    );
+    let journal = fs::read_to_string(fx.root.join("data/logs/actions.jsonl")).unwrap();
+    assert!(journal.contains(r#""action":"brew-uninstall""#), "{journal}");
+}
+
+#[test]
+fn a_formula_something_needs_is_refused_with_what_needs_it() {
+    let fx = Fx::new();
+    let list = json!({"schema_version": 3, "actions": [
+        {"action": "brew-uninstall", "identifier": "openssl@3", "kegs": ["3.4.0"]}]})
+    .to_string();
+    let out = fx.free(&list, &["--json"]);
+    let r = free_report(&out);
+    assert_eq!(r.actions[0].result, ActionResult::Refused { reason: Refusal::BrewNeeded });
+    assert_eq!(r.actions[0].needed_by[0].formulae, ["curl", "wget"]);
+    assert!(!fx.calls().iter().any(|c| c.starts_with("uninstall")));
+
+    let text = fx.free(&list, &[]);
+    let stdout = String::from_utf8_lossy(&text.stdout);
+    assert!(stdout.contains("Homebrew formula openssl@3  refused: something installed still needs it"), "{stdout}");
+    let bad = fx.free(
+        r#"{"schema_version": 3, "actions": [{"action": "brew-uninstall", "identifier": "--cask", "kegs": ["1"]}]}"#,
+        &["--json"],
+    );
+    assert_eq!(bad.status.code(), Some(2));
+    assert!(fx.calls().iter().all(|c| !c.starts_with("uninstall")));
 }

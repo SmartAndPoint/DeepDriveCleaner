@@ -95,6 +95,57 @@ fn disk_free_runs_only_its_tools_commands() {
     }
 }
 
+/// brew runs only from the Homebrew area's `brew`, with the commands the
+/// safety ADR's amendment of 2026-10-29 names: the listing reads (`info`,
+/// `services list`) and `uninstall --formula` by full name, `--force` only to
+/// take every keg. Never a cask, `--zap`, `--ignore-dependencies`,
+/// `autoremove` or `sudo`, and the listing removes nothing.
+#[test]
+fn brew_runs_only_its_named_commands() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut reads = vec![root.join("ddc-cli/src/cmd/disk_brew_packages.rs")];
+    for entry in std::fs::read_dir(root.join("ddc-core/src/brew")).unwrap() {
+        reads.push(entry.unwrap().path());
+    }
+    for file in &reads {
+        let text = std::fs::read_to_string(file).unwrap();
+        for forbidden in [
+            "\"uninstall\"",
+            "\"--force\"",
+            "\"--zap\"",
+            "\"--cask\"",
+            "\"--ignore-dependencies\"",
+            "\"autoremove\"",
+            "sudo",
+            "Command::new",
+            "remove_",
+            "trash",
+        ] {
+            assert!(!text.contains(forbidden), "{} mentions {forbidden}", file.display());
+        }
+    }
+    for entry in std::fs::read_dir(root.join("ddc-core/src/free")).unwrap() {
+        let file = entry.unwrap().path();
+        let text = std::fs::read_to_string(&file).unwrap();
+        for forbidden in ["--zap", "--cask", "--ignore-dependencies", "find(\"brew\")"] {
+            assert!(!text.contains(forbidden), "{} mentions {forbidden}", file.display());
+        }
+    }
+    assert_eq!(ddc_core::brew::INFO, ["info", "--json=v2", "--installed"]);
+    assert_eq!(ddc_core::brew::SERVICES_LIST, ["services", "list", "--json"]);
+    assert_eq!(ddc_core::free::uninstall::UNINSTALL, ["uninstall", "--formula"]);
+    assert_eq!(ddc_core::free::uninstall::FORCE, "--force");
+    assert_eq!(
+        ddc_core::brew::ENV,
+        [
+            ("HOMEBREW_NO_AUTOREMOVE", "1"),
+            ("HOMEBREW_NO_ENV_HINTS", "1"),
+            ("NO_COLOR", "1"),
+            ("HOMEBREW_NO_AUTO_UPDATE", "1")
+        ]
+    );
+}
+
 /// conda runs only as an install's own `bin/conda`, and only with the three
 /// argument lists the safety ADR's amendment of 2026-10-29 names: `env
 /// remove` by path, never by name or of the base; `clean` limited to one
