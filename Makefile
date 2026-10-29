@@ -17,6 +17,16 @@ install-tool = $(CARGO) $(1) --version 2>/dev/null | grep -qw '$(2)' \
 # The gate builds with the complexity counters compiled in, so their tests run too.
 # Not --all-features: op-stats and dhat-heap refuse to coexist.
 FEATURES := --features ddc-core/op-stats
+
+# Cases per property test (proptest reads PROPTEST_CASES), set here only: 256 in
+# `gate`, which CI runs and whose nextest inherits it, 32 in `gate-fast` on its own,
+# the pre-commit tier whose time is already spent. A value from the environment or
+# the command line (the nightly's) wins.
+ifeq ($(origin PROPTEST_CASES),undefined)
+PROPTEST_CASES = 32
+gate: PROPTEST_CASES = 256
+endif
+export PROPTEST_CASES
 # The declared minimum Rust version, read from Cargo.toml so it is set in one place.
 MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 

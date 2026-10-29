@@ -8,8 +8,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use ddc_core::exec::{CmdOutput, CommandRunner, ProcessTable, Trasher};
-use ddc_core::sys::procs::ProcInfo;
+use ddc_core::exec::{CmdOutput, CommandRunner, ProcInfo, ProcessTable, Trasher};
 
 /// Told each call of [`FakeCommands`] before it answers.
 pub type CallHook = Box<dyn Fn(&str)>;

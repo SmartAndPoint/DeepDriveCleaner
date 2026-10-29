@@ -5,7 +5,8 @@ use std::io;
 use std::path::Path;
 
 use crate::model::Volume;
-use crate::sys::statfs::VolumeStats;
+/// What a [`StatFs`] answers: a fake names it here, not under `sys`.
+pub use crate::sys::statfs::VolumeStats;
 
 pub trait StatFs {
     fn statfs(&self, path: &Path) -> io::Result<VolumeStats>;

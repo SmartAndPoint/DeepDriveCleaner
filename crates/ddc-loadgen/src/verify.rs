@@ -8,13 +8,12 @@ use std::time::SystemTime;
 
 use ddc_core::env::Env;
 use ddc_core::exec::preflight::{PreflightPorts, PreflightSummary, preflight};
-use ddc_core::exec::{CmdOutput, CommandRunner, ProcessTable};
+use ddc_core::exec::{CmdOutput, CommandRunner, ProcInfo, ProcessTable};
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{Plan, PlanOptions, build_plan};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
 use ddc_core::scan::{Progress, StdReader};
-use ddc_core::sys::procs::ProcInfo;
 
 use crate::items;
 use crate::manifest::{Expected, Manifest, Planned, Totals, show};

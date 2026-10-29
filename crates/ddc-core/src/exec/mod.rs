@@ -36,7 +36,8 @@ use crate::plan::{Action, Plan, PlanItem};
 use crate::rules::entries::{ENTRY_RULES, EntryLock};
 use crate::rules::{Catalog, KEEP_MARKER};
 use crate::scan::{self, EntryMeta, OwnerKind, Progress, Tag, Visitor, WalkOptions};
-use crate::sys::procs::ProcInfo;
+/// What a [`ProcessTable`] lists: a fake table names it here, not under `sys`.
+pub use crate::sys::procs::ProcInfo;
 
 /// Why an item was left alone. Serialized into the journal and the clean report.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
