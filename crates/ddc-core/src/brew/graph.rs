@@ -91,6 +91,12 @@ impl Graph {
                     .push(f.full_name.clone().or_else(|| f.name.clone()).unwrap_or_else(|| "(no name)".to_owned()));
                 continue;
             };
+            // A runtime dependency without its name: never guessed from the
+            // declared ones, which may name less.
+            if kegs.iter().any(|k| k.unnamed_dependency) {
+                incomplete.push(full_name.clone());
+                continue;
+            }
             let declared: Vec<&String> = f.dependencies.iter().chain(&f.recommended_dependencies).collect();
             let mut needs = BTreeSet::new();
             for keg in kegs {
@@ -124,7 +130,9 @@ impl Graph {
                 installed
                     .casks
                     .iter()
-                    .filter(|c| c.formulae.iter().any(|f| *f == n.name || *f == n.full_name))
+                    // By short name too: `other/tap/foo` keeps the rack
+                    // `foo` whichever tap it came from; it only keeps more.
+                    .filter(|c| c.formulae.iter().any(|f| *f == n.full_name || short(f) == n.name))
                     .map(|c| c.token.clone())
                     .collect()
             })

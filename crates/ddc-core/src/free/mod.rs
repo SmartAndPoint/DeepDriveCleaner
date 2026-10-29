@@ -166,9 +166,11 @@ fn not_run(ctx: &FreeContext<'_>, listed: &ListedAction) -> ActionReport {
         (ActionId::BrewUninstall | ActionId::BrewUninstallOrphans, _) => {
             uninstall::command(confirmed(listed), &ctx.sources.brew)
         }
-        (ActionId::BrewCleanup, _) | (ActionId::CondaEnvRemove | ActionId::CondaClean, None) => {
+        (ActionId::BrewCleanup, _) => {
             report(listed.action, id, &ctx.sources.brew, &["cleanup".into()], &brew::BREW_ENV)
         }
+        // `ActionList::validate` refuses it before anything runs.
+        (ActionId::CondaEnvRemove | ActionId::CondaClean, None) => unreachable!("an action without its identifier"),
     };
     report.with(ActionResult::NotRun)
 }

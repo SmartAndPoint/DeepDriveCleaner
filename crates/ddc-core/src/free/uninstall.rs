@@ -160,6 +160,10 @@ fn judge(
     confirmed: Confirmed<'_>,
     home: &Path,
 ) -> Result<Vec<usize>, (Refusal, Vec<NeededBy>)> {
+    // `ActionList::validate` refuses it first; never a nameless uninstall.
+    if confirmed.names().is_empty() {
+        return Err((Refusal::BrewNotInstalled, Vec::new()));
+    }
     // A formula listed without what it needs could be one that needs these.
     if !graph.incomplete.is_empty() {
         return Err((Refusal::BrewFieldMissing, Vec::new()));

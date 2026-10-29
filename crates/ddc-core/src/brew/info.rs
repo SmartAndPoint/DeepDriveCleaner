@@ -31,8 +31,11 @@ pub struct Keg {
     /// The folder's name under the rack: `Cellar/<name>/<version>`.
     pub version: Option<String>,
     /// The `full_name` of each runtime dependency the keg's tab records
-    /// (recursive); `None` for a blank tab, or an entry without a name.
+    /// (recursive); `None` for a blank tab.
     pub runtime_dependencies: Option<Vec<String>>,
+    /// An entry of `runtime_dependencies` has no `full_name`: what the keg
+    /// needs is not known, and the formula is incomplete.
+    pub unnamed_dependency: bool,
     /// An absent field reads as false, as brew's own JSON prints it for a
     /// keg whose record predates the field.
     pub installed_on_request: bool,
@@ -79,12 +82,12 @@ fn formula(v: &Value) -> Formula {
 }
 
 fn keg(v: &Value) -> Keg {
-    let runtime_dependencies = v.get("runtime_dependencies").and_then(Value::as_array).and_then(|deps| {
-        deps.iter().map(|d| d.get("full_name").and_then(Value::as_str).map(str::to_owned)).collect::<Option<Vec<_>>>()
-    });
+    let deps = v.get("runtime_dependencies").and_then(Value::as_array);
+    let named = |d: &Value| d.get("full_name").and_then(Value::as_str).map(str::to_owned);
     Keg {
         version: string(v, "version"),
-        runtime_dependencies,
+        runtime_dependencies: deps.map(|deps| deps.iter().filter_map(named).collect()),
+        unnamed_dependency: deps.is_some_and(|deps| deps.iter().any(|d| named(d).is_none())),
         installed_on_request: v.get("installed_on_request").and_then(Value::as_bool).unwrap_or(false),
     }
 }

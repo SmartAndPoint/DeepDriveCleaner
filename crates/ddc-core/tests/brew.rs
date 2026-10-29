@@ -222,6 +222,26 @@ fn a_formula_without_a_field_the_graph_needs_is_named_as_incomplete() {
     let g = graph(&doc.to_string());
     assert_eq!(g.incomplete, ["nopin", "noversion"]);
     assert!(g.find("wget").is_some());
+
+    // A runtime dependency without its name is never read as the declared ones.
+    let doc = json!({"formulae": [
+        with(formula("nameless", &[("1", true)], Some(&["zstd"])), |f| {
+            f["installed"][0]["runtime_dependencies"] = json!([{"full_name": "zstd"}, {"version": "1"}]);
+            f["dependencies"] = json!(["zstd"]);
+        }),
+        formula("zstd", &[("1.5.6", false)], Some(&[])),
+    ], "casks": []});
+    assert_eq!(graph(&doc.to_string()).incomplete, ["nameless"]);
+}
+
+#[test]
+fn a_casks_formula_from_another_tap_still_keeps_the_rack_of_that_name() {
+    let doc = json!({"formulae": [formula("lima", &[("1.0.2", false)], Some(&[]))], "casks": [
+        {"token": "tools", "depends_on": {"formula": ["other/tap/lima"]}},
+    ]});
+    let g = graph(&doc.to_string());
+    assert_eq!(g.needed_by(at(&g, "lima"), &BTreeSet::new()).casks, ["tools"]);
+    assert!(g.orphans().is_empty(), "a cask needs it");
 }
 
 #[test]
@@ -635,6 +655,14 @@ fn the_rereading_refuses_what_changed_since_it_was_confirmed() {
         Refusal::BrewServiceRunning
     );
     assert_eq!(
+        refused(&job("scheduled", "someone", None), &uninstall_of("wget", &["1.25.0"])).0,
+        Refusal::BrewServiceRunning
+    );
+    // Not root, and its plist absent: nothing registered, no refusal.
+    let absent = a.dry_run(&job("none", "someone", Some(&plist)), &uninstall_of("wget", &["1.25.0"]), &[]);
+    assert_ne!(absent.result, ActionResult::Refused { reason: Refusal::BrewServiceRegistered }, "{absent:?}");
+    assert!(!matches!(absent.result, ActionResult::Refused { .. }), "{absent:?}");
+    assert_eq!(
         refused(&job("none", "root", Some(&plist)), &uninstall_of("wget", &["1.25.0"])).0,
         Refusal::BrewServiceRoot
     );
@@ -647,6 +675,21 @@ fn the_rereading_refuses_what_changed_since_it_was_confirmed() {
     // A formula listed without a field: what needs what is not known.
     let mut doc: Value = serde_json::from_str(&fixture).unwrap();
     doc["formulae"][1].as_object_mut().unwrap().remove("pinned");
+    assert_eq!(
+        refused(&a.brew(&doc.to_string(), "[]"), &uninstall_of("wget", &["1.25.0"])).0,
+        Refusal::BrewFieldMissing
+    );
+
+    // A cask came to need an orphan since the dry run.
+    let mut doc: Value = serde_json::from_str(&fixture).unwrap();
+    doc["casks"].as_array_mut().unwrap().push(json!({"token": "newer", "depends_on": {"formula": "leftover"}}));
+    let (reason, needed) = refused(&a.brew(&doc.to_string(), "[]"), &orphans_of(&["leftover"]));
+    assert_eq!(reason, Refusal::BrewNeeded);
+    assert_eq!((needed[0].formula.as_str(), &needed[0].casks[..]), ("leftover", &["newer".to_owned()][..]));
+
+    // A runtime dependency without its name: brew listed a formula without a field.
+    let mut doc: Value = serde_json::from_str(&fixture).unwrap();
+    doc["formulae"][1]["installed"][0]["runtime_dependencies"] = json!([{"version": "3.4.0"}]);
     assert_eq!(
         refused(&a.brew(&doc.to_string(), "[]"), &uninstall_of("wget", &["1.25.0"])).0,
         Refusal::BrewFieldMissing
@@ -870,4 +913,99 @@ fn a_stop_before_the_run_leaves_it_not_run() {
     assert_eq!(reports[0].result, ActionResult::NotRun);
     assert_eq!(reports[0].command[1..], ["uninstall", "--formula", "wget"]);
     assert!(commands.calls.borrow().is_empty());
+}
+
+#[test]
+fn a_service_entry_of_the_kegs_own_plist_and_no_user_is_not_a_refusal() {
+    let a = Area::new();
+    a.with_services();
+    let keg = a.keg("wget", "1.25.0", 16 * 1024);
+    a.t.file(&format!("{CELLAR}/wget/1.25.0/homebrew.mxcl.wget.plist"), 10);
+    let own = keg.join("homebrew.mxcl.wget.plist");
+    let services = json!([{"name": "wget", "status": "none", "user": null, "file": own}]).to_string();
+    let report = a.dry_run(&a.brew(&listing_fixture(), &services), &uninstall_of("wget", &["1.25.0"]), &[]);
+    assert_eq!(report.result, ActionResult::WouldRun, "{report:?}");
+}
+
+/// The fixture with nothing needing the tap's `foo`: a leaf.
+fn tap_leaf_fixture() -> String {
+    let mut doc: Value = serde_json::from_str(&listing_fixture()).unwrap();
+    doc["formulae"].as_array_mut().unwrap().retain(|f| f["full_name"] != "bar" && f["full_name"] != "baz");
+    doc.to_string()
+}
+
+#[test]
+fn a_tap_leaf_is_uninstalled_by_its_full_name_and_nothing_else() {
+    let a = Area::new();
+    a.keg("foo", "0.1", 8 * 1024);
+    let installed = tap_leaf_fixture();
+    let dry = a.dry_run(&a.brew(&installed, "[]"), &uninstall_of("user/tap/foo", &["0.1"]), &[]);
+    assert_eq!(dry.result, ActionResult::WouldRun, "{dry:?}");
+    assert_eq!(dry.command[1..], ["uninstall", "--formula", "user/tap/foo"]);
+    assert_eq!(dry.kegs[0].path, a.t.path("sys/opt/homebrew/Cellar/foo/0.1"));
+
+    let gone = a.uninstalled("foo");
+    let call = "brew uninstall --formula user/tap/foo";
+    let commands = FakeCommands {
+        on_call: Some(Box::new(move |c| {
+            if c == call {
+                gone();
+            }
+        })),
+        ..a.brew(&installed, "[]").answer("brew", &call[5..], true, "")
+    };
+    let (report, journal) = a.run(&commands, &uninstall_of("user/tap/foo", &["0.1"]), Duration::ZERO);
+    assert_eq!(report.result, ActionResult::Freed, "{report:?}");
+    let uninstalls: Vec<String> = commands.calls.borrow().iter().filter(|c| c.contains("uninstall")).cloned().collect();
+    assert_eq!(uninstalls, [call]);
+    assert_eq!(journal.0[0].identifier.as_deref(), Some("user/tap/foo"));
+}
+
+#[test]
+fn a_run_the_rereading_refuses_never_reaches_brew_uninstall() {
+    let a = Area::new();
+    a.keg("python@3.13", "3.13.0", 8 * 1024);
+    a.keg("python@3.13", "3.13.1", 8 * 1024);
+    a.keg("wget", "1.25.0", 8 * 1024);
+    let mut doc: Value = serde_json::from_str(&listing_fixture()).unwrap();
+    for f in doc["formulae"].as_array_mut().unwrap() {
+        if f["full_name"] == "python@3.13" {
+            f["pinned"] = json!(true);
+        }
+    }
+    let pinned = doc.to_string();
+    let cases: [(&str, ActionList, Refusal); 3] = [
+        (&pinned, uninstall_of("python@3.13", &["3.13.0", "3.13.1"]), Refusal::BrewPinned),
+        ("", uninstall_of("wget", &["1.24.0"]), Refusal::BrewKegsChanged),
+        ("", uninstall_of("gone", &["1"]), Refusal::BrewNotInstalled),
+    ];
+    let plain = listing_fixture();
+    for (installed, list, reason) in cases {
+        let installed = if installed.is_empty() { &plain } else { installed };
+        let commands = a
+            .brew(installed, "[]")
+            .answer("brew", "uninstall --formula --force python@3.13", true, "")
+            .answer("brew", "uninstall --formula wget", true, "")
+            .answer("brew", "uninstall --formula gone", true, "");
+        let (report, journal) = a.run(&commands, &list, Duration::ZERO);
+        assert_eq!(report.result, ActionResult::Refused { reason }, "{list:?}");
+        assert!(!commands.calls.borrow().iter().any(|c| c.contains("uninstall")), "{list:?}: no uninstall ran");
+        assert_eq!(journal.0[0].result, ActionResult::Refused { reason });
+    }
+}
+
+#[test]
+fn an_empty_set_of_orphans_is_refused_and_never_a_nameless_uninstall() {
+    let a = Area::new();
+    let list = orphans_of(&[]);
+    assert!(list.validate().is_err(), "the list is refused whole first");
+    let commands = a.brew(&listing_fixture(), "[]").answer("brew", "uninstall --formula --force", true, "");
+    let (procs, cancel) = (FakeProcs(vec![]), AtomicBool::new(false));
+    let ctx = FreeContext::new(&commands, &a.sources, &a.home, &[], &procs, &cancel);
+    let report = free::dry_run(&ctx, &list).remove(0);
+    assert_eq!(report.result, ActionResult::Refused { reason: Refusal::BrewNotInstalled });
+    let mut journal = MemoryAreaJournal(Vec::new());
+    let report = free::run(&ctx, &list, &mut journal).unwrap().remove(0);
+    assert_eq!(report.result, ActionResult::Refused { reason: Refusal::BrewNotInstalled });
+    assert!(!commands.calls.borrow().iter().any(|c| c.contains("uninstall")));
 }

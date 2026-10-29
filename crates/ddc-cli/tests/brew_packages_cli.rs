@@ -214,6 +214,15 @@ fn a_listed_formula_is_uninstalled_by_brew_only_after_the_check() {
     assert_eq!(dry.actions[0].kegs.len(), 1);
     assert!(rack.exists());
     assert!(!fx.calls().iter().any(|c| c.starts_with("uninstall")), "a dry run never uninstalls");
+    let text = fx.free(&list, &["--dry-run"]);
+    let stdout = String::from_utf8_lossy(&text.stdout);
+    let keg = format!(
+        "    wget {}  {}",
+        listed.formulae.iter().find(|p| p.full_name == "wget").unwrap().kegs[0].version,
+        dry.actions[0].kegs[0].path.display()
+    );
+    assert!(stdout.contains(&keg), "the text lists each keg: {stdout}");
+    assert_eq!(stdout.matches(&*dry.actions[0].kegs[0].path.to_string_lossy()).count(), 1, "once: {stdout}");
 
     let out = fx.free(&list, &["--json"]);
     let ran = free_report(&out);
@@ -251,6 +260,8 @@ fn a_formula_something_needs_is_refused_with_what_needs_it() {
     let text = fx.free(&list, &[]);
     let stdout = String::from_utf8_lossy(&text.stdout);
     assert!(stdout.contains("Homebrew formula openssl@3  refused: something installed still needs it"), "{stdout}");
+    assert!(stdout.contains("\n  openssl@3 is needed by curl, wget\n"), "the text names what needs it: {stdout}");
+    assert!(stdout.contains("uninstall --formula openssl@3"), "and the formula's command: {stdout}");
     let bad = fx.free(
         r#"{"schema_version": 3, "actions": [{"action": "brew-uninstall", "identifier": "--cask", "kegs": ["1"]}]}"#,
         &["--json"],

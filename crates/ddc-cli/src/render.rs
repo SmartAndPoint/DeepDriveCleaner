@@ -546,7 +546,8 @@ fn free_action(w: &mut impl Write, a: &ActionReport, style: &Style) -> io::Resul
         ActionResult::WouldRun => {
             writeln!(w, "  {}", a.terminal_command)?;
             if let Some(p) = &a.preview {
-                for line in &p.lines {
+                // A formula's preview lines are its kegs' paths, listed below.
+                for line in p.lines.iter().filter(|_| a.kegs.is_empty()) {
                     writeln!(w, "    {}", style.dim(line))?;
                 }
                 if let Some(b) = p.estimate_bytes {
@@ -554,7 +555,21 @@ fn free_action(w: &mut impl Write, a: &ActionReport, style: &Style) -> io::Resul
                 }
             }
         }
+        // A package removal names its formulae in its command.
+        _ if matches!(a.action, ActionId::BrewUninstall | ActionId::BrewUninstallOrphans) => {
+            writeln!(w, "  {}", style.dim(&a.terminal_command))?;
+        }
         _ => {}
+    }
+    for k in &a.kegs {
+        let size = k.bytes.map_or_else(|| "not measured".to_owned(), human);
+        let keg = format!("{} {}  {}", escaped(&k.formula), escaped(&k.version), escaped(&k.path.to_string_lossy()));
+        writeln!(w, "    {keg}  {size}")?;
+    }
+    for n in &a.needed_by {
+        let casks = n.casks.iter().map(|c| format!("cask {}", escaped(c)));
+        let by: Vec<String> = n.formulae.iter().map(|f| escaped(f)).chain(casks).collect();
+        writeln!(w, "  {} is needed by {}", escaped(&n.formula), by.join(", "))?;
     }
     if !a.output.is_empty() && matches!(a.result, ActionResult::Failed { .. }) {
         for line in a.output.lines() {
