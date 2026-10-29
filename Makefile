@@ -22,7 +22,7 @@ MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
 .PHONY: build fmt fmt-check clippy test check release install dist app app-test app-dist icons \
 	gate-fast gate nextest doctest clippy-dhat doc deny machete msrv release-check \
-	tools require-tools hooks coverage ci-green golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test leaks asan
+	tools require-tools hooks coverage coverage-ratchet ci-green golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test leaks asan
 
 build:
 	$(CARGO) build --workspace
@@ -239,10 +239,25 @@ require-tools:
 hooks:
 	git config core.hooksPath .githooks
 
-# Line and region coverage under target/, so the tree stays clean for build-dist.sh.
+# Line and region coverage under target/coverage, so the tree stays clean for
+# build-dist.sh: lcov.info, summary.json and html/. Fails when a crate or a safety
+# file drops under bench/coverage-floor.tsv (story "Coverage floor and property
+# tests for the safety invariants", DDC-005); CI's coverage job and the nightly run it.
 coverage:
-	$(CARGO) llvm-cov nextest --workspace $(FEATURES) --locked --lcov --output-path target/lcov.info
+	mkdir -p target/coverage
+	$(CARGO) llvm-cov nextest --workspace $(FEATURES) --locked --lcov --output-path target/coverage/lcov.info
+	$(CARGO) llvm-cov report --json --summary-only --output-path target/coverage/summary.json
+	$(CARGO) llvm-cov report --html --output-dir target/coverage
 	$(CARGO) llvm-cov report --summary-only
+	python3 -I bench/coverage_floor.py check target/coverage/summary.json bench/coverage-floor.tsv
+
+# The owner, on main: raises bench/coverage-floor.tsv from the summary of the latest
+# green Gate run on main, never lowers it. CI never runs this. Commit the result.
+coverage-ratchet:
+	rm -rf target/coverage/ci
+	gh run download "$$(gh run list --workflow gate.yml --branch main --status success --limit 1 \
+		--json databaseId --jq '.[0].databaseId')" --name coverage --dir target/coverage/ci
+	python3 -I bench/coverage_floor.py ratchet target/coverage/ci/summary.json bench/coverage-floor.tsv
 
 # Refuses unless the Gate workflow passed on GitHub for HEAD.
 ci-green:

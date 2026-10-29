@@ -1,0 +1,15 @@
+# Line-coverage floors (story "Coverage floor and property tests for the safety invariants", DDC-005),
+# checked by bench/coverage_floor.py in `make coverage`. A crate's floor is the lowest of 3 CI runs less 1 point,
+# a file's less 3 points; `make coverage-ratchet` raises them, never lowers. Lowering is an owner's edit with a reason.
+# From Gate run 40898399504 on 01d980e, 2026-10-29, three attempts: ddc-cli 83.10, ddc-core 93.97-93.99, ddc-loadgen 83.95; every safety file the same in all three.
+kind	name	floor	reason
+crate	ddc-cli	82.0	-
+crate	ddc-core	92.9	-
+crate	ddc-loadgen	82.9	-
+file	crates/ddc-core/src/plan.rs	93.9	-
+file	crates/ddc-core/src/rules/classify.rs	95.6	-
+file	crates/ddc-core/src/exec/mod.rs	89.3	under the 90% target until step 9 of the story adds tests
+file	crates/ddc-core/src/exec/delete.rs	86.5	under the 90% target until step 9 of the story adds tests
+file	crates/ddc-core/src/exec/guard.rs	90.6	-
+file	crates/ddc-core/src/exec/preflight.rs	89.0	under the 90% target until step 9 of the story adds tests
+file	crates/ddc-core/src/exec/journal.rs	97.0	-
