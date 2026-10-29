@@ -599,6 +599,8 @@ fn the_rereading_refuses_what_changed_since_it_was_confirmed() {
     let plain = a.brew(&fixture, "[]");
     assert_eq!(refused(&plain, &uninstall_of("wget", &["1.24.0"])).0, Refusal::BrewKegsChanged);
     assert_eq!(refused(&plain, &uninstall_of("python@3.13", &["3.13.1"])).0, Refusal::BrewKegsChanged);
+    let gone = uninstall_of("python@3.13", &["3.12.9", "3.13.0", "3.13.1"]);
+    assert_eq!(refused(&plain, &gone).0, Refusal::BrewKegsChanged, "a confirmed keg is gone");
     assert_eq!(refused(&plain, &uninstall_of("gone", &["1"])).0, Refusal::BrewNotInstalled);
     assert_eq!(refused(&plain, &uninstall_of("curl", &["8.11.0"])).0, Refusal::BrewPinned);
 
@@ -768,16 +770,33 @@ fn brew_exiting_0_with_a_keg_left_has_freed_nothing_and_a_failure_says_why() {
 
 #[test]
 fn too_little_time_left_after_the_check_starts_nothing() {
+    // A 5 s timeout and a 4 s floor: a check over 1 s leaves too little.
     let a = Area::new();
     a.keg("wget", "1.25.0", 16 * 1024);
-    let commands = a.brew(&listing_fixture(), "[]").answer("brew", "uninstall --formula wget", true, "");
-    let (report, journal) = a.run(&commands, &uninstall_of("wget", &["1.25.0"]), Duration::from_secs(6));
+    let slow = FakeCommands {
+        on_call: Some(Box::new(|call| {
+            if call == "brew info --json=v2 --installed" {
+                std::thread::sleep(Duration::from_millis(1_200));
+            }
+        })),
+        ..a.brew(&listing_fixture(), "[]").answer("brew", "uninstall --formula wget", true, "")
+    };
+    let (report, journal) = a.run(&slow, &uninstall_of("wget", &["1.25.0"]), Duration::from_secs(4));
     assert_eq!(report.result, ActionResult::Failed { needs_admin: false });
     let mut lines = report.output.lines();
     assert_eq!(lines.next(), Some(free::NOT_STARTED));
     assert!(lines.next().unwrap().ends_with("of 5 s; try again"), "{}", report.output);
-    assert!(!commands.calls.borrow().iter().any(|c| c.contains("uninstall")));
+    assert!(!slow.calls.borrow().iter().any(|c| c.contains("uninstall")));
     assert_eq!(journal.0.len(), 1, "journaled as not started");
+    assert_ne!(journal.0[0].result, ActionResult::Freed);
+
+    let quick = a.brew(&listing_fixture(), "[]").answer("brew", "uninstall --formula wget", true, "");
+    let (report, _) = a.run(&quick, &uninstall_of("wget", &["1.25.0"]), Duration::from_secs(4));
+    assert!(quick.ran("brew uninstall --formula wget"), "{report:?}");
+
+    let never = a.brew(&listing_fixture(), "[]");
+    let (report, _) = a.run(&never, &uninstall_of("wget", &["1.25.0"]), Duration::from_secs(6));
+    assert!(report.output.starts_with(free::NOT_STARTED), "a floor above the timeout never starts brew");
 }
 
 #[test]
@@ -803,6 +822,41 @@ fn the_orphans_are_uninstalled_together_and_a_refusal_is_journaled_with_what_nee
     assert_eq!(report.result, ActionResult::Refused { reason: Refusal::BrewNeeded });
     assert_eq!(journal.0[0].needed_by, report.needed_by);
     assert_eq!(journal.0[0].needed_by[0].formulae, ["libidn2", "wget"]);
+}
+
+#[test]
+fn two_orphans_one_with_two_kegs_go_in_one_command_journaled_with_every_name() {
+    let a = Area::new();
+    let mut doc: Value = serde_json::from_str(&listing_fixture()).unwrap();
+    let formulae = doc["formulae"].as_array_mut().unwrap();
+    formulae.retain(|f| f["full_name"] != "leftover");
+    formulae.push(formula("leftover", &[("1", false), ("2", false)], Some(&[])));
+    formulae.push(formula("stray", &[("0.1", false)], Some(&[])));
+    let installed = doc.to_string();
+    a.keg("leftover", "1", 8 * 1024);
+    a.keg("leftover", "2", 8 * 1024);
+    a.keg("stray", "0.1", 4 * 1024);
+    let (leftover, stray) = (a.uninstalled("leftover"), a.uninstalled("stray"));
+    let call = "brew uninstall --formula --force leftover stray";
+    let commands = FakeCommands {
+        on_call: Some(Box::new(move |c| {
+            if c == call {
+                leftover();
+                stray();
+            }
+        })),
+        ..a.brew(&installed, "[]").answer("brew", &call[5..], true, "")
+    };
+    let (report, journal) = a.run(&commands, &orphans_of(&["leftover", "stray"]), Duration::ZERO);
+    assert_eq!(report.result, ActionResult::Freed, "{report:?}");
+    let kegs: Vec<(&str, &str)> = report.kegs.iter().map(|k| (k.formula.as_str(), k.version.as_str())).collect();
+    assert_eq!(kegs, [("leftover", "1"), ("leftover", "2"), ("stray", "0.1")]);
+    assert_eq!(commands.calls.borrow().iter().filter(|c| c.contains("uninstall")).count(), 1);
+    assert!(commands.ran(call));
+    assert_eq!(*commands.envs.borrow().last().unwrap(), brew::ENV.map(|(k, v)| format!("{k}={v}")));
+    assert_eq!(journal.0.len(), 1);
+    assert_eq!(journal.0[0].action, ActionId::BrewUninstallOrphans);
+    assert!(journal.0[0].command.ends_with("uninstall --formula --force leftover stray"), "{}", journal.0[0].command);
 }
 
 #[test]
