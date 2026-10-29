@@ -26,6 +26,7 @@ public final class AppPreferences {
     public static let permissionPendingKey = "NotificationPermissionPending"
     public static let permissionAskedKey = "NotificationPermissionAsked"
     public static let oldScanOfferDismissedKey = "OldScanOfferDismissed"
+    public static let foundUpdateKey = "FoundUpdate"
 
     private let defaults: UserDefaults
 
@@ -168,6 +169,21 @@ public final class AppPreferences {
 
     public func setScansPaused(_ on: Bool) {
         defaults.set(on, forKey: Self.scansPausedKey)
+    }
+
+    // MARK: Updates ("Sparkle updates: check daily, Update and Relaunch, and the cask's auto_updates")
+
+    /// The last update a check found, so the line survives a restart; `UpdateModel` reads it.
+    public var foundUpdate: UpdateRecord? {
+        defaults.data(forKey: Self.foundUpdateKey).flatMap { try? JSONDecoder().decode(UpdateRecord.self, from: $0) }
+    }
+
+    public func setFoundUpdate(_ record: UpdateRecord?) {
+        if let record, let data = try? JSONEncoder().encode(record) {
+            defaults.set(data, forKey: Self.foundUpdateKey)
+        } else {
+            defaults.removeObject(forKey: Self.foundUpdateKey)
+        }
     }
 
     /// A notification was posted and the Review window has not opened since.
