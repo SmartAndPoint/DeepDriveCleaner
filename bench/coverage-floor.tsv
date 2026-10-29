@@ -8,8 +8,8 @@ crate	ddc-core	92.9	-
 crate	ddc-loadgen	82.9	-
 file	crates/ddc-core/src/plan.rs	93.9	-
 file	crates/ddc-core/src/rules/classify.rs	95.6	-
-file	crates/ddc-core/src/exec/mod.rs	89.3	under the 90% target until step 9 of the story adds tests
-file	crates/ddc-core/src/exec/delete.rs	86.5	under the 90% target until step 9 of the story adds tests
+file	crates/ddc-core/src/exec/mod.rs	89.3	92.34% in CI on 01d980e, at the target; the floor keeps the 3-point margin for run-to-run spread
+file	crates/ddc-core/src/exec/delete.rs	86.5	lines 30-31, 60 and 69 run only when a folder is swapped between the tombstone rename and its stat, or is gone or not ours in make_dirs_writable
 file	crates/ddc-core/src/exec/guard.rs	90.6	-
-file	crates/ddc-core/src/exec/preflight.rs	89.0	under the 90% target until step 9 of the story adds tests
+file	crates/ddc-core/src/exec/preflight.rs	89.0	92.10% in CI on 01d980e, at the target; the floor keeps the 3-point margin for run-to-run spread
 file	crates/ddc-core/src/exec/journal.rs	97.0	-

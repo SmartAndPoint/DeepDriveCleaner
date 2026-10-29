@@ -69,3 +69,33 @@ fn make_dirs_writable(root: &Path) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::fs::MetadataExt as _;
+
+    use super::*;
+    use crate::exec::SkipReason;
+    use crate::sys::fsops::DirFd;
+
+    fn verified(parent: &Path, name: &str) -> Verified {
+        let md = fs::symlink_metadata(parent.join(name)).unwrap();
+        Verified { parent: DirFd::open(parent).unwrap(), name: name.into(), id: (md.dev(), md.ino()), is_dir: true }
+    }
+
+    /// A folder swapped in after the check is not renamed to a tombstone or removed.
+    #[test]
+    fn a_folder_swapped_in_after_the_check_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("cache/old")).unwrap();
+        let v = verified(dir.path(), "cache");
+        fs::rename(dir.path().join("cache"), dir.path().join("moved")).unwrap();
+        fs::create_dir_all(dir.path().join("cache/new")).unwrap();
+
+        let out = remove(&v, &dir.path().join("cache"), false);
+
+        assert_eq!(out, Outcome::Skipped(SkipReason::ChangedSinceScan));
+        assert!(dir.path().join("cache/new").is_dir());
+        assert!(dir.path().join("moved/old").is_dir());
+    }
+}
