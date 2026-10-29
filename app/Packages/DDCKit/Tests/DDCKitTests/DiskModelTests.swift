@@ -44,9 +44,9 @@ struct DiskModelTests {
         #expect(m.report == .none)
         #expect(m.summary(scan: nil, summary: nil, included: []) == nil)
 
-        try Fixture.edited("disk-report") { $0["schema_version"] = 2 }.write(to: data.directory.lastDisk)
+        try Fixture.edited("disk-report") { $0["schema_version"] = 1 }.write(to: data.directory.lastDisk)
         await m.load()
-        #expect(m.report == .unreadable("It was written by another version of ddc (schema 2)."))
+        #expect(m.report == .unreadable("It was written by another version of ddc (schema 1)."))
     }
 
     @Test("the file is read again only when its modification date changed")

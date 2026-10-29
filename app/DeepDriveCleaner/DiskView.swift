@@ -221,7 +221,7 @@ private struct DiskRow: View {
             }
             Text(row.size).font(.system(size: 13)).monospacedDigit().fixedSize()
         }
-        .padding(.leading, row.nested ? 24 : 0)
+        .padding(.leading, CGFloat(row.depth) * 24)
         .padding(.vertical, 8)
         .accessibilityElement(children: .combine)
         .contextMenu {

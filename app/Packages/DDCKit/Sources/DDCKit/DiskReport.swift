@@ -10,7 +10,7 @@ import Foundation
 /// unknown one is no button.
 public struct DiskReport: Decodable, Sendable, Equatable {
     /// `DISK_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
 
     public let schemaVersion: Int
     public let ddcVersion: String
@@ -25,6 +25,8 @@ public struct DiskReport: Decodable, Sendable, Equatable {
     /// In the CLI's order; a nested area names its `parent` and follows it.
     public let areas: [Area]
     public let simulators: Simulators?
+    /// The `/opt` conda installs; nil when there is none.
+    public let conda: Conda?
     public let snapshots: Snapshots
     public let walk: WalkTotals
     public let notCounted: NotCounted
@@ -83,6 +85,11 @@ public struct DiskReport: Decodable, Sendable, Equatable {
     public enum ActionId: String, Decodable, Sendable, CaseIterable {
         case simctlRuntimeDelete = "simctl-runtime-delete"
         case brewCleanup = "brew-cleanup"
+        /// Its identifier is the environment's path (story "Whole disk:
+        /// Conda environments and its package cache, with conda").
+        case condaEnvRemove = "conda-env-remove"
+        /// Its identifier is the install's prefix.
+        case condaClean = "conda-clean"
     }
 
     public struct Area: Decodable, Sendable, Equatable, Identifiable {
@@ -176,6 +183,35 @@ public struct DiskReport: Decodable, Sendable, Equatable {
         public let udid: String
         public let name: String
         public let state: String
+    }
+
+    /// The `/opt` conda installs, read from the file system: `ddc disk`
+    /// never runs conda.
+    public struct Conda: Decodable, Sendable, Equatable {
+        /// In the order `miniconda3`, `anaconda3`, `miniforge3`.
+        public let installs: [CondaInstall]
+    }
+
+    public struct CondaInstall: Decodable, Sendable, Equatable {
+        /// As conda spells it: `/opt/miniconda3`.
+        public let prefix: String
+        /// `<prefix>/pkgs`; nil when there is none.
+        public let packages: CondaFolder?
+        public let environments: [CondaFolder]
+    }
+
+    /// An environment or a package folder.
+    public struct CondaFolder: Decodable, Sendable, Equatable {
+        public let path: String
+        /// What removing it alone frees.
+        public let bytes: UInt64
+        /// Hard-linked with a link elsewhere too, such as the package cache.
+        public let sharedBytes: UInt64
+        public let files: UInt64
+        public let unreadable: UInt64
+        public let partial: Bool
+        /// False: conda would need an administrator, and the app offers nothing.
+        public let writable: Bool
     }
 
     public struct Snapshots: Decodable, Sendable, Equatable {

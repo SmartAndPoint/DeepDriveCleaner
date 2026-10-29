@@ -7,7 +7,7 @@ import Foundation
 /// unreadable, and an unknown enum value is a decoding error.
 public struct FreeReport: Decodable, Sendable, Equatable {
     /// `FREE_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
 
     public let schemaVersion: Int
     public let ddcVersion: String
@@ -39,7 +39,7 @@ public struct FreeReport: Decodable, Sendable, Equatable {
 
     public struct ActionReport: Decodable, Sendable, Equatable {
         public let action: DiskReport.ActionId
-        /// `simulator-runtimes` or `homebrew`.
+        /// `simulator-runtimes`, `homebrew` or `conda`.
         public let area: String
         public let identifier: String?
         /// The program and its arguments, as run (or as it would run).
@@ -114,6 +114,18 @@ public struct FreeReport: Decodable, Sendable, Equatable {
         case prefixMismatch = "prefix-mismatch"
         case cellarOutside = "cellar-outside"
         case cacheMismatch = "cache-mismatch"
+        case condaInHome = "conda-in-home"
+        case condaNotInOpt = "conda-not-in-opt"
+        case condaMissing = "conda-missing"
+        case condaRootMismatch = "conda-root-mismatch"
+        case condaBase = "conda-base"
+        case condaNotInEnvsDirs = "conda-not-in-envs-dirs"
+        case condaNotAnEnvironment = "conda-not-an-environment"
+        case condaPackagesNotListed = "conda-packages-not-listed"
+        case condaNotWritable = "conda-not-writable"
+        case condaInUse = "conda-in-use"
+        case condaSoftlinks = "conda-softlinks"
+        case condaNotScoped = "conda-not-scoped"
 
         /// Why nothing ran, as a sentence's end: "It was not run: …".
         public var text: String {
@@ -133,6 +145,18 @@ public struct FreeReport: Decodable, Sendable, Equatable {
             case .prefixMismatch: "brew --prefix is not /opt/homebrew"
             case .cellarOutside: "brew --cellar is not inside /opt/homebrew"
             case .cacheMismatch: "brew --cache is not ~/Library/Caches/Homebrew"
+            case .condaInHome: "it is in the home folder: the Review window cleans it"
+            case .condaNotInOpt: "it is not an environment or the install of /opt/miniconda3, /opt/anaconda3 or /opt/miniforge3"
+            case .condaMissing: "the install's conda is missing or did not answer"
+            case .condaRootMismatch: "conda's root_prefix is not the install's folder"
+            case .condaBase: "it is the install's base environment"
+            case .condaNotInEnvsDirs: "its folder is not in conda's envs_dirs"
+            case .condaNotAnEnvironment: "it holds no conda-meta/history"
+            case .condaPackagesNotListed: "the install's pkgs folder is not in conda's pkgs_dirs"
+            case .condaNotWritable: "your user cannot write it: conda needs an administrator"
+            case .condaInUse: "a running process uses the environment"
+            case .condaSoftlinks: "an install links packages into its environments by symlink"
+            case .condaNotScoped: "conda's package folders, set in a .condarc, cannot be limited to this one"
             }
         }
     }
@@ -140,7 +164,8 @@ public struct FreeReport: Decodable, Sendable, Equatable {
     public struct Preview: Decodable, Sendable, Equatable {
         /// The tool's dry-run output, line by line.
         public let lines: [String]
-        /// A runtime's measured folder, or what `brew cleanup -n` says it frees.
+        /// A runtime's or an environment's measured folder, or what `brew
+        /// cleanup -n` or `conda clean --dry-run` says it frees.
         public let estimateBytes: UInt64?
     }
 }
@@ -149,7 +174,8 @@ public struct FreeReport: Decodable, Sendable, Equatable {
 /// `free/model.rs`). The CLI refuses unknown keys.
 public struct ListedAreaAction: Encodable, Sendable, Equatable, Hashable {
     public let action: DiskReport.ActionId
-    /// The runtime's asset id; only, and always, on `simctl-runtime-delete`.
+    /// The runtime's asset id, the environment's path or the install's
+    /// prefix; on every action but `brew-cleanup`.
     public let identifier: String?
 
     public init(action: DiskReport.ActionId, identifier: String?) {
@@ -172,7 +198,7 @@ public struct ListedAreaAction: Encodable, Sendable, Equatable, Hashable {
 /// (menu bar ADR §6 item 11).
 public struct AreaActionList: Encodable, Sendable, Equatable {
     /// `FREE_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
 
     public let actions: [ListedAreaAction]
 

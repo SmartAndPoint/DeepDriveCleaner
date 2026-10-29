@@ -134,11 +134,13 @@ public enum FreeWording {
     /// `free::STOPPED`: the CLI's output of a tool it stopped.
     static let stopped = "stopped before the tool finished"
 
-    /// One sentence; `name` is the offer's ("iOS 27.0 (24A100)", "Homebrew").
+    /// One sentence; `name` is the offer's ("iOS 27.0 (24A100)", "Homebrew", "ml").
     public static func result(_ action: FreeReport.ActionReport, name: String) -> String {
         switch action.result {
         case .freed:
             return action.freedBytes.map { "Freed \(ByteSize.human($0))." } ?? "Done."
+        case .removedNotFreed where action.action == .condaEnvRemove:
+            return "conda finished, but the environment's folder is still there: nothing was freed. Its folder may need an administrator; you can run the command in Terminal to see why."
         case .removedNotFreed:
             let size = action.bytesAfter.map { " (\(ByteSize.human($0)))" } ?? ""
             return "The runtime is gone from simctl's list, but its folder did not get smaller\(size). macOS may free it later."
@@ -147,7 +149,7 @@ public enum FreeWording {
         case .refused(let reason):
             return "Not run: \(reason.text)."
         case .failed(let needsAdmin):
-            let tool = action.action == .brewCleanup ? "brew cleanup" : "simctl"
+            let tool = toolName(action.action)
             if action.output?.hasPrefix(stopped) == true {
                 return "Stopped before \(tool) finished. Part of it may have been removed; scan the whole disk again to see the space."
             }
@@ -158,6 +160,27 @@ public enum FreeWording {
             return "Nothing has run yet."
         case .notRun:
             return "Stopped before it started: nothing ran."
+        }
+    }
+
+    /// Whether the sheet shows the tool's output and the command to run in
+    /// Terminal: after a failure, and after conda left an environment in
+    /// place, which it does without an error when it lacks the rights.
+    public static func offersTerminal(_ action: FreeReport.ActionReport) -> Bool {
+        switch action.result {
+        case .failed: true
+        case .removedNotFreed: action.action == .condaEnvRemove
+        default: false
+        }
+    }
+
+    /// The tool as the user would type it.
+    public static func toolName(_ action: DiskReport.ActionId) -> String {
+        switch action {
+        case .simctlRuntimeDelete: "simctl"
+        case .brewCleanup: "brew cleanup"
+        case .condaEnvRemove: "conda env remove"
+        case .condaClean: "conda clean"
         }
     }
 }

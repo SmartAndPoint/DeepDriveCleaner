@@ -201,6 +201,11 @@ extension CleanWording {
         return parts.joined(separator: " · ")
     }
 
+    /// Rules whose hint a row says whatever its class: conda's package cache
+    /// frees only the packages no environment uses, so less than its size
+    /// (story "Whole disk: Conda environments and its package cache, with conda").
+    public static let hintedThoughSafe: Set<String> = ["cache.conda"]
+
     /// A finding's way back, as a sentence; nil when it has none.
     public static func hint(_ hint: String) -> String? {
         hint.isEmpty ? nil : hint.prefix(1).uppercased() + hint.dropFirst()
@@ -257,7 +262,7 @@ extension CleanWording {
         }
         parts += finding.notes.map(note)
         if finding.incomplete { parts.append("Part of it could not be read; it may be skipped") }
-        if finding.class == .review, !finding.hint.isEmpty { parts.append(finding.hint.prefix(1).uppercased() + finding.hint.dropFirst()) }
+        if finding.class == .review || Self.hintedThoughSafe.contains(finding.rule), let hint = Self.hint(finding.hint) { parts.append(hint) }
         return parts.joined(separator: " · ")
     }
 }

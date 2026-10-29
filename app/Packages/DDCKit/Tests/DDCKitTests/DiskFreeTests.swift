@@ -74,21 +74,49 @@ struct DiskFreeTests {
                 json["actions"] = actions
             })
         }
-        #expect(throws: ScanReport.ReadError.otherSchema(2)) {
-            try FreeReport.read(Fixture.edited("free-report") { $0["schema_version"] = 2 })
+        for version in [1, 3] {
+            #expect(throws: ScanReport.ReadError.otherSchema(version)) {
+                try FreeReport.read(Fixture.edited("free-report") { $0["schema_version"] = version })
+            }
+        }
+        for reason in ["conda-in-home", "conda-not-writable", "conda-not-scoped"] {
+            let refused = try FreeReport.read(Fixture.edited("free-report") { json in
+                var actions = json["actions"] as! [[String: Any]]
+                actions[0]["action"] = "conda-env-remove"
+                actions[0]["area"] = "conda"
+                actions[0]["identifier"] = "/opt/miniconda3/envs/ml"
+                actions[0]["result"] = ["status": "refused", "reason": reason]
+                json["actions"] = actions
+            })
+            #expect(refused.actions[0].action == .condaEnvRemove)
+            #expect(refused.actions[0].result == .refused(try #require(FreeReport.Refusal(rawValue: reason))))
         }
 
         let list = AreaActionList(actions: [Self.brew.listed, ListedAreaAction(action: .simctlRuntimeDelete, identifier: "A")])
         #expect(String(decoding: try list.encoded(), as: UTF8.self)
-            == #"{"actions":[{"action":"brew-cleanup"},{"action":"simctl-runtime-delete","identifier":"A"}],"schema_version":1}"#)
+            == #"{"actions":[{"action":"brew-cleanup"},{"action":"simctl-runtime-delete","identifier":"A"}],"schema_version":2}"#)
+        let conda = AreaActionList(actions: [
+            ListedAreaAction(action: .condaEnvRemove, identifier: "/opt/miniconda3/envs/ml"),
+            ListedAreaAction(action: .condaClean, identifier: "/opt/miniconda3"),
+        ])
+        #expect(String(decoding: try conda.encoded(), as: UTF8.self)
+            == #"{"actions":[{"action":"conda-env-remove","identifier":"/opt/miniconda3/envs/ml"},{"action":"conda-clean","identifier":"/opt/miniconda3"}],"schema_version":2}"#)
     }
 
     // MARK: - Which rows offer an action
 
-    @Test("Homebrew and a downloaded, idle runtime offer an action; nothing else does")
+    /// The offers' row ids, without the conda ones (tested on their own).
+    private func notConda(_ offers: [String: AreaActions.Offer]) -> [String] {
+        offers.keys.filter { !$0.hasPrefix("conda") }.sorted()
+    }
+
+    @Test("Homebrew, a downloaded, idle runtime and the writable conda folders offer an action; nothing else does")
     func offers() throws {
         let offers = AreaActions.offers(try report())
-        #expect(offers.keys.sorted() == ["homebrew", "runtime 9A1B2C3D-0000-4000-8000-000000000001"])
+        #expect(offers.keys.sorted() == [
+            "conda-env /opt/miniconda3/envs/ml", "conda-env /opt/miniconda3/envs/old", "conda-install /opt/miniconda3",
+            "homebrew", "runtime 9A1B2C3D-0000-4000-8000-000000000001",
+        ])
         let offered = try #require(offers["runtime 9A1B2C3D-0000-4000-8000-000000000001"])
         #expect(offered.name == "iOS 27.0 (24A100)")
         #expect(offered.listed == ListedAreaAction(action: .simctlRuntimeDelete, identifier: "9A1B2C3D-0000-4000-8000-000000000001"))
@@ -102,10 +130,10 @@ struct DiskFreeTests {
             ("climbing out", { $0["parent_mount_path"] = "/System/Library/AssetsV2/../../Library/Developer" }),
         ]
         for (name, edit) in refusals {
-            #expect(AreaActions.offers(try runtime(edit)).keys.sorted() == ["homebrew"], "\(name)")
+            #expect(notConda(AreaActions.offers(try runtime(edit))) == ["homebrew"], "\(name)")
         }
         let failed = try report { json in json["simulators"] = ["status": "failed", "message": "simctl failed", "runtimes": [], "listed_bytes": 0] }
-        #expect(AreaActions.offers(failed).keys.sorted() == ["homebrew"])
+        #expect(notConda(AreaActions.offers(failed)) == ["homebrew"])
     }
 
     @Test("each runtime has a row under its area, and an area an action ran on reads before cleanup")
@@ -134,6 +162,115 @@ struct DiskFreeTests {
         let booted = DiskSummary.make(try runtime { $0["booted"] = true }, scan: nil, summary: nil, included: [], now: .now)
         let row = try #require(booted.rows.first { $0.id.hasPrefix("runtime ") })
         #expect(row.offer == nil && row.note == "1 simulator · A simulator on it is running")
+    }
+
+    // MARK: - Conda in /opt
+
+    /// The fixture's `conda` section, edited: its installs as JSON objects.
+    private func conda(_ edit: @escaping (inout [[String: Any]]) -> Void) throws -> DiskReport {
+        try report { json in
+            var section = json["conda"] as! [String: Any]
+            var installs = section["installs"] as! [[String: Any]]
+            edit(&installs)
+            section["installs"] = installs
+            json["conda"] = section
+        }
+    }
+
+    private func rows(_ report: DiskReport) -> [DiskSummary.Row] {
+        DiskSummary.make(report, scan: nil, summary: nil, included: [], now: .now).rows
+    }
+
+    @Test("each /opt environment is a row nested under its install under Conda, with Remove Environment…; an install's cache offers Clean Package Cache… only when the user can write it")
+    func condaRows() throws {
+        let all = rows(try report())
+        let byID = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+        let area = try #require(byID["conda"])
+        #expect(area.depth == 1 && area.offer == nil, "two installs: the offer is on each install's row")
+
+        let mini = try #require(byID["conda-install /opt/miniconda3"])
+        #expect(mini.depth == 2 && mini.title == "/opt/miniconda3")
+        #expect(mini.offer?.listed == ListedAreaAction(action: .condaClean, identifier: "/opt/miniconda3"))
+        #expect(mini.offer?.buttonTitle == "Clean Package Cache…")
+        let ml = try #require(byID["conda-env /opt/miniconda3/envs/ml"])
+        #expect(ml.depth == 3 && ml.title == "ml" && ml.size == "2.0 GiB")
+        #expect(ml.note.contains("1.0 GiB also held elsewhere, such as the package cache"))
+        #expect(ml.offer?.listed == ListedAreaAction(action: .condaEnvRemove, identifier: "/opt/miniconda3/envs/ml"))
+        #expect(ml.offer?.buttonTitle == "Remove Environment…" && ml.offer?.bytes == 2 << 30)
+        #expect(byID["conda-env /opt/miniconda3/envs/old"]?.note.contains("also held elsewhere") == false)
+
+        // Root-owned: no offer, and the rows say why.
+        let ana = try #require(byID["conda-install /opt/anaconda3"])
+        #expect(ana.offer == nil && ana.note.contains("your own packages live in ~/.conda/pkgs, a finding in the Review window"))
+        let shared = try #require(byID["conda-env /opt/anaconda3/envs/shared"])
+        #expect(shared.offer == nil && shared.note.contains("conda needs an administrator"))
+
+        // One install: its environments right under Conda, and the cache's offer on the Conda row.
+        let one = rows(try conda { $0 = [$0[0]] })
+        let ids = one.map(\.id)
+        let at = try #require(ids.firstIndex(of: "conda"))
+        #expect(Array(ids[at...].prefix(3)) == ["conda", "conda-env /opt/miniconda3/envs/ml", "conda-env /opt/miniconda3/envs/old"])
+        #expect(!ids.contains { $0.hasPrefix("conda-install") })
+        #expect(one[at].offer?.action == .condaClean && one[at].offer?.identifier == "/opt/miniconda3")
+        #expect(one[at + 1].depth == 2 && one[at + 1].offer?.action == .condaEnvRemove)
+
+        // One install whose cache the user cannot write: no cache offer, and the Conda row says where the user's packages are.
+        let locked = rows(try conda { installs in
+            var pkgs = installs[0]["packages"] as! [String: Any]
+            pkgs["writable"] = false
+            installs[0]["packages"] = pkgs
+            installs = [installs[0]]
+        })
+        let lockedArea = try #require(locked.first { $0.id == "conda" })
+        #expect(lockedArea.offer == nil)
+        #expect(lockedArea.note.contains("Its package cache needs an administrator: your own packages live in ~/.conda/pkgs"))
+        #expect(locked.first { $0.id == "conda-env /opt/miniconda3/envs/ml" }?.offer?.action == .condaEnvRemove)
+
+        // No conda section, or a report without the Conda area: no conda rows.
+        #expect(!rows(try report { $0["conda"] = nil }).contains { $0.id.hasPrefix("conda-") })
+        let noArea = try report { json in
+            json["areas"] = (json["areas"] as! [[String: Any]]).filter { $0["id"] as? String != "conda" }
+        }
+        #expect(AreaActions.offers(noArea).keys.allSatisfy { !$0.hasPrefix("conda") })
+
+        // The environments' sizes are in the area's: the bar does not count them twice.
+        let plain = DiskSummary.make(try report { $0["conda"] = nil }, scan: nil, summary: nil, included: [], now: .now)
+        let with = DiskSummary.make(try report(), scan: nil, summary: nil, included: [], now: .now)
+        #expect(plain.segments == with.segments)
+    }
+
+    @Test("the conda sheets name conda, what cannot be undone and what each frees; a removal conda left undone offers Terminal")
+    func condaWording() throws {
+        let env = AreaActions.Offer(action: .condaEnvRemove, identifier: "/opt/miniconda3/envs/ml", name: "ml", bytes: 1)
+        #expect(env.question == "Remove the conda environment ml?")
+        #expect(env.confirmTitle == "Remove Environment" && env.tool == "conda")
+        #expect(env.consequence.contains("/opt/miniconda3/envs/ml") && env.consequence.contains("cannot be undone"))
+        #expect(env.estimateText(1 << 30) == "Only this environment holds 1.0 GiB: that is what removing it frees.")
+        let cache = AreaActions.Offer(action: .condaClean, identifier: "/opt/miniconda3", name: "/opt/miniconda3", bytes: 1)
+        #expect(cache.question == "Clean the package cache of /opt/miniconda3?")
+        #expect(cache.consequence.contains("/opt/miniconda3/pkgs") && cache.consequence.contains("Packages your environments use stay"))
+        #expect(cache.estimateText(1 << 30) == "conda says this frees about 1.0 GiB.")
+        #expect(cache.runningText == "Running conda clean…" && env.runningText == "Removing the environment…")
+
+        let report = try FreeReport.read(Fixture.data("free-report"))
+        func edited(_ action: DiskReport.ActionId, _ result: [String: Any]) throws -> FreeReport.ActionReport {
+            try FreeReport.read(Fixture.edited("free-report") { json in
+                var actions = json["actions"] as! [[String: Any]]
+                actions[0]["action"] = action.rawValue
+                actions[0]["area"] = "conda"
+                actions[0]["identifier"] = "/opt/miniconda3/envs/ml"
+                actions[0]["result"] = result
+                json["actions"] = actions
+            }).actions[0]
+        }
+        let kept = try edited(.condaEnvRemove, ["status": "removed-not-freed"])
+        #expect(FreeWording.result(kept, name: "ml").hasPrefix("conda finished, but the environment's folder is still there: nothing was freed."))
+        #expect(FreeWording.offersTerminal(kept))
+        #expect(!FreeWording.offersTerminal(report.actions[0]))
+        let failed = try edited(.condaClean, ["status": "failed", "needs_admin": true])
+        #expect(FreeWording.result(failed, name: "/opt/miniconda3").hasPrefix("conda clean could not remove everything without an administrator."))
+        let refused = try edited(.condaEnvRemove, ["status": "refused", "reason": "conda-not-writable"])
+        #expect(FreeWording.result(refused, name: "ml") == "Not run: your user cannot write it: conda needs an administrator.")
     }
 
     // MARK: - The runs
@@ -165,7 +302,7 @@ struct DiskFreeTests {
         #expect(m.freeResults[Self.brew.id] == result)
         #expect(edited == 1, "the popover reads the edited last-scan.json again")
         #expect(try fake.actionLists().map { String(decoding: $0, as: UTF8.self) } == Array(
-            repeating: #"{"actions":[{"action":"brew-cleanup"}],"schema_version":1}"#, count: 2
+            repeating: #"{"actions":[{"action":"brew-cleanup"}],"schema_version":2}"#, count: 2
         ))
         let runs = try fake.runs().filter { $0.event == "start" }.map(\.args)
         #expect(runs.count == 2 && runs[0].hasSuffix("--dry-run --json") && runs[1].hasSuffix(".json --json"))

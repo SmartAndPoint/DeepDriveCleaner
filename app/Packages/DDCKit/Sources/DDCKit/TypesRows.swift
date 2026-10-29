@@ -47,11 +47,11 @@ public enum TypesRows {
     /// gives (`GROUPS` in `crates/ddc-core/src/rules/listing.rs`). A contract
     /// test checks that every row has one.
     public static let help: [String: String] = [
-        "Python environments": ".venv, venv, conda envs inside projects",
+        "Python environments": ".venv, venv, conda envs inside projects, environments of the conda in your home folder",
         "node_modules": "Dependencies of JavaScript projects",
         "Build outputs": "target/, CMake and Gradle build folders, Pods",
         "Build caches in projects": "__pycache__, .next, .turbo, Gradle: rebuilt on the next build",
-        "Package downloads": "npm, pnpm, yarn, bun, pip, Poetry, Homebrew, CocoaPods",
+        "Package downloads": "npm, pnpm, yarn, bun, pip, Poetry, conda, Homebrew, CocoaPods",
         "Toolchain caches": "Cargo, uv, Go modules and build cache, Gradle: needed to build offline",
         "Maven and test browsers": "The Maven repository, Playwright, Puppeteer and Cypress browsers: downloaded again when needed",
         "Browser and app caches": "Browsers, Spotify, Slack",

@@ -263,6 +263,25 @@ struct ReviewGroupsTests {
         #expect(CleanWording.detail(try #require(items.row(8))) == "Review · not selected by default · Re-download with ollama pull; remove one model with ollama rm")
     }
 
+    @Test("conda's package cache says what it frees though it is safe; another safe cache keeps its hint to the heading")
+    func condaCacheHint() throws {
+        let hint = "removes unused packages only: packages environments use stay, so less may be freed than the folder's size"
+        let report = try Fixture.edited("scan-report-groups") { json in
+            var findings = json["findings"] as? [[String: Any]] ?? []
+            findings += [
+                try! ReviewFixture.finding(0, ["rule": "cache.conda", "path": "/Users/example/.conda/pkgs", "bytes": 300_000, "ino": 9_901, "hint": hint]),
+                try! ReviewFixture.finding(0, ["rule": "cache.yarn", "path": "/Users/example/Library/Caches/Yarn", "bytes": 300_000, "ino": 9_902, "hint": "refills on the next yarn install"]),
+            ]
+            json["findings"] = findings
+        }
+        let items = try ReviewFixture.items(report: report)
+        let conda = try #require(items.rows.first { $0.finding.rule == "cache.conda" })
+        #expect(conda.finding.class == .safe)
+        #expect(CleanWording.detail(conda).hasSuffix("Removes unused packages only: packages environments use stay, so less may be freed than the folder's size"))
+        let yarn = try #require(items.rows.first { $0.finding.rule == "cache.yarn" })
+        #expect(!CleanWording.detail(yarn).contains("Refills"))
+    }
+
     @Test("a folded subgroup shows its heading only, stays folded across groups and reloads, and opens again when the window closes")
     func collapse() throws {
         let review = try review(venvs())

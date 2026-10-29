@@ -92,9 +92,19 @@ struct DiskSummaryTests {
     @Test("rows: the home row first with its source, nested areas under their parent, not counted last")
     func rows() throws {
         let s = try summary("disk-report")
-        #expect(s.rows.map(\.id) == ["home", "applications", "library", "opt", "homebrew", "private", "temporary-folders", "simulator-runtimes", "runtime 9A1B2C3D-0000-4000-8000-000000000001", "not-counted"])
+        #expect(s.rows.map(\.id) == [
+            "home", "applications", "library", "opt", "homebrew", "conda",
+            "conda-install /opt/miniconda3", "conda-env /opt/miniconda3/envs/ml", "conda-env /opt/miniconda3/envs/old",
+            "conda-install /opt/anaconda3", "conda-env /opt/anaconda3/envs/shared",
+            "private", "temporary-folders", "simulator-runtimes", "runtime 9A1B2C3D-0000-4000-8000-000000000001", "not-counted",
+        ])
         #expect(s.rows[0].note.hasPrefix("From the scan today at 8:04 · 2.5 MiB can be freed"))
-        #expect(s.rows.filter(\.nested).map(\.id) == ["homebrew", "temporary-folders", "runtime 9A1B2C3D-0000-4000-8000-000000000001"])
+        #expect(s.rows.filter(\.nested).map(\.id) == [
+            "homebrew", "conda",
+            "conda-install /opt/miniconda3", "conda-env /opt/miniconda3/envs/ml", "conda-env /opt/miniconda3/envs/old",
+            "conda-install /opt/anaconda3", "conda-env /opt/anaconda3/envs/shared",
+            "temporary-folders", "runtime 9A1B2C3D-0000-4000-8000-000000000001",
+        ])
         let temp = try #require(s.rows.first { $0.id == "temporary-folders" })
         #expect(temp.size.hasPrefix("at least ") && temp.note.contains("1.0 M entries read"))
         let runtimes = try #require(s.rows.first { $0.id == "simulator-runtimes" })

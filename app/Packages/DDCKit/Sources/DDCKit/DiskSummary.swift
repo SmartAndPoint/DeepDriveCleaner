@@ -29,15 +29,20 @@ public struct DiskSummary: Sendable, Equatable {
         /// "80.0 GiB", "at least 2.0 GiB", or a text such as "unknown".
         public let size: String
         public let note: String
-        /// Lies inside the row above it (Homebrew inside /opt, a runtime
-        /// inside Simulator runtimes).
-        public let nested: Bool
+        /// How many rows it lies inside: 1 for Homebrew inside /opt or a
+        /// runtime inside Simulator runtimes, 2 for a conda environment
+        /// inside Conda inside /opt.
+        public let depth: Int
         public let tone: Tone
-        /// The row's button: Delete Runtime…, Clean Up Homebrew….
+        /// The row's button: Delete Runtime…, Clean Up Homebrew…, Remove
+        /// Environment…, Clean Package Cache….
         public var offer: AreaActions.Offer? = nil
         /// Show in Finder, Open Software Update; nil for a row with nothing
         /// to press.
         public var reveal: AreaActions.Reveal? = nil
+
+        /// Lies inside the row above it.
+        public var nested: Bool { depth > 0 }
     }
 
     /// "749.3 GiB used of 926.4 GiB", or nil without the container.
@@ -97,7 +102,7 @@ public struct DiskSummary: Sendable, Equatable {
         }
         rows.append(Row(
             id: "home", title: "Home folder", size: size(home.bytes, partial: home.partial),
-            note: homeNote, nested: false, tone: .home
+            note: homeNote, depth: 0, tone: .home
         ))
 
         // The areas: each nested one right under the one it lies in, when listed.
@@ -111,11 +116,15 @@ public struct DiskSummary: Sendable, Equatable {
         for area in ordered {
             outside += area.bytes
             let measured = area.measuredBeforeAction ? " before cleanup" : ""
+            let depth = listed(area.parent) ? 1 : 0
             rows.append(Row(
                 id: area.id, title: area.title, size: size(area.bytes, partial: area.partial) + measured,
-                note: note(area, simulators: report.simulators), nested: listed(area.parent), tone: .outside,
+                note: note(area, simulators: report.simulators, conda: report.conda), depth: depth, tone: .outside,
                 offer: offers[area.id], reveal: AreaActions.reveal(area)
             ))
+            if area.action == .condaClean, let conda = report.conda {
+                rows += condaRows(conda, depth: depth + 1, offers: offers)
+            }
             // Each listed runtime under its area; their sizes are in the area's.
             if area.action == .simctlRuntimeDelete, let sims = report.simulators, sims.status == .listed {
                 for runtime in sims.runtimes {
@@ -123,7 +132,7 @@ public struct DiskSummary: Sendable, Equatable {
                     rows.append(Row(
                         id: id, title: AreaActions.name(runtime),
                         size: runtime.sizeBytes.map(ByteSize.human) ?? "unknown",
-                        note: runtimeNote(runtime), nested: true, tone: .outside, offer: offers[id]
+                        note: runtimeNote(runtime), depth: 1, tone: .outside, offer: offers[id]
                     ))
                 }
             }
@@ -155,7 +164,7 @@ public struct DiskSummary: Sendable, Equatable {
         }
         rows.append(Row(
             id: "not-counted", title: "Not counted", size: ncSize,
-            note: ncNote.joined(separator: " · "), nested: false, tone: .notCounted
+            note: ncNote.joined(separator: " · "), depth: 0, tone: .notCounted
         ))
 
         // The rest of the container: its other volumes, then the free space.
@@ -173,7 +182,57 @@ public struct DiskSummary: Sendable, Equatable {
         partial ? "at least \(ByteSize.human(bytes))" : ByteSize.human(bytes)
     }
 
-    private static func note(_ area: DiskReport.Area, simulators: DiskReport.Simulators?) -> String {
+    /// The `/opt` conda installs under the Conda row (story "Whole disk:
+    /// Conda environments and its package cache, with conda"): each
+    /// environment, and with more than one install each install with its
+    /// environments under it. Their sizes are in the area's.
+    private static func condaRows(_ conda: DiskReport.Conda, depth: Int, offers: [String: AreaActions.Offer]) -> [Row] {
+        var rows: [Row] = []
+        let several = conda.installs.count > 1
+        for install in conda.installs {
+            if several {
+                let id = AreaActions.condaInstallRowID(install)
+                let pkgs = install.packages
+                rows.append(Row(
+                    id: id, title: install.prefix,
+                    size: pkgs.map { size($0.bytes + $0.sharedBytes, partial: $0.partial) } ?? "no package cache",
+                    note: installNote(install), depth: depth, tone: .outside, offer: offers[id]
+                ))
+            }
+            for env in install.environments {
+                let id = AreaActions.condaEnvironmentRowID(env)
+                rows.append(Row(
+                    id: id, title: AreaActions.condaName(env.path), size: size(env.bytes, partial: env.partial),
+                    note: environmentNote(env), depth: several ? depth + 1 : depth, tone: .outside, offer: offers[id]
+                ))
+            }
+        }
+        return rows
+    }
+
+    private static func installNote(_ install: DiskReport.CondaInstall) -> String {
+        guard let pkgs = install.packages else { return Wording.items(install.environments.count, "environment") }
+        var parts = ["Its package cache", Wording.items(install.environments.count, "environment")]
+        if pkgs.unreadable > 0 { parts.append("\(Wording.count(pkgs.unreadable)) unreadable") }
+        if !pkgs.writable { parts.append(cacheNeedsAdmin) }
+        return parts.joined(separator: " · ")
+    }
+
+    private static func environmentNote(_ env: DiskReport.CondaFolder) -> String {
+        var parts = ["Conda environment"]
+        if env.sharedBytes > 0 {
+            parts.append("\(ByteSize.human(env.sharedBytes)) also held elsewhere, such as the package cache")
+        }
+        if env.unreadable > 0 { parts.append("\(Wording.count(env.unreadable)) unreadable") }
+        if !env.writable { parts.append("Your user cannot write it: conda needs an administrator, so it is not removed from here") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// The cache an `/opt` install keeps where the user cannot write.
+    static let cacheNeedsAdmin =
+        "Its package cache needs an administrator: your own packages live in ~/.conda/pkgs, a finding in the Review window"
+
+    private static func note(_ area: DiskReport.Area, simulators: DiskReport.Simulators?, conda: DiskReport.Conda?) -> String {
         var parts: [String] = []
         if area.unreadable > 0 { parts.append("\(Wording.count(area.unreadable)) unreadable") }
         if area.partial, let read = area.entriesRead { parts.append("\(Wording.count(read)) entries read") }
@@ -187,6 +246,10 @@ public struct DiskSummary: Sendable, Equatable {
             case .firstLaunchPending, .failed:
                 if let message = s.message { parts.append(message) }
             }
+        }
+        if area.action == .condaClean, let installs = conda?.installs, installs.count == 1,
+           let pkgs = installs[0].packages, !pkgs.writable {
+            parts.append(cacheNeedsAdmin)
         }
         parts.append(area.frees)
         return parts.joined(separator: " · ")

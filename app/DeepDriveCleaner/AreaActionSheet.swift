@@ -17,12 +17,12 @@ struct AreaActionSheet: View {
                     Text(sheet.offer.question).font(.system(size: 20, weight: .semibold))
                     switch sheet.stage {
                     case .previewing:
-                        waiting("Asking \(tool(sheet.offer)) what it would remove…")
+                        waiting("Asking \(sheet.offer.tool) what it would remove…")
                         buttons { Button("Cancel") { Task { await model.closeFree() } }.keyboardShortcut(.cancelAction) }
                     case .confirm(let preview):
                         confirm(sheet.offer, preview)
                     case .running:
-                        waiting(sheet.offer.action == .simctlRuntimeDelete ? "Deleting the runtime…" : "Running brew cleanup…")
+                        waiting(sheet.offer.runningText)
                         buttons { Button("Stop") { Task { await model.stopFree() } }.keyboardShortcut(.cancelAction) }
                     case .result(let action):
                         result(sheet.offer, action)
@@ -35,10 +35,6 @@ struct AreaActionSheet: View {
         }
         .frame(width: 600)
         .padding(24)
-    }
-
-    private func tool(_ offer: AreaActions.Offer) -> String {
-        offer.action == .simctlRuntimeDelete ? "simctl" : "brew"
     }
 
     private func waiting(_ text: String) -> some View {
@@ -56,9 +52,7 @@ struct AreaActionSheet: View {
         } else {
             Text(offer.consequence).fixedSize(horizontal: false, vertical: true)
             if let estimate = preview.preview?.estimateBytes {
-                Text(offer.action == .simctlRuntimeDelete
-                    ? "Its folder holds \(ByteSize.human(estimate))."
-                    : "brew says this frees about \(ByteSize.human(estimate)).")
+                Text(offer.estimateText(estimate))
                     .font(.system(size: 13, weight: .semibold))
             }
             if let lines = preview.preview?.lines, !lines.isEmpty {
@@ -85,7 +79,7 @@ struct AreaActionSheet: View {
     @ViewBuilder
     private func result(_ offer: AreaActions.Offer, _ action: FreeReport.ActionReport) -> some View {
         Text(FreeWording.result(action, name: offer.name)).fixedSize(horizontal: false, vertical: true)
-        if case .failed = action.result {
+        if FreeWording.offersTerminal(action) {
             if let output = action.output, !output.isEmpty {
                 Text(output)
                     .font(.system(size: 11, design: .monospaced))
