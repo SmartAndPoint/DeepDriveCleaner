@@ -85,6 +85,15 @@ pub struct EntryStat {
     pub alloc: u64,
 }
 
+/// The user running ddc may write in `path`, as `access(2)` with `W_OK`
+/// answers: the mode bits, the ACLs and a read-only volume. `false` when
+/// it does not exist.
+pub fn can_write(path: &Path) -> bool {
+    let Ok(c) = cstring(path.as_os_str().as_bytes()) else { return false };
+    // SAFETY: NUL-terminated path; `access` reads it and writes nothing.
+    unsafe { libc::access(c.as_ptr(), libc::W_OK) == 0 }
+}
+
 fn cstring(bytes: &[u8]) -> io::Result<CString> {
     CString::new(bytes).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
 }

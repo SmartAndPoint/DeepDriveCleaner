@@ -181,7 +181,7 @@ pub static RULES: &[Rule] = &[
             "python.conda-env",
             Toolchain,
             Review,
-            conda(&["env", "remove", "-p", "{path}", "--yes"], CondaFolder::Environment, Fallback::Trash, &[]),
+            conda(&crate::conda::ENV_REMOVE, CondaFolder::Environment, Fallback::Trash, &[]),
             Matcher::ChildHolding {
                 parents: &["miniconda3/envs", "anaconda3/envs", "miniforge3/envs", ".conda/envs"],
                 file: "conda-meta/history",

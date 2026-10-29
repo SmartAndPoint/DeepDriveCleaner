@@ -339,6 +339,31 @@ pub fn disk(w: &mut impl Write, r: &DiskReport, style: &Style) -> io::Result<()>
             writeln!(w, "  {name:<48} {:>10}  {}", human(rt.size_bytes.unwrap_or(0)), style.dim(&devices))?;
         }
     }
+    if let Some(c) = r.conda.as_ref().filter(|c| !c.installs.is_empty()) {
+        writeln!(w)?;
+        writeln!(w, "{}", style.bold("Conda"))?;
+        let folder = |w: &mut dyn Write, title: &str, f: &ddc_core::disk::CondaFolder| -> io::Result<()> {
+            let size = if f.partial { format!("at least {}", human(f.bytes)) } else { human(f.bytes) };
+            let mut notes = Vec::new();
+            if f.shared_bytes > 0 {
+                notes.push(format!("{} shared with other folders", human(f.shared_bytes)));
+            }
+            if !f.writable {
+                notes.push("needs an administrator".to_owned());
+            }
+            writeln!(w, "  {title:<48} {size:>10}  {}", style.dim(&notes.join("; ")))
+        };
+        for install in &c.installs {
+            writeln!(w, "  {}", escaped(&install.prefix.to_string_lossy()))?;
+            if let Some(p) = &install.packages {
+                folder(w, "  package cache", p)?;
+            }
+            for e in &install.environments {
+                let name = e.path.file_name().map_or_else(String::new, |n| escaped(&n.to_string_lossy()));
+                folder(w, &format!("  {name}"), e)?;
+            }
+        }
+    }
     if let Some(c) = &r.container {
         writeln!(w)?;
         writeln!(w, "{}", style.bold("Volumes"))?;
@@ -468,12 +493,17 @@ pub fn free(w: &mut impl Write, r: &FreeReport, home: &Path, style: &Style) -> i
     Ok(())
 }
 
-/// `Simulator runtime <id>`, `Homebrew cleanup`.
+/// `Simulator runtime <id>`, `Homebrew cleanup`, `Conda environment <path>`,
+/// `Conda package cache of <prefix>`.
 pub fn action_title(action: ActionId, identifier: Option<&str>) -> String {
     match (action, identifier) {
         (ActionId::SimctlRuntimeDelete, Some(id)) => format!("Simulator runtime {id}"),
         (ActionId::SimctlRuntimeDelete, None) => "Simulator runtime".to_owned(),
         (ActionId::BrewCleanup, _) => "Homebrew cleanup".to_owned(),
+        (ActionId::CondaEnvRemove, Some(path)) => format!("Conda environment {}", escaped(path)),
+        (ActionId::CondaEnvRemove, None) => "Conda environment".to_owned(),
+        (ActionId::CondaClean, Some(prefix)) => format!("Conda package cache of {}", escaped(prefix)),
+        (ActionId::CondaClean, None) => "Conda package cache".to_owned(),
     }
 }
 
@@ -484,6 +514,9 @@ fn free_action(w: &mut impl Write, a: &ActionReport, style: &Style) -> io::Resul
     };
     let result = match &a.result {
         ActionResult::Freed => freed.map_or_else(|| "done".to_owned(), |b| format!("freed {}", human(b))),
+        ActionResult::RemovedNotFreed if a.action == ActionId::CondaEnvRemove => {
+            "conda finished, and the environment is still there: nothing freed".to_owned()
+        }
         ActionResult::RemovedNotFreed => {
             format!("runtime removed, {} not freed", a.bytes_after.map_or_else(|| "its space".to_owned(), human))
         }
@@ -541,6 +574,20 @@ pub fn refusal(r: Refusal) -> &'static str {
         Refusal::PrefixMismatch => "brew --prefix is not /opt/homebrew",
         Refusal::CellarOutside => "brew --cellar is not inside /opt/homebrew",
         Refusal::CacheMismatch => "brew --cache is not ~/Library/Caches/Homebrew",
+        Refusal::CondaInHome => "it is in the home folder: the Review window cleans it",
+        Refusal::CondaNotInOpt => {
+            "it is not an environment or the install of /opt/miniconda3, /opt/anaconda3 or /opt/miniforge3"
+        }
+        Refusal::CondaMissing => "the install's conda is missing or did not answer",
+        Refusal::CondaRootMismatch => "conda's root_prefix is not the install's folder",
+        Refusal::CondaBase => "it is the install's base environment",
+        Refusal::CondaNotInEnvsDirs => "its folder is not in conda's envs_dirs",
+        Refusal::CondaNotAnEnvironment => "it holds no conda-meta/history",
+        Refusal::CondaPackagesNotListed => "the install's pkgs folder is not in conda's pkgs_dirs",
+        Refusal::CondaNotWritable => "your user cannot write it: conda needs an administrator",
+        Refusal::CondaInUse => "a running process uses the environment",
+        Refusal::CondaSoftlinks => "an install links packages into its environments by symlink",
+        Refusal::CondaNotScoped => "conda's package folders, set in a .condarc, cannot be limited to this one",
     }
 }
 

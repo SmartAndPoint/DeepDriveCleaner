@@ -138,8 +138,8 @@ esac"#
     }
 }
 
-const RUNTIME: &str = r#"{"schema_version": 1, "actions": [{"action": "simctl-runtime-delete", "identifier": "A"}]}"#;
-const BREW: &str = r#"{"schema_version": 1, "actions": [{"action": "brew-cleanup"}]}"#;
+const RUNTIME: &str = r#"{"schema_version": 2, "actions": [{"action": "simctl-runtime-delete", "identifier": "A"}]}"#;
+const BREW: &str = r#"{"schema_version": 2, "actions": [{"action": "brew-cleanup"}]}"#;
 
 fn report(out: &Output) -> FreeReport {
     serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
@@ -169,9 +169,9 @@ fn there_is_no_yes() {
 fn a_malformed_list_is_refused_whole_before_anything_runs() {
     let fx = Fx::new();
     for list in [
-        r#"{"schema_version": 1, "actions": [{"action": "brew-cleanup", "now": true}]}"#,
-        r#"{"schema_version": 1, "actions": [{"action": "brew-cleanup"}, {"action": "simctl-runtime-delete"}]}"#,
-        r#"{"schema_version": 1, "actions": [{"action": "brew-cleanup"}, {"action": "brew-cleanup"}]}"#,
+        r#"{"schema_version": 2, "actions": [{"action": "brew-cleanup", "now": true}]}"#,
+        r#"{"schema_version": 2, "actions": [{"action": "brew-cleanup"}, {"action": "simctl-runtime-delete"}]}"#,
+        r#"{"schema_version": 2, "actions": [{"action": "brew-cleanup"}, {"action": "brew-cleanup"}]}"#,
         "not json",
     ] {
         let out = fx.free(list, &["--json"]);
@@ -292,7 +292,7 @@ fn a_permission_error_fails_with_the_terminal_command_and_exits_1_in_text() {
 #[test]
 fn a_refused_action_runs_nothing_and_the_run_still_exits_0() {
     let fx = Fx::new();
-    let list = r#"{"schema_version": 1, "actions": [{"action": "simctl-runtime-delete", "identifier": "all"}]}"#;
+    let list = r#"{"schema_version": 2, "actions": [{"action": "simctl-runtime-delete", "identifier": "all"}]}"#;
     let out = fx.free(list, &["--json"]);
     assert!(out.status.success());
     let r = report(&out);
@@ -314,4 +314,141 @@ fn a_held_lock_exits_75_and_runs_nothing() {
     // The dry run shares the lock with a scan.
     let _scan = store::try_lock(&env, LockMode::Shared).unwrap();
     assert!(fx.free(BREW, &["--dry-run", "--json"]).status.success());
+}
+
+// Story "Whole disk: Conda environments and its package cache, with conda":
+// an `/opt/miniconda3` whose `bin/conda` is a shell script that logs each
+// call with its `CONDA_PKGS_DIRS` and touches only the fixture.
+
+const SHOW: &str = "config --show root_prefix envs_dirs pkgs_dirs allow_softlinks always_softlink --json";
+const SHOW_PKGS: &str = "config --show pkgs_dirs --json";
+const CLEAN: &str = "clean --index-cache --packages --tarballs --logfiles --yes";
+const CLEAN_DRY_RUN: &str = "clean --index-cache --packages --tarballs --logfiles --dry-run --json";
+
+impl Fx {
+    /// The install, its environment `old` (with its own file and one
+    /// hard-linked from `pkgs`) and `pkgs` with a package no environment uses.
+    fn with_conda(self) -> Self {
+        let r = self.root.display().to_string();
+        let data = "sys/System/Volumes/Data/opt/miniconda3";
+        self.write(&format!("{data}/conda-meta/history"), 0);
+        self.write(&format!("{data}/envs/old/conda-meta/history"), 0);
+        self.write(&format!("{data}/envs/old/lib/own.dylib"), 64_000);
+        self.write(&format!("{data}/pkgs/numpy/lib/numpy.so"), 128_000);
+        self.write(&format!("{data}/pkgs/scipy/lib/scipy.so"), 32_000);
+        fs::hard_link(
+            self.root.join(format!("{data}/pkgs/numpy/lib/numpy.so")),
+            self.root.join(format!("{data}/envs/old/lib/numpy.so")),
+        )
+        .unwrap();
+        let prefix = format!("{r}/sys/opt/miniconda3");
+        let settings = format!(
+            r#"{{"root_prefix": "{prefix}", "envs_dirs": ["{prefix}/envs"], "pkgs_dirs": ["{prefix}/pkgs"], "allow_softlinks": false, "always_softlink": false}}"#
+        );
+        self.tool(
+            &format!("{data}/bin/conda"),
+            &format!(
+                r#"echo "$* | $CONDA_PKGS_DIRS" >> {r}/conda-calls
+case "$*" in
+  "{SHOW}") echo '{settings}' ;;
+  "{SHOW_PKGS}") echo '{{"pkgs_dirs": ["{prefix}/pkgs"]}}' ;;
+  "{CLEAN_DRY_RUN}") echo '{{"packages": {{"total_size": 32000}}, "tarballs": {{"total_size": 1000}}}}'
+    echo "DryRunExit: Dry run. Exiting." ;;
+  "{CLEAN}") /bin/rm -rf {prefix}/pkgs/scipy ;;
+  "env remove -p {prefix}/envs/old --yes") /bin/rm -rf {prefix}/envs/old ;;
+  *) exit 1 ;;
+esac"#
+            ),
+        );
+        self
+    }
+
+    fn opt_conda(&self) -> String {
+        format!("{}/sys/opt/miniconda3", self.root.display())
+    }
+
+    fn conda_list(&self, action: &str, identifier: &str) -> String {
+        serde_json::json!({"schema_version": 2, "actions": [{"action": action, "identifier": identifier}]}).to_string()
+    }
+}
+
+#[test]
+fn a_confirmed_opt_environment_is_removed_by_its_own_conda_and_left_out_of_the_saved_disk_report() {
+    let fx = Fx::new().with_conda();
+    let disk = fx.ddc(&["--json"]).output().unwrap();
+    assert!(disk.status.success(), "{}", String::from_utf8_lossy(&disk.stderr));
+    assert!(fx.calls("conda").is_empty(), "the disk report runs no conda");
+    let saved = store::read_last_disk(&fx.env()).unwrap().unwrap();
+    let env = format!("{}/envs/old", fx.opt_conda());
+    let listed = &saved.conda.as_ref().unwrap().installs[0].environments;
+    assert_eq!(listed.iter().map(|e| e.path.display().to_string()).collect::<Vec<_>>(), std::slice::from_ref(&env));
+    assert!(listed[0].writable && listed[0].shared_bytes > 0);
+
+    let out = fx.free(&fx.conda_list("conda-env-remove", &env), &["--json"]);
+
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let r = report(&out);
+    assert_eq!(r.actions[0].result, ActionResult::Freed, "{:?}", r.actions[0]);
+    let before = r.actions[0].bytes_before.unwrap();
+    assert!((64_000..128_000).contains(&before), "only its own bytes: {before}");
+    assert_eq!(fx.calls("conda"), [format!("{SHOW} | "), format!("env remove -p {env} --yes | ")]);
+    let journal = fx.journal();
+    assert_eq!(journal.len(), 1);
+    assert_eq!(journal[0]["action"], "conda-env-remove");
+    assert_eq!(journal[0]["command"], format!("{}/bin/conda env remove -p {env} --yes", fx.opt_conda()));
+
+    assert_eq!(r.last_disk, ReportEdit::Edited);
+    let saved = store::read_last_disk(&fx.env()).unwrap().unwrap();
+    assert!(saved.areas.iter().find(|a| a.id == "conda").unwrap().stale);
+    assert!(saved.conda.unwrap().installs[0].environments.is_empty());
+    assert!(fx.root.join("sys/System/Volumes/Data/opt/miniconda3/pkgs/numpy/lib/numpy.so").exists());
+}
+
+#[test]
+fn conda_clean_is_limited_to_the_package_folder_and_its_dry_run_changes_nothing() {
+    let fx = Fx::new().with_conda();
+    let pkgs = format!("{}/pkgs", fx.opt_conda());
+    let list = fx.conda_list("conda-clean", &fx.opt_conda());
+
+    let dry = fx.free(&list, &["--dry-run", "--json"]);
+    assert!(dry.status.success(), "{}", String::from_utf8_lossy(&dry.stderr));
+    let r = report(&dry);
+    assert_eq!(r.actions[0].result, ActionResult::WouldRun, "{:?}", r.actions[0]);
+    assert_eq!(r.actions[0].preview.as_ref().unwrap().estimate_bytes, Some(33_000));
+    assert!(fx.calls("conda").contains(&format!("{CLEAN_DRY_RUN} | {pkgs}")), "{:?}", fx.calls("conda"));
+    assert!(!fx.calls("conda").iter().any(|c| c.starts_with(&format!("{CLEAN} "))));
+    assert!(fx.journal().is_empty());
+
+    let out = fx.free(&list, &[]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let runs: Vec<String> = fx.calls("conda").into_iter().filter(|c| c.starts_with("clean")).collect();
+    assert_eq!(runs, [format!("{CLEAN_DRY_RUN} | {pkgs}"), format!("{CLEAN} | {pkgs}")]);
+    assert!(fx.calls("conda").contains(&format!("{SHOW_PKGS} | {pkgs}")));
+    assert!(!fx.root.join("sys/System/Volumes/Data/opt/miniconda3/pkgs/scipy").exists());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains(&format!("Conda package cache of {}", fx.opt_conda())), "{text}");
+}
+
+#[test]
+fn a_home_environment_is_refused_in_words_and_runs_no_conda() {
+    let fx = Fx::new().with_conda();
+    fx.write("home/miniconda3/envs/x/conda-meta/history", 0);
+    let home = format!("{}/home/miniconda3/envs/x", fx.root.display());
+    let out = fx.free(&fx.conda_list("conda-env-remove", &home), &[]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("refused: it is in the home folder: the Review window cleans it"), "{text}");
+    assert!(fx.calls("conda").is_empty());
+}
+
+#[test]
+fn a_conda_action_under_a_held_lock_exits_75_and_runs_no_conda() {
+    let fx = Fx::new().with_conda();
+    let held = store::try_lock(&fx.env(), LockMode::Shared).unwrap();
+    let env = format!("{}/envs/old", fx.opt_conda());
+    let out = fx.free(&fx.conda_list("conda-env-remove", &env), &["--json"]);
+    assert_eq!(out.status.code(), Some(75));
+    assert!(fx.calls("conda").is_empty());
+    assert!(fx.root.join("sys/System/Volumes/Data/opt/miniconda3/envs/old").exists());
+    drop(held);
 }

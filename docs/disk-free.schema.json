@@ -48,10 +48,24 @@
   "$defs": {
     "ActionId": {
       "description": "The one-click tool an area can be freed with (story \"Whole disk: free\nspace with the owning tool\"); this report only names it.",
-      "type": "string",
-      "enum": [
-        "simctl-runtime-delete",
-        "brew-cleanup"
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "simctl-runtime-delete",
+            "brew-cleanup"
+          ]
+        },
+        {
+          "description": "`conda env remove -p` of one `/opt` environment; its identifier is\nthe environment's path.",
+          "type": "string",
+          "const": "conda-env-remove"
+        },
+        {
+          "description": "`conda clean` of one `/opt` install's package folder; its\nidentifier is the install's prefix.",
+          "type": "string",
+          "const": "conda-clean"
+        }
       ]
     },
     "ActionList": {
@@ -84,7 +98,7 @@
           "$ref": "#/$defs/ActionId"
         },
         "area": {
-          "description": "The disk report's area: `simulator-runtimes` or `homebrew`.",
+          "description": "The disk report's area: `simulator-runtimes`, `homebrew` or `conda`.",
           "type": "string"
         },
         "bytes_after": {
@@ -172,7 +186,7 @@
           ]
         },
         {
-          "description": "The runtime left the list, and its folder did not shrink.",
+          "description": "The runtime left the list, and its folder did not shrink; or conda\nexited 0 and the environment is still there.",
           "type": "object",
           "properties": {
             "status": {
@@ -267,7 +281,7 @@
           "$ref": "#/$defs/ActionId"
         },
         "identifier": {
-          "description": "The runtime's asset id, as the disk report lists it; only on\n`simctl-runtime-delete`, and required there.",
+          "description": "As the disk report lists it: the runtime's asset id of\n`simctl-runtime-delete`, the environment's path of\n`conda-env-remove`, the install's prefix of `conda-clean`. Required\non those three, refused on `brew-cleanup`.",
           "type": [
             "string",
             "null"
@@ -377,6 +391,66 @@
           "description": "`brew --cache` is not `~/Library/Caches/Homebrew`.",
           "type": "string",
           "const": "cache-mismatch"
+        },
+        {
+          "description": "The environment lies in the home folder: the Review window cleans it.",
+          "type": "string",
+          "const": "conda-in-home"
+        },
+        {
+          "description": "Not one of `/opt/miniconda3`, `/opt/anaconda3`, `/opt/miniforge3`\n(an environment: not in its `envs` folder), by device and inode; or\na path conda cannot be given (not UTF-8, or holding a comma).",
+          "type": "string",
+          "const": "conda-not-in-opt"
+        },
+        {
+          "description": "The install has no `bin/conda`, or its `config --show` failed or\nprinted what ddc cannot read.",
+          "type": "string",
+          "const": "conda-missing"
+        },
+        {
+          "description": "conda's `root_prefix` is not the install's folder.",
+          "type": "string",
+          "const": "conda-root-mismatch"
+        },
+        {
+          "description": "The install's base environment.",
+          "type": "string",
+          "const": "conda-base"
+        },
+        {
+          "description": "Its parent is not in conda's `envs_dirs`.",
+          "type": "string",
+          "const": "conda-not-in-envs-dirs"
+        },
+        {
+          "description": "It holds no `conda-meta/history`.",
+          "type": "string",
+          "const": "conda-not-an-environment"
+        },
+        {
+          "description": "The install's `pkgs` is not in conda's `pkgs_dirs`.",
+          "type": "string",
+          "const": "conda-packages-not-listed"
+        },
+        {
+          "description": "The user cannot write it: conda needs an administrator.",
+          "type": "string",
+          "const": "conda-not-writable"
+        },
+        {
+          "description": "A running process uses the environment.",
+          "type": "string",
+          "const": "conda-in-use"
+        },
+        {
+          "description": "An install that lists the package folder links packages into\nenvironments by symlink.",
+          "type": "string",
+          "const": "conda-softlinks"
+        },
+        {
+          "description": "conda's package folders, set in a `.condarc`, cannot be limited to\nthis one.",
+          "type": "string",
+          "const": "conda-not-scoped"
         }
       ]
     },

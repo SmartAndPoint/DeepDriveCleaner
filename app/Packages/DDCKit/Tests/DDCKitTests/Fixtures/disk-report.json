@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "ddc_version": "0.3.0",
   "generated_at": "2026-10-19T09:00:00Z",
   "duration_ms": 13300,
@@ -115,6 +115,26 @@
       "partial": false
     },
     {
+      "id": "conda",
+      "paths": [
+        "/opt/miniconda3",
+        "/opt/anaconda3",
+        "/opt/miniforge3"
+      ],
+      "parent": "opt",
+      "title": "Conda",
+      "explanation": "A conda installation with its environments and package cache.",
+      "frees": "conda clean removes the packages no environment uses; conda env remove removes an environment.",
+      "reveal": "finder",
+      "action": "conda-clean",
+      "bytes": 7516192768,
+      "shared_bytes": 0,
+      "files": 120001,
+      "dirs": 9001,
+      "unreadable": 0,
+      "partial": false
+    },
+    {
       "id": "private",
       "paths": [
         "/private"
@@ -189,6 +209,65 @@
       }
     ],
     "listed_bytes": 16085155840
+  },
+  "conda": {
+    "installs": [
+      {
+        "prefix": "/opt/miniconda3",
+        "packages": {
+          "path": "/opt/miniconda3/pkgs",
+          "bytes": 3221225472,
+          "shared_bytes": 1073741824,
+          "files": 40001,
+          "unreadable": 0,
+          "partial": false,
+          "writable": true
+        },
+        "environments": [
+          {
+            "path": "/opt/miniconda3/envs/ml",
+            "bytes": 2147483648,
+            "shared_bytes": 1073741824,
+            "files": 30001,
+            "unreadable": 0,
+            "partial": false,
+            "writable": true
+          },
+          {
+            "path": "/opt/miniconda3/envs/old",
+            "bytes": 536870912,
+            "shared_bytes": 0,
+            "files": 9001,
+            "unreadable": 0,
+            "partial": false,
+            "writable": true
+          }
+        ]
+      },
+      {
+        "prefix": "/opt/anaconda3",
+        "packages": {
+          "path": "/opt/anaconda3/pkgs",
+          "bytes": 1073741824,
+          "shared_bytes": 0,
+          "files": 20001,
+          "unreadable": 0,
+          "partial": false,
+          "writable": false
+        },
+        "environments": [
+          {
+            "path": "/opt/anaconda3/envs/shared",
+            "bytes": 536870912,
+            "shared_bytes": 0,
+            "files": 9001,
+            "unreadable": 0,
+            "partial": false,
+            "writable": false
+          }
+        ]
+      }
+    ]
   },
   "snapshots": {
     "count": 0

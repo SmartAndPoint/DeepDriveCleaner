@@ -15,6 +15,17 @@
       "description": "Stopped by a signal: the areas not finished are `partial`.",
       "type": "boolean"
     },
+    "conda": {
+      "description": "The conda installs in `/opt`, from the file system; absent when\nthere is none.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Conda"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "container": {
       "description": "The APFS container of the startup disk. Absent when neither\n`diskutil` nor `statfs` could read it.",
       "anyOf": [
@@ -83,10 +94,24 @@
   "$defs": {
     "ActionId": {
       "description": "The one-click tool an area can be freed with (story \"Whole disk: free\nspace with the owning tool\"); this report only names it.",
-      "type": "string",
-      "enum": [
-        "simctl-runtime-delete",
-        "brew-cleanup"
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "simctl-runtime-delete",
+            "brew-cleanup"
+          ]
+        },
+        {
+          "description": "`conda env remove -p` of one `/opt` environment; its identifier is\nthe environment's path.",
+          "type": "string",
+          "const": "conda-env-remove"
+        },
+        {
+          "description": "`conda clean` of one `/opt` install's package folder; its\nidentifier is the install's prefix.",
+          "type": "string",
+          "const": "conda-clean"
+        }
       ]
     },
     "Area": {
@@ -215,6 +240,102 @@
           "type": "string",
           "const": "software-update"
         }
+      ]
+    },
+    "Conda": {
+      "description": "The `/opt` conda installs (story \"Whole disk: Conda environments and its\npackage cache, with conda\"). Read from the file system: `ddc disk`\nnever runs conda.",
+      "type": "object",
+      "properties": {
+        "installs": {
+          "description": "In the order `miniconda3`, `anaconda3`, `miniforge3`.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CondaInstall"
+          }
+        }
+      },
+      "required": [
+        "installs"
+      ]
+    },
+    "CondaFolder": {
+      "description": "An environment or a package folder, measured as one region of a walk of\nthe install's environments and package folder together.",
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Allocated bytes of the files whose every link lies inside it: what\nremoving it alone frees.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "partial": {
+          "description": "Not walked to the end: the numbers are lower bounds.",
+          "type": "boolean"
+        },
+        "path": {
+          "description": "Through the firmlink, as conda spells it.",
+          "type": "string"
+        },
+        "shared_bytes": {
+          "description": "Bytes of hard-linked files with a link elsewhere too, such as an\nenvironment's files linked from the package folder.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "unreadable": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "writable": {
+          "description": "The user running ddc may write it (and, for an environment, the\n`envs` folder holding it): without that, conda needs an administrator.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "bytes",
+        "shared_bytes",
+        "files",
+        "unreadable",
+        "partial",
+        "writable"
+      ]
+    },
+    "CondaInstall": {
+      "type": "object",
+      "properties": {
+        "environments": {
+          "description": "Every `<prefix>/envs/*` holding `conda-meta/history`, by path. Each\npath is the identifier of its `conda-env-remove`.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CondaFolder"
+          }
+        },
+        "packages": {
+          "description": "`<prefix>/pkgs`; absent when there is none.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CondaFolder"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "prefix": {
+          "description": "Through the firmlink, as conda spells it: `/opt/miniconda3`. The\nidentifier of its `conda-clean`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prefix",
+        "environments"
       ]
     },
     "Container": {

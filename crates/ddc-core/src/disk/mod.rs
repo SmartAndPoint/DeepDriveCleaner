@@ -5,6 +5,7 @@
 
 mod apfs;
 mod areas;
+mod conda;
 mod home;
 mod model;
 mod plist;
@@ -39,6 +40,9 @@ pub struct Sources {
     pub simctl: PathBuf,
     /// The Homebrew area's own `brew`, never the first one on the tool path.
     pub brew: PathBuf,
+    /// `/opt` through its firmlink, where the all-users conda installs are
+    /// and as conda spells their paths.
+    pub opt: PathBuf,
     /// Where simulator runtimes' assets live: a runtime's `parentMountPath`
     /// must lie under it.
     pub assets: PathBuf,
@@ -60,6 +64,7 @@ impl Sources {
             xcode_select: root.join("usr/bin/xcode-select"),
             simctl: root.join(SIMCTL),
             brew: root.join("opt/homebrew/bin/brew"),
+            opt: root.join("opt"),
             assets: root.join("System/Library/AssetsV2"),
         }
     }
@@ -179,6 +184,8 @@ pub fn measure_with(
         }
     };
     let cancelled = stopped();
+    let conda =
+        (!cancelled).then(|| conda::installs(&sources.opt, &catalog, &opts.user_skips, opts.threads, cancel)).flatten();
 
     let tally = |tag: Tag, n_paths: usize| -> Tally {
         let mut t = Tally::default();
@@ -279,6 +286,7 @@ pub fn measure_with(
         home,
         areas,
         simulators,
+        conda,
         snapshots: Snapshots { count: snapshots },
         walk: walk_totals(out.as_ref()),
         not_counted: NotCounted {

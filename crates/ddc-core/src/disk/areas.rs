@@ -113,7 +113,8 @@ pub static AREAS: &[AreaDef] = &[
     },
     AreaDef {
         explanation: "A conda installation with its environments and package cache.",
-        frees: "conda clean --all removes the package cache; conda env remove removes an environment.",
+        frees: "conda clean removes the packages no environment uses; conda env remove removes an environment.",
+        action: Some(ActionId::CondaClean),
         parent: Some("opt"),
         reveal: Some(AreaReveal::Finder),
         ..area("conda", &["opt/miniconda3", "opt/anaconda3", "opt/miniforge3"], "Conda")

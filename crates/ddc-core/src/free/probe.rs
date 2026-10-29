@@ -7,11 +7,12 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::model::Refusal;
-use crate::conda::same_folder;
+use crate::conda::{self, same_folder};
 use crate::disk::Sources;
 use crate::disk::simulators::{RawDevice, RawRuntime};
-use crate::exec::CommandRunner;
+use crate::exec::{CommandRunner, ProcessTable, guard};
 use crate::plan::normalised;
+use crate::sys::fsops::can_write;
 
 /// Exactly one runtime has `identifier`, and it may be deleted: under
 /// AssetsV2, deletable, not deleting, joinable to its devices, none booted.
@@ -113,6 +114,129 @@ pub(crate) fn brew(
         return Err(Refusal::CacheMismatch);
     }
     Ok(BrewTarget { exe, cellar, cache: ours })
+}
+
+/// The conda of an `/opt` install, as the probe found it, and the folder
+/// its command is given.
+pub(crate) struct CondaTarget {
+    /// The install's own `bin/conda`.
+    pub exe: PathBuf,
+    /// Built from conda's `root_prefix`, so spelled as conda spells it
+    /// (`/opt/miniconda3/envs/x`, never through `/System/Volumes/Data`).
+    pub path: PathBuf,
+    /// [`Self::path`] as conda is given it.
+    pub spelled: String,
+}
+
+/// The `/opt` install whose folder is `prefix`, by device and inode.
+fn opt_install(sources: &Sources, prefix: &Path) -> Result<PathBuf, Refusal> {
+    conda::PREFIXES.iter().map(|p| sources.opt.join(p)).find(|p| same_folder(p, prefix)).ok_or(Refusal::CondaNotInOpt)
+}
+
+/// `path` lies in the home folder, by its spelling or through a link.
+fn in_home(path: &Path, home: &Path) -> bool {
+    path.starts_with(home) || path.ancestors().any(|a| same_folder(a, home))
+}
+
+/// The install answered, and its `root_prefix` is its own folder.
+fn asked(install: Option<&conda::Install>, prefix: &Path) -> Result<conda::Install, Refusal> {
+    let install = install.ok_or(Refusal::CondaMissing)?;
+    if !same_folder(&install.settings.root_prefix, prefix) {
+        return Err(Refusal::CondaRootMismatch);
+    }
+    Ok(install.clone())
+}
+
+fn target(install: &conda::Install, path: PathBuf) -> Result<CondaTarget, Refusal> {
+    let spelled = conda::spelled(&path).ok_or(Refusal::CondaNotInOpt)?.to_owned();
+    Ok(CondaTarget { exe: install.exe.clone(), path, spelled })
+}
+
+/// An environment of an `/opt` install that `conda env remove -p` may
+/// take: `<prefix>/envs/<name>` with `conda-meta/history`, not in the home
+/// folder, not the base, its parent in `envs_dirs`, writable, used by no
+/// running process. What the file system tells is checked before conda
+/// starts.
+pub(crate) fn conda_environment(
+    commands: &dyn CommandRunner,
+    sources: &Sources,
+    home: &Path,
+    procs: &dyn ProcessTable,
+    identifier: &Path,
+) -> Result<CondaTarget, Refusal> {
+    if !identifier.is_absolute() || !normalised(identifier) {
+        return Err(Refusal::CondaNotInOpt);
+    }
+    if in_home(identifier, home) {
+        return Err(Refusal::CondaInHome);
+    }
+    let (Some(envs), Some(name)) = (identifier.parent(), identifier.file_name()) else {
+        return Err(Refusal::CondaNotInOpt);
+    };
+    let prefix = envs.parent().filter(|_| envs.file_name().is_some_and(|n| n == "envs"));
+    let prefix = opt_install(sources, prefix.ok_or(Refusal::CondaNotInOpt)?)?;
+    if same_folder(identifier, &prefix) {
+        return Err(Refusal::CondaBase);
+    }
+    if !conda::is_environment(identifier) {
+        return Err(Refusal::CondaNotAnEnvironment);
+    }
+    if !(can_write(identifier) && can_write(envs)) {
+        return Err(Refusal::CondaNotWritable);
+    }
+    let firmlinked = prefix.join("envs").join(name);
+    let spellings = [identifier.to_path_buf(), firmlinked, identifier.canonicalize().unwrap_or_default()];
+    if spellings.iter().filter(|p| p.is_absolute()).any(|p| guard::user_of(p, procs).is_some()) {
+        return Err(Refusal::CondaInUse);
+    }
+    let install = asked(conda::ask(commands, &prefix).as_ref(), &prefix)?;
+    let path = install.settings.root_prefix.join("envs").join(name);
+    if install.is_root(&path) {
+        return Err(Refusal::CondaBase);
+    }
+    if !install.claims_environment(&path) {
+        return Err(Refusal::CondaNotInEnvsDirs);
+    }
+    target(&install, path)
+}
+
+/// The package folder of the `/opt` install at `identifier` that `conda
+/// clean` may take: writable (checked before conda starts), in its
+/// `pkgs_dirs`, no install that lists it linking by symlink, and the
+/// clean limited to it by `CONDA_PKGS_DIRS`. Every known install is asked,
+/// the home folder's too: `~/.conda/pkgs` is in every list.
+pub(crate) fn conda_packages(
+    commands: &dyn CommandRunner,
+    sources: &Sources,
+    home: &Path,
+    identifier: &Path,
+) -> Result<CondaTarget, Refusal> {
+    if !identifier.is_absolute() || !normalised(identifier) {
+        return Err(Refusal::CondaNotInOpt);
+    }
+    let prefix = opt_install(sources, identifier)?;
+    let pkgs = prefix.join("pkgs");
+    if !pkgs.is_dir() {
+        return Err(Refusal::CondaPackagesNotListed);
+    }
+    if !can_write(&pkgs) {
+        return Err(Refusal::CondaNotWritable);
+    }
+    let installs = conda::Installs::new(commands, conda::candidates_in(home, &sources.opt));
+    let all = installs.get();
+    let install = asked(all.iter().find(|i| i.prefix == prefix), &prefix)?;
+    let path = install.settings.root_prefix.join("pkgs");
+    if !install.lists_package_folder(&path) {
+        return Err(Refusal::CondaPackagesNotListed);
+    }
+    if all.iter().any(|i| i.lists_package_folder(&path) && i.softlinks()) {
+        return Err(Refusal::CondaSoftlinks);
+    }
+    let target = target(&install, path)?;
+    if !install.scoped_to(commands, &target.path, &target.spelled) {
+        return Err(Refusal::CondaNotScoped);
+    }
+    Ok(target)
 }
 
 #[cfg(test)]

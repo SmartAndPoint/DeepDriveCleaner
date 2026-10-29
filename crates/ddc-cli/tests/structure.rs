@@ -59,12 +59,12 @@ fn the_disk_report_never_reaches_cleanup() {
     }
 }
 
-/// `ddc disk free` runs only the two commands the safety ADR names
-/// (amendment of 2026-10-28): no item cleanup, no program started by hand,
-/// no `xcrun` or first launch, no `simctl runtime delete --keep-asset`, no
-/// `--prune`, no `sudo`, and no Homebrew `autoremove`.
+/// `ddc disk free` runs only the commands the safety ADR names (amendments
+/// of 2026-10-28 and 2026-10-29): no item cleanup, no program started by
+/// hand, no `xcrun` or first launch, no `simctl runtime delete
+/// --keep-asset`, no `--prune`, no `sudo`, and no Homebrew `autoremove`.
 #[test]
-fn disk_free_runs_only_its_two_commands() {
+fn disk_free_runs_only_its_tools_commands() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let mut files = vec![root.join("ddc-cli/src/cmd/disk_free.rs")];
     for entry in std::fs::read_dir(root.join("ddc-core/src/free")).unwrap() {
@@ -89,6 +89,44 @@ fn disk_free_runs_only_its_two_commands() {
             assert!(!text.contains(forbidden), "{} mentions {forbidden}", file.display());
         }
     }
+}
+
+/// conda runs only as an install's own `bin/conda`, and only with the three
+/// argument lists the safety ADR's amendment of 2026-10-29 names: `env
+/// remove` by path, never by name or of the base; `clean` limited to one
+/// package folder, never `--all`, `--tempfiles` or `--force-pkgs-dirs`.
+#[test]
+fn conda_runs_only_its_named_commands() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let files = [root.join("ddc-core/src/conda.rs"), root.join("ddc-core/src/free/conda.rs")];
+    for file in &files {
+        let text = std::fs::read_to_string(file).unwrap();
+        for forbidden in [
+            "\"-n\"",
+            "\"--name\"",
+            "\"--all\"",
+            "\"--tempfiles\"",
+            "\"--force-pkgs-dirs\"",
+            "\"base\"",
+            "find(\"conda\")",
+            "Command::new",
+            "sudo",
+        ] {
+            assert!(!text.contains(forbidden), "{} mentions {forbidden}", file.display());
+        }
+    }
+    for entry in std::fs::read_dir(root.join("ddc-core/src/free")).unwrap() {
+        let file = entry.unwrap().path();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(!text.contains("find(\"conda\")"), "{} looks conda up on the tool path", file.display());
+    }
+    assert_eq!(ddc_core::conda::ENV_REMOVE, ["env", "remove", "-p", "{path}", "--yes"]);
+    assert_eq!(ddc_core::conda::CLEAN, ["clean", "--index-cache", "--packages", "--tarballs", "--logfiles", "--yes"]);
+    assert_eq!(
+        ddc_core::conda::CLEAN_DRY_RUN,
+        ["clean", "--index-cache", "--packages", "--tarballs", "--logfiles", "--dry-run", "--json"]
+    );
+    assert_eq!(ddc_core::conda::PKGS_DIRS_VAR, "CONDA_PKGS_DIRS");
 }
 
 /// The cost counters of the complexity guard (story "Complexity guard:

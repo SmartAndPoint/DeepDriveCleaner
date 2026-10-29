@@ -227,13 +227,14 @@ ddc disk agents [--json] [--no-sizes] [--threads N] [--data-dir DIR]
 ddc disk agents --no-sizes                         # live sessions only
 ```
 
-`ddc disk free` frees two areas with their owning tool, and only what you confirm. It deletes a simulator runtime with `simctl runtime delete <identifier>`, and runs `brew cleanup` with `HOMEBREW_NO_AUTOREMOVE=1`, which removes old versions in the Cellar and old downloads. At a terminal it lists the actions available now with each tool's own dry run, then asks for each one, default No. Without a terminal it needs `--actions`, the exact list the app's sheet confirmed ([`docs/disk-free.schema.json`](docs/disk-free.schema.json)); no option skips the question.
+`ddc disk free` frees three areas with their owning tool, and only what you confirm. It deletes a simulator runtime with `simctl runtime delete <identifier>`, runs `brew cleanup` with `HOMEBREW_NO_AUTOREMOVE=1`, which removes old versions in the Cellar and old downloads, and runs an `/opt` conda install's own `bin/conda`: `conda env remove -p <path>` for one environment, and `conda clean` of the unused packages, the downloads, the index cache and the logs, with `CONDA_PKGS_DIRS` set to the install's `pkgs` alone. At a terminal it lists the actions available now with each tool's own dry run, then asks for each one, default No. Without a terminal it needs `--actions`, the exact list the app's sheet confirmed ([`docs/disk-free.schema.json`](docs/disk-free.schema.json)); no option skips the question.
 
 - A runtime is offered only when it lies under `/System/Library/AssetsV2/`, macOS says it can be deleted, and no simulator on it is booted. Xcode downloads its SDK's runtime again at the next build for it.
 - Right before each action it checks again where the runtime or Homebrew lives, and refuses with a reason when that changed. After the action it measures the folders again: freed, removed but not freed, or still deleting when CoreSimulator has not finished yet.
+- A conda environment is offered only when it lies in an `/opt` install's `envs` folder, conda lists that folder, it is not the base, your user can write it, and no running process uses it. The package cache is offered only when conda lists it, no install links packages by symlink, and conda's package folders can be limited to it. A folder your user cannot write is refused before conda runs: conda would need an administrator.
 - When a tool fails for lack of permission, the report gives the same command to paste into Terminal. `ddc` never asks for a password.
 - Every action is logged to `actions.jsonl`. `last-disk.json` marks the area as measured before the action, and `brew cleanup` measures the Homebrew cache finding of the last scan again.
-- `--dry-run` runs only each tool's own dry run: `simctl runtime delete <identifier> --dry-run` and `brew cleanup -n`.
+- `--dry-run` runs only each tool's own dry run: `simctl runtime delete <identifier> --dry-run`, `brew cleanup -n` and `conda clean`'s own dry run; an environment's dry run measures the bytes only it holds.
 
 ```
 ddc disk free [--actions FILE|-] [--dry-run] [--json] [--data-dir DIR]

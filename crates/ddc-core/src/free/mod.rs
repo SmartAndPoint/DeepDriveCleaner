@@ -5,6 +5,7 @@
 //! probe, from a person's confirmation.
 
 pub mod brew;
+pub mod conda;
 mod measure;
 mod model;
 mod probe;
@@ -20,7 +21,7 @@ pub use model::*;
 
 use crate::disk::{ActionId, Sources};
 use crate::env::Env;
-use crate::exec::{AreaActionEntry, AreaJournal, CommandRunner, NATIVE_TIMEOUT};
+use crate::exec::{AreaActionEntry, AreaJournal, CommandRunner, NATIVE_TIMEOUT, ProcessTable};
 use crate::report::after_clean::{self, Remeasured};
 use crate::report::{ScanOptions, recheck};
 use crate::rules::Catalog;
@@ -34,6 +35,8 @@ pub struct FreeContext<'a> {
     /// The skips of `settings.json`: a folder at, above or under one is
     /// not measured.
     pub skips: &'a [PathBuf],
+    /// The running processes: a conda environment one uses is refused.
+    pub procs: &'a dyn ProcessTable,
     /// Set by a signal handler: actions not yet started do not run, and
     /// the wait for a runtime ends.
     pub cancel: &'a AtomicBool,
@@ -49,9 +52,10 @@ impl<'a> FreeContext<'a> {
         sources: &'a Sources,
         home: &'a Path,
         skips: &'a [PathBuf],
+        procs: &'a dyn ProcessTable,
         cancel: &'a AtomicBool,
     ) -> Self {
-        Self { commands, sources, home, skips, cancel, timeout: NATIVE_TIMEOUT, poll: Duration::from_secs(1) }
+        Self { commands, sources, home, skips, procs, cancel, timeout: NATIVE_TIMEOUT, poll: Duration::from_secs(1) }
     }
 
     fn cancelled(&self) -> bool {
@@ -70,8 +74,12 @@ pub fn run(ctx: &FreeContext<'_>, list: &ActionList, journal: &mut dyn AreaJourn
             match (listed.action, &listed.identifier) {
                 (ActionId::SimctlRuntimeDelete, Some(id)) => simctl::run(ctx, id),
                 (ActionId::BrewCleanup, _) => brew::run(ctx),
+                (ActionId::CondaEnvRemove, Some(id)) => conda::env_run(ctx, id),
+                (ActionId::CondaClean, Some(id)) => conda::clean_run(ctx, id),
                 // `ActionList::validate` refuses it before anything runs.
-                (ActionId::SimctlRuntimeDelete, None) => unreachable!("a runtime action without an identifier"),
+                (ActionId::SimctlRuntimeDelete | ActionId::CondaEnvRemove | ActionId::CondaClean, None) => {
+                    unreachable!("an action without its identifier")
+                }
             }
         };
         journal.record_area(&AreaActionEntry::new(&report))?;
@@ -88,13 +96,19 @@ pub fn dry_run(ctx: &FreeContext<'_>, list: &ActionList) -> Vec<ActionReport> {
         .map(|listed| match (listed.action, &listed.identifier) {
             (ActionId::SimctlRuntimeDelete, Some(id)) => simctl::dry_run(ctx, id),
             (ActionId::BrewCleanup, _) => brew::dry_run(ctx),
-            (ActionId::SimctlRuntimeDelete, None) => unreachable!("a runtime action without an identifier"),
+            (ActionId::CondaEnvRemove, Some(id)) => conda::env_dry_run(ctx, id),
+            (ActionId::CondaClean, Some(id)) => conda::clean_dry_run(ctx, id),
+            (ActionId::SimctlRuntimeDelete | ActionId::CondaEnvRemove | ActionId::CondaClean, None) => {
+                unreachable!("an action without its identifier")
+            }
         })
         .collect()
 }
 
 /// The actions the probe would let run now, for the terminal's prompt:
-/// each runtime that passes, then Homebrew when its `brew` is there.
+/// each runtime that passes, then Homebrew when its `brew` is there, then
+/// each `/opt` conda install with its own `bin/conda`: its package folder,
+/// then its environments, as the file system lists them.
 pub fn available(ctx: &FreeContext<'_>) -> Vec<ListedAction> {
     let mut out: Vec<ListedAction> = simctl::available(ctx)
         .into_iter()
@@ -103,15 +117,33 @@ pub fn available(ctx: &FreeContext<'_>) -> Vec<ListedAction> {
     if brew::available(ctx) {
         out.push(ListedAction { action: ActionId::BrewCleanup, identifier: None });
     }
+    for prefix in crate::conda::PREFIXES.iter().map(|p| ctx.sources.opt.join(p)) {
+        if ctx.commands.at(&crate::conda::exe(&prefix)).is_none() {
+            continue;
+        }
+        let listed =
+            |action, path: &Path| ListedAction { action, identifier: Some(path.to_string_lossy().into_owned()) };
+        if prefix.join("pkgs").is_dir() {
+            out.push(listed(ActionId::CondaClean, &prefix));
+        }
+        out.extend(crate::conda::environments(&prefix).iter().map(|e| listed(ActionId::CondaEnvRemove, e)));
+    }
     out
 }
 
+/// The report of an action a stop kept from starting, its command as the
+/// list names it.
 fn not_run(ctx: &FreeContext<'_>, listed: &ListedAction) -> ActionReport {
-    let (exe, args, env): (&Path, Vec<String>, &[(&str, &str)]) = match &listed.identifier {
-        Some(id) => (&ctx.sources.simctl, vec!["runtime".into(), "delete".into(), id.clone()], &[]),
-        None => (&ctx.sources.brew, vec!["cleanup".into()], &brew::BREW_ENV),
+    let id = listed.identifier.as_deref();
+    let report = match (listed.action, id) {
+        (ActionId::CondaEnvRemove | ActionId::CondaClean, Some(id)) => conda::unprobed(listed.action, id),
+        (ActionId::SimctlRuntimeDelete, _) => {
+            let args = vec!["runtime".into(), "delete".into(), id.unwrap_or_default().to_owned()];
+            report(listed.action, id, &ctx.sources.simctl, &args, &[])
+        }
+        _ => report(listed.action, id, &ctx.sources.brew, &["cleanup".into()], &brew::BREW_ENV),
     };
-    report(listed.action, listed.identifier.as_deref(), exe, &args, env).with(ActionResult::NotRun)
+    report.with(ActionResult::NotRun)
 }
 
 /// A report for the command, before its result.
@@ -174,8 +206,9 @@ fn quoted(word: &str) -> String {
 
 /// Edits `last-disk.json` after the actions that ran: their areas become
 /// stale, a runtime that left the list leaves `simulators.runtimes`, and
-/// `listed_bytes` is the sum of those that remain. Every other number stays
-/// as measured.
+/// `listed_bytes` is the sum of those that remain; an `/opt` environment
+/// conda removed leaves the `conda` section, and one still there after
+/// conda exited 0 stays. Every other number stays as measured.
 pub fn edit_last_disk(env: &Env, reports: &[ActionReport]) -> ReportEdit {
     let ran: Vec<&ActionReport> = reports.iter().filter(|r| r.ran()).collect();
     if ran.is_empty() {
@@ -192,6 +225,18 @@ pub fn edit_last_disk(env: &Env, reports: &[ActionReport]) -> ReportEdit {
         {
             sims.runtimes.retain(|rt| &rt.identifier != id);
             sims.listed_bytes = sims.runtimes.iter().filter_map(|rt| rt.size_bytes).sum();
+        }
+        if let (ActionResult::Freed, ActionId::CondaEnvRemove, Some(id), Some(conda)) =
+            (&r.result, r.action, &r.identifier, disk.conda.as_mut())
+        {
+            // Listed by its identifier, given to conda as its `-p` argument.
+            let given = r.command.iter().skip_while(|a| *a != "-p").nth(1);
+            for install in &mut conda.installs {
+                install.environments.retain(|e| {
+                    let path = e.path.to_string_lossy();
+                    path != id.as_str() && given.is_none_or(|g| path != g.as_str())
+                });
+            }
         }
     }
     match store::write_last_disk(env, &disk) {

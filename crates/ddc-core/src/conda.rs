@@ -37,6 +37,14 @@ pub const PKGS_DIRS_VAR: &str = "CONDA_PKGS_DIRS";
 /// or `--force-pkgs-dirs`: those reach past the folder.
 pub const CLEAN: [&str; 6] = ["clean", "--index-cache", "--packages", "--tarballs", "--logfiles", "--yes"];
 
+/// [`CLEAN`]'s own dry run: what it would do, as JSON, then `DryRunExit`.
+pub const CLEAN_DRY_RUN: [&str; 7] =
+    ["clean", "--index-cache", "--packages", "--tarballs", "--logfiles", "--dry-run", "--json"];
+
+/// The one removal of an environment, named by its path (`{path}`): never
+/// `-n`/`--name`, never the base.
+pub const ENV_REMOVE: [&str; 5] = ["env", "remove", "-p", "{path}", "--yes"];
+
 /// Why a package cache is left alone: no install lists it.
 pub const NOT_LISTED: &str = "no conda lists this folder";
 /// Why a package cache is left alone: conda would clean another folder too.
@@ -47,13 +55,12 @@ pub const SOFTLINKS: &str = "conda links packages into environments by symlink";
 
 /// The known installs: the home folder's three, then `/opt`'s three.
 pub fn candidates(home: &Path, system_root: &Path) -> Vec<PathBuf> {
-    let home = PREFIXES.iter().map(|p| home.join(p));
-    home.chain(opt_prefixes(system_root)).collect()
+    candidates_in(home, &system_root.join("opt"))
 }
 
-/// The all-users installs, by their firmlinked paths (`/opt/miniconda3`).
-pub fn opt_prefixes(system_root: &Path) -> Vec<PathBuf> {
-    PREFIXES.iter().map(|p| system_root.join("opt").join(p)).collect()
+/// [`candidates`], with `/opt` given (`opt`).
+pub fn candidates_in(home: &Path, opt: &Path) -> Vec<PathBuf> {
+    PREFIXES.iter().map(|p| home.join(p)).chain(PREFIXES.iter().map(|p| opt.join(p))).collect()
 }
 
 /// An install's own `conda`.

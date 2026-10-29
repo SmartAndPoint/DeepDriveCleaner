@@ -12,13 +12,13 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
 use common::TreeBuilder;
-use common::fakes::FakeCommands;
+use common::fakes::{FakeCommands, FakeProcs};
 use ddc_core::disk::{ActionId, DISK_SCHEMA_VERSION, Sources};
 use ddc_core::env::Env;
 use ddc_core::exec::{JOURNAL_SCHEMA_VERSION, JournalKind, MemoryAreaJournal};
 use ddc_core::free::{
-    self, ActionList, ActionListError, ActionReport, ActionResult, FreeContext, FreeReport, ListedAction, Refusal,
-    ReportEdit,
+    self, ActionList, ActionListError, ActionReport, ActionResult, FREE_SCHEMA_VERSION, FreeContext, FreeReport,
+    ListedAction, Refusal, ReportEdit,
 };
 use ddc_core::model::SCHEMA_VERSION;
 use ddc_core::report::{self, ScanOptions};
@@ -35,6 +35,7 @@ struct Fx {
     sources: Sources,
     home: PathBuf,
     cancel: AtomicBool,
+    procs: FakeProcs,
 }
 
 impl Fx {
@@ -50,7 +51,7 @@ impl Fx {
         t.file("home/Library/Caches/Homebrew/downloads/old.tar.gz", 128 * 1024);
         let sources = Sources::under(&t.path("sys"));
         let home = t.path("home").canonicalize().unwrap();
-        Self { t, sources, home, cancel: AtomicBool::new(false) }
+        Self { t, sources, home, cancel: AtomicBool::new(false), procs: FakeProcs(vec![]) }
     }
 
     fn env(&self) -> Env {
@@ -62,7 +63,7 @@ impl Fx {
         FreeContext {
             timeout: Duration::from_secs(5),
             poll: Duration::from_millis(1),
-            ..FreeContext::new(commands, &self.sources, &self.home, skips, &self.cancel)
+            ..FreeContext::new(commands, &self.sources, &self.home, skips, &self.procs, &self.cancel)
         }
     }
 
@@ -138,7 +139,10 @@ fn gone(path: impl AsRef<Path>, holding: &Path) {
 static COUNT: AtomicUsize = AtomicUsize::new(0);
 
 fn one(action: ActionId, identifier: Option<&str>) -> ActionList {
-    ActionList { schema_version: 1, actions: vec![ListedAction { action, identifier: identifier.map(str::to_owned) }] }
+    ActionList {
+        schema_version: FREE_SCHEMA_VERSION,
+        actions: vec![ListedAction { action, identifier: identifier.map(str::to_owned) }],
+    }
 }
 
 fn run(fx: &Fx, commands: &FakeCommands, list: &ActionList) -> (Vec<ActionReport>, MemoryAreaJournal) {
@@ -323,7 +327,7 @@ fn a_stop_during_the_wait_ends_it_as_still_deleting_and_journals_it() {
     let skips: [PathBuf; 0] = [];
     let ctx = FreeContext { cancel: &stop, poll: Duration::from_secs(60), ..fx.ctx(&commands, &skips) };
     let list = ActionList {
-        schema_version: 1,
+        schema_version: FREE_SCHEMA_VERSION,
         actions: vec![
             ListedAction { action: ActionId::SimctlRuntimeDelete, identifier: Some("A".into()) },
             ListedAction { action: ActionId::BrewCleanup, identifier: None },
@@ -421,7 +425,7 @@ fn the_dry_run_runs_each_tools_own_dry_run_and_changes_nothing() {
         "Would delete A\n",
     );
     let list = ActionList {
-        schema_version: 1,
+        schema_version: FREE_SCHEMA_VERSION,
         actions: vec![
             ListedAction { action: ActionId::SimctlRuntimeDelete, identifier: Some("A".into()) },
             ListedAction { action: ActionId::BrewCleanup, identifier: None },
@@ -522,30 +526,38 @@ fn a_skipped_folder_is_not_measured_and_the_action_still_runs() {
 fn every_malformed_list_is_refused_whole() {
     let cases: Vec<(&str, ActionListError)> = vec![
         ("{", ActionListError::Syntax(String::new())),
-        (r#"{"schema_version": 2, "actions": [{"action": "brew-cleanup"}]}"#, ActionListError::Version(2)),
-        (r#"{"schema_version": 1, "actions": []}"#, ActionListError::Empty),
+        (r#"{"schema_version": 1, "actions": [{"action": "brew-cleanup"}]}"#, ActionListError::Version(1)),
+        (r#"{"schema_version": 2, "actions": []}"#, ActionListError::Empty),
         (
-            r#"{"schema_version": 1, "actions": [{"action": "brew-cleanup"}, {"action": "brew-cleanup"}]}"#,
+            r#"{"schema_version": 2, "actions": [{"action": "brew-cleanup"}, {"action": "brew-cleanup"}]}"#,
             ActionListError::Duplicate("brew-cleanup".into()),
         ),
         (
-            r#"{"schema_version": 1, "actions": [{"action": "simctl-runtime-delete", "identifier": "A"}, {"action": "simctl-runtime-delete", "identifier": "A"}]}"#,
+            r#"{"schema_version": 2, "actions": [{"action": "simctl-runtime-delete", "identifier": "A"}, {"action": "simctl-runtime-delete", "identifier": "A"}]}"#,
             ActionListError::Duplicate("simctl-runtime-delete A".into()),
         ),
         (
-            r#"{"schema_version": 1, "actions": [{"action": "brew-cleanup", "identifier": "x"}]}"#,
+            r#"{"schema_version": 2, "actions": [{"action": "brew-cleanup", "identifier": "x"}]}"#,
             ActionListError::IdentifierOnBrew,
         ),
         (
-            r#"{"schema_version": 1, "actions": [{"action": "simctl-runtime-delete"}]}"#,
-            ActionListError::MissingIdentifier,
+            r#"{"schema_version": 2, "actions": [{"action": "simctl-runtime-delete"}]}"#,
+            ActionListError::MissingIdentifier(ActionId::SimctlRuntimeDelete),
         ),
-        (r#"{"schema_version": 1, "actions": [{"action": "rm-rf"}]}"#, ActionListError::Syntax(String::new())),
         (
-            r#"{"schema_version": 1, "actions": [{"action": "brew-cleanup", "force": true}]}"#,
+            r#"{"schema_version": 2, "actions": [{"action": "conda-env-remove"}]}"#,
+            ActionListError::MissingIdentifier(ActionId::CondaEnvRemove),
+        ),
+        (
+            r#"{"schema_version": 2, "actions": [{"action": "conda-clean"}]}"#,
+            ActionListError::MissingIdentifier(ActionId::CondaClean),
+        ),
+        (r#"{"schema_version": 2, "actions": [{"action": "rm-rf"}]}"#, ActionListError::Syntax(String::new())),
+        (
+            r#"{"schema_version": 2, "actions": [{"action": "brew-cleanup", "force": true}]}"#,
             ActionListError::Syntax(String::new()),
         ),
-        (r#"{"schema_version": 1, "actions": [], "yes": true}"#, ActionListError::Syntax(String::new())),
+        (r#"{"schema_version": 2, "actions": [], "yes": true}"#, ActionListError::Syntax(String::new())),
     ];
     for (json, want) in cases {
         let got = ActionList::parse(json.as_bytes()).unwrap_err();
@@ -554,7 +566,7 @@ fn every_malformed_list_is_refused_whole() {
             want => assert_eq!(got, want, "{json}"),
         }
     }
-    let two = r#"{"schema_version": 1, "actions": [{"action": "simctl-runtime-delete", "identifier": "A"},
+    let two = r#"{"schema_version": 2, "actions": [{"action": "simctl-runtime-delete", "identifier": "A"},
         {"action": "simctl-runtime-delete", "identifier": "B"}, {"action": "brew-cleanup"}]}"#;
     assert_eq!(ActionList::parse(two.as_bytes()).unwrap().actions.len(), 3);
 }
@@ -694,4 +706,377 @@ fn committed_free_schema_is_current() {
     }
     let committed = fs::read_to_string(&path).unwrap_or_default();
     assert!(committed == schema, "docs/disk-free.schema.json is stale: run DDC_UPDATE_SCHEMA=1 cargo test");
+}
+
+// Story "Whole disk: Conda environments and its package cache, with conda":
+// the `/opt` half. The install lives in the Data volume and is reached
+// through the fixture's `/opt` link; its `bin/conda` is a `FakeCommands`
+// answer keyed by its absolute path, never a real conda.
+
+/// What the install is asked first, before either action.
+const SHOW: &str = "config --show root_prefix envs_dirs pkgs_dirs allow_softlinks always_softlink --json";
+/// Asked with `CONDA_PKGS_DIRS` set, right before a clean.
+const SHOW_PKGS: &str = "config --show pkgs_dirs --json";
+const CLEAN: &str = "clean --index-cache --packages --tarballs --logfiles --yes";
+const CLEAN_DRY_RUN: &str = "clean --index-cache --packages --tarballs --logfiles --dry-run --json";
+/// `conda clean --dry-run --json`: a JSON document, then conda's own exit line.
+const CLEAN_PLAN: &str = r#"{"index_cache": [], "logfiles": [], "packages": {"pkg_sizes": {}, "total_size": 100000},
+"tarballs": {"pkg_sizes": {}, "total_size": 20000}}
+DryRunExit: Dry run. Exiting.
+"#;
+const MINICONDA: &str = "sys/System/Volumes/Data/opt/miniconda3";
+
+impl Fx {
+    /// `/opt/miniconda3`: its base, the environment `old` with 64 KiB of
+    /// its own and a 128 KiB file hard-linked from `pkgs`, and `pkgs`.
+    fn with_conda(self) -> Self {
+        self.t.write(&format!("{MINICONDA}/bin/conda"), "#!/bin/sh\nexit 1\n");
+        self.t.write(&format!("{MINICONDA}/conda-meta/history"), "");
+        self.t.write(&format!("{MINICONDA}/envs/old/conda-meta/history"), "");
+        self.t.file(&format!("{MINICONDA}/envs/old/lib/own.dylib"), 64 * 1024);
+        let numpy = self.t.file(&format!("{MINICONDA}/pkgs/numpy-1.26/lib/numpy.so"), 128 * 1024);
+        self.t.hardlink(numpy, &format!("{MINICONDA}/envs/old/lib/numpy.so"));
+        self
+    }
+
+    /// The install as the disk report and conda spell it: through `/opt`.
+    fn opt_conda(&self) -> PathBuf {
+        self.sources.opt.join("miniconda3")
+    }
+
+    fn opt_env(&self) -> PathBuf {
+        self.opt_conda().join("envs/old")
+    }
+
+    fn conda_exe(&self) -> PathBuf {
+        ddc_core::conda::exe(&self.opt_conda())
+    }
+
+    /// conda's computed settings with its defaults: `root_prefix` spelled
+    /// through `/opt`, as conda spells it.
+    fn conda_settings(&self, edit: impl FnOnce(&mut Value)) -> String {
+        let prefix = self.opt_conda();
+        let mut s = json!({
+            "root_prefix": prefix,
+            "envs_dirs": [prefix.join("envs"), self.home.join(".conda/envs")],
+            "pkgs_dirs": [prefix.join("pkgs"), self.home.join(".conda/pkgs")],
+            "allow_softlinks": false,
+            "always_softlink": false,
+        });
+        edit(&mut s);
+        s.to_string()
+    }
+
+    /// The install's conda, answering every question as the fixture's install.
+    fn conda(&self, settings: &str) -> FakeCommands {
+        let exe = self.conda_exe();
+        let remove = format!("env remove -p {} --yes", self.opt_env().display());
+        let pkgs = json!({ "pkgs_dirs": [self.opt_conda().join("pkgs")] }).to_string();
+        FakeCommands::default()
+            .at_path(&exe, SHOW, true, settings)
+            .at_path(&exe, SHOW_PKGS, true, &pkgs)
+            .at_path(&exe, CLEAN_DRY_RUN, true, CLEAN_PLAN)
+            .at_path(&exe, CLEAN, true, "")
+            .at_path(&exe, &remove, true, "")
+    }
+
+    fn conda_list(&self, action: ActionId, identifier: &Path) -> ActionList {
+        one(action, Some(&identifier.to_string_lossy()))
+    }
+}
+
+/// `conda env remove` moves the environment out of `/opt` when it runs.
+fn removing(fx: &Fx, commands: FakeCommands) -> FakeCommands {
+    let (env, holding) = (fx.t.path(&format!("{MINICONDA}/envs/old")), fx.holding());
+    FakeCommands {
+        on_call: Some(Box::new(move |call| {
+            if call.starts_with("conda env remove") {
+                gone(&env, &holding);
+            }
+        })),
+        ..commands
+    }
+}
+
+#[test]
+fn an_opt_environment_is_removed_by_its_installs_own_conda_by_path_alone() {
+    let fx = Fx::new().with_conda();
+    // A file of another environment, hard-linked into this one.
+    fx.t.write(&format!("{MINICONDA}/envs/ml/conda-meta/history"), "");
+    let torch = fx.t.file(&format!("{MINICONDA}/envs/ml/lib/torch.dylib"), 256 * 1024);
+    fx.t.hardlink(torch, &format!("{MINICONDA}/envs/old/lib/torch.dylib"));
+    let commands = removing(&fx, fx.conda(&fx.conda_settings(|_| {})));
+
+    let (reports, journal) = run(&fx, &commands, &fx.conda_list(ActionId::CondaEnvRemove, &fx.opt_env()));
+
+    let r = &reports[0];
+    assert_eq!(r.result, ActionResult::Freed, "{r:?}");
+    let remove = format!("env remove -p {} --yes", fx.opt_env().display());
+    assert_eq!(commands.calls_of(&fx.conda_exe()), [SHOW.to_owned(), remove]);
+    assert!(commands.exes.borrow().iter().all(|e| *e == fx.conda_exe()), "only the install's own conda runs");
+    assert_eq!(r.command[0], fx.conda_exe().to_string_lossy());
+    assert_eq!(r.command[1..], ["env", "remove", "-p", &fx.opt_env().to_string_lossy(), "--yes"]);
+    for never in ["-n", "--name", "--all", "base"] {
+        assert!(!r.command.iter().any(|a| a == never), "{never}: {:?}", r.command);
+    }
+    // Its own file: not the ones linked from the package folder or from `ml`.
+    let before = r.bytes_before.unwrap();
+    assert!((64 * 1024..128 * 1024).contains(&before), "{before}");
+    assert_eq!(r.bytes_after, Some(0));
+    assert_eq!(r.area, "conda");
+    assert!(fx.t.path(&format!("{MINICONDA}/pkgs/numpy-1.26/lib/numpy.so")).exists());
+
+    let line = serde_json::to_value(&journal.0[0]).unwrap();
+    assert_eq!(journal.0.len(), 1);
+    assert_eq!(line["kind"], "area-action");
+    assert_eq!(line["action"], "conda-env-remove");
+    assert_eq!(line["identifier"], fx.opt_env().to_string_lossy().as_ref());
+    assert_eq!(line["command"], r.terminal_command.as_str());
+    assert_eq!(line["result"]["status"], "freed");
+}
+
+#[test]
+fn an_environment_named_through_the_data_volume_is_given_to_conda_as_conda_spells_it() {
+    let fx = Fx::new().with_conda();
+    let commands = removing(&fx, fx.conda(&fx.conda_settings(|_| {})));
+    let data = fx.t.path(&format!("{MINICONDA}/envs/old"));
+
+    let (reports, _) = run(&fx, &commands, &fx.conda_list(ActionId::CondaEnvRemove, &data));
+
+    assert_eq!(reports[0].result, ActionResult::Freed, "{:?}", reports[0]);
+    assert_eq!(reports[0].identifier.as_deref(), Some(data.to_string_lossy().as_ref()));
+    assert_eq!(reports[0].command[4], fx.opt_env().to_string_lossy());
+}
+
+#[test]
+fn every_environment_conda_must_not_remove_is_refused_before_conda_starts() {
+    let fx = Fx::new().with_conda();
+    let ok = fx.conda_settings(|_| {});
+    fx.t.write("home/miniconda3/envs/mine/conda-meta/history", "");
+    fx.t.dir(&format!("{MINICONDA}/envs/empty"));
+    fx.t.symlink("..", &format!("{MINICONDA}/envs/base"));
+    fx.t.write("sys/System/Volumes/Data/opt/other/envs/x/conda-meta/history", "");
+    let opt = fx.opt_conda();
+    let cases: Vec<(&str, PathBuf, Refusal)> = vec![
+        ("in the home folder", fx.home.join("miniconda3/envs/mine"), Refusal::CondaInHome),
+        ("the base, through a link", opt.join("envs/base"), Refusal::CondaBase),
+        ("the install itself", opt.clone(), Refusal::CondaNotInOpt),
+        ("no history", opt.join("envs/empty"), Refusal::CondaNotAnEnvironment),
+        ("another /opt folder", fx.sources.opt.join("other/envs/x"), Refusal::CondaNotInOpt),
+        ("a dot-dot", opt.join("envs/old/../old"), Refusal::CondaNotInOpt),
+        ("relative", PathBuf::from("opt/miniconda3/envs/old"), Refusal::CondaNotInOpt),
+    ];
+    for (name, identifier, reason) in cases {
+        let commands = fx.conda(&ok);
+        let (reports, _) = run(&fx, &commands, &fx.conda_list(ActionId::CondaEnvRemove, &identifier));
+        assert_eq!(reports[0].result, ActionResult::Refused { reason }, "{name}");
+        assert!(commands.calls.borrow().is_empty(), "{name}: {:?}", commands.calls.borrow());
+    }
+
+    // A running process holds a file of it, spelled as the kernel spells it.
+    let mut busy = Fx::new().with_conda();
+    let held = busy.t.path(&format!("{MINICONDA}/envs/old/lib/own.dylib")).canonicalize().unwrap();
+    busy.procs = FakeProcs(vec![common::fakes::holder(77, "python", &[&held])]);
+    let commands = busy.conda(&busy.conda_settings(|_| {}));
+    let (reports, _) = run(&busy, &commands, &busy.conda_list(ActionId::CondaEnvRemove, &busy.opt_env()));
+    assert_eq!(reports[0].result, ActionResult::Refused { reason: Refusal::CondaInUse });
+    assert!(commands.calls.borrow().is_empty());
+}
+
+#[test]
+fn a_folder_the_user_cannot_write_needs_an_administrator_before_conda_starts() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let fx = Fx::new().with_conda();
+    let commands = fx.conda(&fx.conda_settings(|_| {}));
+    let envs = fx.t.path(&format!("{MINICONDA}/envs"));
+    let pkgs = fx.t.path(&format!("{MINICONDA}/pkgs"));
+    fs::set_permissions(&envs, fs::Permissions::from_mode(0o555)).unwrap();
+    fs::set_permissions(&pkgs, fs::Permissions::from_mode(0o555)).unwrap();
+    let (removed, _) = run(&fx, &commands, &fx.conda_list(ActionId::CondaEnvRemove, &fx.opt_env()));
+    let (cleaned, _) = run(&fx, &commands, &fx.conda_list(ActionId::CondaClean, &fx.opt_conda()));
+    fs::set_permissions(&envs, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(&pkgs, fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert_eq!(removed[0].result, ActionResult::Refused { reason: Refusal::CondaNotWritable });
+    assert_eq!(cleaned[0].result, ActionResult::Refused { reason: Refusal::CondaNotWritable });
+    assert!(commands.calls.borrow().is_empty());
+}
+
+#[test]
+fn what_conda_says_of_an_environment_can_refuse_it_too() {
+    let fx = Fx::new().with_conda();
+    let cases: Vec<(&str, FakeCommands, Refusal)> = vec![
+        ("no conda", FakeCommands::default(), Refusal::CondaMissing),
+        ("config fails", FakeCommands::default().at_path(&fx.conda_exe(), SHOW, false, ""), Refusal::CondaMissing),
+        ("not JSON", fx.conda("Error: no"), Refusal::CondaMissing),
+        (
+            "another root",
+            fx.conda(&fx.conda_settings(|s| s["root_prefix"] = json!(fx.home.join("miniconda3")))),
+            Refusal::CondaRootMismatch,
+        ),
+        (
+            "envs not listed",
+            fx.conda(&fx.conda_settings(|s| s["envs_dirs"] = json!([fx.home.join(".conda/envs")]))),
+            Refusal::CondaNotInEnvsDirs,
+        ),
+    ];
+    for (name, commands, reason) in cases {
+        let (reports, _) = run(&fx, &commands, &fx.conda_list(ActionId::CondaEnvRemove, &fx.opt_env()));
+        assert_eq!(reports[0].result, ActionResult::Refused { reason }, "{name}");
+        assert!(!commands.calls.borrow().iter().any(|c| c.contains("remove")), "{name}");
+    }
+}
+
+#[test]
+fn an_environment_still_there_after_conda_exits_0_is_removed_not_freed() {
+    let fx = Fx::new().with_conda();
+    let commands = fx.conda(&fx.conda_settings(|_| {}));
+    let (reports, _) = run(&fx, &commands, &fx.conda_list(ActionId::CondaEnvRemove, &fx.opt_env()));
+    assert_eq!(reports[0].result, ActionResult::RemovedNotFreed);
+    assert!(reports[0].bytes_after.unwrap() > 0);
+
+    let remove = format!("env remove -p {} --yes", fx.opt_env().display());
+    let failing = fx.conda(&fx.conda_settings(|_| {})).at_path(&fx.conda_exe(), &remove, false, "");
+    let (reports, _) = run(&fx, &failing, &fx.conda_list(ActionId::CondaEnvRemove, &fx.opt_env()));
+    assert_eq!(reports[0].result, ActionResult::Failed { needs_admin: false });
+    assert!(reports[0].terminal_command.ends_with(&remove), "{}", reports[0].terminal_command);
+}
+
+#[test]
+fn conda_clean_runs_once_from_the_install_limited_to_its_package_folder() {
+    let fx = Fx::new().with_conda();
+    let commands = fx.conda(&fx.conda_settings(|_| {}));
+
+    let (reports, journal) = run(&fx, &commands, &fx.conda_list(ActionId::CondaClean, &fx.opt_conda()));
+
+    let r = &reports[0];
+    assert_eq!(r.result, ActionResult::Freed, "{r:?}");
+    assert_eq!(commands.calls_of(&fx.conda_exe()), [SHOW, SHOW_PKGS, CLEAN]);
+    let pkgs = format!("CONDA_PKGS_DIRS={}", fx.opt_conda().join("pkgs").display());
+    let envs = commands.envs.borrow();
+    assert_eq!(envs[1], std::slice::from_ref(&pkgs));
+    assert_eq!(envs[2], std::slice::from_ref(&pkgs));
+    assert_eq!(r.env, std::slice::from_ref(&pkgs));
+    for never in ["--all", "--tempfiles", "--force-pkgs-dirs"] {
+        assert!(!r.command.iter().any(|a| a == never), "{never}");
+    }
+    assert_eq!(r.terminal_command, format!("{pkgs} {} {CLEAN}", fx.conda_exe().display()));
+    assert!(r.bytes_before.unwrap() >= 128 * 1024);
+    assert_eq!(serde_json::to_value(&journal.0[0]).unwrap()["action"], "conda-clean");
+}
+
+#[test]
+fn a_package_folder_conda_could_clean_beyond_is_refused_in_the_dry_run_too() {
+    let fx = Fx::new().with_conda();
+    let other = fx.t.dir("home/.conda/pkgs");
+    let two = json!({ "pkgs_dirs": [fx.opt_conda().join("pkgs"), other] }).to_string();
+    let unscoped = fx.conda(&fx.conda_settings(|_| {})).at_path(&fx.conda_exe(), SHOW_PKGS, true, &two);
+    let softlinks = fx.conda(&fx.conda_settings(|s| s["always_softlink"] = json!(true)));
+    let unlisted = fx.conda(&fx.conda_settings(|s| s["pkgs_dirs"] = json!([other])));
+    let cases = [
+        ("not scoped", unscoped, Refusal::CondaNotScoped),
+        ("softlinks", softlinks, Refusal::CondaSoftlinks),
+        ("not listed", unlisted, Refusal::CondaPackagesNotListed),
+    ];
+    for (name, commands, reason) in cases {
+        let list = fx.conda_list(ActionId::CondaClean, &fx.opt_conda());
+        let previews = free::dry_run(&fx.ctx(&commands, &[]), &list);
+        assert_eq!(previews[0].result, ActionResult::Refused { reason }, "{name} dry run");
+        let (reports, _) = run(&fx, &commands, &list);
+        assert_eq!(reports[0].result, ActionResult::Refused { reason }, "{name}");
+        assert!(!commands.calls_of(&fx.conda_exe()).iter().any(|c| c.starts_with("clean")), "{name}");
+    }
+}
+
+#[test]
+fn the_conda_dry_runs_ask_the_probe_and_estimate_without_removing() {
+    let fx = Fx::new().with_conda();
+    let commands = fx.conda(&fx.conda_settings(|_| {}));
+    let named = |action, p: PathBuf| ListedAction { action, identifier: Some(p.to_string_lossy().into_owned()) };
+    let list = ActionList {
+        schema_version: FREE_SCHEMA_VERSION,
+        actions: vec![named(ActionId::CondaEnvRemove, fx.opt_env()), named(ActionId::CondaClean, fx.opt_conda())],
+    };
+
+    let reports = free::dry_run(&fx.ctx(&commands, &[]), &list);
+
+    assert_eq!(reports[0].result, ActionResult::WouldRun);
+    assert_eq!(reports[0].preview.as_ref().unwrap().estimate_bytes, reports[0].bytes_before);
+    assert!(reports[0].bytes_before.unwrap() < 128 * 1024);
+    assert_eq!(reports[1].result, ActionResult::WouldRun);
+    let preview = reports[1].preview.as_ref().unwrap();
+    assert_eq!(preview.estimate_bytes, Some(120_000));
+    assert_eq!(preview.lines.last().map(String::as_str), Some("DryRunExit: Dry run. Exiting."));
+    let calls = commands.calls_of(&fx.conda_exe());
+    assert!(calls.contains(&CLEAN_DRY_RUN.to_owned()));
+    assert!(!calls.iter().any(|c| c == CLEAN || c.starts_with("env remove")), "{calls:?}");
+    assert!(fx.opt_env().exists());
+}
+
+#[test]
+fn available_offers_each_opt_installs_package_cache_and_environments() {
+    let fx = Fx::new().with_conda();
+    fx.t.write(&format!("{MINICONDA}/envs/ml/conda-meta/history"), "");
+    fx.t.dir(&format!("{MINICONDA}/envs/not-one"));
+    let commands = fx.conda(&fx.conda_settings(|_| {}));
+    let offered = free::available(&fx.ctx(&commands, &[]));
+    let named = |action, p: PathBuf| ListedAction { action, identifier: Some(p.to_string_lossy().into_owned()) };
+    assert_eq!(
+        offered,
+        [
+            named(ActionId::CondaClean, fx.opt_conda()),
+            named(ActionId::CondaEnvRemove, fx.opt_conda().join("envs/ml")),
+            named(ActionId::CondaEnvRemove, fx.opt_env()),
+        ]
+    );
+    assert!(commands.calls.borrow().is_empty(), "listing asks no conda");
+}
+
+#[test]
+fn a_stop_before_a_conda_action_reports_the_command_it_would_have_run() {
+    let fx = Fx::new().with_conda();
+    fx.cancel.store(true, Ordering::SeqCst);
+    let commands = fx.conda(&fx.conda_settings(|_| {}));
+    let (reports, journal) = run(&fx, &commands, &fx.conda_list(ActionId::CondaEnvRemove, &fx.opt_env()));
+    assert_eq!(reports[0].result, ActionResult::NotRun);
+    assert_eq!(reports[0].command[0], fx.conda_exe().to_string_lossy());
+    assert_eq!(reports[0].command[1..4], ["env", "remove", "-p"]);
+    assert_eq!(journal.0.len(), 1);
+    assert!(commands.calls.borrow().is_empty());
+}
+
+#[test]
+fn last_disk_drops_an_environment_conda_removed_and_keeps_one_still_there() {
+    let fx = Fx::new();
+    let env = fx.env();
+    let dir = env.data_dir().to_path_buf();
+    fs::create_dir_all(&dir).unwrap();
+    let folder = |p: &str| json!({"path": p, "bytes": 10, "shared_bytes": 0, "files": 1, "unreadable": 0, "partial": false, "writable": true});
+    let mut saved = last_disk(&fx);
+    let mut conda_area = saved["areas"][1].clone();
+    conda_area["id"] = json!("conda");
+    saved["areas"].as_array_mut().unwrap().push(conda_area);
+    saved["conda"] = json!({"installs": [{
+        "prefix": "/opt/miniconda3",
+        "packages": folder("/opt/miniconda3/pkgs"),
+        "environments": [folder("/opt/miniconda3/envs/a"), folder("/opt/miniconda3/envs/b")],
+    }]});
+    fs::write(dir.join("last-disk.json"), saved.to_string()).unwrap();
+
+    let still = [report_of(ActionId::CondaEnvRemove, Some("/opt/miniconda3/envs/a"), ActionResult::RemovedNotFreed)];
+    assert_eq!(free::edit_last_disk(&env, &still), ReportEdit::Edited);
+    let disk = store::read_last_disk(&env).unwrap().unwrap();
+    assert_eq!(disk.conda.as_ref().unwrap().installs[0].environments.len(), 2);
+    assert!(disk.areas.iter().find(|a| a.id == "conda").unwrap().stale);
+
+    // Named through the Data volume, given to conda through `/opt`.
+    let mut freed =
+        report_of(ActionId::CondaEnvRemove, Some("/System/Volumes/Data/opt/miniconda3/envs/a"), ActionResult::Freed);
+    freed.command = ["/opt/miniconda3/bin/conda", "env", "remove", "-p", "/opt/miniconda3/envs/a", "--yes"]
+        .map(str::to_owned)
+        .to_vec();
+    assert_eq!(free::edit_last_disk(&env, &[freed]), ReportEdit::Edited);
+    let disk = store::read_last_disk(&env).unwrap().unwrap();
+    let left: Vec<PathBuf> = disk.conda.unwrap().installs[0].environments.iter().map(|e| e.path.clone()).collect();
+    assert_eq!(left, [PathBuf::from("/opt/miniconda3/envs/b")]);
 }

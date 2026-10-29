@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// Version of [`DiskReport`]; the scan report has its own. A new enum
 /// variant needs a bump: the app decodes strictly, except [`AreaReveal`],
 /// which it reads leniently (an unknown value is no button).
-pub const DISK_SCHEMA_VERSION: u32 = 1;
+pub const DISK_SCHEMA_VERSION: u32 = 2;
 
 /// What uses the startup disk, the home folder and everything outside it
 /// (story "Whole disk: what lies outside the home folder"). Read-only:
@@ -33,6 +33,10 @@ pub struct DiskReport {
     /// Absent without developer tools.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub simulators: Option<Simulators>,
+    /// The conda installs in `/opt`, from the file system; absent when
+    /// there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conda: Option<Conda>,
     pub snapshots: Snapshots,
     /// What this run's walk read, each inode once.
     pub walk: WalkTotals,
@@ -121,6 +125,12 @@ pub struct HomeRow {
 pub enum ActionId {
     SimctlRuntimeDelete,
     BrewCleanup,
+    /// `conda env remove -p` of one `/opt` environment; its identifier is
+    /// the environment's path.
+    CondaEnvRemove,
+    /// `conda clean` of one `/opt` install's package folder; its
+    /// identifier is the install's prefix.
+    CondaClean,
 }
 
 /// Where the app sends the user for an area it does not free itself
@@ -232,6 +242,49 @@ pub struct Device {
     pub udid: String,
     pub name: String,
     pub state: String,
+}
+
+/// The `/opt` conda installs (story "Whole disk: Conda environments and its
+/// package cache, with conda"). Read from the file system: `ddc disk`
+/// never runs conda.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Conda {
+    /// In the order `miniconda3`, `anaconda3`, `miniforge3`.
+    pub installs: Vec<CondaInstall>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CondaInstall {
+    /// Through the firmlink, as conda spells it: `/opt/miniconda3`. The
+    /// identifier of its `conda-clean`.
+    pub prefix: PathBuf,
+    /// `<prefix>/pkgs`; absent when there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packages: Option<CondaFolder>,
+    /// Every `<prefix>/envs/*` holding `conda-meta/history`, by path. Each
+    /// path is the identifier of its `conda-env-remove`.
+    pub environments: Vec<CondaFolder>,
+}
+
+/// An environment or a package folder, measured as one region of a walk of
+/// the install's environments and package folder together.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CondaFolder {
+    /// Through the firmlink, as conda spells it.
+    pub path: PathBuf,
+    /// Allocated bytes of the files whose every link lies inside it: what
+    /// removing it alone frees.
+    pub bytes: u64,
+    /// Bytes of hard-linked files with a link elsewhere too, such as an
+    /// environment's files linked from the package folder.
+    pub shared_bytes: u64,
+    pub files: u64,
+    pub unreadable: u64,
+    /// Not walked to the end: the numbers are lower bounds.
+    pub partial: bool,
+    /// The user running ddc may write it (and, for an environment, the
+    /// `envs` folder holding it): without that, conda needs an administrator.
+    pub writable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

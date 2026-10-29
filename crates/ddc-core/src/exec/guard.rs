@@ -378,6 +378,20 @@ fn uses(p: &ProcInfo) -> Uses {
     Uses { pid: p.pid, name, paths, unresolved, open: p.open_files.clone() }
 }
 
+/// The first running process that uses `target`, as a clean's in-use check
+/// counts it for a tool's command: a path of it inside (its executable, an
+/// argument, its cwd, `VIRTUAL_ENV`, `CONDA_PREFIX`), or a file it holds
+/// open there. For an area action, outside a clean (story "Whole disk:
+/// Conda environments and its package cache, with conda").
+pub(crate) fn user_of(target: &Path, procs: &dyn ProcessTable) -> Option<SkipReason> {
+    let uses: Vec<Uses> = procs.processes().iter().map(uses).collect();
+    in_use(target, &uses).or_else(|| {
+        uses.iter()
+            .find(|u| u.open.iter().any(|f| f.starts_with(target)))
+            .map(|u| SkipReason::InUse { pid: u.pid, name: u.name.clone() })
+    })
+}
+
 /// A process uses `target` if any of its paths lies inside it; with an
 /// unknown cwd, a relative path starting with the target's name counts too.
 fn in_use(target: &Path, uses: &[Uses]) -> Option<SkipReason> {

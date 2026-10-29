@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::disk::ActionId;
 
 /// Version of [`ActionList`] and of [`FreeReport`].
-pub const FREE_SCHEMA_VERSION: u32 = 1;
+pub const FREE_SCHEMA_VERSION: u32 = 2;
 
 /// The actions a person confirmed, as the app's sheet passes them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -24,8 +24,10 @@ pub struct ActionList {
 #[serde(deny_unknown_fields)]
 pub struct ListedAction {
     pub action: ActionId,
-    /// The runtime's asset id, as the disk report lists it; only on
-    /// `simctl-runtime-delete`, and required there.
+    /// As the disk report lists it: the runtime's asset id of
+    /// `simctl-runtime-delete`, the environment's path of
+    /// `conda-env-remove`, the install's prefix of `conda-clean`. Required
+    /// on those three, refused on `brew-cleanup`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identifier: Option<String>,
 }
@@ -43,8 +45,9 @@ pub enum ActionListError {
     Duplicate(String),
     #[error("brew-cleanup takes no identifier")]
     IdentifierOnBrew,
-    #[error("simctl-runtime-delete needs the runtime's identifier")]
-    MissingIdentifier,
+    /// A runtime's id, an environment's path or an install's prefix.
+    #[error("{} needs its identifier", .0.as_str())]
+    MissingIdentifier(ActionId),
 }
 
 impl ActionList {
@@ -66,7 +69,9 @@ impl ActionList {
         for a in &self.actions {
             match (a.action, &a.identifier) {
                 (ActionId::BrewCleanup, Some(_)) => return Err(ActionListError::IdentifierOnBrew),
-                (ActionId::SimctlRuntimeDelete, None) => return Err(ActionListError::MissingIdentifier),
+                (ActionId::SimctlRuntimeDelete | ActionId::CondaEnvRemove | ActionId::CondaClean, None) => {
+                    return Err(ActionListError::MissingIdentifier(a.action));
+                }
                 _ => {}
             }
             if !seen.insert((a.action, a.identifier.clone())) {
@@ -92,6 +97,8 @@ impl ActionId {
         match self {
             ActionId::SimctlRuntimeDelete => "simctl-runtime-delete",
             ActionId::BrewCleanup => "brew-cleanup",
+            ActionId::CondaEnvRemove => "conda-env-remove",
+            ActionId::CondaClean => "conda-clean",
         }
     }
 
@@ -100,6 +107,7 @@ impl ActionId {
         match self {
             ActionId::SimctlRuntimeDelete => "simulator-runtimes",
             ActionId::BrewCleanup => "homebrew",
+            ActionId::CondaEnvRemove | ActionId::CondaClean => "conda",
         }
     }
 }
@@ -150,7 +158,7 @@ pub enum ReportEdit {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ActionReport {
     pub action: ActionId,
-    /// The disk report's area: `simulator-runtimes` or `homebrew`.
+    /// The disk report's area: `simulator-runtimes`, `homebrew` or `conda`.
     pub area: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identifier: Option<String>,
@@ -194,7 +202,8 @@ impl ActionReport {
 pub enum ActionResult {
     /// The tool succeeded and, for a runtime, the runtime left the list.
     Freed,
-    /// The runtime left the list, and its folder did not shrink.
+    /// The runtime left the list, and its folder did not shrink; or conda
+    /// exited 0 and the environment is still there.
     RemovedNotFreed,
     /// The runtime is still listed after the timeout, or ddc was stopped
     /// while it waited. CoreSimulator's daemon may still finish it.
@@ -244,6 +253,35 @@ pub enum Refusal {
     CellarOutside,
     /// `brew --cache` is not `~/Library/Caches/Homebrew`.
     CacheMismatch,
+    /// The environment lies in the home folder: the Review window cleans it.
+    CondaInHome,
+    /// Not one of `/opt/miniconda3`, `/opt/anaconda3`, `/opt/miniforge3`
+    /// (an environment: not in its `envs` folder), by device and inode; or
+    /// a path conda cannot be given (not UTF-8, or holding a comma).
+    CondaNotInOpt,
+    /// The install has no `bin/conda`, or its `config --show` failed or
+    /// printed what ddc cannot read.
+    CondaMissing,
+    /// conda's `root_prefix` is not the install's folder.
+    CondaRootMismatch,
+    /// The install's base environment.
+    CondaBase,
+    /// Its parent is not in conda's `envs_dirs`.
+    CondaNotInEnvsDirs,
+    /// It holds no `conda-meta/history`.
+    CondaNotAnEnvironment,
+    /// The install's `pkgs` is not in conda's `pkgs_dirs`.
+    CondaPackagesNotListed,
+    /// The user cannot write it: conda needs an administrator.
+    CondaNotWritable,
+    /// A running process uses the environment.
+    CondaInUse,
+    /// An install that lists the package folder links packages into
+    /// environments by symlink.
+    CondaSoftlinks,
+    /// conda's package folders, set in a `.condarc`, cannot be limited to
+    /// this one.
+    CondaNotScoped,
 }
 
 /// The tool's own dry run.

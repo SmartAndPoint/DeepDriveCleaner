@@ -683,3 +683,83 @@ fn the_apps_disk_fixtures_are_reports_the_cli_could_write() {
         assert_eq!(serde_json::to_value(&r).unwrap(), json, "{name}");
     }
 }
+
+// Story "Whole disk: Conda environments and its package cache, with conda":
+// the `/opt` installs' environments and package folder, from the file
+// system alone.
+
+/// `/opt/miniconda3` in the Data volume, reached through the fixture's
+/// `/opt` link: the environment `old` with a file of its own and one
+/// hard-linked from `pkgs`, the environment `ml`, a folder in `envs` that
+/// is no environment, and `pkgs` with a package of its own.
+fn conda_fixture() -> (Fixture, [PathBuf; 4]) {
+    let fx = Fixture::new();
+    fx.t.symlink("System/Volumes/Data/opt", "sys/opt");
+    fx.t.write(&format!("{DATA}/opt/miniconda3/conda-meta/history"), "");
+    fx.t.write(&format!("{DATA}/opt/miniconda3/bin/conda"), "#!/bin/sh\nexit 1\n");
+    fx.t.write(&format!("{DATA}/opt/miniconda3/envs/old/conda-meta/history"), "");
+    fx.t.write(&format!("{DATA}/opt/miniconda3/envs/ml/conda-meta/history"), "");
+    fx.t.dir(&format!("{DATA}/opt/miniconda3/envs/not-one"));
+    let own = fx.file("opt/miniconda3/envs/old/lib/own.dylib", 64 * 1024);
+    let linked = fx.file("opt/miniconda3/pkgs/numpy-1.26/lib/numpy.so", 128 * 1024);
+    fx.t.hardlink(&linked, &format!("{DATA}/opt/miniconda3/envs/old/lib/numpy.so"));
+    let unused = fx.file("opt/miniconda3/pkgs/scipy-1.11/lib/scipy.so", 32 * 1024);
+    let ml = fx.file("opt/miniconda3/envs/ml/lib/torch.dylib", 16 * 1024);
+    (fx, [own, linked, unused, ml])
+}
+
+#[test]
+fn each_opt_environment_and_the_package_cache_are_measured_and_links_between_them_are_shared() {
+    let (fx, [own, linked, unused, ml]) = conda_fixture();
+    let commands = diskutil(1 << 40);
+
+    let r = fx.measure(&commands, &DiskOptions::default());
+
+    let conda = r.conda.as_ref().expect("a conda section");
+    assert_eq!(conda.installs.len(), 1);
+    let install = &conda.installs[0];
+    let prefix = fx.sources().opt.join("miniconda3");
+    assert_eq!(install.prefix, prefix, "spelled through /opt, as conda spells it");
+    let names: Vec<PathBuf> = install.environments.iter().map(|e| e.path.clone()).collect();
+    assert_eq!(names, [prefix.join("envs/ml"), prefix.join("envs/old")]);
+    let old = &install.environments[1];
+    assert_eq!(old.bytes, alloc(&own));
+    assert_eq!(old.shared_bytes, alloc(&linked));
+    assert!(old.writable && !old.partial);
+    assert_eq!(install.environments[0].bytes, alloc(&ml));
+    let pkgs = install.packages.as_ref().expect("the package folder");
+    assert_eq!(pkgs.path, prefix.join("pkgs"));
+    assert_eq!(pkgs.bytes, alloc(&unused));
+    assert_eq!(pkgs.shared_bytes, alloc(&linked));
+    assert!(pkgs.writable);
+    // The area keeps its own numbers: each file once.
+    assert_eq!(area(&r, "conda").bytes, reference_alloc(&fx.data("opt/miniconda3")));
+    assert!(!commands.calls.borrow().iter().any(|c| c.starts_with("conda")), "{:?}", commands.calls.borrow());
+}
+
+#[test]
+fn a_folder_the_user_cannot_write_is_marked_for_an_administrator() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let (fx, _) = conda_fixture();
+    let envs = fx.data("opt/miniconda3/envs");
+    let pkgs = fx.data("opt/miniconda3/pkgs");
+    std::fs::set_permissions(&envs, std::fs::Permissions::from_mode(0o555)).unwrap();
+    std::fs::set_permissions(&pkgs, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let r = fx.measure(&diskutil(1 << 40), &DiskOptions::default());
+    std::fs::set_permissions(&envs, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::set_permissions(&pkgs, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let install = &r.conda.as_ref().unwrap().installs[0];
+    assert!(install.environments.iter().all(|e| !e.writable), "{install:?}");
+    assert!(!install.packages.as_ref().unwrap().writable);
+}
+
+#[test]
+fn without_an_opt_install_there_is_no_conda_section() {
+    let fx = Fixture::new();
+    fx.t.symlink("System/Volumes/Data/opt", "sys/opt");
+    fx.file("opt/homebrew/bin/brew", 4096);
+    let r = fx.measure(&diskutil(1 << 40), &DiskOptions::default());
+    assert!(r.conda.is_none());
+    assert!(serde_json::to_value(&r).unwrap().get("conda").is_none());
+}

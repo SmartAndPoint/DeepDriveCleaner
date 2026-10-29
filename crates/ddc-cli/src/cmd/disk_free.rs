@@ -11,7 +11,7 @@ use std::sync::atomic::AtomicBool;
 use anyhow::Context as _;
 use ddc_core::disk::Sources;
 use ddc_core::env::Env;
-use ddc_core::exec::{FileJournal, SystemCommands};
+use ddc_core::exec::{FileJournal, SystemCommands, SystemProcesses};
 use ddc_core::free::{self, ActionList, ActionResult, FREE_SCHEMA_VERSION, FreeContext, FreeReport};
 use ddc_core::settings::ScanFlags;
 use ddc_core::store::{self, LockMode};
@@ -57,14 +57,19 @@ pub fn run(args: &FreeArgs) -> anyhow::Result<ExitCode> {
         // process at once, before anything runs.
         None => {
             let never = AtomicBool::new(false);
-            match ask(&FreeContext::new(&commands, &sources, env.home(), &skips, &never), &env, args, &style)? {
+            match ask(
+                &FreeContext::new(&commands, &sources, env.home(), &skips, &SystemProcesses, &never),
+                &env,
+                args,
+                &style,
+            )? {
                 Some(list) => list,
                 None => return Ok(ExitCode::SUCCESS),
             }
         }
     };
     let cancel = signals::install().context("cannot install the signal handler")?;
-    let ctx = FreeContext::new(&commands, &sources, env.home(), &skips, cancel);
+    let ctx = FreeContext::new(&commands, &sources, env.home(), &skips, &SystemProcesses, cancel);
     if args.dry_run {
         let _lock = store::try_lock(&env, LockMode::Shared)?;
         let report = FreeReport::new(true, free::dry_run(&ctx, &list));
@@ -102,7 +107,10 @@ fn ask(ctx: &FreeContext<'_>, env: &Env, args: &FreeArgs, style: &Style) -> anyh
     let available = ActionList { schema_version: FREE_SCHEMA_VERSION, actions: free::available(ctx) };
     let mut out = std::io::stdout().lock();
     if available.actions.is_empty() {
-        writeln!(out, "Nothing to free: no simulator runtime can be deleted, and /opt/homebrew/bin/brew is not here.")?;
+        writeln!(
+            out,
+            "Nothing to free: no simulator runtime can be deleted, /opt/homebrew/bin/brew is not here, and no conda in /opt."
+        )?;
         return Ok(None);
     }
     let previews = {
@@ -127,6 +135,14 @@ fn ask(ctx: &FreeContext<'_>, env: &Env, args: &FreeArgs, style: &Style) -> anyh
             ddc_core::disk::ActionId::BrewCleanup => {
                 "Run brew cleanup? It removes old, unlinked versions in the Cellar and old downloads.".to_owned()
             }
+            ddc_core::disk::ActionId::CondaEnvRemove => format!(
+                "Remove the conda environment {}? Recreate it with conda create, or from its environment file.",
+                render::escaped(listed.identifier.as_deref().unwrap_or_default())
+            ),
+            ddc_core::disk::ActionId::CondaClean => format!(
+                "Clean {}'s package cache? It removes the packages no environment uses, and old downloads.",
+                render::escaped(listed.identifier.as_deref().unwrap_or_default())
+            ),
         };
         if prompt::confirm_area_action(&what, std::io::stdin().lock(), &mut out)? {
             chosen.push(listed);
