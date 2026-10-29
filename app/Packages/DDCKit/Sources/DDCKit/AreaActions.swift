@@ -38,6 +38,16 @@ public enum AreaActions {
             ListedAreaAction(action: action, identifier: identifier, kegs: kegs, names: names)
         }
 
+        /// Whether a row's checkbox can put it in a list with others. A
+        /// package removal never joins one: it comes only from the packages
+        /// sheet, each with its own confirmation (menu bar ADR §6 item 11).
+        public var joinsList: Bool {
+            switch action {
+            case .simctlRuntimeDelete, .brewCleanup, .condaEnvRemove, .condaClean: true
+            case .brewUninstall, .brewUninstallOrphans: false
+            }
+        }
+
         /// The row's button.
         public var buttonTitle: String {
             switch action {
@@ -192,6 +202,71 @@ public enum AreaActions {
             )
         }
         return out
+    }
+
+    /// A row of the Whole disk view outside the home folder: an area, a
+    /// conda install or environment under the Conda area, or a runtime
+    /// under its area. `places` lists them in the view's order.
+    enum Place {
+        case area(DiskReport.Area, depth: Int)
+        case condaInstall(DiskReport.CondaInstall, depth: Int)
+        case condaEnvironment(DiskReport.CondaFolder, depth: Int)
+        case runtime(DiskReport.Runtime)
+
+        var rowID: String {
+            switch self {
+            case .area(let area, _): area.id
+            case .condaInstall(let install, _): condaInstallRowID(install)
+            case .condaEnvironment(let env, _): condaEnvironmentRowID(env)
+            case .runtime(let runtime): runtimeRowID(runtime)
+            }
+        }
+    }
+
+    /// The rows outside the home folder, in the view's order: each nested
+    /// area right under the one it lies in, when listed; under the Conda
+    /// area its installs (with more than one) and their environments; under
+    /// the simulator runtimes' area each listed runtime. `DiskSummary.make`
+    /// draws its rows from it and `orderedOffers` its order, so the two
+    /// cannot disagree.
+    static func places(_ report: DiskReport) -> [Place] {
+        let ids = Set(report.areas.map(\.id))
+        let listed = { (parent: String?) in parent.map(ids.contains) ?? false }
+        let ordered = report.areas.filter { !listed($0.parent) }.flatMap { top in
+            [top] + report.areas.filter { $0.parent == top.id }
+        }
+        var out: [Place] = []
+        for area in ordered {
+            let depth = listed(area.parent) ? 1 : 0
+            out.append(.area(area, depth: depth))
+            if area.action == .condaClean, let conda = report.conda {
+                let several = conda.installs.count > 1
+                for install in conda.installs {
+                    if several { out.append(.condaInstall(install, depth: depth + 1)) }
+                    for env in install.environments {
+                        out.append(.condaEnvironment(env, depth: several ? depth + 2 : depth + 1))
+                    }
+                }
+            }
+            if area.action == .simctlRuntimeDelete, let sims = report.simulators, sims.status == .listed {
+                out += sims.runtimes.map(Place.runtime)
+            }
+        }
+        return out
+    }
+
+    /// The offers of `report` in the view's row order (story "Whole disk:
+    /// free the checked areas in one sheet").
+    public static func orderedOffers(_ report: DiskReport) -> [Offer] {
+        let offers = offers(report)
+        return places(report).compactMap { offers[$0.rowID] }
+    }
+
+    /// The order a list runs in: the rows' order, except that every
+    /// `conda-clean` moves, in its order, after every other action, so an
+    /// environment's removal runs before its install's cache clean.
+    public static func runOrder(_ offers: [Offer]) -> [Offer] {
+        offers.filter { $0.action != .condaClean } + offers.filter { $0.action == .condaClean }
     }
 
     /// The safety ADR's rule (amendment of 2026-10-28): under AssetsV2, not

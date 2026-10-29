@@ -105,36 +105,41 @@ public struct DiskSummary: Sendable, Equatable {
             note: homeNote, depth: 0, tone: .home
         ))
 
-        // The areas: each nested one right under the one it lies in, when listed.
-        let ids = Set(report.areas.map(\.id))
-        let listed = { (parent: String?) in parent.map(ids.contains) ?? false }
-        let ordered = report.areas.filter { !listed($0.parent) }.flatMap { top in
-            [top] + report.areas.filter { $0.parent == top.id }
-        }
+        // The areas, each nested one right under the one it lies in, when
+        // listed; under them the conda installs and environments and the
+        // runtimes, whose sizes are in their area's. The order is the one
+        // `AreaActions.orderedOffers` gives a checked list.
         let offers = AreaActions.offers(report)
         var outside: UInt64 = 0
-        for area in ordered {
-            outside += area.bytes
-            let measured = area.measuredBeforeAction ? " before cleanup" : ""
-            let depth = listed(area.parent) ? 1 : 0
-            rows.append(Row(
-                id: area.id, title: area.title, size: size(area.bytes, partial: area.partial) + measured,
-                note: note(area, simulators: report.simulators, conda: report.conda), depth: depth, tone: .outside,
-                offer: offers[area.id], reveal: AreaActions.reveal(area)
-            ))
-            if area.action == .condaClean, let conda = report.conda {
-                rows += condaRows(conda, depth: depth + 1, offers: offers)
-            }
-            // Each listed runtime under its area; their sizes are in the area's.
-            if area.action == .simctlRuntimeDelete, let sims = report.simulators, sims.status == .listed {
-                for runtime in sims.runtimes {
-                    let id = AreaActions.runtimeRowID(runtime)
-                    rows.append(Row(
-                        id: id, title: AreaActions.name(runtime),
-                        size: runtime.sizeBytes.map(ByteSize.human) ?? "unknown",
-                        note: runtimeNote(runtime), depth: 1, tone: .outside, offer: offers[id]
-                    ))
-                }
+        for place in AreaActions.places(report) {
+            let offer = offers[place.rowID]
+            switch place {
+            case .area(let area, let depth):
+                outside += area.bytes
+                let measured = area.measuredBeforeAction ? " before cleanup" : ""
+                rows.append(Row(
+                    id: area.id, title: area.title, size: size(area.bytes, partial: area.partial) + measured,
+                    note: note(area, simulators: report.simulators, conda: report.conda), depth: depth, tone: .outside,
+                    offer: offer, reveal: AreaActions.reveal(area)
+                ))
+            case .condaInstall(let install, let depth):
+                let pkgs = install.packages
+                rows.append(Row(
+                    id: place.rowID, title: install.prefix,
+                    size: pkgs.map { size($0.bytes + $0.sharedBytes, partial: $0.partial) } ?? "no package cache",
+                    note: installNote(install), depth: depth, tone: .outside, offer: offer
+                ))
+            case .condaEnvironment(let env, let depth):
+                rows.append(Row(
+                    id: place.rowID, title: AreaActions.condaName(env.path), size: size(env.bytes, partial: env.partial),
+                    note: environmentNote(env), depth: depth, tone: .outside, offer: offer
+                ))
+            case .runtime(let runtime):
+                rows.append(Row(
+                    id: place.rowID, title: AreaActions.name(runtime),
+                    size: runtime.sizeBytes.map(ByteSize.human) ?? "unknown",
+                    note: runtimeNote(runtime), depth: 1, tone: .outside, offer: offer
+                ))
             }
         }
         if outside > 0 { segments.append(Segment(tone: .outside, bytes: outside)) }
@@ -182,34 +187,9 @@ public struct DiskSummary: Sendable, Equatable {
         partial ? "at least \(ByteSize.human(bytes))" : ByteSize.human(bytes)
     }
 
-    /// The `/opt` conda installs under the Conda row (story "Whole disk:
-    /// Conda environments and its package cache, with conda"): each
-    /// environment, and with more than one install each install with its
-    /// environments under it. Their sizes are in the area's.
-    private static func condaRows(_ conda: DiskReport.Conda, depth: Int, offers: [String: AreaActions.Offer]) -> [Row] {
-        var rows: [Row] = []
-        let several = conda.installs.count > 1
-        for install in conda.installs {
-            if several {
-                let id = AreaActions.condaInstallRowID(install)
-                let pkgs = install.packages
-                rows.append(Row(
-                    id: id, title: install.prefix,
-                    size: pkgs.map { size($0.bytes + $0.sharedBytes, partial: $0.partial) } ?? "no package cache",
-                    note: installNote(install), depth: depth, tone: .outside, offer: offers[id]
-                ))
-            }
-            for env in install.environments {
-                let id = AreaActions.condaEnvironmentRowID(env)
-                rows.append(Row(
-                    id: id, title: AreaActions.condaName(env.path), size: size(env.bytes, partial: env.partial),
-                    note: environmentNote(env), depth: several ? depth + 1 : depth, tone: .outside, offer: offers[id]
-                ))
-            }
-        }
-        return rows
-    }
-
+    /// The note of an `/opt` conda install's row, under the Conda row with
+    /// more than one install (story "Whole disk: Conda environments and its
+    /// package cache, with conda"); its size is in the area's.
     private static func installNote(_ install: DiskReport.CondaInstall) -> String {
         guard let pkgs = install.packages else { return Wording.items(install.environments.count, "environment") }
         var parts = ["Its package cache", Wording.items(install.environments.count, "environment")]

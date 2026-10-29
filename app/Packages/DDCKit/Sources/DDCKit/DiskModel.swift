@@ -36,7 +36,11 @@ public final class DiskModel {
         }
     }
 
-    public private(set) var report: ReportState = .loading
+    public private(set) var report: ReportState = .loading {
+        // A row that left the list is not counted: `apply`, a scan and a
+        // missing report all come through here.
+        didSet { pruneChecked() }
+    }
     public private(set) var progress: Progress?
     /// Why the last run did not give a report; the report before it stays.
     public private(set) var message: String?
@@ -67,6 +71,10 @@ public final class DiskModel {
     }
 
     public internal(set) var freeSheet: FreeSheet?
+    /// The checked rows, by `Offer.id` (story "Whole disk: free the checked
+    /// areas in one sheet"): a check survives a Measure while its row is
+    /// still offered. Never iterated for an order: `checkedOffers` is.
+    public internal(set) var checked: Set<String> = []
     /// The last result of each action this session, by `Offer.id`, for its row.
     public internal(set) var freeResults: [String: FreeReport.ActionReport] = [:]
     /// The Homebrew row's packages sheet; its uninstalls run through
@@ -119,6 +127,43 @@ public final class DiskModel {
     public var loadedReport: DiskReport? {
         if case .loaded(let report) = report { return report }
         return nil
+    }
+
+    // MARK: - The checked rows
+
+    /// The offers a checkbox can hold now, in the view's row order.
+    var listableOffers: [AreaActions.Offer] {
+        loadedReport.map(AreaActions.orderedOffers)?.filter(\.joinsList) ?? []
+    }
+
+    /// A row's checkbox: only on a row with an offer that can join a list,
+    /// and not while the view cannot free, nor over the packages sheet.
+    public func canCheck(_ offer: AreaActions.Offer) -> Bool {
+        canFree && !brewPackages.isOpen && offer.joinsList && listableOffers.contains { $0.id == offer.id }
+    }
+
+    public func toggle(_ offer: AreaActions.Offer) {
+        guard canCheck(offer) else { return }
+        if checked.contains(offer.id) {
+            checked.remove(offer.id)
+        } else {
+            checked.insert(offer.id)
+        }
+    }
+
+    /// The checked offers in run order (`AreaActions.runOrder`).
+    public var checkedOffers: [AreaActions.Offer] {
+        AreaActions.runOrder(listableOffers.filter { checked.contains($0.id) })
+    }
+
+    /// The bar's button: not while the view cannot free, nor with nothing checked.
+    public var canFreeChecked: Bool {
+        canFree && !brewPackages.isOpen && !checkedOffers.isEmpty
+    }
+
+    private func pruneChecked() {
+        let offered = Set(listableOffers.map(\.id))
+        if !checked.isSubset(of: offered) { checked.formIntersection(offered) }
     }
 
     /// "Measured today at 8:04 in 13.0 s", or nil without a report.
