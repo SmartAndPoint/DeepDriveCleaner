@@ -60,7 +60,9 @@ impl Counter {
     pub fn bound(self) -> (Bound, &'static str) {
         match self {
             Counter::DirEntriesRead => (Bound::Linear, "each directory is listed once per walk"),
-            Counter::ClaimLookups => (Bound::Linear, "one set lookup per claim, not a scan of the findings"),
+            Counter::ClaimLookups => {
+                (Bound::Linear, "one set lookup per claim; a scan of the findings only once per user-data folder")
+            }
             Counter::RuleMatchAttempts => (
                 Bound::Linear,
                 "the matchers of one catalog per directory read; their child lookups scan a listing already counted in dir_entries_read",
