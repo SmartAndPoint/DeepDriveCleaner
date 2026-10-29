@@ -384,6 +384,17 @@ struct PopoverModelTests {
 
     // MARK: Next scan
 
+    @Test("the Next scan line opens the pane that can change it, and its tooltip and hint name that pane")
+    func nextScanDestination() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(NextScan.at(now.addingTimeInterval(3_600)).settingsDestination == .schedule)
+        #expect(NextScan.at(now.addingTimeInterval(-60)).settingsDestination == .schedule, "already due")
+        #expect(NextScan.off.settingsDestination == .schedule)
+        #expect(NextScan.replaceOldScanFirst.settingsDestination == .permissions)
+        #expect(SettingsDestination.schedule.help.contains("schedule") && SettingsDestination.schedule.hint.hasSuffix("Schedule"))
+        #expect(SettingsDestination.permissions.help.contains("old background scan") && SettingsDestination.permissions.hint.hasSuffix("Permissions"))
+    }
+
     @Test("the footer's next scan is the schedule seam's slot")
     func nextScan() throws {
         var calendar = Calendar(identifier: .gregorian)

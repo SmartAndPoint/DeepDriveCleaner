@@ -11,6 +11,39 @@ public enum NextScan: Sendable, Equatable {
     case at(Date)
 }
 
+/// Where the popover's Next scan line leads (story "Popover: the Next scan
+/// line opens the Schedule settings"): the Settings pane that can change
+/// what it says. Its tooltip and hint live here, so they follow the route.
+public enum SettingsDestination: Sendable, Equatable {
+    case schedule
+    /// Where Replace It is, for the 0.1.0 agent.
+    case permissions
+
+    public var help: String {
+        switch self {
+        case .schedule: "Change the schedule in Settings"
+        case .permissions: "Replace the old background scan in Settings"
+        }
+    }
+
+    /// The accessibility hint.
+    public var hint: String {
+        switch self {
+        case .schedule: "Opens Settings, Schedule"
+        case .permissions: "Opens Settings, Permissions"
+        }
+    }
+}
+
+extension NextScan {
+    public var settingsDestination: SettingsDestination {
+        switch self {
+        case .off, .at: .schedule
+        case .replaceOldScanFirst: .permissions
+        }
+    }
+}
+
 /// The due function of menu bar ADR §5: whether a scheduled scan is due at
 /// this tick, and when the next one is. Pure: the schedule, the last
 /// scheduled scan, the reminder and the clock come in.

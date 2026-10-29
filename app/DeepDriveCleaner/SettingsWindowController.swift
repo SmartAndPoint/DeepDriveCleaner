@@ -12,6 +12,14 @@ final class SettingsWindowController {
     enum Pane: Int, CaseIterable {
         case general, folders, schedule, automation, types, permissions
 
+        /// The pane the popover's Next scan line leads to.
+        init(_ destination: SettingsDestination) {
+            switch destination {
+            case .schedule: self = .schedule
+            case .permissions: self = .permissions
+            }
+        }
+
         var title: String {
             switch self {
             case .general: "General"

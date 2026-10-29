@@ -8,6 +8,8 @@ import SwiftUI
 struct PopoverView: View {
     @Bindable var model: PopoverModel
     let openSettings: () -> Void
+    /// The Next scan line: Settings on the pane that can change it.
+    let openNextScan: (SettingsDestination) -> Void
     let openPrivacy: () -> Void
     /// The Whole disk window (story "Whole disk in the app").
     let openWholeDisk: () -> Void
@@ -135,7 +137,16 @@ struct PopoverView: View {
                 }
                 Spacer()
                 // While paused the left says so, with Resume.
-                if !model.paused { Text(model.nextScanText) }
+                if !model.paused {
+                    let destination = model.nextScanValue.settingsDestination
+                    // Opens a window and changes nothing.
+                    Button(model.nextScanText) { openNextScan(model.nextScanValue.settingsDestination) }
+                        .buttonStyle(.link)
+                        .foregroundStyle(.secondary)
+                        .pointerStyle(.link)
+                        .help(destination.help)
+                        .accessibilityHint(destination.hint)
+                }
             }
             .font(.system(size: 12))
             .foregroundStyle(.secondary)

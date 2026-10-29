@@ -184,6 +184,25 @@ struct ContractTests {
         #expect(actions == ["model.openSheet(scope: ids)"])
     }
 
+    @Test("the Next scan line is one link button that only opens Settings, hidden while paused; the popover closes first")
+    func nextScanLink() throws {
+        // Story "Popover: the Next scan line opens the Schedule settings".
+        let sources = try appSources()
+        let popover = try #require(sources["PopoverView.swift"])
+        #expect(popover.matches(of: /Button\(model\.nextScanText\)/).count == 1)
+        let button = try #require(popover.firstMatch(of: /if !model\.paused \{\n[^\n]*\n\s*Button\(model\.nextScanText\) \{([^}]*)\}\n((?:\s*\.[^\n]*\n)*)/))
+        #expect(button.1.trimmingCharacters(in: .whitespaces) == "openNextScan(model.nextScanValue.settingsDestination)")
+        for modifier in [".buttonStyle(.link)", ".foregroundStyle(.secondary)", ".pointerStyle(.link)", ".help(", ".accessibilityHint("] {
+            #expect(button.2.contains(modifier), "\(modifier)")
+        }
+        #expect(popover.matches(of: /openNextScan\(/).count == 1, "the one call")
+        let status = try #require(sources["StatusItemController.swift"])
+        #expect(status.contains(/openNextScan: \{ \[weak self\] destination in\n\s*self\?\.popover\.performClose\(nil\)\n\s*openNextScan\(destination\)/))
+        #expect(status.contains(#"ClosureMenuItem("Settings…", key: ",", handler: openSettings)"#), "the menu's Settings… stays pane-less")
+        let delegate = try #require(sources["AppDelegate.swift"])
+        #expect(delegate.contains(/openNextScan: \{[^\n]*show\(pane:/))
+    }
+
     @Test("the result's Scan Again closes the sheet and runs only the window's scanAgain(); the closing sheet draws its last stage")
     func resultScanAgain() throws {
         let sources = try appSources()

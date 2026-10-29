@@ -28,6 +28,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     init(
         model: PopoverModel,
         openSettings: @escaping @MainActor () -> Void,
+        openNextScan: @escaping @MainActor (SettingsDestination) -> Void,
         openPrivacy: @escaping @MainActor () -> Void,
         openWholeDisk: @escaping @MainActor () -> Void
     ) {
@@ -44,6 +45,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             openSettings: { [weak self] in
                 self?.popover.performClose(nil)
                 openSettings()
+            },
+            openNextScan: { [weak self] destination in
+                self?.popover.performClose(nil)
+                openNextScan(destination)
             },
             openPrivacy: { [weak self] in
                 self?.popover.performClose(nil)

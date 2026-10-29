@@ -217,6 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let statusItem = StatusItemController(
                     model: model,
                     openSettings: { [weak self] in self?.settings?.show() },
+                    openNextScan: { [weak self] destination in self?.settings?.show(pane: .init(destination)) },
                     openPrivacy: Self.privacy.openFullDiskAccess,
                     openWholeDisk: { [weak self] in self?.diskWindow?.show() }
                 )
