@@ -133,9 +133,17 @@ fn opt_install(sources: &Sources, prefix: &Path) -> Result<PathBuf, Refusal> {
     conda::PREFIXES.iter().map(|p| sources.opt.join(p)).find(|p| same_folder(p, prefix)).ok_or(Refusal::CondaNotInOpt)
 }
 
-/// `path` lies in the home folder, by its spelling or through a link.
+/// `path` lies in the home folder, by its spelling, through a link to the
+/// home folder, or once every link in it is resolved (`/opt/miniconda3`
+/// linked to `~/miniconda3`).
 fn in_home(path: &Path, home: &Path) -> bool {
-    path.starts_with(home) || path.ancestors().any(|a| same_folder(a, home))
+    if path.starts_with(home) || path.ancestors().any(|a| same_folder(a, home)) {
+        return true;
+    }
+    match (path.canonicalize(), home.canonicalize()) {
+        (Ok(path), Ok(home)) => path.starts_with(home),
+        _ => false,
+    }
 }
 
 /// The install answered, and its `root_prefix` is its own folder.
@@ -178,6 +186,10 @@ pub(crate) fn conda_environment(
     if same_folder(identifier, &prefix) {
         return Err(Refusal::CondaBase);
     }
+    // A link in `envs` is no environment of this install, whatever it points to.
+    if identifier.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(Refusal::CondaNotInOpt);
+    }
     if !conda::is_environment(identifier) {
         return Err(Refusal::CondaNotAnEnvironment);
     }
@@ -217,6 +229,9 @@ pub(crate) fn conda_packages(
     }
     let prefix = opt_install(sources, identifier)?;
     let pkgs = prefix.join("pkgs");
+    if in_home(&pkgs, home) {
+        return Err(Refusal::CondaInHome);
+    }
     if !pkgs.is_dir() {
         return Err(Refusal::CondaPackagesNotListed);
     }

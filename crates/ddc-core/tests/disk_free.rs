@@ -856,10 +856,15 @@ fn every_environment_conda_must_not_remove_is_refused_before_conda_starts() {
     fx.t.dir(&format!("{MINICONDA}/envs/empty"));
     fx.t.symlink("..", &format!("{MINICONDA}/envs/base"));
     fx.t.write("sys/System/Volumes/Data/opt/other/envs/x/conda-meta/history", "");
+    let mine = fx.home.join("miniconda3/envs/mine");
+    fx.t.symlink(&mine, &format!("{MINICONDA}/envs/linked"));
+    fx.t.symlink("old", &format!("{MINICONDA}/envs/alias"));
     let opt = fx.opt_conda();
     let cases: Vec<(&str, PathBuf, Refusal)> = vec![
         ("in the home folder", fx.home.join("miniconda3/envs/mine"), Refusal::CondaInHome),
         ("the base, through a link", opt.join("envs/base"), Refusal::CondaBase),
+        ("a link into the home folder", opt.join("envs/linked"), Refusal::CondaInHome),
+        ("a link to another environment", opt.join("envs/alias"), Refusal::CondaNotInOpt),
         ("the install itself", opt.clone(), Refusal::CondaNotInOpt),
         ("no history", opt.join("envs/empty"), Refusal::CondaNotAnEnvironment),
         ("another /opt folder", fx.sources.opt.join("other/envs/x"), Refusal::CondaNotInOpt),
@@ -881,6 +886,25 @@ fn every_environment_conda_must_not_remove_is_refused_before_conda_starts() {
     let (reports, _) = run(&busy, &commands, &busy.conda_list(ActionId::CondaEnvRemove, &busy.opt_env()));
     assert_eq!(reports[0].result, ActionResult::Refused { reason: Refusal::CondaInUse });
     assert!(commands.calls.borrow().is_empty());
+}
+
+/// An `/opt` install that is a link to one in the home folder: its cache
+/// is the Review window's, and conda is not started.
+#[test]
+fn an_opt_install_linked_into_the_home_folder_is_refused_before_conda_starts() {
+    let fx = Fx::new();
+    fx.t.write("home/miniconda3/bin/conda", "#!/bin/sh\nexit 1\n");
+    fx.t.write("home/miniconda3/conda-meta/history", "");
+    fx.t.write("home/miniconda3/envs/old/conda-meta/history", "");
+    fx.t.file("home/miniconda3/pkgs/numpy-1.26/lib/numpy.so", 4096);
+    fx.t.symlink(fx.home.join("miniconda3"), MINICONDA);
+    let commands = fx.conda(&fx.conda_settings(|_| {}));
+    let (cleaned, _) = run(&fx, &commands, &fx.conda_list(ActionId::CondaClean, &fx.opt_conda()));
+    let (removed, _) = run(&fx, &commands, &fx.conda_list(ActionId::CondaEnvRemove, &fx.opt_env()));
+    assert_eq!(cleaned[0].result, ActionResult::Refused { reason: Refusal::CondaInHome });
+    assert_eq!(removed[0].result, ActionResult::Refused { reason: Refusal::CondaInHome });
+    assert!(commands.calls.borrow().is_empty(), "{:?}", commands.calls.borrow());
+    assert!(fx.home.join("miniconda3/envs/old").exists() && fx.home.join("miniconda3/pkgs/numpy-1.26").exists());
 }
 
 #[test]
@@ -1043,6 +1067,44 @@ fn a_stop_before_a_conda_action_reports_the_command_it_would_have_run() {
     assert_eq!(reports[0].command[1..4], ["env", "remove", "-p"]);
     assert_eq!(journal.0.len(), 1);
     assert!(commands.calls.borrow().is_empty());
+}
+
+/// A stop while conda itself runs: the killed conda is reported as stopped,
+/// with the command a person can run again.
+#[test]
+fn a_stop_while_conda_runs_reports_it_stopped_with_its_command() {
+    let fx = Fx::new().with_conda();
+    let exe = fx.conda_exe();
+    let remove = format!("env remove -p {} --yes", fx.opt_env().display());
+    for (action, identifier, call) in [
+        (ActionId::CondaEnvRemove, fx.opt_env(), remove.clone()),
+        (ActionId::CondaClean, fx.opt_conda(), CLEAN.to_owned()),
+    ] {
+        let stop = Arc::new(AtomicBool::new(false));
+        let set = Arc::clone(&stop);
+        let pkgs = json!({ "pkgs_dirs": [fx.opt_conda().join("pkgs")] }).to_string();
+        let commands = FakeCommands {
+            on_call: Some(Box::new(move |c| {
+                if c.starts_with("conda env remove") || c.starts_with("conda clean --index-cache") {
+                    set.store(true, Ordering::SeqCst);
+                }
+            })),
+            ..FakeCommands::default()
+                .at_path(&exe, SHOW, true, &fx.conda_settings(|_| {}))
+                .at_path(&exe, SHOW_PKGS, true, &pkgs)
+                .at_path(&exe, &call, false, "")
+        };
+        let skips: [PathBuf; 0] = [];
+        let ctx = FreeContext { cancel: &stop, ..fx.ctx(&commands, &skips) };
+        let mut journal = MemoryAreaJournal::default();
+        let reports = free::run(&ctx, &fx.conda_list(action, &identifier), &mut journal).unwrap();
+        assert_eq!(reports[0].result, ActionResult::Failed { needs_admin: false }, "{action:?}");
+        assert!(reports[0].output.starts_with(free::STOPPED), "{action:?}: {}", reports[0].output);
+        assert_eq!(reports[0].command[0], exe.to_string_lossy(), "{action:?}");
+        assert_eq!(reports[0].command[1..].join(" "), call, "{action:?}");
+        assert_eq!(journal.0.len(), 1, "{action:?}");
+    }
+    assert!(fx.opt_env().exists());
 }
 
 #[test]
