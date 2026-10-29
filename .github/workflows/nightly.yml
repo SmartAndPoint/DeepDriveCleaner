@@ -80,3 +80,26 @@ jobs:
         with:
           name: load-l
           path: target/load
+
+  # Scaling slopes at M, recorded and judged nowhere (story "Complexity guard: operation
+  # counts and scaling exponents"): a hosted runner is neither quiet nor the reference
+  # machine. Four builds per profile; the limit is a start, set from the first runs.
+  scaling:
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+          key: load
+      - run: make scaling SCALING_SIZE=M SCALING_LIMITS=record
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: scaling-m
+          path: target/scaling

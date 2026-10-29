@@ -18,6 +18,7 @@ pub mod measure;
 pub mod profiles;
 pub mod rng;
 pub mod run;
+pub mod scaling;
 pub mod table;
 pub mod target;
 pub mod verify;

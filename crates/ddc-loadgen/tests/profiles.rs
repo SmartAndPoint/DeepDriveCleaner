@@ -57,7 +57,12 @@ fn check(p: Profile) {
         match (&small.preflight, &large.preflight) {
             (Some(s), Some(l)) => over.extend(grown(p, "preflight", (s, small.entries), (l, large.entries))),
             (None, None) if !listable => {}
-            (s, l) => panic!("{}: no preflight to compare (n: {}, 2n: {})", p.name(), s.is_some(), l.is_some()),
+            (s, l) => panic!(
+                "{}: an item list at n: {}, at 2n: {}, expected: {listable}; a profile that gains or loses its list updates `listable`",
+                p.name(),
+                s.is_some(),
+                l.is_some()
+            ),
         }
         assert!(over.is_empty(), "{}", over.join("\n"));
     }

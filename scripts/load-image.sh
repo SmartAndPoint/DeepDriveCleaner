@@ -4,7 +4,7 @@
 # user's volume as entries, and one detach removes them. Needs no sudo and raises
 # no permission prompt.
 #
-#   scripts/load-image.sh <profile|all> <S|M|L|XL> [seed]
+#   scripts/load-image.sh <profile[,profile...]|all> <S|M|L|XL> [seed]
 #
 # Every profile is built with `ddc-loadgen build --verify --brief` in its own folder
 # on one image: a line per profile gives its build and scan times, and the image's
@@ -21,9 +21,14 @@
 # With $LOAD_HEAP set instead, it names a CLI built with ddc-core/dhat-heap, and every
 # profile goes through `ddc-loadgen heap`: one scan, its heap profile in
 # $LOAD_OUT/dhat-<size>-<profile>.json (`make heap-profile`).
+#
+# $LOAD_ENTRIES builds fewer entries than the size, on the size's image, and
+# $LOAD_START gives the load average from before a series of runs (story
+# "Complexity guard: operation counts and scaling exponents": `make scaling`
+# measures each profile at an eighth, a quarter, half and all of the size).
 set -euo pipefail
 
-usage="usage: load-image.sh <profile|all> <S|M|L|XL> [seed]"
+usage="usage: load-image.sh <profile[,profile...]|all> <S|M|L|XL> [seed]"
 profile=${1:?$usage}
 size=${2:?$usage}
 seed=${3:-1}
@@ -39,14 +44,27 @@ case $size in
   XL) entries=10000000 cap=512g ;;
   *) echo "load-image: the size is S, M, L or XL, not $size" >&2; exit 2 ;;
 esac
+if [ -n "${LOAD_ENTRIES:-}" ]; then
+  case $LOAD_ENTRIES in
+    '' | *[!0-9]*) echo "load-image: LOAD_ENTRIES is a number, not $LOAD_ENTRIES" >&2; exit 2 ;;
+  esac
+  if [ "$LOAD_ENTRIES" -lt 1 ] || [ "$LOAD_ENTRIES" -gt "$entries" ]; then
+    echo "load-image: LOAD_ENTRIES is 1 to $entries for $size, not $LOAD_ENTRIES" >&2
+    exit 2
+  fi
+  entries=$LOAD_ENTRIES
+fi
 known=$("$loadgen" profiles | tr '\n' ' ')
 if [ "$profile" = all ]; then
   profiles=$known
 else
-  case " $known" in
-    *" $profile "*) profiles=$profile ;;
-    *) echo "load-image: no profile $profile; one of: all $known" >&2; exit 2 ;;
-  esac
+  profiles=
+  for p in ${profile//,/ }; do
+    case " $known" in
+      *" $p "*) profiles="$profiles $p" ;;
+      *) echo "load-image: no profile $p; one of: all $known" >&2; exit 2 ;;
+    esac
+  done
 fi
 
 tmp=$(getconf DARWIN_USER_TEMP_DIR)
@@ -104,7 +122,7 @@ done
 
 # The 1-minute load average before anything is built: the run's own work must not
 # decide whether its CPU times are judged.
-load_start=$(sysctl -n vm.loadavg | awk '{ print $2 }')
+load_start=${LOAD_START:-$(sysctl -n vm.loadavg | awk '{ print $2 }')}
 nonce=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
 volume=ddc-load-$nonce
 image=$tmp/ddc-image-$$-$nonce.sparsebundle

@@ -9,7 +9,7 @@ use ddc_loadgen::desc::FsCaps;
 use ddc_loadgen::limits::{self, Mode};
 use ddc_loadgen::profiles::Profile;
 use ddc_loadgen::run::RunArgs;
-use ddc_loadgen::{generate, heap, leaks, manifest, run, table, target, verify};
+use ddc_loadgen::{generate, heap, leaks, manifest, run, scaling, table, target, verify};
 
 #[derive(Parser)]
 #[command(about = "Deterministic load trees for DeepDriveCleaner's load tests")]
@@ -120,6 +120,20 @@ enum Cmd {
         /// Where each profile's `leaks` output is kept.
         #[arg(long, default_value = "target/load")]
         out: PathBuf,
+    },
+    /// The log-log slopes of CPU time and peak memory from one run's tables
+    /// at several sizes (`make scaling`); fails over the bound in `enforce`.
+    Slopes {
+        tables: Vec<PathBuf>,
+        /// `enforce` fails a judged slope over the bound; `record` judges nothing.
+        #[arg(long, value_enum, default_value_t = Mode::Record)]
+        mode: Mode,
+        /// The memory bases.
+        #[arg(long, default_value = "bench/load-limits.tsv")]
+        limits: PathBuf,
+        /// Write here instead of stdout; an existing file is never replaced.
+        #[arg(long)]
+        into: Option<PathBuf>,
     },
     /// Join the tables of one run's profiles under one `#` line.
     Table {
@@ -241,18 +255,19 @@ fn main() -> anyhow::Result<()> {
             print!("{}", limits::render(&limits::baseline(&small, &large)?, &note));
             return Ok(());
         }
+        Cmd::Slopes { tables, mode, limits, into } => {
+            let tables = tables.iter().map(std::fs::read_to_string).collect::<Result<Vec<_>, _>>()?;
+            let limits = limits::parse(&std::fs::read_to_string(&limits)?)?;
+            let s = scaling::slopes(&tables, &limits, mode)?;
+            write(into.as_deref(), &s.text)?;
+            if !s.over.is_empty() {
+                anyhow::bail!("{} slope(s) over the bound:\n{}", s.over.len(), s.over.join("\n"));
+            }
+            return Ok(());
+        }
         Cmd::Table { tables, into } => {
             let tables = tables.iter().map(std::fs::read_to_string).collect::<Result<Vec<_>, _>>()?;
-            let merged = table::merge(&tables)?;
-            match into {
-                Some(path) => {
-                    use std::io::Write as _;
-                    let mut f = std::fs::File::create_new(&path)
-                        .map_err(|e| anyhow::anyhow!("{}: {e}; an existing table is never replaced", path.display()))?;
-                    f.write_all(merged.as_bytes())?;
-                }
-                None => print!("{merged}"),
-            }
+            write(into.as_deref(), &table::merge(&tables)?)?;
             return Ok(());
         }
         Cmd::Build { profile, entries, seed, into, device, verify: check, brief } => {
@@ -285,6 +300,20 @@ fn main() -> anyhow::Result<()> {
         }
     };
     println!("{}", serde_json::to_string_pretty(&out)?);
+    Ok(())
+}
+
+/// `text` into a new file at `into`, or to stdout.
+fn write(into: Option<&std::path::Path>, text: &str) -> anyhow::Result<()> {
+    match into {
+        Some(path) => {
+            use std::io::Write as _;
+            let mut f = std::fs::File::create_new(path)
+                .map_err(|e| anyhow::anyhow!("{}: {e}; an existing table is never replaced", path.display()))?;
+            f.write_all(text.as_bytes())?;
+        }
+        None => print!("{text}"),
+    }
     Ok(())
 }
 
