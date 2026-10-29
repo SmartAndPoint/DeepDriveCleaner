@@ -5,8 +5,11 @@ use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
+use ddc_core::model::ScanReport;
 use ddc_core::sys::signals::kill_group;
 use ddc_loadgen::isolate::ClearEnv as _;
+
+mod contract;
 
 fn ddc(home: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
@@ -43,7 +46,7 @@ fn json_report_and_saved_scan() {
     let out = ddc(&home, &["scan", "--json", "--data-dir", data.to_str().unwrap()]);
 
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
-    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let report = serde_json::to_value(contract::holds::<ScanReport>("scan", &out.stdout)).unwrap();
     let rules: Vec<&str> = report["findings"].as_array().unwrap().iter().map(|f| f["rule"].as_str().unwrap()).collect();
     assert_eq!(rules, ["cache.npm", "node.node_modules", "user.pictures"]);
     assert_eq!(report["schema_version"], 1);
@@ -156,7 +159,7 @@ fn a_scan_with_progress_json_emits_walk_ticks_ending_at_the_report_totals() {
     let out = ddc(&home, &["scan", "--json", "--progress", "json", "--data-dir", data.to_str().unwrap()]);
 
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
-    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let report = serde_json::to_value(contract::holds::<ScanReport>("scan", &out.stdout)).unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     let mut events = Vec::new();
     for line in stderr.lines().filter(|l| !l.trim().is_empty()) {
@@ -164,10 +167,8 @@ fn a_scan_with_progress_json_emits_walk_ticks_ending_at_the_report_totals() {
             assert!(line.starts_with("ddc:"), "{line:?}");
             continue;
         }
-        let event: ddc_core::progress::ProgressLine = serde_json::from_str(line).unwrap();
-        let value = serde_json::to_value(&event).unwrap();
-        assert_eq!(value, serde_json::from_str::<serde_json::Value>(line).unwrap(), "reads back as written");
-        events.push(value);
+        let event: ddc_core::progress::ProgressLine = contract::holds("progress", line.as_bytes());
+        events.push(serde_json::to_value(&event).unwrap());
     }
     assert!(!events.is_empty());
     assert!(events.iter().all(|e| e["event"] == "walk" && e["step"] == "scan" && e.get("files_expected").is_none()));

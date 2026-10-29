@@ -12,6 +12,8 @@ use ddc_core::notify::{Decision, NotifyReason, NotifyReport, NotifyStatus, SkipC
 use ddc_core::store::{self, LockMode};
 use ddc_loadgen::isolate::ClearEnv as _;
 
+mod contract;
+
 fn ddc(home: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
@@ -125,7 +127,7 @@ fn background_scan_steps_aside_while_the_lock_is_held() {
 
     let json = ddc(&home, &["scan", "--background", "--notify", "json", "--data-dir", data.to_str().unwrap()]);
     assert_eq!(json.status.code(), Some(0), "never 75: the app's scheduled run just steps aside");
-    let report: NotifyReport = serde_json::from_slice(&json.stdout).unwrap();
+    let report: NotifyReport = contract::holds("notify", &json.stdout);
     assert_eq!(report, NotifyReport { schema_version: 1, status: NotifyStatus::Skipped { reason: SkipCause::Busy } });
     assert!(!data.join("last-scan.json").exists());
 }
@@ -137,7 +139,7 @@ fn decide(home: &Path, data: &Path, threshold: &str) -> Decision {
         &["scan", "--background", "--notify", "json", "--threshold", threshold, "--data-dir", data.to_str().unwrap()],
     );
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
-    match serde_json::from_slice::<NotifyReport>(&out.stdout).unwrap() {
+    match contract::holds::<NotifyReport>("notify", &out.stdout) {
         NotifyReport { schema_version: 1, status: NotifyStatus::Scanned(d) } => d,
         other => panic!("{other:?}"),
     }

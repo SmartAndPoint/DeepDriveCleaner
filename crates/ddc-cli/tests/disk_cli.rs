@@ -14,6 +14,8 @@ use std::time::{Duration, Instant};
 use ddc_core::disk::{DiskReport, HomeSource};
 use ddc_loadgen::isolate::ClearEnv as _;
 
+mod contract;
+
 struct Fx {
     _tmp: tempfile::TempDir,
     root: PathBuf,
@@ -61,7 +63,7 @@ impl Fx {
 }
 
 fn report(stdout: &[u8]) -> DiskReport {
-    serde_json::from_slice(stdout).unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(stdout)))
+    contract::holds("disk", stdout)
 }
 
 #[test]
@@ -107,7 +109,7 @@ fn disk_with_progress_json_emits_disk_walk_ticks_ending_at_the_report_totals() {
         .lines()
         .filter(|l| l.starts_with('{'))
         .map(|l| {
-            let event: ddc_core::progress::ProgressLine = serde_json::from_str(l).unwrap();
+            let event: ddc_core::progress::ProgressLine = contract::holds("progress", l.as_bytes());
             serde_json::to_value(&event).unwrap()
         })
         .collect();

@@ -16,6 +16,8 @@ use ddc_core::free::{ActionResult, FreeReport, Refusal, ReportEdit};
 use ddc_core::store::{self, LockMode};
 use ddc_loadgen::isolate::ClearEnv as _;
 
+mod contract;
+
 const SIMCTL: &str = "Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/Resources/bin/simctl";
 const ASSET: &str = "sys/System/Library/AssetsV2/com_apple_MobileAsset_iOSSimulatorRuntime/a.asset";
 
@@ -143,9 +145,8 @@ const RUNTIME: &str = r#"{"schema_version": 3, "actions": [{"action": "simctl-ru
 const BREW: &str = r#"{"schema_version": 3, "actions": [{"action": "brew-cleanup"}]}"#;
 
 fn report(out: &Output) -> FreeReport {
-    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-        panic!("{e}: {}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
-    })
+    assert!(!out.stdout.is_empty(), "no report: {}", String::from_utf8_lossy(&out.stderr));
+    contract::holds("disk-free", &out.stdout)
 }
 
 #[test]

@@ -10,6 +10,8 @@ use std::process::{Command, Stdio};
 use ddc_core::agents::{AGENTS_SCHEMA_VERSION, AgentsReport, HarnessId, RecordsState, SessionState};
 use ddc_loadgen::isolate::ClearEnv as _;
 
+mod contract;
+
 struct Fx {
     _tmp: tempfile::TempDir,
     root: PathBuf,
@@ -46,7 +48,7 @@ impl Fx {
     fn json(&self, args: &[&str]) -> AgentsReport {
         let out = self.ddc(&[&["--json"], args].concat()).output().unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        serde_json::from_slice(&out.stdout).unwrap()
+        contract::holds("agents", &out.stdout)
     }
 }
 

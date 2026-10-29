@@ -20,6 +20,8 @@ use ddc_core::exec::report::CleanReport;
 use ddc_core::progress::ProgressLine;
 use ddc_loadgen::isolate::ClearEnv as _;
 
+mod contract;
+
 struct Fx {
     _tmp: tempfile::TempDir,
     root: PathBuf,
@@ -148,7 +150,7 @@ impl Fx {
 }
 
 fn report(stdout: &[u8]) -> CleanReport {
-    serde_json::from_slice(stdout).unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(stdout)))
+    contract::holds("clean", stdout)
 }
 
 fn outcome<'a>(r: &'a CleanReport, path: &Path) -> &'a Outcome {
@@ -553,10 +555,8 @@ fn events(stderr: &str) -> Vec<serde_json::Value> {
             assert!(line.starts_with("ddc:"), "not an event and not the CLI's own: {line:?}");
             continue;
         }
-        let event: ProgressLine = serde_json::from_str(line).unwrap_or_else(|e| panic!("{e}: {line}"));
-        let value = serde_json::to_value(&event).unwrap();
-        assert_eq!(value, serde_json::from_str::<serde_json::Value>(line).unwrap(), "reads back as written");
-        out.push(value);
+        let event: ProgressLine = contract::holds("progress", line.as_bytes());
+        out.push(serde_json::to_value(&event).unwrap());
     }
     out
 }

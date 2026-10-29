@@ -17,6 +17,7 @@ anyhow = "1.0.100"
 clap = { version = "4.6", features = ["derive"] }
 dhat = "0.3.3"
 humantime = "2.4"
+jsonschema = { version = "0.59", default-features = false }
 libc = "0.2.191"
 proptest = { version = "1.12", default-features = false, features = ["std"] }
 rayon = "1.12"

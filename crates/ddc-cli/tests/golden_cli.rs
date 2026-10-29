@@ -11,10 +11,15 @@ use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use ddc_core::disk::DiskReport;
+use ddc_core::model::ScanReport;
+use ddc_core::rules::listing::RuleList;
 use ddc_loadgen::isolate::ClearEnv as _;
 use ddc_loadgen::profiles::Profile;
 use ddc_loadgen::{Generated, generate, target};
 use serde_json::Value;
+
+mod contract;
 
 const S: u64 = 10_000;
 const SEED: u64 = 1;
@@ -51,7 +56,13 @@ fn ddc(home: &Path, args: &[&str]) -> Value {
         .output()
         .unwrap();
     assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
-    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| panic!("{args:?}: {e}"))
+    match args[0] {
+        "scan" => serde_json::to_value(contract::holds::<ScanReport>("scan", &out.stdout)),
+        "disk" => serde_json::to_value(contract::holds::<DiskReport>("disk", &out.stdout)),
+        "rules" => serde_json::to_value(contract::holds::<RuleList>("rules", &out.stdout)),
+        other => panic!("no schema for {other}"),
+    }
+    .unwrap()
 }
 
 /// The outputs of one profile, normalised, by file name.

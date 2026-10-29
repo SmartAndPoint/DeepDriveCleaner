@@ -15,6 +15,8 @@ use ddc_core::free::{ActionResult, FreeReport, Refusal};
 use ddc_loadgen::isolate::ClearEnv as _;
 use serde_json::json;
 
+mod contract;
+
 struct Fx {
     _tmp: tempfile::TempDir,
     root: PathBuf,
@@ -124,7 +126,7 @@ fn the_listing_runs_only_brews_read_commands_and_prints_its_json() {
     let fx = Fx::new();
     let out = fx.run(&["--json"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    let listed: BrewPackages = serde_json::from_slice(&out.stdout).unwrap();
+    let listed: BrewPackages = contract::holds("brew-packages", &out.stdout);
     assert_eq!(listed.schema_version, BREW_PACKAGES_SCHEMA_VERSION);
     assert_eq!(listed.services, ServicesState::Listed);
     let names: Vec<&str> = listed.formulae.iter().map(|p| p.full_name.as_str()).collect();
@@ -161,7 +163,7 @@ fn the_text_listing_names_each_formula_and_why_one_is_not_offered() {
     assert!(text.lines().any(|l| l.starts_with("wget")), "{text}");
     assert!(text.lines().any(|l| l.starts_with("openssl@3") && l.ends_with("needed by curl, wget")), "{text}");
 
-    let listed: BrewPackages = serde_json::from_slice(&fx.run(&["--json"]).stdout).unwrap();
+    let listed: BrewPackages = contract::holds("brew-packages", &fx.run(&["--json"]).stdout);
     let openssl = listed.formulae.iter().find(|p| p.full_name == "openssl@3").unwrap();
     assert_eq!(openssl.not_offered, Some(NotOffered::Needed));
 }
@@ -198,15 +200,14 @@ fn uninstall(listed: &BrewPackages, full_name: &str) -> String {
 }
 
 fn free_report(out: &Output) -> FreeReport {
-    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-        panic!("{e}: {}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
-    })
+    assert!(!out.stdout.is_empty(), "no report: {}", String::from_utf8_lossy(&out.stderr));
+    contract::holds("disk-free", &out.stdout)
 }
 
 #[test]
 fn a_listed_formula_is_uninstalled_by_brew_only_after_the_check() {
     let fx = Fx::new();
-    let listed: BrewPackages = serde_json::from_slice(&fx.run(&["--json"]).stdout).unwrap();
+    let listed: BrewPackages = contract::holds("brew-packages", &fx.run(&["--json"]).stdout);
     let list = uninstall(&listed, "wget");
     let rack = fx.root.join("sys/System/Volumes/Data/opt/homebrew/Cellar/wget");
 
