@@ -206,7 +206,8 @@ bench-test:
 	python3 -I -m unittest discover -s bench -p 'test_*.py'
 
 # The tests of the release scripts (scripts/tests/): the appcast render with a fake
-# sign_update, no network.
+# sign_update, no network; the signing check with a fake codesign. Its ad-hoc fixture
+# signs, so it runs in app-test only.
 script-test:
 	python3 -I -m unittest discover -s scripts/tests -p 'test_*.py'
 
@@ -318,9 +319,11 @@ dist: ci-green gate app-test
 app:
 	./scripts/build-app.sh
 
-# The app's logic (DDCKit) runs under `swift test`, with no app host.
+# The app's logic (DDCKit) runs under `swift test`, with no app host. Then the
+# per-binary signing check on a fixture signed ad hoc (`codesign -s -`): it must fail.
 app-test:
 	cd app/Packages/DDCKit && swift test
+	DDC_RUN_CODESIGN_TESTS=1 python3 -I -m unittest discover -s scripts/tests -p 'test_signing_check.py'
 
 # The same as `make dist`, under the name story "App skeleton and build pipeline" used.
 app-dist: dist

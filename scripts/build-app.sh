@@ -110,6 +110,9 @@ step "Signing with the Developer ID (team $TEAM_ID)"
 sign_code "$APP/Contents/Helpers/deepdrivecleaner" "$CLI_ID"
 sign_code "$APP" "$APP_ID"
 codesign --verify --deep --strict --verbose=2 "$APP"
+# --verify --deep accepts nested code signed ad hoc or by another team: each Mach-O file
+# has the team and the hardened runtime.
+"$ROOT/scripts/check-signatures.sh" "$APP" "$TEAM_ID"
 [ -f "$APP/Contents/Library/LaunchAgents/$APP_ID.scheduler.plist" ] || fail "the scheduler plist is missing"
 [ -f "$APP/Contents/Library/LaunchAgents/$APP_ID.scheduler-open.plist" ] || fail "the scheduler's fallback plist is missing"
 [ "$(plutil -extract CFBundleIconFile raw "$APP/Contents/Info.plist")" = "AppIcon" ] \
