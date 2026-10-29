@@ -5,6 +5,8 @@
 pub mod bulk;
 pub mod fsops;
 pub mod iopolicy;
+#[cfg(feature = "op-stats")]
+pub mod op_stats;
 pub mod procs;
 pub mod rlimit;
 pub mod signals;

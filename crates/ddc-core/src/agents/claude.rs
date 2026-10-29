@@ -19,7 +19,7 @@ const RECORD_CAP: u64 = 64 * 1024;
 /// The sessions of `dir` (`~/.claude/sessions`), and whether its records
 /// could be read at all.
 pub(super) fn sessions(dir: &Path) -> (RecordsState, Option<UnknownReason>, Vec<Session>) {
-    let entries = match std::fs::read_dir(dir) {
+    let entries = match crate::stats::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return (RecordsState::Unknown, Some(UnknownReason::Missing), Vec::new());

@@ -48,7 +48,7 @@ impl FsView {
         if !fs::symlink_metadata(path).ok()?.is_dir() {
             return None;
         }
-        let names = fs::read_dir(path)
+        let names = crate::stats::read_dir(path)
             .ok()?
             .filter_map(Result::ok)
             .map(|e| (e.file_name(), e.file_type().is_ok_and(|t| t.is_dir())))
@@ -76,6 +76,7 @@ fn exists_no_follow(path: &Path) -> bool {
 /// `true` when `dir` matches a specialized matcher. Known-path matchers are
 /// resolved by the catalog, not here.
 pub(crate) fn matches(m: &Matcher, dir: &dyn DirView, home: &Path) -> bool {
+    crate::stats::add(crate::stats::Counter::RuleMatchAttempts, 1);
     let path = dir.path();
     let name = path.file_name().unwrap_or_default();
     match *m {

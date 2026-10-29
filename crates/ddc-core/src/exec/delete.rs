@@ -62,7 +62,7 @@ fn make_dirs_writable(root: &Path) {
         let mut perms = md.permissions();
         perms.set_mode(perms.mode() | 0o700);
         let _ = fs::set_permissions(&dir, perms);
-        if let Ok(rd) = fs::read_dir(&dir) {
+        if let Ok(rd) = crate::stats::read_dir(&dir) {
             stack.extend(
                 rd.filter_map(Result::ok).filter(|e| e.file_type().is_ok_and(|t| t.is_dir())).map(|e| e.path()),
             );

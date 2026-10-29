@@ -252,7 +252,7 @@ fn claude_transcripts(projects: &Path, skipped: &dyn Fn(&Path) -> bool) -> Optio
         return None;
     }
     let mut ids = HashSet::new();
-    for project in std::fs::read_dir(projects).into_iter().flatten().flatten() {
+    for project in crate::stats::read_dir(projects).into_iter().flatten().flatten() {
         if !project.file_type().is_ok_and(|t| t.is_dir()) {
             continue;
         }
@@ -260,7 +260,7 @@ fn claude_transcripts(projects: &Path, skipped: &dyn Fn(&Path) -> bool) -> Optio
         if skipped(&dir) {
             return None;
         }
-        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        for entry in crate::stats::read_dir(&dir).into_iter().flatten().flatten() {
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
             if entry.file_type().is_ok_and(|t| t.is_dir()) && skipped(&entry.path()) {

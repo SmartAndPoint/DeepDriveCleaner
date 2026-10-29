@@ -73,8 +73,12 @@ machete:
 msrv:
 	$(CARGO) +$(MSRV) check --workspace --all-targets $(FEATURES) --locked
 
+# The release CLI never carries the cost counters (ddc-core feature op-stats): their
+# marker symbol is absent.
 release-check:
 	$(CARGO) build --workspace --release --locked
+	@if nm target/release/deepdrivecleaner | grep -q DDC_OP_STATS; then \
+	  echo "release-check: the release CLI carries the op-stats counters" >&2; exit 1; fi
 
 # Golden outputs of the S load trees (bench/golden/, story "Synthetic load trees:
 # large, wide, deep and hostile"). The check is part of `nextest`, so the gate runs

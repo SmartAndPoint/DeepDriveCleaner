@@ -50,6 +50,8 @@ BIN="$ROOT/target/$TARGET/release/deepdrivecleaner"
 [ "$(lipo -archs "$BIN")" = "arm64" ] || fail "not an arm64-only binary: $(lipo -archs "$BIN")"
 [ "$("$BIN" --version)" = "deepdrivecleaner $VERSION" ] || fail "the binary reports '$("$BIN" --version)'"
 if strings "$BIN" | grep -F "$HOME" >/dev/null; then fail "the binary still contains $HOME"; fi
+# The cost counters of the complexity guard never ship (ddc-core feature op-stats).
+if nm "$BIN" | grep -q DDC_OP_STATS; then fail "the binary carries the op-stats counters"; fi
 
 STAGE="$DIST/stage"
 mkdir -p "$STAGE"

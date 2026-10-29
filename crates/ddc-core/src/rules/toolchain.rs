@@ -121,7 +121,7 @@ fn pyenv_protected(names: &[String], home: &Path, pins: &[String]) -> Option<Has
     keep.extend(
         names
             .iter()
-            .filter(|n| fs::read_dir(versions.join(n).join("envs")).is_ok_and(|mut rd| rd.next().is_some()))
+            .filter(|n| crate::stats::read_dir(versions.join(n).join("envs")).is_ok_and(|mut rd| rd.next().is_some()))
             .cloned(),
     );
     Some(keep)

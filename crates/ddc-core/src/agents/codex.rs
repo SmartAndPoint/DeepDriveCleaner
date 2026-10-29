@@ -21,7 +21,7 @@ pub(super) fn threads(
     open: impl Fn(i32) -> Vec<OpenVnode>,
     rollouts: &HashMap<String, String>,
 ) -> (RecordsState, Option<UnknownReason>, Vec<Session>) {
-    let entries = match std::fs::read_dir(dir) {
+    let entries = match crate::stats::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return (RecordsState::Unknown, Some(UnknownReason::Missing), Vec::new());
@@ -96,7 +96,7 @@ pub(super) fn rollouts(sessions: &Path, skipped: &dyn Fn(&Path) -> bool) -> Resu
         if skipped(&dir) {
             return Err(Absent::Skipped);
         }
-        let entries = match std::fs::read_dir(&dir) {
+        let entries = match crate::stats::read_dir(&dir) {
             Ok(entries) => entries,
             Err(_) if depth > 0 => continue,
             Err(_) => return Err(Absent::Unreadable),

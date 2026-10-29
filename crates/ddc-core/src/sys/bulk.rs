@@ -160,6 +160,7 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, want_private: bool, times: bool)
             }
         }
     })?;
+    crate::stats::add(crate::stats::Counter::DirEntriesRead, entries.len() as u64);
     Ok(DirListing { dev, ino, entries })
 }
 

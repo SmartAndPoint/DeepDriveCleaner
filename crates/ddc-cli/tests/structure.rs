@@ -90,3 +90,62 @@ fn disk_free_runs_only_its_two_commands() {
         }
     }
 }
+
+/// The cost counters of the complexity guard (story "Complexity guard:
+/// operation counts and scaling exponents") never reach a release: the dist
+/// build passes no features, `op-stats` is no default, and no manifest turns
+/// it on for a dependency, where feature unification would spread it.
+#[test]
+fn the_release_build_carries_no_counters() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let dist = std::fs::read_to_string(root.join("scripts/build-dist.sh")).unwrap();
+    let build: Vec<&str> = dist.lines().filter(|l| l.contains("\"$CARGO\" build")).collect();
+    assert_eq!(build.len(), 1, "scripts/build-dist.sh: {build:?}");
+    for flag in ["--features", "-F", "--all-features"] {
+        assert!(
+            !build[0].split_whitespace().any(|w| w == flag || w.starts_with("--features=")),
+            "{flag}: {}",
+            build[0]
+        );
+    }
+    for manifest in
+        ["Cargo.toml", "crates/ddc-core/Cargo.toml", "crates/ddc-cli/Cargo.toml", "crates/ddc-loadgen/Cargo.toml"]
+    {
+        let text = std::fs::read_to_string(root.join(manifest)).unwrap();
+        let mut section = "";
+        for line in text.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
+            if line.starts_with('[') {
+                section = line;
+                continue;
+            }
+            if line.contains("op-stats") {
+                assert_eq!(section, "[features]", "{manifest}: {line}");
+                assert!(!line.starts_with("default"), "{manifest}: {line}");
+            }
+        }
+    }
+}
+
+/// Every directory read in the core is counted: it goes through
+/// `stats::read_dir` or a `DirReader`, never `fs::read_dir` directly.
+#[test]
+fn the_core_reads_directories_only_through_the_counters() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ddc-core/src");
+    let mut dirs = vec![src];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                dirs.push(path);
+                continue;
+            }
+            if path.extension().is_none_or(|e| e != "rs") || path.ends_with("stats.rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            for line in text.lines().filter(|l| !l.trim_start().starts_with("//")) {
+                assert!(!line.contains("fs::read_dir("), "{}: {line}", path.display());
+            }
+        }
+    }
+}

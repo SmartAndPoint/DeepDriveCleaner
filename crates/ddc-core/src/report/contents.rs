@@ -15,6 +15,7 @@ use crate::rules::entries::{BACKUP_RULE, ENTRY_RULES, EntryFacts, EntryLock, loc
 use crate::rules::{KEPT, PROTECTED_IN_HOME};
 use crate::scan::reader::SF_DATALESS;
 use crate::scan::{EntryKind, EntryResult, OwnerEntries};
+use crate::stats::{self, Counter};
 
 /// How much of a folder the report lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -169,9 +170,9 @@ fn state_of(
     if others.iter().any(|(p, _)| p == path) {
         return EntryState::NotAnEntry(NotAnEntry::Finding);
     }
-    let kept = others.iter().any(|(p, kept)| *kept && p.starts_with(path))
-        || cx.markers.iter().any(|m| m.starts_with(path))
-        || cx.excludes.iter().any(|e| e.starts_with(path));
+    let kept = others.iter().any(|(p, kept)| *kept && stats::counted(Counter::AncestorChecks, || p.starts_with(path)))
+        || cx.markers.iter().any(|m| stats::counted(Counter::AncestorChecks, || m.starts_with(path)))
+        || cx.excludes.iter().any(|e| stats::counted(Counter::AncestorChecks, || e.starts_with(path)));
     let facts = EntryFacts {
         home: cx.home,
         rule,

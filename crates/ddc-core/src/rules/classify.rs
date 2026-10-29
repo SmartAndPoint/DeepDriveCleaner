@@ -9,6 +9,7 @@ use super::matcher::glob_match;
 use super::{KEPT, Rule, RuleVisitor, toolchain};
 use crate::class::{Category, RiskClass};
 use crate::scan::{OwnerKind, OwnerResult, WalkOutput};
+use crate::stats::{self, Counter};
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
@@ -53,20 +54,28 @@ pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> 
             continue;
         }
         let mut notes = Vec::new();
-        let excluded_inside = visitor.excludes().iter().any(|e| e.starts_with(&owner.path));
+        let excluded_inside =
+            visitor.excludes().iter().any(|e| stats::counted(Counter::AncestorChecks, || e.starts_with(&owner.path)));
         if rule.id == KEPT {
-            notes.push(if excluded_inside || visitor.excludes().iter().any(|e| owner.path.starts_with(e)) {
-                Note::Excluded
-            } else {
-                Note::KeptByMarker
-            });
+            notes.push(
+                if excluded_inside
+                    || visitor
+                        .excludes()
+                        .iter()
+                        .any(|e| stats::counted(Counter::AncestorChecks, || owner.path.starts_with(e)))
+                {
+                    Note::Excluded
+                } else {
+                    Note::KeptByMarker
+                },
+            );
         } else if owner.kind == OwnerKind::Claim && excluded_inside {
             // `--exclude` below a finding protects the whole finding.
             rule = kept;
             notes.push(Note::Excluded);
         } else if owner.kind == OwnerKind::Claim
             && !ENTRY_RULES.contains(&rule.id)
-            && markers.iter().any(|m| m.starts_with(&owner.path))
+            && markers.iter().any(|m| stats::counted(Counter::AncestorChecks, || m.starts_with(&owner.path)))
         {
             // In the user's own folders a marker locks the entry that holds it
             // instead (safety ADR, amendment of 2026-10-20); one at the folder's
@@ -129,6 +138,7 @@ pub(crate) fn project_root(artifact: &Path, roots: &[&Path], home: &Path) -> Pat
         return parent.to_path_buf();
     }
     for dir in parent.ancestors() {
+        stats::add(Counter::AncestorChecks, 1);
         if dir != home && fs::symlink_metadata(dir.join(".git")).is_ok() {
             return dir.to_path_buf();
         }
@@ -151,7 +161,7 @@ fn dir_has_any(dir: &Path, patterns: &[&str]) -> bool {
     if patterns.iter().all(|p| !p.contains('*')) {
         return patterns.iter().any(|p| fs::symlink_metadata(dir.join(p)).is_ok());
     }
-    fs::read_dir(dir).is_ok_and(|rd| {
+    crate::stats::read_dir(dir).is_ok_and(|rd| {
         rd.filter_map(Result::ok)
             .any(|e| e.file_name().to_str().is_some_and(|n| patterns.iter().any(|p| glob_match(p, n))))
     })

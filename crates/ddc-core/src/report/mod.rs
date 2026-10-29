@@ -21,6 +21,7 @@ use crate::model::{
 };
 use crate::rules::{Catalog, Classified, RuleVisitor, TOMBSTONE, classify};
 use crate::scan::{self, DirReader, Progress, ReadErrorKind, Visitor, WalkError, WalkOptions, WalkSetupError};
+use crate::stats;
 use contents::{ContentsLimits, EntryIndex};
 use volumes::{StatFs, SystemStatFs};
 
@@ -286,7 +287,12 @@ fn totals(findings: &[Finding], out: &scan::WalkOutput) -> Totals {
     let hidden_bytes: u64 = out
         .owners
         .iter()
-        .filter(|o| o.kind == scan::OwnerKind::Claim && !found.contains(o.path.as_path()))
+        .filter(|o| {
+            o.kind == scan::OwnerKind::Claim && {
+                stats::add(stats::Counter::ClaimLookups, 1);
+                !found.contains(o.path.as_path())
+            }
+        })
         .map(|o| o.bytes)
         .sum();
     let mut totals = Totals {

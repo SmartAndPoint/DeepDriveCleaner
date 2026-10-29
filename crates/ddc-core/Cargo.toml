@@ -21,9 +21,9 @@ trash.workspace = true
 
 [features]
 # The gate builds with both, one at a time: they install a global allocator each.
-# Cost counters on the hot paths, for the complexity guard (story "Complexity guard:
-# operation counts and scaling exponents", DDC-005), empty until that story. Never in
-# a release build.
+# Cost counters on the hot paths and a counting allocator, for the complexity guard
+# (story "Complexity guard: operation counts and scaling exponents", DDC-005). Never
+# in a release build.
 op-stats = []
 # A dhat heap profile of one run (story "Memory and CPU under load: peak memory,
 # leaks and CPU time", DDC-005): `make heap-profile`.

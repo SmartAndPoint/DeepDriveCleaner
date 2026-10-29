@@ -160,7 +160,7 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
         }
     }
     let mut entries = Vec::new();
-    for entry in fs::read_dir(dir).map_err(|e| ReadError::from_io(&e))? {
+    for entry in crate::stats::read_dir(dir).map_err(|e| ReadError::from_io(&e))? {
         let entry = entry.map_err(|e| ReadError::from_io(&e))?;
         // `DirEntry::metadata` is `fstatat(.., AT_SYMLINK_NOFOLLOW)` on macOS.
         let meta = match entry.metadata() {

@@ -318,7 +318,7 @@ fn walk_totals(out: Option<&WalkOutput>) -> WalkTotals {
 fn area_paths(root: &Path, def: &AreaDef) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = def.paths.iter().map(|p| root.join(p)).collect();
     if let Some((parent, suffix)) = def.children {
-        let mut children: Vec<PathBuf> = std::fs::read_dir(root.join(parent))
+        let mut children: Vec<PathBuf> = crate::stats::read_dir(root.join(parent))
             .into_iter()
             .flatten()
             .flatten()
@@ -335,7 +335,7 @@ fn area_paths(root: &Path, def: &AreaDef) -> Vec<PathBuf> {
 /// the `users` area leaves it to the home row.
 fn own_home_in_users(data_root: &Path, home: &Path) -> Option<PathBuf> {
     let md = std::fs::metadata(home).ok()?;
-    std::fs::read_dir(data_root.join("Users"))
+    crate::stats::read_dir(data_root.join("Users"))
         .ok()?
         .flatten()
         .map(|e| e.path())

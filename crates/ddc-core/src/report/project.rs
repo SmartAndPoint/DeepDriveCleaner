@@ -43,7 +43,7 @@ pub fn last_activity(root: &Path) -> Option<SystemTime> {
         candidates.push(gitdir.join("index"));
         candidates.push(gitdir.join("HEAD"));
     }
-    if let Ok(rd) = fs::read_dir(root) {
+    if let Ok(rd) = crate::stats::read_dir(root) {
         candidates.extend(rd.filter_map(Result::ok).map(|e| e.path()).filter(|p| {
             p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("requirements") && n.ends_with(".txt"))
         }));
