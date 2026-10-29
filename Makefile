@@ -46,7 +46,7 @@ test:
 gate-fast: require-tools fmt-check clippy nextest doctest
 
 # deny and machete read only metadata and take seconds: they go first.
-gate: require-tools deny machete gate-fast clippy-dhat doc msrv release-check bench-test
+gate: require-tools deny machete gate-fast clippy-dhat doc msrv release-check bench-test leaks
 
 # Kept for everything that already calls it.
 check: gate-fast
@@ -150,8 +150,8 @@ bench-test:
 
 # `scan --json` of every profile's S tree under `leaks -atExit`, on the cargo release
 # build (the notarized app's hardened runtime keeps `leaks` out): fails on any leak.
-# Outputs in target/load/leaks-<profile>.txt and .stderr.txt. It joins `make gate`
-# after the owner's first run on the reference machine.
+# Outputs in target/load/leaks-<profile>.txt and .stderr.txt. Part of `make gate`
+# since the owner's first run on the reference machine (2026-10-29, 0 leaks).
 leaks:
 	$(CARGO) build --release -p ddc-loadgen -p ddc-cli --locked
 	target/release/ddc-loadgen leaks --cli target/release/deepdrivecleaner
