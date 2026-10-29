@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Rendered by scripts/render-appcast.sh and published as the release's appcast.xml
+     (ADR "Updates through Sparkle, alongside the Homebrew cask", §6). One item: the
+     newest release. ddc:team is ours; Sparkle ignores it and the next release reads it
+     back to refuse a team change. -->
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:ddc="https://deepdrivecleaner.app/xml-namespaces/appcast">
+  <channel>
+    <title>DeepDriveCleaner</title>
+    <link>https://github.com/SmartAndPoint/DeepDriveCleaner/releases</link>
+    <description>The newest release of DeepDriveCleaner.</description>
+    <language>en</language>
+    <item>
+      <title>Version __SHORT_VERSION__</title>
+      <pubDate>__PUB_DATE__</pubDate>
+      <link>__NOTES_URL__</link>
+      <sparkle:version>__VERSION__</sparkle:version>
+      <sparkle:shortVersionString>__SHORT_VERSION__</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>__MIN_MACOS__</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>__NOTES_URL__</sparkle:fullReleaseNotesLink>
+      <ddc:team>__TEAM__</ddc:team>
+      __INFORMATIONAL__
+      <enclosure url="__URL__" length="__LENGTH__" type="application/octet-stream" sparkle:edSignature="__SIGNATURE__"/>
+    </item>
+  </channel>
+</rss>

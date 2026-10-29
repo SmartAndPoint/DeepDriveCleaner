@@ -32,7 +32,7 @@ MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
 .PHONY: build fmt fmt-check clippy test check release install dist app app-test app-dist icons \
 	gate-fast gate nextest doctest clippy-dhat doc deny machete msrv release-check \
-	tools require-tools hooks coverage coverage-ratchet ci-green golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test leaks asan fuzz
+	tools require-tools hooks coverage coverage-ratchet ci-green golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test script-test leaks asan fuzz
 
 build:
 	$(CARGO) build --workspace
@@ -56,7 +56,7 @@ test:
 gate-fast: require-tools fmt-check clippy nextest doctest
 
 # deny and machete read only metadata and take seconds: they go first.
-gate: require-tools deny machete gate-fast clippy-dhat doc msrv release-check bench-test leaks
+gate: require-tools deny machete gate-fast clippy-dhat doc msrv release-check bench-test script-test leaks
 
 # Kept for everything that already calls it.
 check: gate-fast
@@ -204,6 +204,11 @@ heap-profile:
 # The tests of the bench scripts.
 bench-test:
 	python3 -I -m unittest discover -s bench -p 'test_*.py'
+
+# The tests of the release scripts (scripts/tests/): the appcast render with a fake
+# sign_update, no network.
+script-test:
+	python3 -I -m unittest discover -s scripts/tests -p 'test_*.py'
 
 # `scan --json` of every profile's S tree under `leaks -atExit`, on the cargo release
 # build (the notarized app's hardened runtime keeps `leaks` out): fails on any leak.
