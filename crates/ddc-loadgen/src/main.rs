@@ -121,8 +121,8 @@ enum Cmd {
         #[arg(long, default_value = "target/load")]
         out: PathBuf,
     },
-    /// The log-log slopes of CPU time and peak memory from one run's tables
-    /// at several sizes (`make scaling`); fails over the bound in `enforce`.
+    /// The log-log slopes of CPU time, user time and peak memory from one run's
+    /// tables at several sizes (`make scaling`); fails over the bound in `enforce`.
     Slopes {
         tables: Vec<PathBuf>,
         /// `enforce` fails a judged slope over the bound; `record` judges nothing.

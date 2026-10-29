@@ -1,7 +1,7 @@
 //! `ddc-loadgen slopes` (story "Complexity guard: operation counts and
 //! scaling exponents"): the load tables of one profile set at n, 2n, 4n and
-//! 8n entries, fitted as log-log slopes of the median CPU time and peak
-//! memory per `(profile, command)`. A linear command has slope 1; above
+//! 8n entries, fitted as log-log slopes of the median CPU time, user time
+//! and peak memory per `(profile, command)`. A linear command has slope 1; above
 //! [`MAX_SLOPE`] it fails in `enforce` mode.
 //!
 //! The judged slope is the local one between the two largest sizes: the
@@ -10,24 +10,32 @@
 //! runs, and only where the median at 4n is at least [`CPU_FLOOR_MS`]: a
 //! spread of δ ms on a median of m ms at 4n moves the slope by about
 //! δ / (m · ln 2), so the tens of milliseconds a scan of a few hundred wobbles by move it by
-//! more than 0.1, and the 3 % a second-long one does by about 0.04. In
-//! `record` mode nothing is judged. Peak memory is judged
+//! more than 0.1, and the 3 % a second-long one does by about 0.04. User
+//! time alone is judged on any machine, from as many runs, on the fit
+//! through all the sizes: on a busy machine the system time can be ten
+//! times the user time and hide a quadratic step in the sum, and the user
+//! time has almost no base to flatten the fit. Its runs varied by up to 16 %
+//! at a 1-minute load of 33, which moves a local slope by about 0.2 at any
+//! size but the fit by under 0.1. [`USER_FLOOR_MS`] at 4n keeps commands
+//! whose user time is noise out.
+//! In `record` mode nothing is judged. Peak memory is judged
 //! above the profile's base from `bench/load-limits.tsv`, and only at L or
 //! XL: at M most profiles add a few hundred bytes per entry to an 11 MB
 //! base, so the raw slope is near 0 whatever the algorithm.
 
 use std::collections::BTreeMap;
 
-use crate::limits::{self, Limits, Mode};
+use crate::limits::{self, Limits, Median, Mode};
 use crate::table::{self, Meta, Row};
 
 pub const MAX_SLOPE: f64 = 1.2;
 pub const CPU_FLOOR_MS: f64 = 1_000.0;
+pub const USER_FLOOR_MS: f64 = 250.0;
 /// The commands judged; the others are recorded.
 pub const JUDGED: [&str; 2] = ["scan", "clean-dry-run"];
 /// Sizes whose peak memory is judged.
 const MEMORY_SIZES: [&str; 2] = ["L", "XL"];
-pub const COLUMNS: [&str; 15] = [
+pub const COLUMNS: [&str; 18] = [
     "profile",
     "command",
     "size",
@@ -37,6 +45,9 @@ pub const COLUMNS: [&str; 15] = [
     "cpu_slope",
     "cpu_fit",
     "cpu_judged",
+    "user_ms",
+    "user_fit",
+    "user_judged",
     "rss_base_bytes",
     "rss_bytes",
     "rss_slope",
@@ -44,15 +55,6 @@ pub const COLUMNS: [&str; 15] = [
     "rss_judged",
     "verdict",
 ];
-
-/// One size's medians.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Point {
-    entries: u64,
-    cpu_ms: f64,
-    rss: f64,
-    runs: usize,
-}
 
 #[derive(Debug)]
 pub struct Slopes {
@@ -93,10 +95,10 @@ pub fn slopes(tables: &[String], limits: &Limits, mode: Mode) -> anyhow::Result<
     let memory = MEMORY_SIZES.contains(&size.as_str());
     let enforce = mode == Mode::Enforce;
 
-    let mut points: BTreeMap<(String, String), Vec<Point>> = BTreeMap::new();
+    let mut points: BTreeMap<(String, String), Vec<Median>> = BTreeMap::new();
     for (_, rows) in &parsed {
-        for ((command, profile), (entries, rss, cpu_ms, runs)) in limits::medians(rows) {
-            points.entry((profile, command)).or_default().push(Point { entries, cpu_ms, rss, runs });
+        for ((command, profile), m) in limits::medians(rows) {
+            points.entry((profile, command)).or_default().push(m);
         }
     }
 
@@ -119,7 +121,8 @@ pub fn slopes(tables: &[String], limits: &Limits, mode: Mode) -> anyhow::Result<
             // A recorded command keeps its row and leaves the fit to the others.
             let b = p[0];
             let mut cells = vec![profile, command, size.clone(), "1".into(), b.entries.to_string()];
-            cells.extend([format!("{:.0}", b.cpu_ms), "-".into(), "-".into(), "no".into(), "-".into()]);
+            cells.extend([format!("{:.0}", b.cpu_ms), "-".into(), "-".into(), "no".into()]);
+            cells.extend([format!("{:.0}", b.user_ms), "-".into(), "no".into(), "-".into()]);
             cells.extend([format!("{:.0}", b.rss), "-".into(), "-".into(), "no".into(), "-".into()]);
             lines.push(cells.join("\t"));
             continue;
@@ -132,6 +135,13 @@ pub fn slopes(tables: &[String], limits: &Limits, mode: Mode) -> anyhow::Result<
             && a.runs.min(b.runs) >= limits::CPU_RUNS
             && a.cpu_ms >= CPU_FLOOR_MS
             && cpu_slope.is_some();
+        let user: Vec<(f64, f64)> = p.iter().map(|p| (p.entries as f64, p.user_ms)).collect();
+        let user_fit = slope(&user);
+        let user_due = judged && enforce && p.iter().all(|m| m.runs >= limits::CPU_RUNS) && a.user_ms >= USER_FLOOR_MS;
+        let user_judged = user_due && user_fit.is_some();
+        if user_due && user_fit.is_none() {
+            over.push(format!("{command} on {profile}: no user time fit, a size took 0 ms"));
+        }
 
         let base = limits.get(&(command.clone(), profile.clone())).map(|l| l.rss_base / limits::HEADROOM);
         let above: Option<Vec<(f64, f64)>> =
@@ -149,25 +159,39 @@ pub fn slopes(tables: &[String], limits: &Limits, mode: Mode) -> anyhow::Result<
         if let (true, Some(s)) = (cpu_judged, cpu_slope)
             && s > MAX_SLOPE
         {
-            bad.push(format!("CPU slope {s:.2} ({:.0} -> {:.0} ms)", a.cpu_ms, b.cpu_ms));
+            bad.push(format!(
+                "CPU slope {s:.2} ({:.0} -> {:.0} ms at {} -> {} entries)",
+                a.cpu_ms, b.cpu_ms, a.entries, b.entries
+            ));
+        }
+        if let (true, Some(s)) = (user_judged, user_fit)
+            && s > MAX_SLOPE
+        {
+            let first = p[0];
+            bad.push(format!(
+                "user time fit {s:.2} over {} sizes ({:.0} -> {:.0} ms at {} -> {} entries)",
+                p.len(),
+                first.user_ms,
+                b.user_ms,
+                first.entries,
+                b.entries
+            ));
         }
         if let (true, Some(s)) = (rss_judged, rss_slope)
             && s > MAX_SLOPE
         {
-            bad.push(format!("peak memory slope {s:.2} above the base ({:.0} -> {:.0} bytes)", a.rss, b.rss));
+            bad.push(format!(
+                "peak memory slope {s:.2} above the base ({:.0} -> {:.0} bytes at {} -> {} entries)",
+                a.rss, b.rss, a.entries, b.entries
+            ));
         }
-        let verdict = match (cpu_judged || rss_judged, bad.is_empty()) {
+        let verdict = match (cpu_judged || user_judged || rss_judged, bad.is_empty()) {
             (false, _) => "-",
             (true, true) => "ok",
             (true, false) => "over",
         };
         if !bad.is_empty() {
-            over.push(format!(
-                "{command} on {profile}: {} from {} to {} entries; the bound is {MAX_SLOPE}",
-                bad.join(", "),
-                a.entries,
-                b.entries
-            ));
+            over.push(format!("{command} on {profile}: {}; the bound is {MAX_SLOPE}", bad.join(", ")));
         }
         let num = |v: Option<f64>| v.map_or("-".to_owned(), |v| format!("{v:.3}"));
         let yes = |b: bool| if b { "yes" } else { "no" };
@@ -182,6 +206,9 @@ pub fn slopes(tables: &[String], limits: &Limits, mode: Mode) -> anyhow::Result<
                 num(cpu_slope),
                 num(slope(&cpu)),
                 yes(cpu_judged).to_owned(),
+                format!("{:.0}", b.user_ms),
+                num(user_fit),
+                yes(user_judged).to_owned(),
                 base.map_or("-".to_owned(), |b| format!("{b:.0}")),
                 format!("{:.0}", b.rss),
                 num(rss_slope),
@@ -198,7 +225,7 @@ pub fn slopes(tables: &[String], limits: &Limits, mode: Mode) -> anyhow::Result<
         mode: match (mode, quiet) {
             (Mode::Record, _) => "record",
             (Mode::Enforce, true) => "enforce",
-            (Mode::Enforce, false) => "enforce-memory",
+            (Mode::Enforce, false) => "enforce-busy",
         }
         .to_owned(),
         ..first.clone()
@@ -244,9 +271,9 @@ mod tests {
     }
 
     /// A table at `entries` for `mixed`: `runs` runs of each command with the
-    /// CPU and peak memory `f` gives for the entries.
+    /// CPU (all user time) and peak memory `f` gives for the entries.
     fn table(size: &str, entries: u64, load: f64, runs: u32, f: impl Fn(f64) -> (f64, f64)) -> String {
-        commands(&["scan", "clean-dry-run", "scan-background"], size, entries, load, runs, f)
+        commands(&["scan", "clean-dry-run", "scan-background"], size, entries, load, runs, f, |_| 0.0)
     }
 
     fn commands(
@@ -256,8 +283,10 @@ mod tests {
         load: f64,
         runs: u32,
         f: impl Fn(f64) -> (f64, f64),
+        sys: impl Fn(f64) -> f64,
     ) -> String {
-        let (cpu, rss) = f(entries as f64);
+        let (user, rss) = f(entries as f64);
+        let sys = sys(entries as f64);
         let rows: Vec<String> = commands
             .iter()
             .flat_map(|c| (1..=runs).map(move |run| (c, run)))
@@ -270,9 +299,9 @@ mod tests {
                     command: (*c).into(),
                     run,
                     wall_ms: 0,
-                    user_ms: cpu as u128,
-                    sys_ms: 0,
-                    cpu_ms: cpu as u128,
+                    user_ms: user as u128,
+                    sys_ms: sys as u128,
+                    cpu_ms: (user + sys) as u128,
                     max_rss_bytes: rss as u64,
                     threads_max: 1,
                     exit: "0".into(),
@@ -306,43 +335,62 @@ mod tests {
         let s = slopes(&four("L", 1_000_000, 1.0, linear), &limits(), Mode::Enforce).unwrap();
         assert!(s.over.is_empty(), "{:?}", s.over);
         let r = row(&s, "scan");
-        assert_eq!((r[3], r[4], r[8], r[13], r[14]), ("4", "1000000", "yes", "yes", "ok"));
+        assert_eq!((r[3], r[4], r[8], r[11], r[16], r[17]), ("4", "1000000", "yes", "yes", "yes", "ok"));
         let cpu: f64 = r[6].parse().unwrap();
         assert!((0.95..=1.0).contains(&cpu), "{r:?}");
         // Above the base the memory is exactly linear; the full fit is flattened by the CPU base.
-        assert_eq!(r[11], "1.000");
+        assert_eq!(r[14], "1.000");
         assert!(r[7].parse::<f64>().unwrap() < cpu);
 
         let quadratic = |n: f64| (100.0 + 1e-6 * n * n, BASE + 200.0 * n);
         let s = slopes(&four("L", 1_000_000, 1.0, quadratic), &limits(), Mode::Enforce).unwrap();
         assert_eq!(s.over.len(), 2, "{:?}", s.over);
         assert!(s.over[1].starts_with("scan on mixed: CPU slope 2.00"), "{}", s.over[1]);
-        assert_eq!(row(&s, "scan")[14], "over");
+        assert_eq!(row(&s, "scan")[17], "over");
         // Not a judged command: recorded, never failed.
-        assert_eq!(row(&s, "scan-background")[14], "-");
+        assert_eq!(row(&s, "scan-background")[17], "-");
         // Record mode judges nothing, and its table says so.
         let s = slopes(&four("L", 1_000_000, 1.0, quadratic), &limits(), Mode::Record).unwrap();
         assert!(s.over.is_empty(), "{:?}", s.over);
         let r = row(&s, "scan");
-        assert_eq!((r[8], r[13], r[14]), ("no", "no", "-"));
+        assert_eq!((r[8], r[11], r[16], r[17]), ("no", "no", "no", "-"));
     }
 
     #[test]
-    fn cpu_is_judged_only_quiet_from_three_runs_and_past_the_floor() {
+    fn cpu_is_judged_only_quiet_and_user_time_on_any_machine_from_three_runs_past_the_floor() {
         let quadratic = |n: f64| (100.0 + 1e-6 * n * n, BASE + 200.0 * n);
         let busy = slopes(&four("L", 1_000_000, 6.0, quadratic), &limits(), Mode::Enforce).unwrap();
-        assert!(busy.over.is_empty(), "{:?}", busy.over);
-        assert!(busy.text.starts_with("# ") && busy.text.lines().next().unwrap().contains(" mode=enforce-memory "));
-        assert_eq!(row(&busy, "scan")[8], "no");
+        assert!(busy.text.starts_with("# ") && busy.text.lines().next().unwrap().contains(" mode=enforce-busy "));
+        let r = row(&busy, "scan");
+        assert_eq!((r[8], r[11], r[17]), ("no", "yes", "over"));
+        assert_eq!(busy.over.len(), 2, "{:?}", busy.over);
+        assert!(busy.over[1].starts_with("scan on mixed: user time fit 2.00"), "{}", busy.over[1]);
 
         let once: Vec<String> = [8, 4, 2, 1].iter().map(|d| table("L", 1_000_000 / d, 1.0, 1, quadratic)).collect();
         assert!(slopes(&once, &limits(), Mode::Enforce).unwrap().over.is_empty());
 
-        // 500 ms at 4n: recorded, not judged.
-        let small = |n: f64| (2e-9 * n * n, BASE + 200.0 * n);
+        // 200 ms at 4n: under both floors, recorded, not judged.
+        let small = |n: f64| (8e-10 * n * n, BASE + 200.0 * n);
         let s = slopes(&four("L", 1_000_000, 1.0, small), &limits(), Mode::Enforce).unwrap();
         assert!(s.over.is_empty(), "{:?}", s.over);
-        assert_eq!(row(&s, "scan")[8], "no");
+        assert_eq!((row(&s, "scan")[8], row(&s, "scan")[11]), ("no", "no"));
+    }
+
+    #[test]
+    fn a_quadratic_user_time_hidden_by_the_system_time_fails() {
+        // As the restored aa64c83 step 1 at L: user time 7.5 -> 30 s, under a system time that sums to slope 0.6.
+        let user = |n: f64| (3e-8 * n * n, BASE + 200.0 * n);
+        let t: Vec<String> = [8, 4, 2, 1]
+            .iter()
+            .map(|d| commands(&["scan", "clean-dry-run"], "L", 1_000_000 / d, 1.0, 3, user, |n| 50_000.0 + 0.03 * n))
+            .collect();
+        let s = slopes(&t, &limits(), Mode::Enforce).unwrap();
+        let r = row(&s, "scan");
+        assert_eq!((r[8], r[11], r[17]), ("yes", "yes", "over"));
+        assert!(r[6].parse::<f64>().unwrap() < 1.0, "{r:?}");
+        assert!((r[10].parse::<f64>().unwrap() - 2.0).abs() < 0.01, "{r:?}");
+        assert!(s.over[1].starts_with("scan on mixed: user time fit 2.00"), "{}", s.over[1]);
+        assert!(!s.over[1].contains("CPU slope"), "{}", s.over[1]);
     }
 
     #[test]
@@ -350,13 +398,13 @@ mod tests {
         let growing = |n: f64| (100.0 + 0.05 * n, BASE + 1e-3 * n * n);
         let at_m = slopes(&four("M", 100_000, 1.0, growing), &limits(), Mode::Enforce).unwrap();
         assert!(at_m.over.is_empty(), "{:?}", at_m.over);
-        assert_eq!(row(&at_m, "scan")[13], "no");
+        assert_eq!(row(&at_m, "scan")[16], "no");
         let at_l = slopes(&four("L", 1_000_000, 1.0, growing), &limits(), Mode::Enforce).unwrap();
         assert_eq!(at_l.over.len(), 2, "{:?}", at_l.over);
         assert!(at_l.over[1].starts_with("scan on mixed: peak memory slope 2.00"), "{}", at_l.over[1]);
         // A busy machine still judges memory.
         let busy = slopes(&four("L", 1_000_000, 6.0, growing), &limits(), Mode::Enforce).unwrap();
-        assert!(busy.text.lines().next().unwrap().contains(" mode=enforce-memory "));
+        assert!(busy.text.lines().next().unwrap().contains(" mode=enforce-busy "));
         assert_eq!(busy.over.len(), 2, "{:?}", busy.over);
 
         // A judged command with no base, or at its base, fails closed at L.
@@ -390,14 +438,17 @@ mod tests {
     fn a_recorded_command_at_one_size_keeps_its_row_and_a_missing_judged_one_fails() {
         let linear = |n: f64| (100.0 + 0.05 * n, BASE + 200.0 * n);
         let mut t = four("L", 1_000_000, 1.0, linear);
-        t[0] = commands(&["scan", "clean-dry-run", "clean-items"], "L", 125_000, 1.0, 3, linear);
+        t[0] = commands(&["scan", "clean-dry-run", "clean-items"], "L", 125_000, 1.0, 3, linear, |_| 0.0);
         let s = slopes(&t, &limits(), Mode::Enforce).unwrap();
         assert!(s.over.is_empty(), "{:?}", s.over);
         assert_eq!(row(&s, "clean-items")[3..5], ["1", "125000"]);
+        for line in s.text.lines().filter(|l| !l.starts_with('#')) {
+            assert_eq!(line.split('\t').count(), COLUMNS.len(), "{line}");
+        }
 
         let t: Vec<String> = [8, 4, 2, 1]
             .iter()
-            .map(|d| commands(&["scan", "scan-background"], "L", 1_000_000 / d, 1.0, 3, linear))
+            .map(|d| commands(&["scan", "scan-background"], "L", 1_000_000 / d, 1.0, 3, linear, |_| 0.0))
             .collect();
         assert_eq!(slopes(&t, &limits(), Mode::Enforce).unwrap().over, ["clean-dry-run on mixed: not measured"]);
         assert!(slopes(&t, &limits(), Mode::Record).unwrap().over.is_empty());

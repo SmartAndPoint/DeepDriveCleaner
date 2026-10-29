@@ -139,8 +139,9 @@ load-baseline:
 # Scaling slopes (story "Complexity guard: operation counts and scaling exponents"):
 # the release CLI on SCALING_PROFILE (all, or names joined by commas) at an eighth, a
 # quarter, half and all of SCALING_SIZE, 3 runs each, then `ddc-loadgen slopes`: the
-# log-log slope of CPU time and of peak memory above its base per command, judged
-# between the two largest sizes (ops/profiling-the-core.md). SCALING_LIMITS=enforce
+# log-log slope per command of CPU time and of peak memory above its base, judged between
+# the two largest sizes, and the fit of user time through all four sizes
+# (ops/profiling-the-core.md). SCALING_LIMITS=enforce
 # fails over 1.2. A run with CPU judged (a quiet start, read before the build), seed 1,
 # of every profile or, at L and XL, of SCALING_L_PROFILES lands in
 # bench/scaling-<date>-<size>.tsv, never over an existing one.

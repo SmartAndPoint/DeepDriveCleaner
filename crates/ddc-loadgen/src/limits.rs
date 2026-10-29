@@ -91,19 +91,31 @@ pub fn render(limits: &Limits, note: &str) -> String {
     out
 }
 
-/// The median peak memory and CPU time per `(command, profile)`, with the
-/// entries and the number of runs.
-pub fn medians(rows: &[Row]) -> BTreeMap<Key, (u64, f64, f64, usize)> {
-    let mut runs: BTreeMap<Key, (u64, Vec<f64>, Vec<f64>)> = BTreeMap::new();
+/// The medians of one `(command, profile)`'s runs.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Median {
+    pub entries: u64,
+    pub rss: f64,
+    /// User + system.
+    pub cpu_ms: f64,
+    pub user_ms: f64,
+    pub runs: usize,
+}
+
+/// The median peak memory, CPU time and user time per `(command, profile)`,
+/// with the entries and the number of runs.
+pub fn medians(rows: &[Row]) -> BTreeMap<Key, Median> {
+    let mut runs: BTreeMap<Key, (u64, [Vec<f64>; 3])> = BTreeMap::new();
     for r in rows {
-        let e = runs.entry((r.command.clone(), r.profile.clone())).or_insert((r.entries, Vec::new(), Vec::new()));
-        e.1.push(r.max_rss_bytes as f64);
-        e.2.push(r.cpu_ms as f64);
+        let e = runs.entry((r.command.clone(), r.profile.clone())).or_insert((r.entries, Default::default()));
+        e.1[0].push(r.max_rss_bytes as f64);
+        e.1[1].push(r.cpu_ms as f64);
+        e.1[2].push(r.user_ms as f64);
     }
     runs.into_iter()
-        .map(|(k, (n, rss, cpu))| {
+        .map(|(k, (entries, [rss, cpu, user]))| {
             let runs = cpu.len();
-            (k, (n, median(rss), median(cpu), runs))
+            (k, Median { entries, rss: median(rss), cpu_ms: median(cpu), user_ms: median(user), runs })
         })
         .collect()
 }
@@ -122,8 +134,9 @@ fn median(mut v: Vec<f64>) -> f64 {
 pub fn baseline(small: &[Row], large: &[Row]) -> anyhow::Result<Limits> {
     let (s, l) = (medians(small), medians(large));
     let mut limits = Limits::new();
-    for (key, &(n1, rss1, cpu1, _)) in &s {
-        let &(n2, rss2, cpu2, _) = l.get(key).ok_or_else(|| anyhow::anyhow!("{key:?}: only in the small run"))?;
+    for (key, a) in &s {
+        let b = l.get(key).ok_or_else(|| anyhow::anyhow!("{key:?}: only in the small run"))?;
+        let (n1, rss1, cpu1, n2, rss2, cpu2) = (a.entries, a.rss, a.cpu_ms, b.entries, b.rss, b.cpu_ms);
         if n2 <= n1 {
             anyhow::bail!("{key:?}: the large run has {n2} entries, the small one {n1}");
         }
@@ -153,7 +166,7 @@ pub fn check(limits: &Limits, rows: &[Row], mode: Mode, judge_cpu: bool) -> Vec<
         return Vec::new();
     }
     let mut over = Vec::new();
-    for ((command, profile), (n, rss, cpu, runs)) in medians(rows) {
+    for ((command, profile), Median { entries: n, rss, cpu_ms: cpu, runs, .. }) in medians(rows) {
         let Some(l) = limits.get(&(command.clone(), profile.clone())) else {
             over.push(format!("{command} on {profile}: no limit (re-baseline: ops/profiling-the-core.md)"));
             continue;

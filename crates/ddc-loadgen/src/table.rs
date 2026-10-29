@@ -70,7 +70,8 @@ pub struct Meta {
     /// The 1-minute load average at the start and the end.
     pub load_start: f64,
     pub load_end: f64,
-    /// `record`, `enforce`, or `enforce-memory` when CPU was recorded and not judged.
+    /// `record`, `enforce`, or `enforce-memory` when CPU was recorded and not judged
+    /// (`enforce-busy` in `ddc-loadgen slopes`, where user time is still judged).
     pub mode: String,
     pub seed: u64,
 }
