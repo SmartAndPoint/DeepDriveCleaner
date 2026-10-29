@@ -413,7 +413,7 @@ struct ContractTests {
         }
         // `WalkStep.disk` exists too: the patterns name a run and its argument.
         #expect(files(/run\(\s*\.disk\b/) == ["DiskModel.swift"])
-        #expect(files(/"disk"/) == ["DiskModel.swift", "AgentsModel.swift", "DiskFreeRun.swift"])
+        #expect(files(/"disk"/) == ["DiskModel.swift", "AgentsModel.swift", "DiskFreeRun.swift", "BrewPackagesModel.swift"])
         #expect(files(/\.scanDisk\(/) == ["DiskView.swift"], "the Scan Whole Disk button is the one caller")
         for file in ["ScheduledWork.swift", "PopoverModel.swift"] {
             #expect(!(try #require(sources[file])).contains(/DiskModel|scanDisk|\.disk\b/), "\(file) never runs a whole-disk scan")
@@ -454,7 +454,7 @@ struct ContractTests {
         #expect(files(/\.freeConfirmedActions\(/) == ["AreaActionSheet.swift"], "the sheet's confirm button is the one caller")
         #expect(files(/\.diskFree(?:DryRun)?\b/) == ["DiskFreeRun.swift"])
         #expect(files(/"free"/) == ["DiskFreeRun.swift"])
-        #expect(files(/\.previewAction\(/) == ["DiskView.swift"], "a row's button opens the sheet")
+        #expect(files(/\.previewAction\(/) == ["DiskView.swift", "BrewPackagesSheet.swift"], "a row's button, or a formula's, opens the sheet")
         // The one real run is the confirm button's.
         let run = try #require(sources["DiskFreeRun.swift"])
         #expect(run.matches(of: /runFree\([^)]*dryRun: false\)/).count == 1)
@@ -478,6 +478,35 @@ struct ContractTests {
         #expect(Set(try values(free, "ActionId")) == Set(DiskReport.ActionId.allCases.map(\.rawValue)))
         #expect(try rustSource("crates/ddc-core/src/free/mod.rs").contains("pub const STOPPED: &str = \"\(FreeWording.stopped)\";"))
         #expect(try rustSource("crates/ddc-core/src/free/mod.rs").contains("pub const NOT_STARTED: &str = \"\(FreeWording.notStarted)\";"))
+    }
+
+    @Test("only the Homebrew row lists the packages, and the listing removes nothing itself")
+    func brewPackagesCallers() throws {
+        let sources = try appSources()
+        func files(_ pattern: Regex<Substring>) -> Set<String> {
+            Set(sources.filter { $0.value.contains(pattern) }.map(\.key))
+        }
+        #expect(files(/run\(\s*\.brewPackages\b/) == ["BrewPackagesModel.swift"])
+        #expect(files(/"brew-packages"/) == ["BrewPackagesModel.swift"])
+        #expect(files(/brewPackages\.open\(/) == ["DiskView.swift"], "the Homebrew row's button is the one caller")
+        for file in ["ScheduledWork.swift", "PopoverModel.swift", "AppDelegate.swift", "SchedulerAgent.swift", "ScanDue.swift"] {
+            #expect(!(try #require(sources[file])).contains(/brewPackages|BrewPackages/), "\(file) never lists the Homebrew packages")
+        }
+        for file in ["BrewPackagesModel.swift", "BrewPackages.swift", "BrewPackagesSheet.swift"] {
+            let source = try #require(sources[file])
+            #expect(!source.contains(/\.diskFree|"free"|freeConfirmedActions|\.trash|removeItem/), "\(file) removes nothing itself")
+        }
+    }
+
+    @Test("the Homebrew packages listing is the CLI's: version and every enum")
+    func brewPackagesContracts() throws {
+        let source = try rustSource("crates/ddc-core/src/brew/model.rs")
+        let version = try #require(source.firstMatch(of: /pub const BREW_PACKAGES_SCHEMA_VERSION: u32 = (\d+);/))
+        #expect(Int(version.1) == BrewPackages.schemaVersion)
+        let packages = try schema("brew-packages")
+        #expect(Set(try values(packages, "ServicesState")) == Set(BrewPackages.ServicesState.allCases.map(\.rawValue)))
+        #expect(Set(try values(packages, "Service")) == Set(BrewPackages.Service.allCases.map(\.rawValue)))
+        #expect(Set(try values(packages, "NotOffered")) == Set(BrewPackages.NotOffered.allCases.map(\.rawValue)))
     }
 
     @Test("the coding agents report is the CLI's: version and every enum")

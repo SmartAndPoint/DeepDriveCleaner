@@ -16,9 +16,27 @@ public enum AreaActions {
         public let name: String
         /// The size the last disk report gave it.
         public let bytes: UInt64?
+        /// A formula's kegs as the listing showed them, by version.
+        public let kegs: [String]?
+        /// The orphans' `full_name`s.
+        public let names: [String]?
+
+        init(
+            action: DiskReport.ActionId, identifier: String?, name: String, bytes: UInt64?,
+            kegs: [String]? = nil, names: [String]? = nil
+        ) {
+            self.action = action
+            self.identifier = identifier
+            self.name = name
+            self.bytes = bytes
+            self.kegs = kegs
+            self.names = names
+        }
 
         public var id: String { identifier.map { "\(action.rawValue) \($0)" } ?? action.rawValue }
-        public var listed: ListedAreaAction { ListedAreaAction(action: action, identifier: identifier) }
+        public var listed: ListedAreaAction {
+            ListedAreaAction(action: action, identifier: identifier, kegs: kegs, names: names)
+        }
 
         /// The row's button.
         public var buttonTitle: String {
@@ -56,9 +74,9 @@ public enum AreaActions {
             case .condaClean:
                 "conda clean removes the packages no environment uses, downloaded package archives, the index cache and logs from \(name)/pkgs, with the install's own conda. They do not go to the Trash. Packages your environments use stay, so less may be freed than the folder's size."
             case .brewUninstall:
-                "brew uninstall removes every installed version of \(name) from /opt/homebrew/Cellar. It does not go to the Trash; brew install brings it back. Its configuration and data files stay where they are."
+                "brew uninstall removes every installed version of \(name) from /opt/homebrew/Cellar. It does not go to the Trash; brew install brings it back. Its configuration and data files stay where they are. Right before it runs, DeepDriveCleaner asks Homebrew again, and nothing runs if anything changed."
             case .brewUninstallOrphans:
-                "brew uninstall removes these formulae, which nothing installed needs now. They do not go to the Trash; brew install brings any of them back."
+                "brew uninstall removes \(BrewWording.dependents(formulae: names ?? [], casks: [])), which nothing installed needs now. They do not go to the Trash; brew install brings any of them back. Right before it runs, DeepDriveCleaner asks Homebrew again, and nothing runs if anything changed."
             }
         }
 
@@ -72,6 +90,14 @@ public enum AreaActions {
             }
         }
 
+        /// The sheet's line while the dry run runs.
+        public var previewingText: String {
+            switch action {
+            case .brewUninstall, .brewUninstallOrphans: "Checking with Homebrew…"
+            default: "Asking \(tool) what it would remove…"
+            }
+        }
+
         /// The sheet's line while it runs.
         public var runningText: String {
             switch action {
@@ -79,7 +105,7 @@ public enum AreaActions {
             case .brewCleanup: "Running brew cleanup…"
             case .condaEnvRemove: "Removing the environment…"
             case .condaClean: "Running conda clean…"
-            case .brewUninstall, .brewUninstallOrphans: "Running brew uninstall…"
+            case .brewUninstall, .brewUninstallOrphans: "Checking with Homebrew, then running brew uninstall…"
             }
         }
 

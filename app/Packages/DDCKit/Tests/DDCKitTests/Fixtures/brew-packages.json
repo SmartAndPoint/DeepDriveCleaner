@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "ddc_version": "0.6.0",
+  "prefix": "/opt/homebrew",
+  "cellar": "/opt/homebrew/Cellar",
+  "services": "listed",
+  "formulae": [
+    {
+      "name": "node",
+      "full_name": "node",
+      "pinned": false,
+      "kegs": [
+        { "version": "22.1.0", "path": "/opt/homebrew/Cellar/node/22.1.0", "bytes": 104857600 },
+        { "version": "23.0.0", "path": "/opt/homebrew/Cellar/node/23.0.0", "bytes": 109051904 }
+      ],
+      "bytes": 213909504,
+      "service": "none",
+      "dependencies": [
+        { "full_name": "openssl@3", "bytes": 41943040, "on_request": true, "pinned": false, "alone": false }
+      ],
+      "would_orphan": []
+    },
+    {
+      "name": "wget",
+      "full_name": "wget",
+      "pinned": false,
+      "kegs": [
+        { "version": "1.24.5", "path": "/opt/homebrew/Cellar/wget/1.24.5", "bytes": 4194304 }
+      ],
+      "bytes": 4194304,
+      "service": "none",
+      "dependencies": [
+        { "full_name": "libidn2", "bytes": 1048576, "on_request": false, "pinned": false, "alone": true },
+        { "full_name": "libunistring", "bytes": 5242880, "on_request": false, "pinned": false, "alone": true },
+        { "full_name": "openssl@3", "bytes": 41943040, "on_request": true, "pinned": false, "alone": false }
+      ],
+      "would_orphan": ["libidn2", "libunistring"],
+      "would_orphan_bytes": 6291456
+    },
+    {
+      "name": "openssl@3",
+      "full_name": "openssl@3",
+      "pinned": false,
+      "kegs": [
+        { "version": "3.4.0", "path": "/opt/homebrew/Cellar/openssl@3/3.4.0", "bytes": 41943040 }
+      ],
+      "bytes": 41943040,
+      "service": "none",
+      "needed_by": ["node", "wget"],
+      "needed_by_casks": ["example-app"],
+      "dependencies": [],
+      "would_orphan": [],
+      "not_offered": "needed"
+    },
+    {
+      "name": "postgresql@16",
+      "full_name": "postgresql@16",
+      "pinned": false,
+      "kegs": [
+        { "version": "16.4", "path": "/opt/homebrew/Cellar/postgresql@16/16.4", "bytes": 3145728 }
+      ],
+      "bytes": 3145728,
+      "service": "running",
+      "dependencies": [],
+      "would_orphan": [],
+      "not_offered": "service"
+    },
+    {
+      "name": "foo",
+      "full_name": "example/tap/foo",
+      "pinned": true,
+      "kegs": [
+        { "version": "1.0", "path": "/opt/homebrew/Cellar/foo/1.0" }
+      ],
+      "service": "none",
+      "dependencies": [],
+      "would_orphan": [],
+      "kept_pinned": ["bar"],
+      "not_offered": "pinned"
+    }
+  ],
+  "orphans": []
+}

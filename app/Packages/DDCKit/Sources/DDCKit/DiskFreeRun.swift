@@ -15,8 +15,12 @@ extension DiskModel {
         // Closed meanwhile: its answer goes nowhere.
         guard freeSheet == FreeSheet(offer: offer, stage: .previewing) else { return }
         switch ran {
-        case .report(_, let action): freeSheet?.stage = .confirm(action)
-        case .failed(let why): freeSheet?.stage = .failed(why)
+        case .report(_, let action):
+            freeSheet?.stage = .confirm(action)
+            await brewPackages.actionEnded(offer, action, dryRun: true)
+        case .failed(let why):
+            freeSheet?.stage = .failed(why)
+            await brewPackages.actionEnded(offer, nil, dryRun: true)
         }
     }
 
@@ -32,10 +36,12 @@ extension DiskModel {
         freeSheet?.stage = .running
         log("area action started: \(sheet.offer.id)")
         let ran = await runFree(runner, sheet.offer, dryRun: false)
+        var ended: FreeReport.ActionReport?
         switch ran {
         case .report(let report, let action):
             freeSheet?.stage = .result(action)
             freeResults[sheet.offer.id] = action
+            ended = action
             log("area action ended: \(sheet.offer.id) \(action.result)")
             if report.lastScan == .edited { await scanReportEdited?() }
         case .failed(let why):
@@ -43,6 +49,8 @@ extension DiskModel {
             log("area action failed: \(sheet.offer.id): \(why)")
         }
         await load()
+        // The packages sheet lists again behind the result.
+        await brewPackages.actionEnded(sheet.offer, ended, dryRun: false)
     }
 
     /// Stop in the sheet: SIGTERM to the run, or it never starts if it still
@@ -182,6 +190,14 @@ public enum FreeWording {
         case .removedNotFreed: action.action == .condaEnvRemove || action.area == "homebrew"
         default: false
         }
+    }
+
+    /// Whether the sheet shows the tool's output's tail: with the Terminal
+    /// command, and after any brew uninstall that ran.
+    public static func showsOutput(_ action: FreeReport.ActionReport) -> Bool {
+        if offersTerminal(action) { return true }
+        guard action.action == .brewUninstall || action.action == .brewUninstallOrphans else { return false }
+        return action.result == .freed || action.result == .removedNotFreed
     }
 
     /// The tool as the user would type it.

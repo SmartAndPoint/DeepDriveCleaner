@@ -4,7 +4,9 @@ import SwiftUI
 /// The Whole disk view (artboard 13; story "Whole disk in the app"): the
 /// startup container as one bar, then a row per area. Homebrew and each
 /// downloaded simulator runtime offer their owning tool's cleanup, through
-/// `AreaActionSheet` (story "Whole disk: free space with the owning tool").
+/// `AreaActionSheet` (story "Whole disk: free space with the owning tool");
+/// the Homebrew row also lists its packages in `BrewPackagesSheet`, which
+/// the area action sheet takes the place of while one is uninstalled.
 /// Used as the Review window's detail and in its own window; both show the
 /// one `DiskModel` and the one `AgentsModel`.
 struct DiskView: View {
@@ -26,11 +28,24 @@ struct DiskView: View {
         }
         .task { await model.load() }
         .task { await agents.refresh() }
+        // One sheet: an area action over the packages sheet replaces it,
+        // and the packages show again when the action's sheet closes.
         .sheet(isPresented: Binding(
-            get: { model.freeSheet != nil },
-            set: { shown in if !shown { Task { await model.closeFree() } } }
+            get: { model.freeSheet != nil || model.brewPackages.isOpen },
+            set: { shown in
+                guard !shown else { return }
+                if model.freeSheet != nil {
+                    Task { await model.closeFree() }
+                } else {
+                    model.brewPackages.close()
+                }
+            }
         )) {
-            AreaActionSheet(model: model)
+            if model.freeSheet != nil {
+                AreaActionSheet(model: model)
+            } else {
+                BrewPackagesSheet(model: model)
+            }
         }
     }
 
@@ -213,6 +228,11 @@ private struct DiskRow: View {
             Spacer(minLength: 12)
             if let reveal = row.reveal {
                 RevealButton(reveal: reveal).controlSize(.small)
+            }
+            if row.offer?.action == .brewCleanup {
+                Button("Packages…") { Task { await model.brewPackages.open() } }
+                    .controlSize(.small)
+                    .disabled(!model.canFree)
             }
             if let offer = row.offer {
                 Button(offer.buttonTitle) { Task { await model.previewAction(offer) } }

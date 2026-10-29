@@ -22,20 +22,22 @@ extension CLIRunner: CLIRunning {}
 
 /// The one way the app runs the embedded CLI (ADR §1).
 ///
-/// Every run but the lane kinds (`.disk`, `.diskAgents`) goes through one queue and never overlaps another:
+/// Every run but the lane kinds (`.disk`, `.diskAgents`, `.brewPackages`) goes through one queue and never overlaps another:
 /// two that take the ddc lock would make one fail as busy, and `rules`,
 /// `notify` and `schedule` are queued too. A scan requested while a scan is queued
 /// or running joins it and gets the same result (its own arguments and
 /// `stderrLine` are not used); anything else waits its turn, so a clean
 /// requested during a scan starts when the scan ends.
 ///
-/// `.disk` and `.diskAgents` take no lock, and the app keeps what they write
-/// apart from any reader, so each runs in a lane of its own, beside the
+/// `.disk`, `.diskAgents` and `.brewPackages` take no lock, and the app keeps
+/// what they write apart from any reader, so each runs in a lane of its own, beside the
 /// queue: it never waits for a run of the queue or of another lane, and
 /// nothing waits for it. A lane holds one run. A second request with the
 /// same arguments joins it; one with other arguments waits for it, then
-/// runs (ADR §1, amended 2026-10-28, stories "Whole disk in the app" and
-/// "Coding agents in the Whole disk view").
+/// runs (ADR §1, amended 2026-10-28, stories "Whole disk in the app",
+/// "Coding agents in the Whole disk view" and "Whole disk: Homebrew
+/// packages, their sizes, and brew uninstall"). A `brew-packages` listing
+/// may run beside a `disk free` that runs brew: an accepted race.
 public actor CLIRunner {
     /// `.scan` and the lanes coalesce: a scheduled `.backgroundScan` never hands
     /// a caller another run's output, nor do `notify` and `schedule`.
@@ -58,8 +60,13 @@ public actor CLIRunner {
         /// `disk free --actions <file> --dry-run --json`: the shared lock.
         case diskFreeDryRun
 
+        /// `disk brew-packages --json`, the Homebrew packages sheet's list:
+        /// read-only and lock-free, in a lane of its own (menu bar ADR §6
+        /// item 10, amended 2026-10-29).
+        case brewPackages
+
         /// Runs in a lane of its own, beside the queue.
-        public var hasLane: Bool { self == .disk || self == .diskAgents }
+        public var hasLane: Bool { self == .disk || self == .diskAgents || self == .brewPackages }
     }
 
     /// Names one run, so it can be cancelled without touching another.

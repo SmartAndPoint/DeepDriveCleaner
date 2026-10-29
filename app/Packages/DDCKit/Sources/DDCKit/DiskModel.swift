@@ -65,6 +65,9 @@ public final class DiskModel {
     public internal(set) var freeSheet: FreeSheet?
     /// The last result of each action this session, by `Offer.id`, for its row.
     public internal(set) var freeResults: [String: FreeReport.ActionReport] = [:]
+    /// The Homebrew row's packages sheet; its uninstalls run through
+    /// `previewAction` and `freeConfirmedActions` like any other offer.
+    public let brewPackages: BrewPackagesModel
     /// After a `brew cleanup` edited `last-scan.json`: the popover reads it again.
     @ObservationIgnored public var scanReportEdited: (@MainActor () async -> Void)?
 
@@ -92,6 +95,7 @@ public final class DiskModel {
         self.clock = clock
         self.log = log
         self.temporaryDirectory = temporaryDirectory
+        brewPackages = BrewPackagesModel(runner: runner, log: log)
         now = clock()
     }
 

@@ -55,6 +55,33 @@ public struct FreeReport: Decodable, Sendable, Equatable {
         public let output: String?
         /// The tool's own dry run; only in a dry run.
         public let preview: Preview?
+        /// The kegs a brew uninstall removes, as brew listed them right
+        /// before it ran, each measured by ddc; empty for other actions.
+        public let kegs: [Keg]
+        /// What still needs a confirmed formula, when that refused it.
+        public let neededBy: [NeededBy]
+
+        private enum CodingKeys: String, CodingKey {
+            case action, area, identifier, command, env, terminalCommand, result
+            case bytesBefore, bytesAfter, output, preview, kegs, neededBy
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            action = try c.decode(DiskReport.ActionId.self, forKey: .action)
+            area = try c.decode(String.self, forKey: .area)
+            identifier = try c.decodeIfPresent(String.self, forKey: .identifier)
+            command = try c.decode([String].self, forKey: .command)
+            env = try c.decode([String].self, forKey: .env)
+            terminalCommand = try c.decode(String.self, forKey: .terminalCommand)
+            result = try c.decode(Outcome.self, forKey: .result)
+            bytesBefore = try c.decodeIfPresent(UInt64.self, forKey: .bytesBefore)
+            bytesAfter = try c.decodeIfPresent(UInt64.self, forKey: .bytesAfter)
+            output = try c.decodeIfPresent(String.self, forKey: .output)
+            preview = try c.decodeIfPresent(Preview.self, forKey: .preview)
+            kegs = try c.decodeIfPresent([Keg].self, forKey: .kegs) ?? []
+            neededBy = try c.decodeIfPresent([NeededBy].self, forKey: .neededBy) ?? []
+        }
 
         /// What the folders lost, when both sizes were measured.
         public var freedBytes: UInt64? {
@@ -179,6 +206,33 @@ public struct FreeReport: Decodable, Sendable, Equatable {
         }
     }
 
+    /// A keg of a brew uninstall (`KegReport`).
+    public struct Keg: Decodable, Sendable, Equatable {
+        /// The formula's `full_name`.
+        public let formula: String
+        public let version: String
+        public let path: String
+        public let bytes: UInt64?
+    }
+
+    /// The formulae and casks that need `formula`.
+    public struct NeededBy: Decodable, Sendable, Equatable {
+        public let formula: String
+        public let formulae: [String]
+        public let casks: [String]
+
+        private enum CodingKeys: String, CodingKey {
+            case formula, formulae, casks
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            formula = try c.decode(String.self, forKey: .formula)
+            formulae = try c.decodeIfPresent([String].self, forKey: .formulae) ?? []
+            casks = try c.decodeIfPresent([String].self, forKey: .casks) ?? []
+        }
+    }
+
     public struct Preview: Decodable, Sendable, Equatable {
         /// The tool's dry-run output, line by line.
         public let lines: [String]
@@ -192,23 +246,34 @@ public struct FreeReport: Decodable, Sendable, Equatable {
 /// `free/model.rs`). The CLI refuses unknown keys.
 public struct ListedAreaAction: Encodable, Sendable, Equatable, Hashable {
     public let action: DiskReport.ActionId
-    /// The runtime's asset id, the environment's path or the install's
-    /// prefix; on every action but `brew-cleanup`.
+    /// The runtime's asset id, the environment's path, the install's
+    /// prefix or the formula's `full_name`; on every action but
+    /// `brew-cleanup` and `brew-uninstall-orphans`.
     public let identifier: String?
+    /// The versions of the formula's kegs the person confirmed; on
+    /// `brew-uninstall` only.
+    public let kegs: [String]?
+    /// The formulae, by `full_name`, confirmed as needed by nothing; on
+    /// `brew-uninstall-orphans` only.
+    public let names: [String]?
 
-    public init(action: DiskReport.ActionId, identifier: String?) {
+    public init(action: DiskReport.ActionId, identifier: String?, kegs: [String]? = nil, names: [String]? = nil) {
         self.action = action
         self.identifier = identifier
+        self.kegs = kegs
+        self.names = names
     }
 
     private enum CodingKeys: String, CodingKey {
-        case action, identifier
+        case action, identifier, kegs, names
     }
 
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(action.rawValue, forKey: .action)
         try c.encodeIfPresent(identifier, forKey: .identifier)
+        try c.encodeIfPresent(kegs, forKey: .kegs)
+        try c.encodeIfPresent(names, forKey: .names)
     }
 }
 
