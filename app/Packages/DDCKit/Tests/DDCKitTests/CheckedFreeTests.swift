@@ -211,4 +211,248 @@ struct CheckedFreeTests {
         await m.load()
         #expect(m.report == .none && m.checked.isEmpty && !m.canFreeChecked)
     }
+
+    // MARK: - The checked run
+
+    /// One action of a `disk free` report: a runtime's deletion.
+    struct Line {
+        var identifier: String
+        var result: [String: Any]
+        var estimate: UInt64? = nil
+        var output: String? = nil
+    }
+
+    /// A `disk free` report of runtime deletions, from the run fixture.
+    static func freeReport(dryRun: Bool, _ lines: [Line]) throws -> Data {
+        try Fixture.edited("free-report") { json in
+            let template = (json["actions"] as! [[String: Any]])[0]
+            json["dry_run"] = dryRun
+            if dryRun {
+                json["journal"] = nil
+                json["last_scan"] = "unchanged"
+                json["last_disk"] = "unchanged"
+            } else {
+                json["last_scan"] = "unchanged"
+            }
+            json["actions"] = lines.map { line in
+                var action = template
+                action["action"] = "simctl-runtime-delete"
+                action["area"] = "simulator-runtimes"
+                action["identifier"] = line.identifier
+                action["command"] = ["/usr/bin/xcrun", "simctl", "runtime", "delete", line.identifier]
+                action["env"] = [String]()
+                action["terminal_command"] = "/usr/bin/xcrun simctl runtime delete \(line.identifier)"
+                action["result"] = line.result
+                action["output"] = line.output
+                if dryRun {
+                    action["bytes_after"] = nil
+                    var preview: [String: Any] = ["lines": ["Would delete \(line.identifier)"]]
+                    preview["estimate_bytes"] = line.estimate
+                    action["preview"] = preview
+                }
+                return action
+            }
+        }
+    }
+
+    private static let wouldRun: [String: Any] = ["status": "would-run"]
+    private static let freed: [String: Any] = ["status": "freed"]
+
+    /// A loaded model with both runtimes checked, and the fake's replies.
+    private func bothChecked(preview: [Line], run: [Line]) async throws -> DiskModel {
+        try fake.put("free-preview.json", Self.freeReport(dryRun: true, preview))
+        try fake.put("free-report.json", Self.freeReport(dryRun: false, run))
+        let m = await loaded()
+        m.toggle(try offer(m, Self.runtimeB))
+        m.toggle(try offer(m, Self.runtimeA))
+        return m
+    }
+
+    private func starts() throws -> [String] {
+        try fake.runs().filter { $0.event == "start" }.map(\.args)
+    }
+
+    private func lists() throws -> [String] {
+        try fake.actionLists().map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    private static func listJSON(_ ids: [String]) -> String {
+        let actions = ids.map { #"{"action":"simctl-runtime-delete","identifier":"\#($0)"}"# }.joined(separator: ",")
+        return #"{"actions":[\#(actions)],"schema_version":3}"#
+    }
+
+    @Test("two runtimes checked: one dry run with both, one run with both; each result goes to its row and the result shows no total")
+    func freeBoth() async throws {
+        let m = try await bothChecked(
+            preview: [Line(identifier: Self.first, result: Self.wouldRun, estimate: 1 << 30),
+                      Line(identifier: Self.second, result: Self.wouldRun, estimate: 2 << 30)],
+            run: [Line(identifier: Self.first, result: Self.freed), Line(identifier: Self.second, result: Self.freed)]
+        )
+        await m.previewChecked()
+        let sheet = try #require(m.freeSheet)
+        #expect(sheet.offers.map(\.id) == [Self.runtimeA, Self.runtimeB])
+        guard case .confirm(let previews) = sheet.stage else {
+            Issue.record("no confirmation: \(sheet)")
+            return
+        }
+        #expect(previews.map(\.identifier) == [Self.first, Self.second])
+        #expect(sheet.question == "Free 2 areas?" && sheet.confirmTitle == "Free 2")
+        #expect(sheet.totalText == "The tools estimate about \(ByteSize.human(3 << 30)) in all.")
+        #expect(sheet.previewingText.hasPrefix("Checking 2 actions"))
+        #expect(try starts().count == 1 && (try lists()) == [Self.listJSON([Self.first, Self.second])])
+
+        try fake.open("free-go")
+        await m.freeConfirmedActions()
+        let after = try #require(m.freeSheet)
+        guard case .result(let results) = after.stage else {
+            Issue.record("no result: \(after)")
+            return
+        }
+        #expect(after.offers.map(\.id) == [Self.runtimeA, Self.runtimeB])
+        #expect(results.map(\.identifier) == [Self.first, Self.second])
+        #expect(m.freeResults[Self.runtimeA] == results[0] && m.freeResults[Self.runtimeB] == results[1])
+        #expect(after.totalText == nil, "ddc reports space per action, never a sum")
+        let started = try starts()
+        #expect(started.count == 2 && started[0].hasSuffix("--dry-run --json") && started[1].hasSuffix(".json --json"))
+        #expect(try lists() == Array(repeating: Self.listJSON([Self.first, Self.second]), count: 2))
+        #expect(m.checked.isEmpty, "the sheet's rows are unchecked after the run")
+        await m.closeFree()
+        #expect(m.freeSheet == nil)
+    }
+
+    @Test("a run report whose actions do not match the list is a failure, not a partial success")
+    func mismatchedRun() async throws {
+        let previews = [Line(identifier: Self.first, result: Self.wouldRun), Line(identifier: Self.second, result: Self.wouldRun)]
+        let reports: [(String, [Line])] = [
+            ("another order", [Line(identifier: Self.second, result: Self.freed), Line(identifier: Self.first, result: Self.freed)]),
+            ("one short", [Line(identifier: Self.first, result: Self.freed)]),
+            ("another identifier", [Line(identifier: Self.first, result: Self.freed), Line(identifier: "other", result: Self.freed)]),
+        ]
+        try fake.open("free-go")
+        for (name, run) in reports {
+            let m = try await bothChecked(preview: previews, run: run)
+            await m.previewChecked()
+            #expect(m.freeSheet?.confirmTitle == "Free 2", "\(name)")
+            await m.freeConfirmedActions()
+            #expect(m.freeSheet?.stage == .failed("The CLI's report does not match the confirmed actions."), "\(name)")
+            #expect(m.freeResults.isEmpty, "\(name)")
+            #expect(m.checked.isEmpty, "\(name): unchecked whatever the result")
+            await m.closeFree()
+        }
+    }
+
+    @Test("Stop after the first action leaves the second not run; a failed run unchecks the rows too")
+    func stopAndFailure() async throws {
+        let m = try await bothChecked(
+            preview: [Line(identifier: Self.first, result: Self.wouldRun), Line(identifier: Self.second, result: Self.wouldRun)],
+            run: []
+        )
+        try fake.put("free-stopped.json", Self.freeReport(dryRun: false, [
+            Line(identifier: Self.first, result: ["status": "failed", "needs_admin": false], output: "stopped before the tool finished"),
+            Line(identifier: Self.second, result: ["status": "not-run"]),
+        ]))
+        try fake.put("free.trap", Data())
+        await m.previewChecked()
+        let run = Task { await m.freeConfirmedActions() }
+        try await until { (try? starts().count) == 2 }
+        #expect(m.freeSheet?.runningText == "Freeing 2 areas… Stop ends the one that runs and leaves the rest not run.")
+        await m.stopFree()
+        await run.value
+        guard case .result(let results)? = m.freeSheet?.stage else {
+            Issue.record("no result: \(String(describing: m.freeSheet))")
+            return
+        }
+        #expect(results.map(\.result) == [.failed(needsAdmin: false), .notRun])
+        #expect(FreeWording.result(results[0], name: "iOS 27.0 (24A100)").hasPrefix("Stopped before simctl finished."))
+        #expect(FreeWording.result(results[1], name: "iOS 26.0 (23A100)") == "Stopped before it started: nothing ran.")
+        #expect(m.freeResults[Self.runtimeB]?.result == .notRun)
+        #expect(m.checked.isEmpty)
+        await m.closeFree()
+
+        // A run that fails without a report (the lock is held) unchecks them too.
+        let again = try await bothChecked(
+            preview: [Line(identifier: Self.first, result: Self.wouldRun), Line(identifier: Self.second, result: Self.wouldRun)],
+            run: []
+        )
+        try fake.put("free.exit", Data("75".utf8))
+        try fake.open("free-go")
+        await again.previewChecked()
+        await again.freeConfirmedActions()
+        #expect(again.freeSheet?.stage == .failed("Another scan or clean holds the lock, perhaps from Terminal. Try again when it ends."))
+        #expect(again.checked.isEmpty && again.freeResults.isEmpty)
+    }
+
+    @Test("of two previews, one would run and one refused: the confirm runs a list of one, says Free 1 of 2, and the refused one gets no row result; with none, nothing is offered")
+    func mixedPreviews() async throws {
+        let m = try await bothChecked(
+            preview: [Line(identifier: Self.first, result: ["status": "refused", "reason": "booted"], estimate: 1 << 30),
+                      Line(identifier: Self.second, result: Self.wouldRun)],
+            run: [Line(identifier: Self.second, result: Self.freed)]
+        )
+        await m.previewChecked()
+        let sheet = try #require(m.freeSheet)
+        guard case .confirm(let previews) = sheet.stage else {
+            Issue.record("no confirmation: \(sheet)")
+            return
+        }
+        #expect(sheet.confirmTitle == "Free 1 of 2")
+        #expect(sheet.confirmed.map(\.id) == [Self.runtimeB])
+        #expect(FreeWording.result(previews[0], name: "iOS 27.0 (24A100)") == "Not run: a simulator on it is running or not yet shut down.")
+        #expect(sheet.totalText == nil, "the refused one's estimate is not counted, and the other gave none")
+
+        // The confirm runs what the sheet showed would run, and nothing else.
+        try fake.open("free-go")
+        await m.freeConfirmedActions()
+        guard case .result(let results)? = m.freeSheet?.stage else {
+            Issue.record("no result: \(String(describing: m.freeSheet))")
+            return
+        }
+        #expect(m.freeSheet?.offers.map(\.id) == [Self.runtimeB] && results.count == 1)
+        #expect(try lists().last == Self.listJSON([Self.second]), "only the would-run action is sent")
+        #expect(m.freeResults[Self.runtimeA] == nil && m.freeResults[Self.runtimeB] != nil)
+        #expect(m.checked.isEmpty)
+        await m.closeFree()
+
+        // None would run: no confirm, no run.
+        let none = try await bothChecked(
+            preview: [Line(identifier: Self.first, result: ["status": "refused", "reason": "booted"]),
+                      Line(identifier: Self.second, result: ["status": "failed", "needs_admin": false])],
+            run: []
+        )
+        let before = try starts().count
+        await none.previewChecked()
+        #expect(none.freeSheet?.confirmTitle == nil && none.freeSheet?.confirmed.isEmpty == true)
+        await none.freeConfirmedActions()
+        #expect(try starts().count == before + 1, "the dry run only")
+        #expect(none.checked == [Self.runtimeA, Self.runtimeB], "nothing ran: the checks stay")
+        if case .confirm? = none.freeSheet?.stage {} else { Issue.record("the sheet left its confirm stage") }
+    }
+
+    @Test("the total says at least when a would-run preview gave no estimate; a list's refusal says the list")
+    func totalAndRefusal() async throws {
+        let m = try await bothChecked(
+            preview: [Line(identifier: Self.first, result: Self.wouldRun, estimate: 1 << 30),
+                      Line(identifier: Self.second, result: Self.wouldRun)],
+            run: []
+        )
+        await m.previewChecked()
+        #expect(m.freeSheet?.totalText == "The tools estimate at least \(ByteSize.human(1 << 30)) in all: not every one gave an estimate.")
+
+        #expect(DiskModel.freeFailure(.refused, stderrTail: ["ddc disk free: an action named twice"], list: true)
+            == "The CLI refused the list (exit 2): an action named twice.")
+        #expect(DiskModel.freeFailure(.refused, stderrTail: [], list: false) == "The CLI refused the action (exit 2).")
+    }
+
+    @Test("a list of one keeps its offer's words")
+    func listOfOne() async throws {
+        let m = await loaded()
+        let brew = try offer(m, "brew-cleanup")
+        m.toggle(brew)
+        try fake.put("free-preview.json", Fixture.data("free-preview"))
+        await m.previewChecked()
+        let sheet = try #require(m.freeSheet)
+        #expect(sheet.question == brew.question && sheet.confirmTitle == brew.confirmTitle)
+        #expect(sheet.previewingText == brew.previewingText && sheet.runningText == brew.runningText)
+        #expect(sheet.totalText == nil)
+    }
 }

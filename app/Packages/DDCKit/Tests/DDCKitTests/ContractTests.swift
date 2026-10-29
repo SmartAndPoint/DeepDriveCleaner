@@ -461,7 +461,7 @@ struct ContractTests {
         let confirmed = try #require(run.firstMatch(of: /func freeConfirmedActions\(\)[\s\S]*?\n    }\n/))
         #expect(confirmed.output.contains(/runFree\([^)]*dryRun: false\)/))
         for file in ["ScheduledWork.swift", "PopoverModel.swift", "AppDelegate.swift", "SchedulerAgent.swift", "ScanDue.swift"] {
-            #expect(!(try #require(sources[file])).contains(/diskFree|previewAction|freeConfirmedActions|"free"/), "\(file) never frees an area")
+            #expect(!(try #require(sources[file])).contains(/diskFree|previewAction|previewChecked|freeConfirmedActions|"free"/), "\(file) never frees an area")
         }
     }
 

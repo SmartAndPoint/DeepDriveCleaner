@@ -35,17 +35,25 @@ extension DiskModel {
         }
     }
 
-    /// The sheet's confirm button: runs the actions its dry run showed, and
-    /// nothing else. Afterwards the view reads `last-disk.json` again, and
-    /// the popover `last-scan.json` when `brew cleanup` edited it.
+    /// The checked bar's button (story "Whole disk: free the checked areas in
+    /// one sheet"): opens the sheet of the checked rows, in run order.
+    public func previewChecked() async {
+        guard canFreeChecked else { return }
+        await preview(checkedOffers)
+    }
+
+    /// The sheet's confirm button: runs the actions whose dry run said they
+    /// would run, rebuilt from the sheet's previews and never from the
+    /// checks, and nothing else; the CLI checks each again. Afterwards the
+    /// sheet's rows are unchecked whatever the result, the view reads
+    /// `last-disk.json` again, and the popover `last-scan.json` when `brew
+    /// cleanup` edited it.
     public func freeConfirmedActions() async {
-        guard let sheet = freeSheet, case .confirm(let previews) = sheet.stage,
-              previews.allSatisfy({ $0.result == .wouldRun }), !scanning, let runner
-        else {
-            return
-        }
-        let offers = sheet.offers
-        freeSheet?.stage = .running
+        guard let sheet = freeSheet, case .confirm = sheet.stage, !scanning, let runner else { return }
+        let offers = sheet.confirmed
+        guard !offers.isEmpty else { return }
+        freeSheet = FreeSheet(offers: offers, stage: .running)
+        defer { checked.subtract(sheet.offers.map(\.id)) }
         log("area action started: \(Self.ids(offers))")
         let ran = await runFree(runner, offers, dryRun: false)
         var ended: [FreeReport.ActionReport?] = Array(repeating: nil, count: offers.count)
@@ -132,7 +140,7 @@ extension DiskModel {
             }
         }
         if result.outcome != .done { log("disk free ended \(result.outcome): \(result.stderrTail.suffix(3).joined(separator: " | "))") }
-        return .failed(Self.freeFailure(result.outcome, stderrTail: result.stderrTail))
+        return .failed(Self.freeFailure(result.outcome, stderrTail: result.stderrTail, list: offers.count > 1))
     }
 
     /// One report per offer, the same action on the same identifier, in the
@@ -158,7 +166,9 @@ extension DiskModel {
         }
     }
 
-    static func freeFailure(_ outcome: RunOutcome, stderrTail: [String]) -> String {
+    /// `list`: the run had more than one action; the CLI refuses a list whole.
+    static func freeFailure(_ outcome: RunOutcome, stderrTail: [String], list: Bool = false) -> String {
+        let what = list ? "the list" : "the action"
         switch outcome {
         case .done:
             return "The CLI printed no report."
@@ -168,15 +178,66 @@ extension DiskModel {
             return "Another scan or clean holds the lock, perhaps from Terminal. Try again when it ends."
         case .refused:
             let why = stderrTail.last { $0.hasPrefix("ddc disk free: ") }.map { ": " + $0.dropFirst("ddc disk free: ".count) } ?? ""
-            return "The CLI refused the action (exit 2)\(why)."
+            return "The CLI refused \(what) (exit 2)\(why)."
         case .error(let status):
             let error = stderrTail.last { $0.hasPrefix("ddc: ") && !$0.hasPrefix("ddc: warning:") }
-            return error.map { String($0.dropFirst("ddc: ".count)) } ?? "The action failed (exit \(status))."
+            return error.map { String($0.dropFirst("ddc: ".count)) } ?? "\(list ? "The list" : "The action") failed (exit \(status))."
         case .crashed(let signal):
             return "The CLI stopped unexpectedly (signal \(signal))."
         case .notLaunched(let reason):
             return "The CLI could not start: \(reason)."
         }
+    }
+}
+
+/// What the sheet of a list says and runs (story "Whole disk: free the
+/// checked areas in one sheet"). A list of one keeps its offer's own words.
+extension DiskModel.FreeSheet {
+    /// The offers whose dry run said they would run, in order: what the
+    /// confirm button runs. Empty outside the confirm stage.
+    public var confirmed: [AreaActions.Offer] {
+        guard case .confirm(let previews) = stage else { return [] }
+        return zip(offers, previews).filter { $0.1.result == .wouldRun }.map(\.0)
+    }
+
+    /// The confirm button: the offer's own for one; "Free 2", or "Free 1 of
+    /// 2" when not every action would run. Nil when nothing would run.
+    public var confirmTitle: String? {
+        let count = confirmed.count
+        guard count > 0 else { return nil }
+        if offers.count == 1 { return offers[0].confirmTitle }
+        return count == offers.count ? "Free \(count)" : "Free \(count) of \(offers.count)"
+    }
+
+    /// The sheet's title.
+    public var question: String {
+        offers.count == 1 ? offers[0].question : "Free \(offers.count) areas?"
+    }
+
+    /// While the dry runs run: how many actions they check.
+    public var previewingText: String {
+        guard offers.count > 1 else { return offers[0].previewingText }
+        return "Checking \(offers.count) actions with their own tools; each conda action asks conda on its own, so this can take a while…"
+    }
+
+    /// While it runs: the CLI reports no progress per action.
+    public var runningText: String {
+        guard offers.count > 1 else { return offers[0].runningText }
+        return "Freeing \(offers.count) areas… Stop ends the one that runs and leaves the rest not run."
+    }
+
+    /// The tools' estimates of what would run, summed: "about", or "at
+    /// least" when one of them gave none. Nil for a list of one, when
+    /// nothing would run, or when no tool gave an estimate.
+    public var totalText: String? {
+        guard offers.count > 1, case .confirm(let previews) = stage else { return nil }
+        let running = previews.filter { $0.result == .wouldRun }
+        let estimates = running.compactMap { $0.preview?.estimateBytes }
+        guard !estimates.isEmpty else { return nil }
+        let size = ByteSize.human(estimates.reduce(0, +))
+        return estimates.count == running.count
+            ? "The tools estimate about \(size) in all."
+            : "The tools estimate at least \(size) in all: not every one gave an estimate."
     }
 }
 
