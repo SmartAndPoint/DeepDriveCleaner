@@ -8,13 +8,13 @@ retries = 0
 fail-fast = false
 
 # Load trees write 10⁴ entries each: at most 4 at a time, beside the other tests.
-# The golden check builds one per profile too. A profile test also builds and
-# scans its tree at half the size for the complexity guard, so it is killed at
-# 240 s, not 120.
+# The golden check builds one per profile too, the interruption tests one each. A
+# profile test also builds and scans its tree at half the size for the complexity
+# guard, so it is killed at 240 s, not 120.
 [test-groups]
 load = { max-threads = 4 }
 
 [[profile.default.overrides]]
-filter = '(package(ddc-loadgen) & kind(test)) | binary(golden_cli) | binary(load_cli)'
+filter = '(package(ddc-loadgen) & kind(test)) | binary(golden_cli) | binary(load_cli) | binary(interrupt_cli)'
 test-group = 'load'
 slow-timeout = { period = "60s", terminate-after = 4 }

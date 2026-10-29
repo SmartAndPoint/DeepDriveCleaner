@@ -935,6 +935,52 @@ fn a_cancel_after_the_first_item_counts_only_that_one() {
     assert_eq!(s.current, None);
 }
 
+/// Sets the cancel flag on the `k`-th item's event, as a SIGTERM read with
+/// that event does in the CLI (`interrupt_cli.rs`).
+#[derive(Debug)]
+struct CancelOnItem<'a> {
+    k: u64,
+    flag: &'a AtomicBool,
+}
+
+impl ExecEvents for CancelOnItem<'_> {
+    fn item(&self, i: u64, _: u64, _: &PlanItem, _: &Outcome) {
+        if i == self.k {
+            self.flag.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
+#[test]
+fn a_cancel_at_the_kth_item_event_leaves_every_later_item_not_run() {
+    let fx = Fx::new();
+    for i in 0..6 {
+        fx.node_project(&format!("p{i}"));
+    }
+    let plan = fx.plan();
+    let flag = AtomicBool::new(false);
+    let events = CancelOnItem { k: 2, flag: &flag };
+    let opts = ExecOptions { cancel: &flag, events: Some(&events), ..ExecOptions::default() };
+    let mut journal = MemoryJournal::default();
+
+    let r = fx.run_with(&plan, yes(), &FakeCommands::default(), &FakeProcs(vec![]), &mut journal, &opts);
+
+    assert!(r.cancelled);
+    assert_eq!(r.items.len(), 6, "{:#?}", r.items);
+    for (n, item) in r.items.iter().enumerate() {
+        if n < 2 {
+            assert_eq!(item.outcome, Outcome::Deleted, "{:?}", item.path);
+            assert!(!item.path.exists());
+        } else {
+            assert_eq!(item.outcome, Outcome::NotRun, "{:?}", item.path);
+            assert!(item.path.exists());
+        }
+    }
+    let journaled: Vec<&Path> = journal.0.iter().map(|e| e.path.as_path()).collect();
+    let deleted: Vec<&Path> = r.items[..2].iter().map(|i| i.path.as_path()).collect();
+    assert_eq!(journaled, deleted, "a not-run item is never journaled");
+}
+
 /// Reads the shared counter when the guard takes its process snapshot:
 /// after the keep-marker walk, before the first item.
 struct SnapshotOnFirstCall<'a> {
