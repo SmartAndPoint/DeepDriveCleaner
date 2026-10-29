@@ -318,6 +318,29 @@ struct PopoverModelTests {
         #expect(await runner.count(.scan) == 2)
     }
 
+    /// Story "Sparkle updates: check daily, Update and Relaunch, and the cask's auto_updates".
+    @Test("while an update's install waits, Scan now, the rescan after a clean and Clean selected… start nothing; after it they do")
+    func updateWaiting() async throws {
+        try data.write(lastScan: try Fixture.data("scan-report-groups"))
+        let runner = FakeRunner(scan: FakeRunner.done(try Fixture.data("scan-report-groups")))
+        let router = FakeRouter()
+        let model = try makeModel(runner: runner, data: data, defaults: defaults, router: router)
+        await model.start()
+        #expect(model.canScan && model.canCleanSelected)
+        model.setUpdateWaiting(true)
+        #expect(!model.canScan && !model.canCleanSelected)
+        await model.scanNow()
+        await model.scanAfterClean()
+        #expect(await runner.count(.scan) == 0)
+        model.cleanSelected()
+        #expect(router.requests.isEmpty)
+
+        model.setUpdateWaiting(false)
+        #expect(model.canScan && model.canCleanSelected)
+        await model.scanNow()
+        #expect(await runner.count(.scan) == 1)
+    }
+
     @Test("each attention cause shows the warning: a failed scan, an unreadable report or settings, a missing CLI; a failed scan's lasts until its notice is dismissed or the next scan starts")
     func attention() async throws {
         let failing = FakeRunner(scan: CLIRunner.Result(outcome: .error(status: 1), stdout: Data(), stderrTail: ["ddc: boom"]))

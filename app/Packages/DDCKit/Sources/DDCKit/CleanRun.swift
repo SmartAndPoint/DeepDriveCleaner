@@ -101,7 +101,7 @@ extension ReviewModel {
     /// `permanent`. Pressing it twice starts one clean. Nothing runs while
     /// the check runs, nor when it said every item would be skipped.
     public func cleanConfirmedItems() {
-        guard let sheet, sheet.cleanAllowed, !isCleaning, let items else { return }
+        guard let sheet, sheet.cleanAllowed, !isCleaning, !updateWaiting(), let items else { return }
         stopWarnings()
         guard let runner else {
             self.sheet?.stage = .stopped("The app's embedded CLI is missing, so it cannot clean. Reinstall DeepDriveCleaner.", journal: nil)

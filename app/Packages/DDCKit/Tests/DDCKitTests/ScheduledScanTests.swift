@@ -43,6 +43,7 @@ struct ScheduledScanTests {
         let notifications = FakeNotifications()
         let clock: Clock
         var legacy = false
+        var updateWaiting = false
         var work: ScheduledWork!
 
         init(_ test: ScheduledScanTests, now: Date) throws {
@@ -55,7 +56,8 @@ struct ScheduledScanTests {
             popover = try makeModel(runner: runner, data: test.data, defaults: test.defaults, nextScan: { work?.next() ?? .off }, clock: { clock.now })
             self.work = ScheduledWork(
                 popover: popover, preferences: preferences, runner: runner, notifications: notifications,
-                legacyAgentFound: { [unowned self] in self.legacy }, clock: { clock.now }, calendar: test.calendar
+                legacyAgentFound: { [unowned self] in self.legacy }, updateWaiting: { [unowned self] in self.updateWaiting },
+                clock: { clock.now }, calendar: test.calendar
             )
             work = self.work
         }
@@ -303,6 +305,24 @@ struct ScheduledScanTests {
         await rig.runner.reply(.backgroundScan, CLIRunner.Result(outcome: .busy, stdout: Data(), stderrTail: []))
         #expect(await rig.work.tick() == .busy)
         #expect(rig.work.due() == .slot)
+    }
+
+    /// Story "Sparkle updates: check daily, Update and Relaunch, and the cask's auto_updates".
+    @Test("a tick starts no scan while an update's install waits, and scans again after")
+    func updateWaiting() async throws {
+        let rig = try Rig(self, now: at(20, 10))
+        rig.preferences.setLastScheduledScan(at(19, 10))
+        rig.updateWaiting = true
+        #expect(await rig.work.tick() == .updateWaiting)
+        #expect(await rig.runner.count(.backgroundScan) == 0)
+        #expect(rig.preferences.lastScheduledScan == at(19, 10))
+        #expect(rig.work.due() == .slot)
+
+        rig.updateWaiting = false
+        await rig.reply(decision())
+        #expect(await rig.work.tick() == .scanned)
+        #expect(await rig.runner.count(.backgroundScan) == 1)
+        #expect(rig.preferences.lastScheduledScan == at(20, 10))
     }
 
     @Test("a due date at or before now reads within the hour; paused, nothing is due and Resume reads within the hour; the legacy plist makes nothing due")

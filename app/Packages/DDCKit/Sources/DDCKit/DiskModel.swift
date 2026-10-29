@@ -45,6 +45,9 @@ public final class DiskModel {
     /// Why the last run did not give a report; the report before it stays.
     public private(set) var message: String?
     public private(set) var now: Date
+    /// An update's relaunch waits for the runner or runs (`UpdateModel.jobsHeld`):
+    /// no measure, preview or run starts, a brew uninstall included.
+    public private(set) var updateWaiting = false
 
     /// The sheet of a list of area actions (story "Whole disk: free space
     /// with the owning tool"; more than one since "Whole disk: free the
@@ -113,15 +116,21 @@ public final class DiskModel {
 
     /// Not while an area action waits for its confirmation, is queued or
     /// runs: the report it would write could miss what the action frees.
-    public var canScan: Bool { runner != nil && !freeRunning && !freeConfirming }
+    /// Nor while an update's install waits.
+    public var canScan: Bool { runner != nil && !freeRunning && !freeConfirming && !updateWaiting }
     public var scanning: Bool { progress != nil }
-    /// The rows' action buttons: not while the whole disk is measured, and
-    /// one sheet at a time.
-    public var canFree: Bool { runner != nil && !scanning && freeSheet == nil }
+    /// The rows' action buttons: not while the whole disk is measured, one
+    /// sheet at a time, and not while an update's install waits.
+    public var canFree: Bool { runner != nil && !scanning && freeSheet == nil && !updateWaiting }
     public var freeRunning: Bool { freeSheet?.stage == .running }
     var freeConfirming: Bool {
         if case .confirm? = freeSheet?.stage { return true }
         return false
+    }
+
+    /// `UpdateModel.onJobsHeld`. A sheet already open stays; its confirm runs nothing.
+    public func setUpdateWaiting(_ on: Bool) {
+        updateWaiting = on
     }
 
     public var loadedReport: DiskReport? {
@@ -221,7 +230,7 @@ public final class DiskModel {
             message = "The app's embedded CLI is missing, so it cannot measure the disk. Reinstall DeepDriveCleaner."
             return
         }
-        guard !freeRunning else { return }
+        guard !freeRunning, !updateWaiting else { return }
         let task = Task { await run(runner) }
         scanTask = task
         await task.value

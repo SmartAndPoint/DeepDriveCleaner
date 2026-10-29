@@ -16,6 +16,8 @@ public final class ScheduledWork {
         /// A clean held the lock: still due at the next tick.
         case busy
         case failed
+        /// An update's install waits for the runner: the scan stays due.
+        case updateWaiting
     }
 
     private let popover: PopoverModel
@@ -23,6 +25,8 @@ public final class ScheduledWork {
     private let runner: (any CLIRunning)?
     private let notifications: any NotificationPosting
     private let legacyAgentFound: @MainActor () -> Bool
+    /// `UpdateModel.jobsHeld`: no scheduled scan starts while an install waits.
+    private let updateWaiting: @MainActor () -> Bool
     private let clock: @MainActor () -> Date
     private let calendar: Calendar
     private let log: @MainActor (String) -> Void
@@ -39,6 +43,7 @@ public final class ScheduledWork {
         runner: (any CLIRunning)?,
         notifications: any NotificationPosting,
         legacyAgentFound: @escaping @MainActor () -> Bool,
+        updateWaiting: @escaping @MainActor () -> Bool = { false },
         clock: @escaping @MainActor () -> Date = { .now },
         calendar: Calendar = .current,
         openNotificationSettings: @escaping @MainActor () -> Void = {},
@@ -50,6 +55,7 @@ public final class ScheduledWork {
         self.runner = runner
         self.notifications = notifications
         self.legacyAgentFound = legacyAgentFound
+        self.updateWaiting = updateWaiting
         self.clock = clock
         self.calendar = calendar
         self.log = log
@@ -95,7 +101,11 @@ public final class ScheduledWork {
     private func runTick() async -> TickResult {
         let now = clock()
         var result = TickResult.notDue
-        if let due = due() {
+        if let due = due(), updateWaiting() {
+            // Not recorded as scanned, so the first tick after the install scans.
+            log("tick: \(due) scan due, held while an update installs")
+            result = .updateWaiting
+        } else if let due = due() {
             log("tick: \(due) scan due")
             await popover.start()
             switch await popover.scheduledScan() {

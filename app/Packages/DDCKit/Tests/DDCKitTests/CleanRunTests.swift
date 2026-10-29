@@ -324,6 +324,28 @@ struct CleanRunTests {
         #expect(events.rescans == 1)
     }
 
+    /// Story "Sparkle updates: check daily, Update and Relaunch, and the cask's auto_updates".
+    @Test("while an update's install waits, Clean, its sheet and Scan again start nothing; after it they do")
+    func whileAnUpdateWaits() async throws {
+        #expect(review.canClean(scope: nil))
+        try await checkedSheet()
+        events.updateWaiting = true
+        review.cleanConfirmedItems()
+        #expect(!review.isCleaning)
+        #expect(try runs("clean --items") == 1, "the dry run only")
+        review.closeSheet()
+        #expect(!review.canClean(scope: nil))
+        review.openSheet()
+        #expect(review.sheet == nil)
+        await review.scanAgain()
+        #expect(events.rescans == 0 && review.rescanning == nil)
+
+        events.updateWaiting = false
+        #expect(review.canClean(scope: nil))
+        await review.scanAgain()
+        #expect(events.rescans == 1)
+    }
+
     @Test("each warning appears on its item as its dry-run line arrives")
     func delayedLines() async throws {
         try fake.open("dry-run.gated")

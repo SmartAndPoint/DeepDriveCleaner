@@ -54,6 +54,8 @@ final class ReviewEvents {
     var reloadFails = false
     var presented = 0
     var paused = false
+    /// An update's install waits (`UpdateModel.jobsHeld`).
+    var updateWaiting = false
     /// While set, a rescan waits until `finishRescan()`.
     var holdRescan = false
     private var held: CheckedContinuation<Void, Never>?
@@ -98,6 +100,7 @@ func makeReview(
         rescan: { await events.rescan() },
         reloadReport: { events.reloadReport() },
         paused: { events.paused },
+        updateWaiting: { events.updateWaiting },
         temporaryDirectory: data.url,
         clock: clock,
         home: home

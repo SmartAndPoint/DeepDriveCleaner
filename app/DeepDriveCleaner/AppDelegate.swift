@@ -72,6 +72,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             rescan: { [weak self] in await self?.model?.scanAfterClean() },
             reloadReport: { [weak self] in await self?.model?.reloadReport() ?? false },
             paused: { [weak self] in self?.model?.paused ?? false },
+            // The popover's flag is the one an update's install sets.
+            updateWaiting: { [weak self] in self?.model?.updateWaiting ?? false },
             log: { AppLog.write($0) }
         )
         self.review = review
@@ -120,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 runner: runner,
                 notifications: SystemNotifications(),
                 legacyAgentFound: { [weak agent] in agent?.legacyAgentFound ?? false },
+                updateWaiting: { [weak model] in model?.updateWaiting ?? false },
                 openNotificationSettings: Self.openNotificationSettings,
                 log: { AppLog.write($0) }
             )
@@ -234,6 +237,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     // The first normal launch after the first scan asks once; a tick never does.
                     await work?.askPermissionOnce()
                 }
+            case .startUpdater:
+                // Sparkle joins the project in a later commit; until then the gate is only logged.
+                AppLog.write("updater: may start")
             case .startScheduledWork:
                 // A scan if due, then the pending notification and its ack; quits after all.
                 Task {

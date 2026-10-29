@@ -115,6 +115,7 @@ public final class ReviewModel: ReviewRouting {
     @ObservationIgnored let rescan: @MainActor () async -> Void
     @ObservationIgnored let reloadReport: @MainActor () async -> Bool
     @ObservationIgnored let paused: @MainActor () -> Bool
+    @ObservationIgnored let updateWaiting: @MainActor () -> Bool
     @ObservationIgnored let temporaryDirectory: URL
     @ObservationIgnored let clock: @MainActor () -> Date
     @ObservationIgnored let log: @MainActor (String) -> Void
@@ -142,6 +143,8 @@ public final class ReviewModel: ReviewRouting {
     /// - `reloadReport`: the popover reads `last-scan.json` again, after a
     ///   clean that saved it; false when it could not be shown.
     /// - `paused`: scans are paused from the menu bar.
+    /// - `updateWaiting`: an update's relaunch waits for the runner or runs
+    ///   (`UpdateModel.jobsHeld`): no clean, sheet or Scan again starts.
     public init(
         runner: (any CLIRunning)?,
         data: DataDirectory,
@@ -152,6 +155,7 @@ public final class ReviewModel: ReviewRouting {
         rescan: @escaping @MainActor () async -> Void = {},
         reloadReport: @escaping @MainActor () async -> Bool = { false },
         paused: @escaping @MainActor () -> Bool = { false },
+        updateWaiting: @escaping @MainActor () -> Bool = { false },
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         clock: @escaping @MainActor () -> Date = { .now },
         log: @escaping @MainActor (String) -> Void = { _ in },
@@ -167,6 +171,7 @@ public final class ReviewModel: ReviewRouting {
         self.rescan = rescan
         self.reloadReport = reloadReport
         self.paused = paused
+        self.updateWaiting = updateWaiting
         self.temporaryDirectory = temporaryDirectory
         self.clock = clock
         self.log = log
@@ -244,7 +249,7 @@ public final class ReviewModel: ReviewRouting {
 
     /// Scan again, from the window's header.
     public func scanAgain() async {
-        guard rescanning == nil, !isCleaning, !scansPaused else { return }
+        guard rescanning == nil, !isCleaning, !scansPaused, !updateWaiting() else { return }
         rescanning = .requested
         await rescan()
         rescanning = nil
@@ -415,7 +420,7 @@ public final class ReviewModel: ReviewRouting {
     /// open the sheet.
     public func canClean(scope: [Int]?) -> Bool {
         let rows = scope.map(selectedRows(in:)) ?? selectedRows
-        return !rows.isEmpty && sheet == nil && rescanning == nil && !isCleaning && reportScope != .outside
+        return !rows.isEmpty && sheet == nil && rescanning == nil && !isCleaning && reportScope != .outside && !updateWaiting()
     }
 
     /// A group's Select all row: "2 of 3 · 7.2 GiB".
@@ -468,7 +473,7 @@ public final class ReviewModel: ReviewRouting {
         // them: the scope crosses it by identity.
         let scoped = scope.map { ids in Set(ids.compactMap { items?.row($0).map { Identity($0.finding) } }) }
         refreshSettings()
-        guard sheet == nil, !isCleaning, rescanning == nil, reportScope != .outside, let items else { return }
+        guard sheet == nil, !isCleaning, rescanning == nil, reportScope != .outside, !updateWaiting(), let items else { return }
         var picked = selection
         if let scoped {
             picked = picked.filter { id in items.row(id).map { scoped.contains(Identity($0.finding)) } ?? false }

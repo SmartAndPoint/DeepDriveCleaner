@@ -79,6 +79,9 @@ public final class PopoverModel {
     public private(set) var cleaning = false
     /// Pause in the menu: scans wait for Resume.
     public private(set) var paused = false
+    /// An update's relaunch waits for the runner or runs (`UpdateModel.jobsHeld`):
+    /// no scan or clean starts from here.
+    public private(set) var updateWaiting = false
     public private(set) var fullDiskAccess: FullDiskAccess = .granted
     public private(set) var notices: [Notice] = []
     public private(set) var now: Date
@@ -145,8 +148,8 @@ public final class PopoverModel {
 
     // MARK: - What the popover shows
 
-    /// Not without the CLI, and not while paused.
-    public var canScan: Bool { runner != nil && !paused }
+    /// Not without the CLI, not while paused, and not while an update's install waits.
+    public var canScan: Bool { runner != nil && !paused && !updateWaiting }
 
     public var included: Set<ScanReport.RiskClass> {
         var classes: Set<ScanReport.RiskClass> = []
@@ -216,8 +219,9 @@ public final class PopoverModel {
         return Wording.reportScope(reportScope, roots: report.scanRoots, home: home, reportHome: report.home)
     }
 
-    /// Clean selected…: not for a report of folders outside the app's roots.
-    public var canCleanSelected: Bool { selectedToClean > 0 && reportScope != .outside }
+    /// Clean selected…: not for a report of folders outside the app's roots,
+    /// and not while an update's install waits.
+    public var canCleanSelected: Bool { selectedToClean > 0 && reportScope != .outside && !updateWaiting }
 
     /// The report's own fact, whatever the probe says now.
     public var withoutAccessNote: String? {
@@ -422,6 +426,11 @@ public final class PopoverModel {
             log("scan skipped: scans are paused")
             return
         }
+        // The rescan after a clean too: the app is about to relaunch.
+        guard !updateWaiting else {
+            log("scan skipped: an update installs")
+            return
+        }
         guard let runner else {
             setNotice("cli", "The app's embedded CLI is missing, so it cannot scan. Reinstall DeepDriveCleaner.")
             return
@@ -557,7 +566,7 @@ public final class PopoverModel {
 
     /// Clean selected…: the confirmation sheet, never a clean from here.
     public func cleanSelected() {
-        guard reportScope != .outside else { return }
+        guard reportScope != .outside, !updateWaiting else { return }
         route(ReviewRequest(group: nil, classes: included, confirm: true))
     }
 
@@ -595,6 +604,11 @@ public final class PopoverModel {
     /// The Review window's clean started or ended, its rescan included.
     public func setCleaning(_ on: Bool) {
         cleaning = on
+    }
+
+    /// `UpdateModel.onJobsHeld`.
+    public func setUpdateWaiting(_ on: Bool) {
+        updateWaiting = on
     }
 
     /// What the Review window opens on: the report and the rules this popover shows now.

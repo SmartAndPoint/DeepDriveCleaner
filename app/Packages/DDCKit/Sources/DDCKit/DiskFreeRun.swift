@@ -49,7 +49,7 @@ extension DiskModel {
     /// `last-disk.json` again, and the popover `last-scan.json` when `brew
     /// cleanup` edited it.
     public func freeConfirmedActions() async {
-        guard let sheet = freeSheet, case .confirm = sheet.stage, !scanning, let runner else { return }
+        guard let sheet = freeSheet, case .confirm = sheet.stage, !scanning, !updateWaiting, let runner else { return }
         let offers = sheet.confirmed
         guard !offers.isEmpty else { return }
         freeSheet = FreeSheet(offers: offers, stage: .running)

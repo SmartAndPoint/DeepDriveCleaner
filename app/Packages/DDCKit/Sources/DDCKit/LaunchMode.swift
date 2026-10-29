@@ -27,6 +27,11 @@ public struct LaunchMode: Sendable, Equatable {
 
     public enum Effect: Sendable, Equatable {
         case showStatusItem
+        /// Start the updater (`SPUUpdater.start()`), once, after the first
+        /// status item: a `--scheduled` launch that only does its work and
+        /// quits never checks for updates (story "Sparkle updates: check
+        /// daily, Update and Relaunch, and the cask's auto_updates").
+        case startUpdater
         case startScheduledWork
         /// A reopen of the full app: the scheduler's tick, or a user's launch.
         case scanIfDue
@@ -59,10 +64,10 @@ public struct LaunchMode: Sendable, Equatable {
                 return [.startScheduledWork]
             }
             mode = .normal
-            return [.showStatusItem]
+            return [.showStatusItem, .startUpdater]
         case (.scheduled, .reopen), (.scheduled, .activate), (.scheduled, .notificationResponse):
             mode = .normal
-            return [.showStatusItem]
+            return [.showStatusItem, .startUpdater]
         case (.scheduled, .workFinished):
             return [.quit]
         case (.normal, .reopen(let windowOpen)):

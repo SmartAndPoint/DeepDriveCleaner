@@ -392,6 +392,34 @@ struct DiskFreeTests {
         #expect(!DiskModel.matches([ra, try reported(.condaClean, "B")], [a, b]), "another action")
     }
 
+    /// Story "Sparkle updates: check daily, Update and Relaunch, and the cask's auto_updates".
+    @Test("while an update's install waits, no measure, preview or run starts, and an open sheet's confirm runs nothing")
+    func whileAnUpdateWaits() async throws {
+        let m = model()
+        await m.load()
+        await m.previewAction(Self.brew)
+        guard case .confirm? = m.freeSheet?.stage else {
+            Issue.record("no confirmation: \(String(describing: m.freeSheet))")
+            return
+        }
+        m.setUpdateWaiting(true)
+        await m.freeConfirmedActions()
+        guard case .confirm? = m.freeSheet?.stage else {
+            Issue.record("the confirm ran: \(String(describing: m.freeSheet))")
+            return
+        }
+        #expect(try fake.runs().filter { $0.event == "start" }.count == 1, "the dry run only")
+        await m.closeFree()
+        #expect(!m.canFree && !m.canScan)
+        await m.previewAction(Self.brew)
+        #expect(m.freeSheet == nil)
+        await m.scanDisk()
+        #expect(try fake.runs().filter { $0.event == "start" }.count == 1)
+
+        m.setUpdateWaiting(false)
+        #expect(m.canFree && m.canScan)
+    }
+
     @Test("a scan asked for during disk free waits for it and does not fail busy")
     func scanWaits() async throws {
         let m = model()
