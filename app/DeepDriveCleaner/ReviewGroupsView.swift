@@ -75,6 +75,9 @@ struct GroupView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if layout.opensTrash {
+                    OpenTrashButton().controlSize(.small).padding(.top, 4)
+                }
             }
             Spacer(minLength: 0)
             GroupAmount(model: model, entry: entry)

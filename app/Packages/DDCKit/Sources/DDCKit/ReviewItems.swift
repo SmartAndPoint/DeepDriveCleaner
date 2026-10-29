@@ -9,6 +9,10 @@ import Foundation
 /// gate for ignored findings: `clean --items` never drops a listed item for
 /// its type (ADR §6 item 1).
 public struct ReviewItems: Sendable, Equatable {
+    /// `TRASH_RULE` in `crates/ddc-core/src/report/after_clean.rs`: the Trash,
+    /// report only, in a group of its own.
+    public static let trashRule = "trash"
+
     /// Why a finding cannot be selected.
     public enum Lock: Sendable, Equatable {
         /// A user-data finding: shown, never cleaned.
@@ -120,7 +124,7 @@ public struct ReviewItems: Sendable, Equatable {
     /// The user-data rules in the sidebar's order of ties: `listing.rs`.
     static let userDataOrder = [
         "user.kept", "user.pictures", "user.movies", "user.music", "user.downloads", "user.ios-backups",
-        "user.imazing-backups", "user.telegram", "user.whatsapp", "user.cloud", "trash", "xcode.archives",
+        "user.imazing-backups", "user.telegram", "user.whatsapp", "user.cloud", "xcode.archives",
         "ide.workspace-storage", "macos.app-bundle", "node.global-packages",
     ]
 

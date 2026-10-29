@@ -151,6 +151,8 @@ public struct GroupLayout: Sendable, Equatable {
     public let rest: String?
     /// The folders not scanned, under `~` (not-scanned shape).
     public let notScanned: [String]
+    /// The Trash's group: an Open the Trash button, nothing to select.
+    public internal(set) var opensTrash = false
 
     /// The lines with folded subgroups showing their heading only.
     public func lines(collapsed: Set<Key>) -> [Line] {
@@ -192,7 +194,9 @@ extension ReviewItems {
         }
         let shown = all.filter { matches($0, query) }
         let rules = Dictionary(grouping: all, by: { $0.finding.rule })
-        let checkable = entry.riskClass != .userData
+        // By the rule, not the label: an entry that holds the Trash only.
+        let trash = !all.isEmpty && all.allSatisfy { $0.finding.rule == ReviewItems.trashRule }
+        let checkable = entry.riskClass != .userData && !trash
         let blocks: [GroupLayout.Block]
         let facts: String?
         let hint: String?
@@ -205,7 +209,8 @@ extension ReviewItems {
             let rule = all.first?.finding.rule
             let noted = ScanReport.Note.allCases.filter(shared.contains).map(CleanWording.note)
             facts = rule.map { ([$0, CleanWording.actionText(all)] + noted).joined(separator: " · ") }
-            hint = all.first.flatMap { CleanWording.hint($0.finding.hint) }
+            // The Trash's hint says what its blurb says.
+            hint = trash ? nil : all.first.flatMap { CleanWording.hint($0.finding.hint) }
             blocks = folderBlocks(entry, shown, omitting: shared, checkable: checkable)
         } else {
             shape = .rules
@@ -216,7 +221,7 @@ extension ReviewItems {
         return GroupLayout(
             entry: entry,
             shape: shape,
-            blurb: CleanWording.classBlurb(entry.riskClass),
+            blurb: trash ? CleanWording.trashBlurb : CleanWording.classBlurb(entry.riskClass),
             facts: facts,
             hint: hint,
             selectAll: checkable ? shown.map(\.id) : nil,
@@ -224,7 +229,8 @@ extension ReviewItems {
             bytes: shown.reduce(0) { $0 + $1.finding.bytes },
             blocks: Self.ordered(blocks),
             rest: nil,
-            notScanned: []
+            notScanned: [],
+            opensTrash: trash
         )
     }
 

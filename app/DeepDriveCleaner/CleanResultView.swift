@@ -15,7 +15,14 @@ struct CleanResultView: View {
                 .foregroundStyle(result.cancelled ? AnyShapeStyle(.primary) : AnyShapeStyle(ReportClassStyle.safe))
 
             ForEach(result.volumes, id: \.name) { volume in
-                VolumeView(volume: volume)
+                VolumeView(volume: volume, note: CleanWording.apfsNote(result))
+            }
+            // One line for every volume: a move to the Trash frees nothing yet.
+            if let trashed = CleanWording.trashed(result) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(trashed).font(.system(size: 12))
+                    OpenTrashButton().controlSize(.small)
+                }
             }
             if result.localSnapshots > 0 {
                 Text("Local Time Machine snapshots hold part of the space until macOS thins them.")
@@ -103,6 +110,8 @@ struct CleanResultView: View {
 
 private struct VolumeView: View {
     let volume: CleanResult.Volume
+    /// The APFS note; nil when nothing freed space now.
+    let note: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -129,7 +138,9 @@ private struct VolumeView: View {
                 .accessibilityElement()
                 .accessibilityLabel("Free space grew from \(ByteSize.human(volume.freeBefore)) to \(ByteSize.human(volume.freeAfter)) of \(ByteSize.human(total))")
             }
-            Text("APFS may take a moment to give the space back.").font(.system(size: 11)).foregroundStyle(.secondary)
+            if let note {
+                Text(note).font(.system(size: 11)).foregroundStyle(.secondary)
+            }
         }
     }
 }

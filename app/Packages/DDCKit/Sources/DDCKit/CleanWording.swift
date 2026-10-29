@@ -143,7 +143,6 @@ extension CleanWording {
         case "user.whatsapp": "WhatsApp"
         case "user.cloud": cloudFolders
         case "user.kept": "Protected by you"
-        case "trash": "Trash"
         case "xcode.archives": "Xcode archives"
         case "ide.workspace-storage": "Editor workspace storage"
         case "macos.app-bundle": "Apps"
@@ -154,6 +153,10 @@ extension CleanWording {
 
     /// The sidebar's last User data entry: the folders the scan never enters.
     public static let cloudFolders = "Cloud folders"
+
+    /// What the Trash's group says at its top (story "The Trash: its own row,
+    /// not Your data"). DeepDriveCleaner never empties it (safety ADR §1).
+    public static let trashBlurb = "What was moved to the Trash, by you or by a clean. Its space comes back when you empty the Trash in Finder."
 
     /// What a user-data group with entries says once, at its top.
     public static let pickBlurb = "Pick files and folders one by one to move them to the Trash. Put Back in the Trash restores them."

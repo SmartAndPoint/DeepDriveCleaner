@@ -53,6 +53,19 @@ extension CleanWording {
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")
     }
 
+    /// "2.4 GiB went to the Trash. It comes back when you empty the Trash.";
+    /// nil when nothing went there. A move to the Trash frees nothing yet.
+    public static func trashed(_ result: CleanResult) -> String? {
+        guard result.trashed.count > 0 else { return nil }
+        return "\(ByteSize.human(result.trashed.bytes)) went to the Trash. It comes back when you empty the Trash."
+    }
+
+    /// The free-space note, only when something was deleted or a tool ran:
+    /// nothing else frees space now.
+    public static func apfsNote(_ result: CleanResult) -> String? {
+        result.deleted.count + result.toolsRun.count > 0 ? "APFS may take a moment to give the space back." : nil
+    }
+
     /// The result's last line: "6 items stay selected for the next clean.";
     /// nil when none does.
     public static func staysSelected(_ result: CleanResult) -> String? {

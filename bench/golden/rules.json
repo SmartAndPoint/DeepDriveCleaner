@@ -15,6 +15,7 @@
     "ML models",
     "VM and container images",
     "Interrupted cleanups",
+    "Trash",
     "Your data"
   ],
   "rules": [
@@ -597,7 +598,7 @@
     {
       "category": "trash",
       "class": "review",
-      "group": "Your data",
+      "group": "Trash",
       "id": "trash",
       "listed": true,
       "removal": "none",

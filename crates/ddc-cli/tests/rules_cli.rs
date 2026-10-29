@@ -50,6 +50,7 @@ fn rules_json_groups_follow_the_settings_types() {
             "ML models",
             "VM and container images",
             "Interrupted cleanups",
+            "Trash",
             "Your data",
         ]
     );
@@ -79,6 +80,8 @@ fn rules_json_groups_follow_the_settings_types() {
         members("Maven and test browsers"),
         ["browsers.cypress", "browsers.playwright", "browsers.puppeteer", "repo.maven"]
     );
+    assert_eq!(members("Trash"), ["trash"], "the Trash has its own group");
+    assert_eq!(list.rules.iter().filter(|r| r.id == "trash").count(), 1, "and is in no other");
     for group in ["Package downloads", "Toolchain caches"] {
         assert!(
             list.rules.iter().filter(|r| r.group == group).all(|r| r.class == ddc_core::class::RiskClass::Safe),

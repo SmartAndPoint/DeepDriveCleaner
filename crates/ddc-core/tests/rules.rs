@@ -583,13 +583,14 @@ fn every_rule_has_a_group() {
     );
     let fixed: Vec<&str> = list.rules.iter().filter(|r| !r.switchable).map(|r| r.group.as_str()).collect();
     assert!(
-        fixed.iter().all(|g| ["Your data", "Interrupted cleanups", "VM and container images"].contains(g)),
-        "only user data, ddc's leftovers and tool-only runtimes have no switch: {fixed:?}"
+        fixed.iter().all(|g| ["Your data", "Trash", "Interrupted cleanups", "VM and container images"].contains(g)),
+        "only user data, the Trash, ddc's leftovers and tool-only runtimes have no switch: {fixed:?}"
     );
     assert!(!list.rules.iter().find(|r| r.id == "ddc.tombstone").unwrap().switchable);
     assert!(!list.rules.iter().find(|r| r.id == "vm.colima").unwrap().switchable, "a tool-only rule with no command");
     assert!(list.rules.iter().find(|r| r.id == "cache.npm").unwrap().switchable);
     assert_eq!(group_of("cache.colima"), Some("VM and container images"));
+    assert_eq!(group_of("trash"), Some("Trash"));
 }
 
 #[test]

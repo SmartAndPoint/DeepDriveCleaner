@@ -16,7 +16,9 @@ pub const RULES_SCHEMA_VERSION: u32 = 1;
 /// Every rule id in exactly one group, in the order of the Types settings:
 /// the thirteen of the design canvas's revised Settings (artboard 10) and
 /// "Maven and test browsers", which holds the `review` downloads out of the
-/// Safe "Toolchain caches", then two without a switch.
+/// Safe "Toolchain caches", then three without a switch: ddc's own
+/// leftovers, the Trash (story "The Trash: its own row, not Your data") and
+/// the user's data.
 pub const GROUPS: &[(&str, &[&str])] = &[
     ("Python environments", &["python.venv", "python.tox"]),
     ("node_modules", &["node.node_modules", "node.node_modules-orphan"]),
@@ -76,6 +78,7 @@ pub const GROUPS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Interrupted cleanups", &[TOMBSTONE]),
+    ("Trash", &["trash"]),
     (
         "Your data",
         &[
@@ -89,7 +92,6 @@ pub const GROUPS: &[(&str, &[&str])] = &[
             "user.telegram",
             "user.whatsapp",
             "user.cloud",
-            "trash",
             "xcode.archives",
             "ide.workspace-storage",
             "macos.app-bundle",

@@ -98,4 +98,26 @@ struct CleanResultTests {
         #expect(CleanWording.title(.appsRunning, apps: apps) == "Spotify, Chrome, Brave and 2 more were running")
         #expect(CleanWording.title(.appsRunning, apps: ["Spotify"]) == "Spotify was running")
     }
+
+    @Test("a clean that moved items to the Trash says how much went there; one that only deleted does not, and keeps the APFS note")
+    func trashed() throws {
+        let items = try ReviewFixture.items()
+        let confirmation = DDCKit.Confirmation(items, selection: try ReviewFixture.recordedSelection(items), deletePermanently: false)
+        let volumes = try Fixture.groupsReport().volumes
+        let moved = CleanResult.make(
+            report: try report([item("a", #""outcome": "trashed""#, bytes: 3 << 20), item("b", #""outcome": "trashed""#, bytes: 1 << 20, ino: 2)]),
+            confirmation: confirmation, volumes: volumes
+        )
+        #expect(CleanWording.trashed(moved) == "4.0 MiB went to the Trash. It comes back when you empty the Trash.")
+        #expect(CleanWording.apfsNote(moved) == nil, "a move to the Trash frees nothing yet")
+
+        let deleted = CleanResult.make(report: try report([item("a", #""outcome": "deleted""#, bytes: 1000)]), confirmation: confirmation, volumes: volumes)
+        #expect(CleanWording.trashed(deleted) == nil)
+        #expect(CleanWording.apfsNote(deleted) == "APFS may take a moment to give the space back.")
+        let tool = CleanResult.make(
+            report: try report([item("g", #""outcome": "native", "commands": [{"program": "go", "args": ["clean", "-cache"], "success": true, "code": 0}]"#, bytes: 7)]),
+            confirmation: confirmation, volumes: volumes
+        )
+        #expect(CleanWording.apfsNote(tool) != nil, "a tool frees space now too")
+    }
 }

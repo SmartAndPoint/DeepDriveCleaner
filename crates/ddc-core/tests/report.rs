@@ -127,6 +127,26 @@ fn findings_carry_class_project_activity_and_selection() {
     assert_eq!(r.home, t.root());
 }
 
+/// Story "The Trash: its own row, not Your data": the Trash is found, never
+/// selected, and its bytes are in no "frees" total.
+#[test]
+fn the_trash_is_found_but_never_selected_or_counted_as_reclaimable() {
+    let fx = populated();
+    let t = &fx.tree;
+    t.file(".Trash/old.zip", 50_000);
+
+    let r = fx.scan();
+
+    let trash = find(&r, t, ".Trash");
+    assert_eq!(
+        (trash.rule.as_str(), trash.class, trash.selected, trash.not_selected),
+        ("trash", RiskClass::Review, false, Some(NotSelected::Review))
+    );
+    assert!(trash.bytes >= 50_000);
+    let (venv, uv) = (find(&r, t, "old/.venv"), find(&r, t, ".cache/uv"));
+    assert_eq!(r.totals.selected_reclaimable_bytes, venv.reclaimable_bytes() + uv.reclaimable_bytes());
+}
+
 #[test]
 fn worktree_activity_comes_from_its_gitdir() {
     let fx = Fixture::new();
