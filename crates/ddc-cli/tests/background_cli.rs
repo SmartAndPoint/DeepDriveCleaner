@@ -10,10 +10,11 @@ use std::time::SystemTime;
 use ddc_core::env::Env;
 use ddc_core::notify::{Decision, NotifyReason, NotifyReport, NotifyStatus, SkipCause};
 use ddc_core::store::{self, LockMode};
+use ddc_loadgen::isolate::ClearEnv as _;
 
 fn ddc(home: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
-        .env_clear()
+        .clear_env()
         .env("HOME", home)
         .env("PATH", "")
         .args(args)

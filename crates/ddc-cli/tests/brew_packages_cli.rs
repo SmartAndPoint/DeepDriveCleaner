@@ -12,6 +12,7 @@ use std::process::{Command, Output, Stdio};
 
 use ddc_core::brew::{BREW_PACKAGES_SCHEMA_VERSION, BrewPackages, NotOffered, ServicesState};
 use ddc_core::free::{ActionResult, FreeReport, Refusal};
+use ddc_loadgen::isolate::ClearEnv as _;
 use serde_json::json;
 
 struct Fx {
@@ -76,7 +77,7 @@ esac"#
 
     fn run(&self, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
-            .env_clear()
+            .clear_env()
             .env("HOME", self.root.join("home"))
             .env("PATH", "")
             .env("NO_COLOR", "1")
@@ -94,7 +95,7 @@ esac"#
     /// `ddc disk free --actions - <args>` with `list` on stdin.
     fn free(&self, list: &str, args: &[&str]) -> Output {
         let mut child = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
-            .env_clear()
+            .clear_env()
             .env("HOME", self.root.join("home"))
             .env("PATH", "")
             .env("NO_COLOR", "1")

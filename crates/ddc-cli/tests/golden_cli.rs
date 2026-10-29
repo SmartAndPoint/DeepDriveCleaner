@@ -11,6 +11,7 @@ use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use ddc_loadgen::isolate::ClearEnv as _;
 use ddc_loadgen::profiles::Profile;
 use ddc_loadgen::{Generated, generate, target};
 use serde_json::Value;
@@ -41,7 +42,7 @@ fn build(p: Profile) -> Run {
 
 fn ddc(home: &Path, args: &[&str]) -> Value {
     let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
-        .env_clear()
+        .clear_env()
         .env("HOME", home)
         .env("PATH", "")
         .env("NO_COLOR", "1")

@@ -6,10 +6,11 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 use ddc_core::sys::signals::kill_group;
+use ddc_loadgen::isolate::ClearEnv as _;
 
 fn ddc(home: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
-        .env_clear()
+        .clear_env()
         .env("HOME", home)
         .env("PATH", "")
         .env("NO_COLOR", "1")
@@ -119,7 +120,7 @@ fn sigterm_before_the_scan_finishes_leaves_the_saved_scan_untouched() {
     fs::write(data.join("last-scan.json"), saved).unwrap();
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
-        .env_clear()
+        .clear_env()
         .env("HOME", &home)
         .env("PATH", "")
         .args(["scan", "--json", "--data-dir", data.to_str().unwrap()])
@@ -203,7 +204,7 @@ fn scan_of_other_roots_into_the_app_data_folder_says_the_app_shows_it() {
     let data = tmp.path().join("data");
     assert!(!shows_line(&ddc(&home, &["scan", other, "--data-dir", data.to_str().unwrap()])));
     let by_var = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
-        .env_clear()
+        .clear_env()
         .env("HOME", &home)
         .env("PATH", "")
         .env("DDC_DATA_DIR", &data)

@@ -1,6 +1,7 @@
 //! `ddc notify ack|snooze`: the app's calls that record a notification
 //! (story "CLI: shared settings, types and the notify decision").
 
+use ddc_loadgen::isolate::ClearEnv as _;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -8,7 +9,7 @@ use std::process::{Command, Output};
 fn ddc(data: &Path, args: &[&str]) -> Output {
     let home = data.parent().unwrap();
     Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
-        .env_clear()
+        .clear_env()
         .env("HOME", home)
         .env("PATH", "")
         .args(args)
@@ -57,7 +58,7 @@ fn a_time_that_is_not_utc_rfc_3339_is_refused() {
 fn the_app_calls_are_hidden_from_help() {
     let tmp = tempfile::tempdir().unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
-        .env_clear()
+        .clear_env()
         .env("HOME", tmp.path())
         .arg("--help")
         .output()

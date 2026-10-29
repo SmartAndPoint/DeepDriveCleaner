@@ -5,12 +5,13 @@ use std::process::Command;
 
 use ddc_core::rules::RULES;
 use ddc_core::rules::listing::RuleList;
+use ddc_loadgen::isolate::ClearEnv as _;
 
 #[test]
 fn rules_json_lists_every_rule_with_its_group() {
     let tmp = tempfile::tempdir().unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
-        .env_clear()
+        .clear_env()
         .env("HOME", tmp.path())
         .args(["rules", "--json"])
         .output()

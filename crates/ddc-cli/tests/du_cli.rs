@@ -1,5 +1,6 @@
 //! `ddc du` against `/usr/bin/du -skx` on a temporary tree.
 
+use ddc_loadgen::isolate::ClearEnv as _;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -22,7 +23,7 @@ fn ddc_du_matches_system_du() {
     std::os::unix::fs::symlink("d0", root.join("link")).unwrap();
 
     let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
-        .env_clear()
+        .clear_env()
         .env("HOME", &root)
         .env("PATH", "")
         .arg("du")

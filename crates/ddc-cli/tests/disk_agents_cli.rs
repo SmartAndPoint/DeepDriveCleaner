@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use ddc_core::agents::{AGENTS_SCHEMA_VERSION, AgentsReport, HarnessId, RecordsState, SessionState};
+use ddc_loadgen::isolate::ClearEnv as _;
 
 struct Fx {
     _tmp: tempfile::TempDir,
@@ -30,7 +31,7 @@ impl Fx {
 
     fn ddc(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"));
-        cmd.env_clear()
+        cmd.clear_env()
             .env("HOME", self.root.join("home"))
             .env("PATH", "")
             .env("NO_COLOR", "1")
@@ -123,7 +124,7 @@ fn no_harness_is_an_empty_list_and_a_closed_pipe_is_success() {
 fn disk_options_do_not_mix_with_the_subcommand() {
     let fx = Fx::new();
     let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
-        .env_clear()
+        .clear_env()
         .env("HOME", fx.root.join("home"))
         .args(["disk", "--json", "agents"])
         .output()

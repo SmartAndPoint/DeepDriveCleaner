@@ -13,6 +13,8 @@ use std::time::{Duration, Instant};
 use ddc_core::sys::procs;
 use ddc_core::sys::usage::{self, Usage};
 
+use crate::isolate::ClearEnv as _;
+
 const POLL: Duration = Duration::from_millis(10);
 
 #[derive(Debug, Clone)]
@@ -39,7 +41,7 @@ pub fn measure(cli: &Path, home: &Path, args: &[OsString], out: &Path) -> io::Re
     let cli = cli.canonicalize()?;
     let started = Instant::now();
     let child = Command::new(cli)
-        .env_clear()
+        .clear_env()
         .env("HOME", home)
         .env("PATH", "")
         .env("NO_COLOR", "1")

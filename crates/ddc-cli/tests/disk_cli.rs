@@ -12,6 +12,7 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use ddc_core::disk::{DiskReport, HomeSource};
+use ddc_loadgen::isolate::ClearEnv as _;
 
 struct Fx {
     _tmp: tempfile::TempDir,
@@ -44,7 +45,7 @@ impl Fx {
 
     fn ddc(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"));
-        cmd.env_clear()
+        cmd.clear_env()
             .env("HOME", self.root.join("home"))
             .env("PATH", "")
             .env("NO_COLOR", "1")

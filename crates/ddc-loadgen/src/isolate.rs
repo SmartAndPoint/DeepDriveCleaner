@@ -10,11 +10,35 @@ use std::fs;
 use std::io;
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Component, Path, PathBuf};
+use std::process::Command;
 
 use ddc_core::exec::preflight::PreflightSummary;
 use ddc_core::sys::procs;
 
 use crate::target::{self, Layout};
+
+/// [`Command::env_clear`] that keeps where an instrumented build writes its
+/// coverage profile (`make coverage`, story "Coverage floor and property tests
+/// for the safety invariants"). The profile is a file under `target/`, so the
+/// run still reads nothing of the owner's; without it the child writes no
+/// profile and its code counts as never run. Every test and measured run
+/// clears the environment through this (`clippy.toml`).
+pub trait ClearEnv {
+    fn clear_env(&mut self) -> &mut Self;
+}
+
+impl ClearEnv for Command {
+    #[allow(clippy::disallowed_methods)] // the one clear, and the profile's path, not the user's environment
+    fn clear_env(&mut self) -> &mut Self {
+        self.env_clear();
+        if let Some(profile) = std::env::var_os(PROFILE_FILE) {
+            self.env(PROFILE_FILE, profile);
+        }
+        self
+    }
+}
+
+const PROFILE_FILE: &str = "LLVM_PROFILE_FILE";
 
 /// A file's identity: device and inode.
 pub type FileId = (u64, u64);

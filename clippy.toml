@@ -7,4 +7,5 @@ disallowed-methods = [
   { path = "std::fs::remove_dir_all", reason = "deletion goes through the executor (exec::delete)" },
   { path = "std::fs::remove_dir", reason = "deletion goes through the executor (exec::delete)" },
   { path = "std::fs::remove_file", reason = "deletion goes through the executor (exec::delete)" },
+  { path = "std::process::Command::env_clear", reason = "clear through ddc_loadgen::isolate::ClearEnv, which keeps the coverage profile" },
 ]

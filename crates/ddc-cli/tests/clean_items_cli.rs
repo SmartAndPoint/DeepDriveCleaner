@@ -18,6 +18,7 @@ use ddc_core::exec::Outcome;
 use ddc_core::exec::SkipReason;
 use ddc_core::exec::report::CleanReport;
 use ddc_core::progress::ProgressLine;
+use ddc_loadgen::isolate::ClearEnv as _;
 
 struct Fx {
     _tmp: tempfile::TempDir,
@@ -56,7 +57,7 @@ impl Fx {
     /// `ddc` with this HOME and data directory; `PATH` holds only the fake tools.
     fn ddc(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"));
-        cmd.env_clear()
+        cmd.clear_env()
             .env("HOME", &self.home)
             .env("PATH", self.root.join("bin"))
             .env("NO_COLOR", "1")
@@ -407,7 +408,7 @@ fn ctrl_c_in_a_terminal_reaches_the_tool_and_stops_the_clean_after_it() {
     // A pseudo-terminal: `script` runs ddc as its foreground process group.
     // Its stdin stays an open pipe (end of file would reach ddc as end of input).
     let mut script = Command::new("/usr/bin/script");
-    script.env_clear();
+    script.clear_env();
     for (k, v) in ddc.get_envs() {
         script.env(k, v.unwrap());
     }

@@ -14,6 +14,7 @@ use std::time::SystemTime;
 use ddc_core::env::Env;
 use ddc_core::free::{ActionResult, FreeReport, Refusal, ReportEdit};
 use ddc_core::store::{self, LockMode};
+use ddc_loadgen::isolate::ClearEnv as _;
 
 const SIMCTL: &str = "Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/Resources/bin/simctl";
 const ASSET: &str = "sys/System/Library/AssetsV2/com_apple_MobileAsset_iOSSimulatorRuntime/a.asset";
@@ -87,7 +88,7 @@ esac"#
 
     fn ddc(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"));
-        cmd.env_clear()
+        cmd.clear_env()
             .env("HOME", self.root.join("home"))
             .env("PATH", "")
             .env("NO_COLOR", "1")
@@ -243,7 +244,7 @@ fn after_brew_cleanup_the_last_scan_is_measured_again() {
     assert!(disk.status.success());
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"));
     let scanned = cmd
-        .env_clear()
+        .clear_env()
         .env("HOME", fx.root.join("home"))
         .env("PATH", "")
         .args(["scan", "--json", "--data-dir"])

@@ -3,6 +3,7 @@
 //! terminal, and nothing that reads its output (the app, launchd, a pipe, a
 //! file) ever sees it.
 
+use ddc_loadgen::isolate::ClearEnv as _;
 use std::fs;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
@@ -52,7 +53,7 @@ impl Fx {
     fn in_terminal(&self, args: &[&str], color: bool) -> (String, Vec<u8>) {
         let stdout = self.tmp.path().join("stdout");
         let mut child = Command::new("/usr/bin/script")
-            .env_clear()
+            .clear_env()
             .envs(self.env(color))
             .args(["-q", "/dev/null", "/bin/sh", "-c", r#"out=$1; shift; exec "$@" >"$out""#, "sh"])
             .arg(&stdout)
@@ -82,7 +83,7 @@ impl Fx {
 
     fn command(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(BIN);
-        cmd.env_clear().envs(self.env(false)).args(args).stdin(Stdio::null());
+        cmd.clear_env().envs(self.env(false)).args(args).stdin(Stdio::null());
         cmd
     }
 

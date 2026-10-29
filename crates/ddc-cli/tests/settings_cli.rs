@@ -2,6 +2,7 @@
 //! "CLI: shared settings, types and the notify decision"). Every clean here
 //! deletes `safe` items only; nothing goes to the real Trash.
 
+use ddc_loadgen::isolate::ClearEnv as _;
 use std::fs;
 use std::io::{Read as _, Write as _};
 use std::path::PathBuf;
@@ -47,7 +48,7 @@ impl Fx {
 
     fn ddc(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"));
-        cmd.env_clear()
+        cmd.clear_env()
             .env("HOME", &self.home)
             .env("PATH", "")
             .env("NO_COLOR", "1")
@@ -72,7 +73,7 @@ impl Fx {
     fn in_terminal(&self, args: &[&str], answer: &str) -> String {
         let ddc = self.ddc(args);
         let mut script = Command::new("/usr/bin/script");
-        script.env_clear();
+        script.clear_env();
         for (k, v) in ddc.get_envs() {
             script.env(k, v.unwrap());
         }

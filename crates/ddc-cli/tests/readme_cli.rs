@@ -2,6 +2,7 @@
 //! "Distribution: the 0.2.0 cask with the app"): every visible command and
 //! option is in the guide, and the guide names no option that does not exist.
 
+use ddc_loadgen::isolate::ClearEnv as _;
 use std::path::Path;
 use std::process::Command;
 
@@ -40,7 +41,7 @@ struct Help {
 
 fn help(path: &[&str]) -> Help {
     let out =
-        Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner")).env_clear().args(path).arg("--help").output().unwrap();
+        Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner")).clear_env().args(path).arg("--help").output().unwrap();
     assert!(out.status.success(), "{path:?}: {}", String::from_utf8_lossy(&out.stderr));
     let text = String::from_utf8(out.stdout).unwrap();
     let mut h = Help { commands: Vec::new(), options: Vec::new(), values: Vec::new() };
