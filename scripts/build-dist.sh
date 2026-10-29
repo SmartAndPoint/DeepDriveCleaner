@@ -41,6 +41,8 @@ VERSION="$("$CARGO" pkgid -p ddc-cli | sed 's/.*[#@]//')"
 # spent a notarization round: refuse before it.
 APP_VERSION="$(sed -n 's/^[[:space:]]*MARKETING_VERSION = \(.*\);$/\1/p' app/DeepDriveCleaner.xcodeproj/project.pbxproj | sort -u)"
 [ "$APP_VERSION" = "$VERSION" ] || fail "the app's MARKETING_VERSION ($APP_VERSION) is not the CLI's version ($VERSION)"
+# So is a build number that does not grow past the last release's: Sparkle compares it.
+"$ROOT/scripts/check-build-number.sh"
 ASSET="deepdrivecleaner-$VERSION-$TARGET.tar.gz"
 
 step "Building $VERSION for $TARGET"

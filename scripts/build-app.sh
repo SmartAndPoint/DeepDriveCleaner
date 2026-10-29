@@ -51,6 +51,8 @@ if [ "$DIST" = 1 ]; then
     # BUILD_COMMIT against HEAD for both.
     [ "$(cat dist/BUILD_COMMIT 2>/dev/null || true)" = "$(git rev-parse HEAD)" ] \
         || fail "dist/BUILD_COMMIT is not HEAD: run scripts/build-dist.sh first (make dist runs both)"
+    # Sparkle offers only a build whose CFBundleVersion grows.
+    "$ROOT/scripts/check-build-number.sh"
 fi
 
 # Signs one piece of code and checks it carries the identifier and the team.
@@ -150,8 +152,12 @@ ASSESSMENT="$(spctl --assess --type execute --verbose=2 "$APP" 2>&1)" || { echo 
 grep -q "source=Notarized Developer ID" <<<"$ASSESSMENT" || fail "Gatekeeper does not accept the app as Notarized Developer ID"
 
 step "Packing $(basename "$ZIP")"
-# Zipped after stapling, so the ticket travels with the app.
-ditto -c -k --keepParent "$APP" "$ZIP"
+# Zipped after stapling, so the ticket travels with the app. The zip is Sparkle's
+# enclosure too: --sequesterRsrc, as Sparkle advises, would keep a resource fork in
+# __MACOSX/, which the app, stripped by `xattr -cr`, should never have.
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+ZIP_LISTING="$(unzip -Z1 "$ZIP")" || fail "cannot list $(basename "$ZIP")"
+if grep -q '^__MACOSX/' <<<"$ZIP_LISTING"; then fail "the zip holds __MACOSX/: the app carries extended attributes"; fi
 shasum -a 256 "$ZIP" | awk '{print $1}' > "$ZIP.sha256"
 
 printf '\033[0;32m✅ %s\033[0m\n' "$ZIP"
