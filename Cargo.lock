@@ -285,6 +285,7 @@ dependencies = [
  "clap",
  "ddc-core",
  "libc",
+ "proptest",
  "rustix",
  "serde",
  "serde_json",

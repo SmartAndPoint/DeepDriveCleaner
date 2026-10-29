@@ -106,6 +106,20 @@ pub fn scan_with_entries(
     scan_inner(env, opts, progress, statfs, None, None).map(|s| (s.report, s.index))
 }
 
+/// [`scan_with`] listing every directory through `reader` instead of the one
+/// `opts.walk` names: a test lists each directory in another order and
+/// expects the same report (story "Coverage floor and property tests for the
+/// safety invariants").
+pub fn scan_with_reader(
+    env: &Env,
+    opts: &ScanOptions,
+    progress: &Progress,
+    statfs: &dyn StatFs,
+    reader: &dyn DirReader,
+) -> Result<ScanReport, ScanError> {
+    scan_inner(env, opts, progress, statfs, Some(reader), None).map(|s| s.report)
+}
+
 /// A scan with what the clean's re-check needs besides the report.
 pub(crate) struct Scanned {
     pub(crate) report: ScanReport,
