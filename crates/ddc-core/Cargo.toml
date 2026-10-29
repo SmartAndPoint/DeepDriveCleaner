@@ -30,6 +30,7 @@ op-stats = []
 dhat-heap = ["dep:dhat"]
 
 [dev-dependencies]
+proptest.workspace = true
 schemars.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
