@@ -58,10 +58,15 @@ impl Counter {
         match self {
             Counter::DirEntriesRead => (Bound::Linear, "each directory is listed once per walk"),
             Counter::ClaimLookups => (Bound::Linear, "one set lookup per claim, not a scan of the findings"),
-            Counter::RuleMatchAttempts => (Bound::Linear, "the matchers of one catalog per directory read"),
+            Counter::RuleMatchAttempts => (
+                Bound::Linear,
+                "the matchers of one catalog per directory read; their child lookups scan a listing already counted in dir_entries_read",
+            ),
             Counter::AncestorChecks => (Bound::Linear, "ancestors to the scan root, a bounded depth per finding"),
             Counter::Allocations => (Bound::Linear, "a bounded number of buffers per entry"),
-            Counter::BytesAllocated => (Bound::Linear, "a bounded number of bytes per entry"),
+            Counter::BytesAllocated => {
+                (Bound::Linear, "a bounded number of bytes per entry; a realloc counts its whole new size")
+            }
         }
     }
 }

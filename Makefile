@@ -77,7 +77,8 @@ msrv:
 # marker symbol is absent.
 release-check:
 	$(CARGO) build --workspace --release --locked
-	@if nm target/release/deepdrivecleaner | grep -q DDC_OP_STATS; then \
+	@nm target/release/deepdrivecleaner > target/release/deepdrivecleaner.symbols
+	@if grep DDC_OP_STATS target/release/deepdrivecleaner.symbols >/dev/null; then \
 	  echo "release-check: the release CLI carries the op-stats counters" >&2; exit 1; fi
 
 # Golden outputs of the S load trees (bench/golden/, story "Synthetic load trees:

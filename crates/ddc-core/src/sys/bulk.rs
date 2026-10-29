@@ -160,6 +160,7 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, want_private: bool, times: bool)
             }
         }
     })?;
+    // Counted once the listing is whole; a listing that fails part-way counts nothing.
     crate::stats::add(crate::stats::Counter::DirEntriesRead, entries.len() as u64);
     Ok(DirListing { dev, ino, entries })
 }

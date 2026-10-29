@@ -82,6 +82,9 @@ step "Building the CLI $VERSION for $TARGET"
 RUSTFLAGS="--remap-path-prefix=$HOME=~" "$CARGO" build --release --locked --target "$TARGET" -p ddc-cli
 CLI="$ROOT/target/$TARGET/release/deepdrivecleaner"
 [ "$(lipo -archs "$CLI")" = "arm64" ] || fail "not an arm64-only CLI: $(lipo -archs "$CLI")"
+# The cost counters of the complexity guard never ship (ddc-core feature op-stats).
+SYMBOLS="$(nm "$CLI")"
+if grep DDC_OP_STATS <<<"$SYMBOLS" >/dev/null; then fail "the CLI carries the op-stats counters"; fi
 [ "$("$CLI" --version)" = "deepdrivecleaner $VERSION" ] || fail "the CLI reports '$("$CLI" --version)'"
 
 step "Building the app $APP_VERSION ($CONFIG)"

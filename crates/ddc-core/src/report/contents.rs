@@ -101,8 +101,11 @@ pub(crate) fn attach(findings: &mut [Finding], walked: &[OwnerEntries], cx: &Con
     for folder in findings.iter_mut().filter(|f| ENTRY_RULES.contains(&f.rule.as_str())) {
         let Some(children) = walked.iter().find(|w| w.owner == folder.path) else { continue };
         // Only the findings inside this folder can be at or in one of its entries.
-        let others: Vec<(PathBuf, bool)> =
-            others.iter().filter(|(p, _)| p != &folder.path && p.starts_with(&folder.path)).cloned().collect();
+        let others: Vec<(PathBuf, bool)> = others
+            .iter()
+            .filter(|(p, _)| stats::counted(Counter::ClaimLookups, || p != &folder.path && p.starts_with(&folder.path)))
+            .cloned()
+            .collect();
         let mut indexed = HashMap::with_capacity(children.entries.len());
         let mut listable = Vec::new();
         let (mut rest_count, mut rest_bytes) = (0u64, 0u64);
@@ -167,10 +170,10 @@ fn state_of(
     if child.flags & SF_DATALESS != 0 {
         return EntryState::NotAnEntry(NotAnEntry::Dataless);
     }
-    if others.iter().any(|(p, _)| p == path) {
+    if others.iter().any(|(p, _)| stats::counted(Counter::ClaimLookups, || p == path)) {
         return EntryState::NotAnEntry(NotAnEntry::Finding);
     }
-    let kept = others.iter().any(|(p, kept)| *kept && stats::counted(Counter::AncestorChecks, || p.starts_with(path)))
+    let kept = others.iter().any(|(p, kept)| stats::counted(Counter::AncestorChecks, || *kept && p.starts_with(path)))
         || cx.markers.iter().any(|m| stats::counted(Counter::AncestorChecks, || m.starts_with(path)))
         || cx.excludes.iter().any(|e| stats::counted(Counter::AncestorChecks, || e.starts_with(path)));
     let facts = EntryFacts {
@@ -208,7 +211,10 @@ fn listed(path: PathBuf, child: &EntryResult, e: IndexedEntry, rule: &str, other
             _ => None,
         },
         incomplete: e.incomplete,
-        findings: others.iter().filter(|(p, _)| p != &path && p.starts_with(&path)).count() as u64,
+        findings: others
+            .iter()
+            .filter(|(p, _)| stats::counted(Counter::ClaimLookups, || p != &path && p.starts_with(&path)))
+            .count() as u64,
         git: is_dir && fs::symlink_metadata(path.join(".git")).is_ok(),
         backup: backup.filter(|b| b.device_name.is_some() || b.last_backup.is_some()),
         path,
