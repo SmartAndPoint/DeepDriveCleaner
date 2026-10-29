@@ -33,6 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var agent: SchedulerAgent?
     /// The launch's heal; a `--scheduled` instance quits only after it.
     private var healing: Task<Void, Never>?
+    /// The runner every model shares; nil when the embedded CLI is missing.
+    private var activity: RunnerActivity?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Before launch ends, so a notification response that launched the app arrives.
@@ -43,13 +45,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidFinishLaunching(_ notification: Notification) {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         AppLog.write("launch \(version ?? "?") \(Bundle.main.bundlePath) arguments: \(CommandLine.arguments.dropFirst())")
-        var runner: CLIRunner?
+        // Every model gets the one runner through `RunnerActivity`, so the
+        // updater can ask, at once, whether a run is in flight.
+        var runner: RunnerActivity?
         do {
             let cli = try HelperLocator.cli(bundleURL: Bundle.main.bundleURL, mainExecutable: Bundle.main.executableURL)
-            runner = CLIRunner(executable: cli)
+            runner = RunnerActivity(CLIRunner(executable: cli))
         } catch {
             AppLog.write("the embedded CLI is unavailable: \(error)")
         }
+        activity = runner
         let data = DataDirectory.current()
         let preferences = AppPreferences()
         // The window opens on what the popover shows, and its clean turns the
