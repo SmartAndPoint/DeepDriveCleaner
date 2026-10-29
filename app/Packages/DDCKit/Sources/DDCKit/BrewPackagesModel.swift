@@ -78,16 +78,29 @@ public final class BrewPackagesModel {
     /// After the sheet's dry run or run of a Homebrew offer ends: lists
     /// again unless the dry run found nothing changed. After a `freed`
     /// uninstall of a formula, offers what it alone needed that the fresh
-    /// listing finds needed by nothing; after anything else, no orphans step.
+    /// listing finds needed by nothing. After an orphans run that did not
+    /// free them all, offers again those the fresh listing still finds
+    /// needed by nothing; brew stops at the first it cannot remove.
     func actionEnded(_ offer: AreaActions.Offer, _ action: FreeReport.ActionReport?, dryRun: Bool) async {
         guard isOpen, offer.action == .brewUninstall || offer.action == .brewUninstallOrphans else { return }
         if dryRun, action?.result == .wouldRun { return }
         let before = listing?.formulae.first { $0.fullName == offer.identifier }
         if !dryRun || offer.action == .brewUninstallOrphans { orphans = nil }
         await list()
-        guard !dryRun, offer.action == .brewUninstall, action?.result == .freed, let before, let fresh = listing else { return }
+        guard let fresh = listing, fresh.incomplete.isEmpty, fresh.services != .unreadable else { return }
+        if offer.action == .brewUninstallOrphans {
+            guard action?.result != .freed else { return }
+            let names = (offer.names ?? []).filter(fresh.orphans.contains)
+            guard !names.isEmpty else { return }
+            let sizes = names.map { name in fresh.formulae.first { $0.fullName == name }?.bytes }
+            let bytes = names == offer.names ? offer.bytes : sizes.contains(nil) ? nil : sizes.reduce(UInt64(0)) { $0 + ($1 ?? 0) }
+            orphans = AreaActions.Offer(action: .brewUninstallOrphans, identifier: nil, name: offer.name, bytes: bytes, names: names)
+            log("brew packages: \(names.count) still needed by nothing")
+            return
+        }
+        guard !dryRun, action?.result == .freed, let before else { return }
         let names = before.wouldOrphan.filter(fresh.orphans.contains)
-        guard !names.isEmpty, fresh.incomplete.isEmpty, fresh.services != .unreadable else { return }
+        guard !names.isEmpty else { return }
         let sizes = names.map { name in before.dependencies.first { $0.fullName == name }?.bytes }
         let bytes = sizes.contains(nil) ? nil : sizes.reduce(UInt64(0)) { $0 + ($1 ?? 0) }
         orphans = AreaActions.Offer(

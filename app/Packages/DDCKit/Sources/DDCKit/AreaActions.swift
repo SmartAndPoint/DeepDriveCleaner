@@ -74,9 +74,9 @@ public enum AreaActions {
             case .condaClean:
                 "conda clean removes the packages no environment uses, downloaded package archives, the index cache and logs from \(name)/pkgs, with the install's own conda. They do not go to the Trash. Packages your environments use stay, so less may be freed than the folder's size."
             case .brewUninstall:
-                "brew uninstall removes every installed version of \(name) from /opt/homebrew/Cellar. It does not go to the Trash; brew install brings it back. Its configuration and data files stay where they are. Right before it runs, DeepDriveCleaner asks Homebrew again, and nothing runs if anything changed."
+                "brew uninstall removes every installed version of \(name) from /opt/homebrew/Cellar. It does not go to the Trash; brew install brings it back. Its configuration and data files stay where they are. Homebrew cannot know about programs outside it that use it, such as a virtualenv linked against Homebrew's openssl. Right before it runs, DeepDriveCleaner asks Homebrew again, and nothing runs if anything changed."
             case .brewUninstallOrphans:
-                "brew uninstall removes \(BrewWording.dependents(formulae: names ?? [], casks: [])), which nothing installed needs now. They do not go to the Trash; brew install brings any of them back. Right before it runs, DeepDriveCleaner asks Homebrew again, and nothing runs if anything changed."
+                "brew uninstall removes \(BrewWording.dependents(formulae: names ?? [], casks: [])), which nothing installed needs now. They do not go to the Trash; brew install brings any of them back. brew removes them one by one and stops at the first it cannot remove; the ones before it are already gone. Unlike brew autoremove, this counts a formula installed before Homebrew recorded what was asked for as installed as a dependency, and includes formulae built from source. Right before it runs, DeepDriveCleaner asks Homebrew again, and nothing runs if anything changed."
             }
         }
 

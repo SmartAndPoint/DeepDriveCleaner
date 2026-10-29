@@ -470,4 +470,28 @@ struct DiskFreeTests {
         #expect(m.freeSheet == nil)
         #expect(!(try fake.runs().contains { $0.event == "start" && !$0.args.contains("--dry-run") }))
     }
+
+    @Test("Escape closes the sheet at once and stops its dry run; not during a run")
+    func dismissDuringPreview() async throws {
+        try fake.put("free-preview.gated", Data())
+        let m = model()
+        let preview = Task { await m.previewAction(Self.brew) }
+        try await until { (try? fake.runs().contains { $0.event == "start" }) == true }
+        m.dismissFree()
+        #expect(m.freeSheet == nil, "closed before anything is awaited")
+        await preview.value
+        #expect(m.freeSheet == nil)
+        #expect(!(try fake.runs().contains { $0.event == "start" && !$0.args.contains("--dry-run") }))
+
+        try fake.open("free-preview-go")
+        await m.previewAction(Self.brew)
+        let run = Task { await m.freeConfirmedActions() }
+        try await until { (try? fake.runs().filter { $0.event == "start" }.count) == 3 }
+        m.dismissFree()
+        #expect(m.freeRunning, "a run keeps its sheet")
+        try fake.open("free-go")
+        await run.value
+        m.dismissFree()
+        #expect(m.freeSheet == nil)
+    }
 }

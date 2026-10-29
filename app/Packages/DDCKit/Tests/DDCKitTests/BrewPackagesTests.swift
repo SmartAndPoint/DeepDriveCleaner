@@ -61,6 +61,7 @@ struct BrewPackagesTests {
         ])
         #expect(offers[0]?.buttonTitle == "Uninstall…" && offers[0]?.question == "Uninstall node?")
         #expect(offers[0]?.previewingText == "Checking with Homebrew…")
+        #expect(offers[0]?.consequence.contains("such as a virtualenv linked against Homebrew's openssl") == true)
         #expect(read.formulae.map(BrewWording.notOffered) == [
             nil, nil,
             "Needed by node, wget and the cask example-app.",
@@ -121,6 +122,9 @@ struct BrewPackagesTests {
         #expect(orphans.fullListed == #"{"action":"brew-uninstall-orphans","names":["libidn2"]}"#)
         #expect(orphans.bytes == 1_048_576 && orphans.buttonTitle == "Uninstall Unneeded…")
         #expect(orphans.consequence.hasPrefix("brew uninstall removes libidn2, which nothing installed needs now."))
+        #expect(orphans.consequence.contains("stops at the first it cannot remove; the ones before it are already gone"))
+        #expect(orphans.consequence.contains("Unlike brew autoremove"))
+        #expect(orphans.consequence.contains("includes formulae built from source"))
 
         // The orphans' own run offers no further step.
         await model.actionEnded(orphans, try report(["action": "brew-uninstall-orphans", "result": ["status": "freed"]]), dryRun: false)
@@ -141,6 +145,43 @@ struct BrewPackagesTests {
         // Nor is it by any other offer.
         await model.open()
         await model.actionEnded(AreaActions.Offer(action: .brewCleanup, identifier: nil, name: "Homebrew", bytes: 1), freed, dryRun: false)
+        #expect(await runner.count(.brewPackages) == 6)
+    }
+
+    @Test("an orphans run that stopped offers again what is still needed by nothing")
+    func orphansAgain() async throws {
+        let runner = await runner(try listing { $0["orphans"] = ["libidn2", "libunistring"] })
+        let model = BrewPackagesModel(runner: runner, log: { _ in })
+        await model.open()
+        let both = AreaActions.Offer(
+            action: .brewUninstallOrphans, identifier: nil, name: "what wget needed", bytes: 6_291_456,
+            names: ["libidn2", "libunistring"]
+        )
+
+        // Stopped before brew ran: both still needed by nothing, offered as before.
+        await model.actionEnded(both, try report(["action": "brew-uninstall-orphans", "result": ["status": "not-run"]]), dryRun: false)
+        #expect(await runner.count(.brewPackages) == 2)
+        #expect(model.orphans == both)
+
+        // brew removed libidn2 and stopped at libunistring: only it is offered again.
+        await runner.reply(.brewPackages, FakeRunner.done(try listing { $0["orphans"] = ["libunistring", "unrelated"] }))
+        let failed = try report(["action": "brew-uninstall-orphans", "result": ["status": "failed", "needs_admin": false]])
+        await model.actionEnded(both, failed, dryRun: false)
+        let rest = try #require(model.orphans)
+        #expect(rest.fullListed == #"{"action":"brew-uninstall-orphans","names":["libunistring"]}"#)
+        #expect(rest.name == "what wget needed" && rest.bytes == nil, "not listed as a formula: not measured")
+
+        // A refused dry run and a run with no report offer the rest again too.
+        let refused = try report(["action": "brew-uninstall-orphans", "result": ["status": "refused", "reason": "brew-needed"]])
+        await model.actionEnded(rest, refused, dryRun: true)
+        #expect(model.orphans == rest)
+        await model.actionEnded(rest, nil, dryRun: false)
+        #expect(model.orphans == rest)
+
+        // Something came to need it: nothing is offered.
+        await runner.reply(.brewPackages, FakeRunner.done(try listing { $0["orphans"] = ["unrelated"] }))
+        await model.actionEnded(rest, failed, dryRun: false)
+        #expect(model.orphans == nil)
         #expect(await runner.count(.brewPackages) == 6)
     }
 

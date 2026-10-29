@@ -69,6 +69,16 @@ extension DiskModel {
         freeSheet = nil
     }
 
+    /// The sheet's own dismissal (Escape): closes it at once, as the
+    /// presentation expects, and stops a dry run still going after. A run
+    /// is not: nothing changes until it ends.
+    public func dismissFree() {
+        guard !freeRunning else { return }
+        let ticket = freeSheet?.stage == .previewing ? freeTicket : nil
+        freeSheet = nil
+        if let ticket, let runner { Task { await runner.cancel(ticket) } }
+    }
+
     private enum Ran {
         case report(FreeReport, FreeReport.ActionReport)
         case failed(String)

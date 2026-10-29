@@ -29,13 +29,16 @@ struct DiskView: View {
         .task { await model.load() }
         .task { await agents.refresh() }
         // One sheet: an area action over the packages sheet replaces it,
-        // and the packages show again when the action's sheet closes.
+        // and the packages show again when the action's sheet closes. Its
+        // own buttons close the action; Escape does not over the packages,
+        // which would close the one sheet with the packages still open, nor
+        // during a run. Otherwise a dismissal clears what it showed at once.
         .sheet(isPresented: Binding(
             get: { model.freeSheet != nil || model.brewPackages.isOpen },
             set: { shown in
                 guard !shown else { return }
                 if model.freeSheet != nil {
-                    Task { await model.closeFree() }
+                    model.dismissFree()
                 } else {
                     model.brewPackages.close()
                 }
@@ -43,6 +46,7 @@ struct DiskView: View {
         )) {
             if model.freeSheet != nil {
                 AreaActionSheet(model: model)
+                    .interactiveDismissDisabled(model.freeRunning || model.brewPackages.isOpen)
             } else {
                 BrewPackagesSheet(model: model)
             }
