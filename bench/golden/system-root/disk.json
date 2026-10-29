@@ -95,10 +95,10 @@
       "unreadable": 0
     },
     {
-      "bytes": 6488064,
-      "dirs": 2369,
+      "bytes": 6369280,
+      "dirs": 2350,
       "explanation": "Home folders of the other users of this Mac. Folders you cannot read are not counted.",
-      "files": 1933,
+      "files": 1910,
       "frees": "Each user cleans their own home folder.",
       "id": "users",
       "partial": false,
@@ -260,7 +260,7 @@
   },
   "not_counted": {
     "bytes": null,
-    "counted_bytes": 19619840,
+    "counted_bytes": 19501056,
     "data_volume_bytes": null,
     "holds": [
       {
@@ -278,8 +278,8 @@
   "schema_version": 1,
   "snapshots": {},
   "walk": {
-    "bytes": 19619840,
-    "dirs": 3535,
-    "files": 5844
+    "bytes": 19501056,
+    "dirs": 3516,
+    "files": 5821
   }
 }

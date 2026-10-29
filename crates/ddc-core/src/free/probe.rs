@@ -4,10 +4,10 @@
 //! area through `/System/Volumes/Data`, the tools through the firmlink.
 
 use std::collections::BTreeMap;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 
 use super::model::Refusal;
+use crate::conda::same_folder;
 use crate::disk::Sources;
 use crate::disk::simulators::{RawDevice, RawRuntime};
 use crate::exec::CommandRunner;
@@ -113,14 +113,6 @@ pub(crate) fn brew(
         return Err(Refusal::CacheMismatch);
     }
     Ok(BrewTarget { exe, cellar, cache: ours })
-}
-
-/// Both are folders and the same one, by `(dev, ino)`.
-fn same_folder(a: &Path, b: &Path) -> bool {
-    match (std::fs::metadata(a), std::fs::metadata(b)) {
-        (Ok(a), Ok(b)) => a.is_dir() && b.is_dir() && a.dev() == b.dev() && a.ino() == b.ino(),
-        _ => false,
-    }
 }
 
 #[cfg(test)]

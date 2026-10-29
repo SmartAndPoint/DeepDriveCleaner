@@ -34,9 +34,11 @@ pub fn place(rule: &Rule) -> Place {
         | Matcher::CmakeBuild
         | Matcher::NameContains(_)
         | Matcher::CacheDirTag => Place::Project,
-        Matcher::KnownPaths(_) | Matcher::KnownRegion(_) | Matcher::KnownChildren(_) | Matcher::NoTraverse(_) => {
-            Place::Home
-        }
+        Matcher::KnownPaths(_)
+        | Matcher::KnownRegion(_)
+        | Matcher::KnownChildren(_)
+        | Matcher::NoTraverse(_)
+        | Matcher::ChildHolding { .. } => Place::Home,
         Matcher::Synthetic => Place::Synthetic,
         Matcher::NameSuffix(_) | Matcher::Under { .. } => Place::Unlisted,
     };
@@ -140,6 +142,12 @@ pub fn home(d: &mut Desc, home: &[u8], rule: &'static Rule, rng: &mut Rng) {
                 d.text(at(rel), text);
             }
             d.plant(at(&format!("{parent}/{old}")), rule.id);
+        }
+        Matcher::ChildHolding { parents, file } => {
+            let child = at(&format!("{}/old", parents[0]));
+            payload(d, rng, &child, 4);
+            d.text(join(&child, file.as_bytes()), "");
+            d.plant(child, rule.id);
         }
         _ => panic!("rule {} is not anchored at the home folder", rule.id),
     }

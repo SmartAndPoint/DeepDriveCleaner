@@ -53,6 +53,10 @@ pub fn rule_fixture(t: &TreeBuilder, rule: &Rule) -> Option<String> {
                 "macos.app-bundle" => (&[("A.app/Contents/Resources/node_modules/x.js", "")], None),
                 "node.global-packages" => (&[(".npm-global/lib/node_modules/tool/node_modules/y.js", "")], None),
                 "python.venv" => (&[("p/uv.lock", ""), ("p/.venv/pyvenv.cfg", "")], Some("p/.venv")),
+                "python.conda-env" => (
+                    &[("miniconda3/envs/old/conda-meta/history", ""), ("miniconda3/envs/old/bin/python", "")],
+                    Some("miniconda3/envs/old"),
+                ),
                 "python.tox" => (&[("p/tox.ini", ""), ("p/.tox/py/f", "")], Some("p/.tox")),
                 "python.pycache" => (&[("p/__pycache__/m.pyc", "")], Some("p/__pycache__")),
                 "python.tool-cache" => (&[("p/.mypy_cache/f", "")], Some("p/.mypy_cache")),

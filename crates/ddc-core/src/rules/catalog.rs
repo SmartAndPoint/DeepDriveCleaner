@@ -5,7 +5,9 @@
 use super::{Clones, Matcher, Rule, Scope, TOMBSTONE};
 use crate::class::Category::*;
 use crate::class::RiskClass::*;
-use crate::class::{Fallback, LocationCompare, LocationProbe, NativeCommand, ReadyProbe, Removal};
+use crate::class::{
+    CondaFolder, Fallback, Location, LocationCompare, LocationProbe, NativeCommand, ReadyProbe, Removal,
+};
 
 const PY_LOCKS: &[&str] = &["uv.lock", "poetry.lock", "Pipfile.lock", "requirements*.txt"];
 const JS_LOCKS: &[&str] = &["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"];
@@ -58,7 +60,7 @@ const fn name(names: &'static [&'static str], siblings: &'static [&'static str])
 const fn native(
     program: &'static str,
     args: &'static [&'static str],
-    probe: Option<LocationProbe>,
+    probe: Option<Location>,
     fallback: Fallback,
 ) -> Removal {
     native_env(program, args, probe, fallback, &[])
@@ -68,20 +70,34 @@ const fn native(
 const fn native_env(
     program: &'static str,
     args: &'static [&'static str],
-    probe: Option<LocationProbe>,
+    probe: Option<Location>,
     fallback: Fallback,
     env: &'static [(&'static str, &'static str)],
 ) -> Removal {
     Removal::Native { cmd: NativeCommand { program, args, location: probe, ready: None, env }, fallback }
 }
 
-const fn probe(
-    program: &'static str,
-    args: &'static [&'static str],
-    compare: LocationCompare,
-) -> Option<LocationProbe> {
-    Some(LocationProbe { program, args, compare })
+const fn probe(program: &'static str, args: &'static [&'static str], compare: LocationCompare) -> Option<Location> {
+    Some(Location::Probe(LocationProbe { program, args, compare }))
 }
+
+/// A command of the conda install that claims the finding (safety ADR,
+/// amendment of 2026-10-29), never of a `conda` on the tool path.
+const fn conda(
+    args: &'static [&'static str],
+    folder: CondaFolder,
+    fallback: Fallback,
+    env: &'static [(&'static str, &'static str)],
+) -> Removal {
+    Removal::Native {
+        cmd: NativeCommand { program: "conda", args, location: Some(Location::Conda(folder)), ready: None, env },
+        fallback,
+    }
+}
+
+/// What the confirmation says of a conda package cache.
+pub const CONDA_CACHE_HINT: &str =
+    "Removes unused packages only: packages environments use stay, so less may be freed than the folder's size";
 
 /// Why Docker Desktop is not ready when it does not answer; starting it helps.
 pub const DOCKER_DOWN: &str = "Docker Desktop is not running or not answering";
@@ -156,6 +172,21 @@ pub static RULES: &[Rule] = &[
         clones: Clones::UvVenv,
         hint: "recreate: uv sync / pip install -r requirements.txt",
         ..rule("python.venv", ProjectArtifact, Rebuildable, Removal::Delete, Matcher::ContainsFile("pyvenv.cfg"))
+    },
+    // Never an install's own prefix (the base environment): only a child of
+    // an `envs` folder, and the probe refuses any install's `root_prefix`.
+    Rule {
+        hint: "recreate: conda create, or conda env create from its environment file",
+        ..rule(
+            "python.conda-env",
+            Toolchain,
+            Review,
+            conda(&["env", "remove", "-p", "{path}", "--yes"], CondaFolder::Environment, Fallback::Trash, &[]),
+            Matcher::ChildHolding {
+                parents: &["miniconda3/envs", "anaconda3/envs", "miniforge3/envs", ".conda/envs"],
+                file: "conda-meta/history",
+            },
+        )
     },
     Rule {
         hint: "recreated by tox/nox on the next run",
@@ -264,6 +295,23 @@ pub static RULES: &[Rule] = &[
                 &[("UV_LOCK_TIMEOUT", "10")],
             ),
             Matcher::KnownPaths(&[".cache/uv"]),
+        )
+    },
+    // Only conda cleans it: environments may link to its packages, so it is
+    // never deleted or moved to the Trash without conda.
+    Rule {
+        hint: CONDA_CACHE_HINT,
+        ..rule(
+            "cache.conda",
+            PackageCache,
+            Safe,
+            conda(
+                &crate::conda::CLEAN,
+                CondaFolder::PackageCache,
+                Fallback::Skip,
+                &[(crate::conda::PKGS_DIRS_VAR, "{path}")],
+            ),
+            Matcher::KnownPaths(&["miniconda3/pkgs", "anaconda3/pkgs", "miniforge3/pkgs", ".conda/pkgs"]),
         )
     },
     rule("cache.pip", PackageCache, Safe, Removal::Delete, Matcher::KnownPaths(&["Library/Caches/pip"])),

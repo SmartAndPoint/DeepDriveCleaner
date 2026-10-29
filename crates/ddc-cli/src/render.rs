@@ -65,7 +65,7 @@ pub fn tilde(path: &Path, home: &Path) -> String {
 
 /// `text` with control and bidirectional format characters escaped, as
 /// [`tilde`] shows a path: for text another program wrote.
-fn escaped(text: &str) -> String {
+pub fn escaped(text: &str) -> String {
     text.chars()
         .map(|c| if c.is_control() || bidi(c) { c.escape_default().to_string() } else { c.to_string() })
         .collect()

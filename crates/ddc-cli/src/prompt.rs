@@ -11,7 +11,7 @@ use ddc_core::plan::{Action, Plan, PlanItem};
 use ddc_core::rules::DOCKER_DOWN;
 use ddc_core::rules::entries::EntryLock;
 
-use crate::render::{Style, tilde};
+use crate::render::{Style, escaped, tilde};
 use crate::size::human;
 
 pub enum Decision {
@@ -41,8 +41,18 @@ fn action_text(item: &PlanItem) -> String {
             let otherwise = match fallback {
                 Fallback::Trash => "else → Trash",
                 Fallback::Delete | Fallback::DeleteWritable => "else delete",
+                Fallback::Skip => "else skip",
             };
-            format!("`{} {}` ({otherwise})", cmd.program, cmd.args.join(" "))
+            // The command as it runs for this item: `{path}` never reaches the prompt.
+            let path = item.finding.path.as_path();
+            let words: Vec<String> = cmd
+                .env_for(path)
+                .into_iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .chain(std::iter::once(cmd.program.to_owned()))
+                .chain(cmd.args_for(path))
+                .collect();
+            format!("`{}` ({otherwise})", escaped(&words.join(" ")))
         }
         Action::NativeOnly(cmds) => {
             let commands =

@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -36,6 +36,14 @@ pub struct FakeCommands {
     pub on_call: Option<CallHook>,
     /// The timeout of each call, in the order of `calls`.
     pub timeouts: RefCell<Vec<Duration>>,
+    /// Programs that exist at exactly these absolute paths (each conda
+    /// install's `bin/conda`): `at` finds them by their path, not their name.
+    pub present: HashSet<PathBuf>,
+    /// Answers for one exact call of one absolute path
+    /// (`"/x/bin/conda config --show pkgs_dirs --json"`), before `answers`.
+    pub by_path: HashMap<String, (bool, String)>,
+    /// Each call with its absolute path, in the order of `calls`.
+    pub path_calls: RefCell<Vec<String>>,
 }
 
 impl FakeCommands {
@@ -73,8 +81,22 @@ impl FakeCommands {
         self
     }
 
+    /// A program at `exe` that answers `call` this way; any other call of
+    /// it fails with no output, unless `answers` has it.
+    pub fn at_path(mut self, exe: &Path, call: &str, success: bool, stdout: &str) -> Self {
+        self.present.insert(exe.to_path_buf());
+        self.by_path.insert(format!("{} {call}", exe.display()), (success, stdout.to_owned()));
+        self
+    }
+
     pub fn ran(&self, call: &str) -> bool {
         self.calls.borrow().iter().any(|c| c == call)
+    }
+
+    /// The calls of the program at `exe`, its arguments joined by spaces.
+    pub fn calls_of(&self, exe: &Path) -> Vec<String> {
+        let prefix = format!("{} ", exe.display());
+        self.path_calls.borrow().iter().filter_map(|c| c.strip_prefix(&prefix).map(str::to_owned)).collect()
     }
 }
 
@@ -84,13 +106,18 @@ impl CommandRunner for FakeCommands {
     }
     /// A system tool at an absolute path, known by its file name.
     fn at(&self, exe: &Path) -> Option<PathBuf> {
+        if self.present.contains(exe) {
+            return Some(exe.to_path_buf());
+        }
         let name = exe.file_name()?.to_str()?;
         self.tools.contains_key(name).then(|| exe.to_path_buf())
     }
     fn run(&self, exe: &Path, args: &[String], env: &[(&str, &str)], timeout: Duration) -> io::Result<CmdOutput> {
         let name = exe.file_name().unwrap().to_str().unwrap();
         let call = format!("{name} {}", args.join(" "));
+        let path_call = format!("{} {}", exe.display(), args.join(" "));
         self.calls.borrow_mut().push(call.clone());
+        self.path_calls.borrow_mut().push(path_call.clone());
         self.exes.borrow_mut().push(exe.to_path_buf());
         self.envs.borrow_mut().push(env.iter().map(|(k, v)| format!("{k}={v}")).collect());
         self.timeouts.borrow_mut().push(timeout);
@@ -108,7 +135,15 @@ impl CommandRunner for FakeCommands {
             .borrow_mut()
             .get_mut(&call)
             .and_then(|q| if q.len() > 1 { q.pop_front() } else { q.front().cloned() });
-        let (success, stdout) = queued.unwrap_or_else(|| self.answers.get(&call).unwrap_or(&self.tools[name]).clone());
+        let (success, stdout) = queued.unwrap_or_else(|| {
+            if let Some(answer) = self.by_path.get(&path_call) {
+                return answer.clone();
+            }
+            if self.present.contains(exe) {
+                return self.answers.get(&call).cloned().unwrap_or((false, String::new()));
+            }
+            self.answers.get(&call).unwrap_or(&self.tools[name]).clone()
+        });
         let stderr = self.stderr.get(&call).cloned().unwrap_or_default();
         Ok(CmdOutput { success, code: Some(i32::from(!success)), stdout, stderr })
     }

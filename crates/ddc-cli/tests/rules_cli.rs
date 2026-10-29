@@ -64,6 +64,7 @@ fn rules_json_groups_follow_the_settings_types() {
         [
             "cache.bun",
             "cache.cocoapods",
+            "cache.conda",
             "cache.homebrew",
             "cache.npm",
             "cache.pip",

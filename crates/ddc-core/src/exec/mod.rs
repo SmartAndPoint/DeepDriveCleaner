@@ -30,7 +30,7 @@ pub(crate) use native::tail;
 pub use progress::{CurrentItem, ExecPhase, ExecProgress, ExecSnapshot};
 pub use system::{SystemCommands, SystemProcesses, SystemTrash};
 
-use crate::class::{Fallback, Removal, RiskClass};
+use crate::class::{CondaFolder, Fallback, Location, Removal, RiskClass};
 use crate::env::Env;
 use crate::plan::{Action, Plan, PlanItem};
 use crate::rules::entries::{ENTRY_RULES, EntryLock};
@@ -280,6 +280,8 @@ pub fn execute(
     let mut report = ExecReport { local_snapshots: snapshots, ..ExecReport::default() };
     let markers = keep_markers(chosen.iter().map(|i| i.finding.path.clone()).collect(), opts, progress.walk());
     let guard = guard::Guard::new(env, catalog, &plan.roots, markers, ports.procs);
+    // Each conda install is asked for its folders once per clean.
+    let installs = crate::conda::Installs::new(ports.commands, crate::conda::candidates(env.home(), env.system_root()));
     // Entries that went to the Trash: what lies inside them went with them.
     let mut trashed: Vec<PathBuf> = Vec::new();
     // Before the phase flips, so no item counter reaches stderr ahead of it.
@@ -304,7 +306,7 @@ pub fn execute(
             } else {
                 match guard.check(item) {
                     Err(reason) => Outcome::Skipped(reason),
-                    Ok(verified) => act(item, &verified, &guard, &ports, opts, progress),
+                    Ok(verified) => act(item, &verified, &guard, &ports, &installs, opts, progress),
                 }
             }
         };
@@ -391,12 +393,13 @@ fn act(
     v: &guard::Verified,
     guard: &guard::Guard<'_>,
     ports: &Ports<'_>,
+    installs: &crate::conda::Installs<'_>,
     opts: &ExecOptions<'_>,
     progress: &ExecProgress,
 ) -> Outcome {
     let path = item.finding.path.as_path();
     // Anything slow (a probe subprocess) may have run: re-check before acting.
-    let fallback = |fb: Fallback| {
+    let fallback = |fb: Fallback, program: &str| {
         // A probe killed by a forwarded signal fails like a location mismatch:
         // a cancel must stop here, never turn into the fallback's delete.
         if opts.cancelled() {
@@ -409,6 +412,10 @@ fn act(
             Fallback::Delete => delete::remove(v, path, false),
             Fallback::DeleteWritable => delete::remove(v, path, true),
             Fallback::Trash => trash(ports, v, path),
+            Fallback::Skip => Outcome::Skipped(SkipReason::ToolNotReady {
+                program: program.to_owned(),
+                detail: format!("no {program} lists this folder"),
+            }),
         }
     };
     match item.action {
@@ -424,13 +431,23 @@ fn act(
                 return Outcome::NotRun;
             }
             progress.tool(Some(cmd.program));
-            let ran = native::run(&cmd, path, ports.commands, opts);
+            let ran = native::run(&cmd, path, ports.commands, installs, opts);
             progress.tool(None);
             match ran {
+                // conda can exit 0 having removed nothing (an environment it
+                // cannot write): an environment still there is not removed.
+                native::Native::Ran(result)
+                    if result.success
+                        && cmd.location == Some(Location::Conda(CondaFolder::Environment))
+                        && std::fs::symlink_metadata(path).is_ok() =>
+                {
+                    Outcome::Failed { error: format!("{} exited 0 and the environment is still there", result.program) }
+                }
                 native::Native::Ran(result) => Outcome::Native { commands: vec![result] },
+                native::Native::Skip(reason) => Outcome::Skipped(reason),
                 native::Native::Cancelled => Outcome::NotRun,
                 native::Native::Unavailable | native::Native::LocationMismatch | native::Native::NotReady(_) => {
-                    fallback(fb)
+                    fallback(fb, cmd.program)
                 }
             }
         }
@@ -464,11 +481,12 @@ fn act(
                     break;
                 }
                 progress.tool(Some(cmd.program));
-                let ran = native::run(cmd, path, ports.commands, opts);
+                let ran = native::run(cmd, path, ports.commands, installs, opts);
                 progress.tool(None);
                 match ran {
                     native::Native::Ran(result) => results.push(result),
                     native::Native::Cancelled => break,
+                    native::Native::Skip(reason) => return Outcome::Skipped(reason),
                     native::Native::Unavailable | native::Native::LocationMismatch | native::Native::NotReady(_) => {
                         return Outcome::Skipped(SkipReason::NativeUnavailable { program: cmd.program.to_owned() });
                     }

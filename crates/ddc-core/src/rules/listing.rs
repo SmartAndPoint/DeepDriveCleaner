@@ -20,7 +20,7 @@ pub const RULES_SCHEMA_VERSION: u32 = 1;
 /// leftovers, the Trash (story "The Trash: its own row, not Your data") and
 /// the user's data.
 pub const GROUPS: &[(&str, &[&str])] = &[
-    ("Python environments", &["python.venv", "python.tox"]),
+    ("Python environments", &["python.venv", "python.conda-env", "python.tox"]),
     ("node_modules", &["node.node_modules", "node.node_modules-orphan"]),
     ("Build outputs", &["rust.target", "maven.target", "gradle.build", "cmake.build", "cocoapods.pods"]),
     ("Build caches in projects", &["js.build-cache", "python.pycache", "python.tool-cache", "gradle.project-cache"]),
@@ -32,6 +32,7 @@ pub const GROUPS: &[(&str, &[&str])] = &[
             "cache.yarn",
             "cache.bun",
             "cache.pip",
+            "cache.conda",
             "cache.poetry",
             "cache.homebrew",
             "cache.cocoapods",

@@ -8,6 +8,7 @@
 
 pub mod agents;
 pub mod class;
+pub mod conda;
 pub mod disk;
 pub mod env;
 pub mod exec;

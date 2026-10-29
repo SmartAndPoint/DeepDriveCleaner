@@ -103,6 +103,15 @@ pub(crate) fn matches(m: &Matcher, dir: &dyn DirView, home: &Path) -> bool {
             name == OsStr::new(want)
                 && path.strip_prefix(home).is_ok_and(|rel| prefixes.iter().any(|p| rel.starts_with(p)))
         }
+        Matcher::ChildHolding { parents, file } => {
+            let in_parent = path
+                .parent()
+                .and_then(|p| p.strip_prefix(home).ok())
+                .is_some_and(|rel| parents.iter().any(|p| rel == Path::new(p)));
+            in_parent
+                && file.split('/').next().is_some_and(|top| dir.has_child(top))
+                && fs::symlink_metadata(path.join(file)).is_ok_and(|m| m.is_file())
+        }
         Matcher::KnownPaths(_)
         | Matcher::KnownRegion(_)
         | Matcher::KnownChildren(_)

@@ -59,6 +59,10 @@ pub enum Matcher {
     CacheDirTag,
     /// Directories named `name` under these home-relative prefixes.
     Under { name: &'static str, prefixes: &'static [&'static str] },
+    /// A child directory of one of these home-relative folders that holds
+    /// `file`, a path relative to it (`conda-meta/history`: a conda
+    /// environment). Never the folder itself, nor anything deeper.
+    ChildHolding { parents: &'static [&'static str], file: &'static str },
     /// Assigned by the visitor (exclusions, `.ddc-keep`).
     Synthetic,
 }

@@ -26,7 +26,8 @@ use serde::{Deserialize, Serialize};
 
 use super::guard::Guard;
 use super::{CommandRunner, ProcessTable, SkipReason};
-use crate::class::{Fallback, ReadyProbe, RiskClass};
+use crate::class::{Fallback, Location, ReadyProbe, RiskClass};
+use crate::conda;
 use crate::env::Env;
 use crate::model::{Finding, RemovalKind};
 use crate::plan::{Action, ActionKind, ListedItem, PlanItem, action_for};
@@ -215,13 +216,33 @@ fn check(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
     let prediction = match action {
         Action::Delete { .. } => Prediction::WouldDelete,
         Action::Trash | Action::TrashEntry => Prediction::WouldTrash,
-        Action::Native { cmd, fallback } => match ports.commands.find(cmd.program) {
-            Some(_) => Prediction::WouldRun,
-            None => match fallback {
-                Fallback::Delete | Fallback::DeleteWritable => Prediction::WouldDelete,
-                Fallback::Trash => Prediction::WouldTrash,
-            },
-        },
+        Action::Native { cmd, fallback } => {
+            // conda is never run here: a candidate install's `bin/conda`
+            // existing predicts it, as every tool is predicted by its presence.
+            let present = match cmd.location {
+                Some(Location::Conda(_)) => {
+                    conda::spelled(path).is_some()
+                        && conda::candidates(env.home(), env.system_root())
+                            .iter()
+                            .any(|prefix| ports.commands.at(&conda::exe(prefix)).is_some())
+                }
+                _ => ports.commands.find(cmd.program).is_some(),
+            };
+            match (present, fallback) {
+                (true, _) => Prediction::WouldRun,
+                (false, Fallback::Delete | Fallback::DeleteWritable) => Prediction::WouldDelete,
+                (false, Fallback::Trash) => Prediction::WouldTrash,
+                (false, Fallback::Skip) => {
+                    return Err((
+                        Some(walked.bytes),
+                        SkipReason::ToolNotReady {
+                            program: cmd.program.to_owned(),
+                            detail: format!("no {} lists this folder", cmd.program),
+                        },
+                    ));
+                }
+            }
+        }
         Action::NativeOnly(cmds) => match cmds.iter().find(|c| ports.commands.find(c.program).is_none()) {
             Some(missing) => {
                 return Err((

@@ -28,6 +28,9 @@ pub struct Env {
     path: Vec<PathBuf>,
     /// `DOCKER_CONFIG`, where docker keeps its contexts; unset in tests.
     docker_config: Option<PathBuf>,
+    /// Where `/opt` and the other system folders are looked up: `/`, or a
+    /// fixture root in tests.
+    system_root: PathBuf,
     /// Neither `--data-dir` nor `DDC_DATA_DIR` was given: the data directory
     /// is the app's, so a scan saved here is the one the app shows.
     default_data_dir: bool,
@@ -55,7 +58,16 @@ impl Env {
         };
         let path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
         let docker_config = std::env::var_os("DOCKER_CONFIG").filter(|v| !v.is_empty()).map(PathBuf::from);
-        Ok(Self { home, data_dir, log_dir, now: SystemTime::now(), path, docker_config, default_data_dir })
+        Ok(Self {
+            home,
+            data_dir,
+            log_dir,
+            now: SystemTime::now(),
+            path,
+            docker_config,
+            system_root: PathBuf::from("/"),
+            default_data_dir,
+        })
     }
 
     /// Explicit environment for tests and embedding; `home` is canonicalized.
@@ -67,8 +79,15 @@ impl Env {
             now,
             path: Vec::new(),
             docker_config: None,
+            system_root: PathBuf::from("/"),
             default_data_dir: false,
         })
+    }
+
+    /// Replaces the system root (tests put `/opt` under a fixture root).
+    pub fn with_system_root(mut self, root: &Path) -> Self {
+        self.system_root = root.to_path_buf();
+        self
     }
 
     /// Replaces the tool search path (tests point it at fake tools).
@@ -96,6 +115,11 @@ impl Env {
 
     pub fn home(&self) -> &Path {
         &self.home
+    }
+
+    /// `/`, where the system's own folders are; a fixture root in tests.
+    pub fn system_root(&self) -> &Path {
+        &self.system_root
     }
 
     pub fn data_dir(&self) -> &Path {

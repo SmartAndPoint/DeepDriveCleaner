@@ -65,6 +65,27 @@ impl Category {
     }
 }
 
+/// How a native command is checked to act on exactly the finding, and only
+/// where the tool reports the finding as its own (ADR §6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Location {
+    /// `program`, found on the tool path, prints its location.
+    Probe(LocationProbe),
+    /// The known conda installs, each asked for its folders (safety ADR,
+    /// amendment of 2026-10-29). The command runs as the claiming install's
+    /// `bin/conda`, never as a `conda` found on the tool path.
+    Conda(CondaFolder),
+}
+
+/// What a conda finding is to conda.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CondaFolder {
+    /// A child of one of an install's `envs_dirs`, holding `conda-meta/history`.
+    Environment,
+    /// One of an install's `pkgs_dirs`.
+    PackageCache,
+}
+
 /// How a tool reports its own location, to check that a native command acts
 /// on exactly the finding (ADR §6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,16 +123,34 @@ pub struct ReadyProbe {
 }
 
 /// A tool's own cleanup command. `{name}` in `args` is replaced by the
-/// finding's directory name (toolchain versions).
+/// finding's directory name (toolchain versions), `{path}` in `args` and in
+/// `env`'s values by the finding's path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NativeCommand {
     pub program: &'static str,
     pub args: &'static [&'static str],
-    pub location: Option<LocationProbe>,
+    pub location: Option<Location>,
     /// Run once before the commands of an item; `None` runs them at once.
     pub ready: Option<ReadyProbe>,
     /// Set for the command only, not for its location probe.
     pub env: &'static [(&'static str, &'static str)],
+}
+
+impl NativeCommand {
+    /// The arguments for the finding at `path`.
+    pub fn args_for(&self, path: &std::path::Path) -> Vec<String> {
+        self.args.iter().map(|a| substitute(a, path)).collect()
+    }
+
+    /// The environment for the finding at `path`.
+    pub fn env_for(&self, path: &std::path::Path) -> Vec<(String, String)> {
+        self.env.iter().map(|(k, v)| ((*k).to_owned(), substitute(v, path))).collect()
+    }
+}
+
+fn substitute(word: &str, path: &std::path::Path) -> String {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    word.replace("{name}", &name).replace("{path}", &path.to_string_lossy())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,6 +159,9 @@ pub enum Fallback {
     /// Delete after making directories writable (Go module cache is read-only).
     DeleteWritable,
     Trash,
+    /// Leave it, `tool-not-ready`: without its tool the folder is not safe to
+    /// remove (a conda package cache, whose packages environments may link to).
+    Skip,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

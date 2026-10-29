@@ -65,6 +65,15 @@
       "switchable": true
     },
     {
+      "category": "toolchain",
+      "class": "review",
+      "group": "Python environments",
+      "id": "python.conda-env",
+      "listed": true,
+      "removal": "native",
+      "switchable": true
+    },
+    {
       "category": "project-artifact",
       "class": "safe",
       "group": "Python environments",
@@ -213,6 +222,15 @@
       "class": "safe",
       "group": "Toolchain caches",
       "id": "cache.uv",
+      "listed": true,
+      "removal": "native",
+      "switchable": true
+    },
+    {
+      "category": "package-cache",
+      "class": "safe",
+      "group": "Package downloads",
+      "id": "cache.conda",
       "listed": true,
       "removal": "native",
       "switchable": true
