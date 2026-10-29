@@ -14,10 +14,12 @@
 //! time alone is judged on any machine, from as many runs, on the fit
 //! through all the sizes: on a busy machine the system time can be ten
 //! times the user time and hide a quadratic step in the sum, and the user
-//! time has almost no base to flatten the fit. Its runs varied by up to 16 %
-//! at a 1-minute load of 33, which moves a local slope by about 0.2 at any
-//! size but the fit by under 0.1. [`USER_FLOOR_MS`] at 4n keeps commands
-//! whose user time is noise out.
+//! time has almost no base to flatten the fit (`user_slope`, the local one, is
+//! recorded: a fit well under it shows a base). Its runs varied by up to 16 %
+//! at a 1-minute load near 30, which moves a local slope by about 0.2 at any
+//! size but the fit by under 0.1. With no base, the fit reaches the bound
+//! only when a quadratic part is about a quarter of the user time at 4n.
+//! [`USER_FLOOR_MS`] at 4n keeps commands whose user time is noise out.
 //! In `record` mode nothing is judged. Peak memory is judged
 //! above the profile's base from `bench/load-limits.tsv`, and only at L or
 //! XL: at M most profiles add a few hundred bytes per entry to an 11 MB
@@ -35,7 +37,7 @@ pub const USER_FLOOR_MS: f64 = 250.0;
 pub const JUDGED: [&str; 2] = ["scan", "clean-dry-run"];
 /// Sizes whose peak memory is judged.
 const MEMORY_SIZES: [&str; 2] = ["L", "XL"];
-pub const COLUMNS: [&str; 18] = [
+pub const COLUMNS: [&str; 19] = [
     "profile",
     "command",
     "size",
@@ -46,6 +48,7 @@ pub const COLUMNS: [&str; 18] = [
     "cpu_fit",
     "cpu_judged",
     "user_ms",
+    "user_slope",
     "user_fit",
     "user_judged",
     "rss_base_bytes",
@@ -122,7 +125,7 @@ pub fn slopes(tables: &[String], limits: &Limits, mode: Mode) -> anyhow::Result<
             let b = p[0];
             let mut cells = vec![profile, command, size.clone(), "1".into(), b.entries.to_string()];
             cells.extend([format!("{:.0}", b.cpu_ms), "-".into(), "-".into(), "no".into()]);
-            cells.extend([format!("{:.0}", b.user_ms), "-".into(), "no".into(), "-".into()]);
+            cells.extend([format!("{:.0}", b.user_ms), "-".into(), "-".into(), "no".into(), "-".into()]);
             cells.extend([format!("{:.0}", b.rss), "-".into(), "-".into(), "no".into(), "-".into()]);
             lines.push(cells.join("\t"));
             continue;
@@ -207,6 +210,7 @@ pub fn slopes(tables: &[String], limits: &Limits, mode: Mode) -> anyhow::Result<
                 num(slope(&cpu)),
                 yes(cpu_judged).to_owned(),
                 format!("{:.0}", b.user_ms),
+                num(slope(&user[user.len() - 2..])),
                 num(user_fit),
                 yes(user_judged).to_owned(),
                 base.map_or("-".to_owned(), |b| format!("{b:.0}")),
@@ -335,25 +339,25 @@ mod tests {
         let s = slopes(&four("L", 1_000_000, 1.0, linear), &limits(), Mode::Enforce).unwrap();
         assert!(s.over.is_empty(), "{:?}", s.over);
         let r = row(&s, "scan");
-        assert_eq!((r[3], r[4], r[8], r[11], r[16], r[17]), ("4", "1000000", "yes", "yes", "yes", "ok"));
+        assert_eq!((r[3], r[4], r[8], r[12], r[17], r[18]), ("4", "1000000", "yes", "yes", "yes", "ok"));
         let cpu: f64 = r[6].parse().unwrap();
         assert!((0.95..=1.0).contains(&cpu), "{r:?}");
         // Above the base the memory is exactly linear; the full fit is flattened by the CPU base.
-        assert_eq!(r[14], "1.000");
+        assert_eq!(r[15], "1.000");
         assert!(r[7].parse::<f64>().unwrap() < cpu);
 
         let quadratic = |n: f64| (100.0 + 1e-6 * n * n, BASE + 200.0 * n);
         let s = slopes(&four("L", 1_000_000, 1.0, quadratic), &limits(), Mode::Enforce).unwrap();
         assert_eq!(s.over.len(), 2, "{:?}", s.over);
         assert!(s.over[1].starts_with("scan on mixed: CPU slope 2.00"), "{}", s.over[1]);
-        assert_eq!(row(&s, "scan")[17], "over");
+        assert_eq!(row(&s, "scan")[18], "over");
         // Not a judged command: recorded, never failed.
-        assert_eq!(row(&s, "scan-background")[17], "-");
+        assert_eq!(row(&s, "scan-background")[18], "-");
         // Record mode judges nothing, and its table says so.
         let s = slopes(&four("L", 1_000_000, 1.0, quadratic), &limits(), Mode::Record).unwrap();
         assert!(s.over.is_empty(), "{:?}", s.over);
         let r = row(&s, "scan");
-        assert_eq!((r[8], r[11], r[16], r[17]), ("no", "no", "no", "-"));
+        assert_eq!((r[8], r[12], r[17], r[18]), ("no", "no", "no", "-"));
     }
 
     #[test]
@@ -362,7 +366,7 @@ mod tests {
         let busy = slopes(&four("L", 1_000_000, 6.0, quadratic), &limits(), Mode::Enforce).unwrap();
         assert!(busy.text.starts_with("# ") && busy.text.lines().next().unwrap().contains(" mode=enforce-busy "));
         let r = row(&busy, "scan");
-        assert_eq!((r[8], r[11], r[17]), ("no", "yes", "over"));
+        assert_eq!((r[8], r[12], r[18]), ("no", "yes", "over"));
         assert_eq!(busy.over.len(), 2, "{:?}", busy.over);
         assert!(busy.over[1].starts_with("scan on mixed: user time fit 2.00"), "{}", busy.over[1]);
 
@@ -373,7 +377,7 @@ mod tests {
         let small = |n: f64| (8e-10 * n * n, BASE + 200.0 * n);
         let s = slopes(&four("L", 1_000_000, 1.0, small), &limits(), Mode::Enforce).unwrap();
         assert!(s.over.is_empty(), "{:?}", s.over);
-        assert_eq!((row(&s, "scan")[8], row(&s, "scan")[11]), ("no", "no"));
+        assert_eq!((row(&s, "scan")[8], row(&s, "scan")[12]), ("no", "no"));
     }
 
     #[test]
@@ -386,9 +390,9 @@ mod tests {
             .collect();
         let s = slopes(&t, &limits(), Mode::Enforce).unwrap();
         let r = row(&s, "scan");
-        assert_eq!((r[8], r[11], r[17]), ("yes", "yes", "over"));
+        assert_eq!((r[8], r[12], r[18]), ("yes", "yes", "over"));
         assert!(r[6].parse::<f64>().unwrap() < 1.0, "{r:?}");
-        assert!((r[10].parse::<f64>().unwrap() - 2.0).abs() < 0.01, "{r:?}");
+        assert!((r[11].parse::<f64>().unwrap() - 2.0).abs() < 0.01, "{r:?}");
         assert!(s.over[1].starts_with("scan on mixed: user time fit 2.00"), "{}", s.over[1]);
         assert!(!s.over[1].contains("CPU slope"), "{}", s.over[1]);
     }
@@ -398,7 +402,7 @@ mod tests {
         let growing = |n: f64| (100.0 + 0.05 * n, BASE + 1e-3 * n * n);
         let at_m = slopes(&four("M", 100_000, 1.0, growing), &limits(), Mode::Enforce).unwrap();
         assert!(at_m.over.is_empty(), "{:?}", at_m.over);
-        assert_eq!(row(&at_m, "scan")[16], "no");
+        assert_eq!(row(&at_m, "scan")[17], "no");
         let at_l = slopes(&four("L", 1_000_000, 1.0, growing), &limits(), Mode::Enforce).unwrap();
         assert_eq!(at_l.over.len(), 2, "{:?}", at_l.over);
         assert!(at_l.over[1].starts_with("scan on mixed: peak memory slope 2.00"), "{}", at_l.over[1]);
