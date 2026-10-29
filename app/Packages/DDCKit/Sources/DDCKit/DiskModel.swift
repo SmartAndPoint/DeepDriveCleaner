@@ -42,23 +42,27 @@ public final class DiskModel {
     public private(set) var message: String?
     public private(set) var now: Date
 
-    /// The sheet of one area action (story "Whole disk: free space with
-    /// the owning tool"): the tool's dry run, the confirmation, the run, the
-    /// result. Nil: no sheet.
+    /// The sheet of a list of area actions (story "Whole disk: free space
+    /// with the owning tool"; more than one since "Whole disk: free the
+    /// checked areas in one sheet"): the tools' dry runs, the confirmation,
+    /// the run, the results. Nil: no sheet.
     public struct FreeSheet: Equatable, Sendable {
         public enum Stage: Equatable, Sendable {
-            /// The tool's own dry run is queued or running.
+            /// The tools' own dry runs are queued or running.
             case previewing
-            /// The dry run's report: `.wouldRun`, or refused with a reason.
-            case confirm(FreeReport.ActionReport)
+            /// The dry run's report of each offer, aligned with `offers` by
+            /// index: `.wouldRun`, or refused or failed with a reason.
+            case confirm([FreeReport.ActionReport])
             /// Queued behind any scan or clean, or running.
             case running
-            case result(FreeReport.ActionReport)
+            /// The run's report of each offer, aligned with `offers` by index.
+            case result([FreeReport.ActionReport])
             /// No report: why.
             case failed(String)
         }
 
-        public let offer: AreaActions.Offer
+        /// In run order; never empty.
+        public let offers: [AreaActions.Offer]
         public var stage: Stage
     }
 

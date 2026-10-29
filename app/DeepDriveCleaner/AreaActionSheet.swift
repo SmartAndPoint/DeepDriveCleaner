@@ -12,20 +12,20 @@ struct AreaActionSheet: View {
 
     var body: some View {
         Group {
-            if let sheet = model.freeSheet {
+            if let sheet = model.freeSheet, let offer = sheet.offers.first {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text(sheet.offer.question).font(.system(size: 20, weight: .semibold))
+                    Text(offer.question).font(.system(size: 20, weight: .semibold))
                     switch sheet.stage {
                     case .previewing:
-                        waiting(sheet.offer.previewingText)
+                        waiting(offer.previewingText)
                         buttons { Button("Cancel") { Task { await model.closeFree() } }.keyboardShortcut(.cancelAction) }
-                    case .confirm(let preview):
-                        confirm(sheet.offer, preview)
+                    case .confirm(let previews):
+                        if let preview = previews.first { confirm(offer, preview) }
                     case .running:
-                        waiting(sheet.offer.runningText)
+                        waiting(offer.runningText)
                         buttons { Button("Stop") { Task { await model.stopFree() } }.keyboardShortcut(.cancelAction) }
-                    case .result(let action):
-                        result(sheet.offer, action)
+                    case .result(let actions):
+                        if let action = actions.first { result(offer, action) }
                     case .failed(let why):
                         Text(why).fixedSize(horizontal: false, vertical: true)
                         buttons { Button("Close") { Task { await model.closeFree() } }.keyboardShortcut(.defaultAction) }

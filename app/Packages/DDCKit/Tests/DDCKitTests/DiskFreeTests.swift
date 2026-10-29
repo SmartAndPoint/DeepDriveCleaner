@@ -306,7 +306,7 @@ struct DiskFreeTests {
         m.scanReportEdited = { edited += 1 }
         await m.load()
         await m.previewAction(Self.brew)
-        guard case .confirm(let preview)? = m.freeSheet?.stage else {
+        guard case .confirm(let previews)? = m.freeSheet?.stage, let preview = previews.first, previews.count == 1 else {
             Issue.record("no confirmation: \(String(describing: m.freeSheet))")
             return
         }
@@ -318,7 +318,7 @@ struct DiskFreeTests {
         try fake.open("free-go")
         await run.value
 
-        guard case .result(let result)? = m.freeSheet?.stage else {
+        guard case .result(let results)? = m.freeSheet?.stage, let result = results.first, results.count == 1 else {
             Issue.record("no result: \(String(describing: m.freeSheet))")
             return
         }
@@ -335,6 +335,61 @@ struct DiskFreeTests {
 
         await m.closeFree()
         #expect(m.freeSheet == nil && m.canScan && m.canFree)
+    }
+
+    /// The run report's action, as the CLI writes it for `action` on `identifier`.
+    private func reported(_ action: DiskReport.ActionId, _ identifier: String?, _ result: [String: Any] = ["status": "freed"]) throws
+        -> FreeReport.ActionReport
+    {
+        try FreeReport.read(Fixture.edited("free-report") { json in
+            var actions = json["actions"] as! [[String: Any]]
+            actions[0]["action"] = action.rawValue
+            actions[0]["area"] = action == .simctlRuntimeDelete ? "simulator-runtimes" : action == .brewCleanup ? "homebrew" : "conda"
+            actions[0]["identifier"] = identifier
+            actions[0]["result"] = result
+            json["actions"] = actions
+        }).actions[0]
+    }
+
+    @Test("a report that does not match the list one for one, in count, order, action or identifier, is a failure, never a partial result")
+    func mismatchedReport() async throws {
+        let edits: [(String, (inout [String: Any]) -> Void)] = [
+            ("two for one", { json in
+                let actions = json["actions"] as! [[String: Any]]
+                json["actions"] = actions + actions
+            }),
+            ("none", { $0["actions"] = [[String: Any]]() }),
+            ("another action", { json in
+                var actions = json["actions"] as! [[String: Any]]
+                actions[0]["action"] = "simctl-runtime-delete"
+                actions[0]["area"] = "simulator-runtimes"
+                actions[0]["identifier"] = "9A1B2C3D-0000-4000-8000-000000000001"
+                json["actions"] = actions
+            }),
+            ("an identifier", { json in
+                var actions = json["actions"] as! [[String: Any]]
+                actions[0]["identifier"] = "other"
+                json["actions"] = actions
+            }),
+            ("not a dry run", { $0["dry_run"] = false }),
+        ]
+        for (name, edit) in edits {
+            try fake.put("free-preview.json", Fixture.edited("free-preview", edit))
+            let m = model()
+            await m.previewAction(Self.brew)
+            #expect(m.freeSheet?.stage == .failed("The CLI's report does not match the confirmed action."), "\(name)")
+            #expect(m.freeResults.isEmpty)
+        }
+
+        let a = AreaActions.Offer(action: .simctlRuntimeDelete, identifier: "A", name: "iOS 26.0", bytes: 1)
+        let b = AreaActions.Offer(action: .simctlRuntimeDelete, identifier: "B", name: "iOS 27.0", bytes: 1)
+        let ra = try reported(.simctlRuntimeDelete, "A")
+        let rb = try reported(.simctlRuntimeDelete, "B")
+        #expect(DiskModel.matches([ra, rb], [a, b]))
+        #expect(!DiskModel.matches([rb, ra], [a, b]), "another order")
+        #expect(!DiskModel.matches([ra], [a, b]), "one short")
+        #expect(!DiskModel.matches([ra, ra], [a, b]), "another identifier")
+        #expect(!DiskModel.matches([ra, try reported(.condaClean, "B")], [a, b]), "another action")
     }
 
     @Test("a scan asked for during disk free waits for it and does not fail busy")
@@ -428,7 +483,7 @@ struct DiskFreeTests {
         try await until { (try? fake.runs().filter { $0.event == "start" }.count) == 2 }
         await m.stopFree()
         await run.value
-        guard case .result(let result)? = m.freeSheet?.stage else {
+        guard case .result(let results)? = m.freeSheet?.stage, let result = results.first else {
             Issue.record("no result: \(String(describing: m.freeSheet))")
             return
         }

@@ -9,48 +9,68 @@ extension DiskModel {
     /// Opens the sheet of `offer` and runs its tool's own dry run, which the
     /// sheet shows before anything can be confirmed.
     public func previewAction(_ offer: AreaActions.Offer) async {
-        guard canFree, let runner else { return }
-        freeSheet = FreeSheet(offer: offer, stage: .previewing)
-        let ran = await runFree(runner, offer, dryRun: true)
+        await preview([offer])
+    }
+
+    /// Opens the sheet of `offers`, in run order, and runs their tools' own
+    /// dry runs in one call, which the sheet shows before anything can be
+    /// confirmed.
+    private func preview(_ offers: [AreaActions.Offer]) async {
+        guard canFree, !offers.isEmpty, let runner else { return }
+        freeSheet = FreeSheet(offers: offers, stage: .previewing)
+        let ran = await runFree(runner, offers, dryRun: true)
         // Closed meanwhile: its answer goes nowhere.
-        guard freeSheet == FreeSheet(offer: offer, stage: .previewing) else { return }
+        guard freeSheet == FreeSheet(offers: offers, stage: .previewing) else { return }
         switch ran {
-        case .report(_, let action):
-            freeSheet?.stage = .confirm(action)
-            await brewPackages.actionEnded(offer, action, dryRun: true)
+        case .report(let report):
+            freeSheet?.stage = .confirm(report.actions)
+            for (offer, action) in zip(offers, report.actions) {
+                await brewPackages.actionEnded(offer, action, dryRun: true)
+            }
         case .failed(let why):
             freeSheet?.stage = .failed(why)
-            await brewPackages.actionEnded(offer, nil, dryRun: true)
+            for offer in offers {
+                await brewPackages.actionEnded(offer, nil, dryRun: true)
+            }
         }
     }
 
-    /// The sheet's confirm button: runs the action its dry run showed, and
+    /// The sheet's confirm button: runs the actions its dry run showed, and
     /// nothing else. Afterwards the view reads `last-disk.json` again, and
     /// the popover `last-scan.json` when `brew cleanup` edited it.
     public func freeConfirmedActions() async {
-        guard let sheet = freeSheet, case .confirm(let preview) = sheet.stage, preview.result == .wouldRun, !scanning,
-              let runner
+        guard let sheet = freeSheet, case .confirm(let previews) = sheet.stage,
+              previews.allSatisfy({ $0.result == .wouldRun }), !scanning, let runner
         else {
             return
         }
+        let offers = sheet.offers
         freeSheet?.stage = .running
-        log("area action started: \(sheet.offer.id)")
-        let ran = await runFree(runner, sheet.offer, dryRun: false)
-        var ended: FreeReport.ActionReport?
+        log("area action started: \(Self.ids(offers))")
+        let ran = await runFree(runner, offers, dryRun: false)
+        var ended: [FreeReport.ActionReport?] = Array(repeating: nil, count: offers.count)
         switch ran {
-        case .report(let report, let action):
-            freeSheet?.stage = .result(action)
-            freeResults[sheet.offer.id] = action
-            ended = action
-            log("area action ended: \(sheet.offer.id) \(action.result)")
+        case .report(let report):
+            freeSheet?.stage = .result(report.actions)
+            for (index, (offer, action)) in zip(offers, report.actions).enumerated() {
+                freeResults[offer.id] = action
+                ended[index] = action
+                log("area action ended: \(offer.id) \(action.result)")
+            }
             if report.lastScan == .edited { await scanReportEdited?() }
         case .failed(let why):
             freeSheet?.stage = .failed(why)
-            log("area action failed: \(sheet.offer.id): \(why)")
+            log("area action failed: \(Self.ids(offers)): \(why)")
         }
         await load()
         // The packages sheet lists again behind the result.
-        await brewPackages.actionEnded(sheet.offer, ended, dryRun: false)
+        for (offer, action) in zip(offers, ended) {
+            await brewPackages.actionEnded(offer, action, dryRun: false)
+        }
+    }
+
+    private static func ids(_ offers: [AreaActions.Offer]) -> String {
+        offers.map(\.id).joined(separator: ", ")
     }
 
     /// Stop in the sheet: SIGTERM to the run, or it never starts if it still
@@ -80,12 +100,18 @@ extension DiskModel {
     }
 
     private enum Ran {
-        case report(FreeReport, FreeReport.ActionReport)
+        /// One action report per offer, in the list's order.
+        case report(FreeReport)
         case failed(String)
     }
 
-    private func runFree(_ runner: any CLIRunning, _ offer: AreaActions.Offer, dryRun: Bool) async -> Ran {
-        guard let file = writeActions([offer.listed]) else { return .failed("The confirmed action could not be written.") }
+    /// One call with the whole list. A report whose actions do not match the
+    /// list one for one, in count, order, action and identifier, is a
+    /// failure, never a partial result.
+    private func runFree(_ runner: any CLIRunning, _ offers: [AreaActions.Offer], dryRun: Bool) async -> Ran {
+        guard let file = writeActions(offers.map(\.listed)) else {
+            return .failed("The confirmed \(offers.count == 1 ? "action" : "actions") could not be written.")
+        }
         defer { try? FileManager.default.removeItem(at: file) }
         let ticket = CLIRunner.Ticket()
         freeTicket = ticket
@@ -96,10 +122,10 @@ extension DiskModel {
         if result.outcome == .done || result.outcome == .cancelled, !result.stdout.isEmpty {
             do {
                 let report = try FreeReport.read(result.stdout)
-                guard let action = report.actions.first, report.actions.count == 1, report.isDryRun == dryRun else {
-                    return .failed("The CLI's report does not match the confirmed action.")
+                guard report.isDryRun == dryRun, Self.matches(report.actions, offers) else {
+                    return .failed("The CLI's report does not match the confirmed \(offers.count == 1 ? "action" : "actions").")
                 }
-                return .report(report, action)
+                return .report(report)
             } catch {
                 log("disk free report unreadable: \(error)")
                 return .failed("The CLI's report could not be read.")
@@ -107,6 +133,13 @@ extension DiskModel {
         }
         if result.outcome != .done { log("disk free ended \(result.outcome): \(result.stderrTail.suffix(3).joined(separator: " | "))") }
         return .failed(Self.freeFailure(result.outcome, stderrTail: result.stderrTail))
+    }
+
+    /// One report per offer, the same action on the same identifier, in the
+    /// same order.
+    static func matches(_ actions: [FreeReport.ActionReport], _ offers: [AreaActions.Offer]) -> Bool {
+        actions.count == offers.count
+            && zip(actions, offers).allSatisfy { $0.action == $1.action && $0.identifier == $1.identifier }
     }
 
     /// The list goes to a file: the runner's stdin is `/dev/null`. Unique per
