@@ -141,32 +141,38 @@ load-baseline:
 # quarter, half and all of SCALING_SIZE, 3 runs each, then `ddc-loadgen slopes`: the
 # log-log slope of CPU time and of peak memory above its base per command, judged
 # between the two largest sizes (ops/profiling-the-core.md). SCALING_LIMITS=enforce
-# fails over 1.2. A run of every profile, seed 1, with CPU judged (a quiet start)
-# lands in bench/scaling-<date>-<size>.tsv, never over an existing one.
+# fails over 1.2. A run with CPU judged (a quiet start, read before the build), seed 1,
+# of every profile or, at L and XL, of SCALING_L_PROFILES lands in
+# bench/scaling-<date>-<size>.tsv, never over an existing one.
 SCALING_PROFILE ?= all
 SCALING_SIZE ?= M
 SCALING_LIMITS ?= enforce
+SCALING_L_PROFILES ?= mixed,wide-root,projects,users
 scaling:
+	@case "$(SCALING_SIZE)" in M | L | XL) ;; \
+	  *) echo "make scaling: SCALING_SIZE is M, L or XL, not $(SCALING_SIZE)" >&2; exit 2 ;; esac
+	@mkdir -p target/scaling && sysctl -n vm.loadavg | awk '{ print $$2 }' > target/scaling/load-start
 	$(CARGO) build --release -p ddc-loadgen -p ddc-cli --locked
 	rm -rf target/scaling/$(SCALING_SIZE)
-	@case "$(SCALING_SIZE)" in M) tier=100000 ;; L) tier=1000000 ;; XL) tier=10000000 ;; \
-	  *) echo "make scaling: SCALING_SIZE is M, L or XL, not $(SCALING_SIZE)" >&2; exit 2 ;; esac; \
-	start=$$(sysctl -n vm.loadavg | awk '{ print $$2 }'); \
+	@case "$(SCALING_SIZE)" in M) tier=100000 ;; L) tier=1000000 ;; XL) tier=10000000 ;; esac; \
+	start=$$(cat target/scaling/load-start); began=$$(date +%s); \
 	for d in 8 4 2 1; do \
 	  n=$$((tier / d)); \
 	  LOADGEN=target/release/ddc-loadgen LOAD_CLI=target/release/deepdrivecleaner LOAD_REPEAT=3 LOAD_MODE=record \
 	    LOAD_DATE=$(LOAD_DATE) LOAD_COMMIT=$$(git describe --always --dirty) LOAD_ENTRIES=$$n LOAD_START=$$start \
 	    LOAD_OUT=target/scaling/$(SCALING_SIZE)/$$n scripts/load-image.sh $(SCALING_PROFILE) $(SCALING_SIZE) $(LOAD_SEED) || exit 1; \
-	done
+	done; \
+	echo "make scaling: the four sizes took $$(( ($$(date +%s) - began) / 60 )) min from a 1-minute load of $$start"
 	target/release/ddc-loadgen slopes target/scaling/$(SCALING_SIZE)/*/load-$(SCALING_SIZE).tsv \
 	  --mode $(SCALING_LIMITS) --into target/scaling/$(SCALING_SIZE)/scaling.tsv; \
 	  status=$$?; cat target/scaling/$(SCALING_SIZE)/scaling.tsv; exit $$status
-	@if [ "$(SCALING_PROFILE)" = all ] && [ "$(LOAD_SEED)" = 1 ] && head -1 target/scaling/$(SCALING_SIZE)/scaling.tsv | grep -q ' mode=enforce '; then \
+	@if { [ "$(SCALING_PROFILE)" = all ] || { [ "$(SCALING_SIZE)" != M ] && [ "$(SCALING_PROFILE)" = "$(SCALING_L_PROFILES)" ]; }; } \
+	  && [ "$(LOAD_SEED)" = 1 ] && head -1 target/scaling/$(SCALING_SIZE)/scaling.tsv | grep -q ' mode=enforce '; then \
 	  out=bench/scaling-$(LOAD_DATE)-$(SCALING_SIZE).tsv; \
 	  if [ -e $$out ]; then echo "make scaling: $$out exists and is never replaced" >&2; exit 1; fi; \
 	  cp target/scaling/$(SCALING_SIZE)/scaling.tsv $$out && echo "slopes: $$out"; \
 	else \
-	  echo "make scaling: the slopes stay in target/scaling/$(SCALING_SIZE)/scaling.tsv; only a run of every profile, seed 1, with CPU judged goes to bench/"; \
+	  echo "make scaling: the slopes stay in target/scaling/$(SCALING_SIZE)/scaling.tsv; only a run with CPU judged, seed 1, of every profile or, at L and XL, of SCALING_L_PROFILES goes to bench/"; \
 	fi
 
 # The allocation sites of one scan (dhat): HEAP_PROFILE at HEAP_SIZE on a disk image,

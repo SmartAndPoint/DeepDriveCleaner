@@ -61,7 +61,7 @@ else
   profiles=
   for p in ${profile//,/ }; do
     case " $known" in
-      *" $p "*) profiles="$profiles $p" ;;
+      *" $p "*) case "$profiles " in *" $p "*) ;; *) profiles="$profiles $p" ;; esac ;;
       *) echo "load-image: no profile $p; one of: all $known" >&2; exit 2 ;;
     esac
   done
