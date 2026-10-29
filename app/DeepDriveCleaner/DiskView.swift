@@ -6,7 +6,10 @@ import SwiftUI
 /// downloaded simulator runtime offer their owning tool's cleanup, through
 /// `AreaActionSheet` (story "Whole disk: free space with the owning tool");
 /// the Homebrew row also lists its packages in `BrewPackagesSheet`, which
-/// the area action sheet takes the place of while one is uninstalled.
+/// the area action sheet takes the place of while one is uninstalled. Each
+/// row with an action has a checkbox, and the bar above the rows frees the
+/// checked ones in that same sheet (story "Whole disk: free the checked
+/// areas in one sheet").
 /// Used as the Review window's detail and in its own window; both show the
 /// one `DiskModel` and the one `AgentsModel`.
 struct DiskView: View {
@@ -116,9 +119,13 @@ struct DiskView: View {
                         }
                         DiskBar(summary: summary)
                         Legend(summary: summary)
+                        let checkable = summary.rows.contains { $0.offer?.joinsList == true }
+                        if checkable {
+                            CheckedBar(model: model)
+                        }
                         VStack(spacing: 0) {
                             ForEach(summary.rows) { row in
-                                DiskRow(row: row, model: model)
+                                DiskRow(row: row, model: model, checkColumn: checkable)
                                 Divider()
                             }
                         }
@@ -210,12 +217,54 @@ private struct Legend: View {
     }
 }
 
-private struct DiskRow: View {
-    let row: DiskSummary.Row
+/// The checked rows and Free N Checked… (story "Whole disk: free the
+/// checked areas in one sheet"), like the Review window's selection footer.
+/// No size: a row's size is not what its action frees, and ddc never reports
+/// space it did not free; the sheet's estimate is the tools' own.
+private struct CheckedBar: View {
     let model: DiskModel
 
     var body: some View {
+        let count = model.checkedOffers.count
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(count == 0 ? "None checked" : "\(count) checked")
+                    .font(.system(size: 13, weight: .semibold))
+                    .monospacedDigit()
+                Text("Each runs with its own tool. The sheet shows what each would remove before anything runs.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Button(count == 0 ? "Free Checked…" : "Free \(count) Checked…") { Task { await model.previewChecked() } }
+                .disabled(!model.canFreeChecked)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct DiskRow: View {
+    let row: DiskSummary.Row
+    let model: DiskModel
+    /// Some row has a checkbox: every row keeps its column.
+    let checkColumn: Bool
+
+    var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
+            if checkColumn {
+                if let offer = row.offer, offer.joinsList {
+                    CheckBox(
+                        state: model.checked.contains(offer.id) ? .on : .off, enabled: model.canCheck(offer),
+                        label: "Check \(row.title)"
+                    ) {
+                        model.toggle(offer)
+                    }
+                    .frame(width: 18)
+                } else {
+                    Color.clear.frame(width: 18, height: 1)
+                }
+            }
             RoundedRectangle(cornerRadius: 2).fill(DiskTone.color(row.tone)).frame(width: 9, height: 9)
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.title).font(.system(size: 13, weight: row.nested ? .regular : .semibold))

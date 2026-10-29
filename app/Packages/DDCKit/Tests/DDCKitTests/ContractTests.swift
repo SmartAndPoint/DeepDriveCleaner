@@ -455,6 +455,11 @@ struct ContractTests {
         #expect(files(/\.diskFree(?:DryRun)?\b/) == ["DiskFreeRun.swift"])
         #expect(files(/"free"/) == ["DiskFreeRun.swift"])
         #expect(files(/\.previewAction\(/) == ["DiskView.swift", "BrewPackagesSheet.swift"], "a row's button, or a formula's, opens the sheet")
+        #expect(files(/func previewChecked\(/) == ["DiskFreeRun.swift"])
+        #expect(files(/\.previewChecked\(/) == ["DiskView.swift"], "the checked bar's button is the one caller")
+        let view = try #require(sources["DiskView.swift"])
+        #expect(view.matches(of: /\.previewChecked\(/).count == 1)
+        #expect(view.matches(of: /\.sheet\(/).count == 1, "one sheet: the list uses the area action sheet")
         // The one real run is the confirm button's.
         let run = try #require(sources["DiskFreeRun.swift"])
         #expect(run.matches(of: /runFree\([^)]*dryRun: false\)/).count == 1)
