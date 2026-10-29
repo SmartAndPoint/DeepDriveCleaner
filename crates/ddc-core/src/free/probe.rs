@@ -186,7 +186,8 @@ pub(crate) fn conda_environment(
     }
     let firmlinked = prefix.join("envs").join(name);
     let spellings = [identifier.to_path_buf(), firmlinked, identifier.canonicalize().unwrap_or_default()];
-    if spellings.iter().filter(|p| p.is_absolute()).any(|p| guard::user_of(p, procs).is_some()) {
+    let absolute: Vec<&Path> = spellings.iter().map(PathBuf::as_path).filter(|p| p.is_absolute()).collect();
+    if guard::user_of(&absolute, procs).is_some() {
         return Err(Refusal::CondaInUse);
     }
     let install = asked(conda::ask(commands, &prefix).as_ref(), &prefix)?;
