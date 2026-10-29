@@ -78,6 +78,8 @@ msrv:
 release-check:
 	$(CARGO) build --workspace --release --locked
 	@nm target/release/deepdrivecleaner > target/release/deepdrivecleaner.symbols
+	@grep ' _main$$' target/release/deepdrivecleaner.symbols >/dev/null || { \
+	  echo "release-check: nm sees no symbol table, so it cannot see the counters" >&2; exit 1; }
 	@if grep DDC_OP_STATS target/release/deepdrivecleaner.symbols >/dev/null; then \
 	  echo "release-check: the release CLI carries the op-stats counters" >&2; exit 1; fi
 

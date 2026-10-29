@@ -1,6 +1,7 @@
 //! After the walk: effective class of every finding (ADR §3), keep markers,
 //! protected toolchain versions, unlisted rules.
 
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -45,6 +46,8 @@ pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> 
     let home = catalog.home();
     let kept = catalog.by_id(KEPT).expect("catalog defines user.kept");
     let markers = visitor.keep_markers();
+    let marked = AtOrAbove::new(markers.iter().map(PathBuf::as_path));
+    let mut locks = LockFiles::default();
     let dropped = toolchain::dropped(&out.owners, catalog, &visitor.pins());
 
     let mut found = Vec::new();
@@ -73,10 +76,7 @@ pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> 
             // `--exclude` below a finding protects the whole finding.
             rule = kept;
             notes.push(Note::Excluded);
-        } else if owner.kind == OwnerKind::Claim
-            && !ENTRY_RULES.contains(&rule.id)
-            && markers.iter().any(|m| stats::counted(Counter::AncestorChecks, || m.starts_with(&owner.path)))
-        {
+        } else if owner.kind == OwnerKind::Claim && !ENTRY_RULES.contains(&rule.id) && marked.contains(&owner.path) {
             // In the user's own folders a marker locks the entry that holds it
             // instead (safety ADR, amendment of 2026-10-20); one at the folder's
             // top made it `user.kept` before it was read.
@@ -84,7 +84,7 @@ pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> 
             notes.push(Note::KeptByMarker);
         }
         let roots: Vec<&Path> = out.roots.iter().map(|r| r.path.as_path()).collect();
-        let (class, project_root, has_lockfile) = downgraded(rule, &owner.path, &roots, home, &mut notes);
+        let (class, project_root, has_lockfile) = downgraded(rule, &owner.path, &roots, home, &mut locks, &mut notes);
         found.push(Classified { rule, owner: owner.clone(), class, notes, project_root, has_lockfile });
     }
     found
@@ -93,8 +93,53 @@ pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> 
 /// The class `classify` gives a finding of `rule` at `path` without a walk:
 /// the app-owned and lock-file downgrades. Pins, ancestor claims and keep
 /// markers need the walk (story "CLI: clean an explicit item list": the dry run).
-pub fn effective_class(rule: &Rule, path: &Path, roots: &[&Path], home: &Path) -> RiskClass {
-    downgraded(rule, path, roots, home, &mut Vec::new()).0
+/// `locks` is shared by the items of one list.
+pub fn effective_class(rule: &Rule, path: &Path, roots: &[&Path], home: &Path, locks: &mut LockFiles) -> RiskClass {
+    downgraded(rule, path, roots, home, locks, &mut Vec::new()).0
+}
+
+/// Whether a folder holds a file of a lock list, read once per folder and
+/// list: every environment of one project asks about the same project root,
+/// and a root of many projects is not listed once per environment (story
+/// "Complexity guard: operation counts and scaling exponents").
+#[derive(Debug, Default)]
+pub struct LockFiles(HashMap<&'static [&'static str], HashMap<PathBuf, bool>>);
+
+impl LockFiles {
+    fn any(&mut self, dir: &Path, patterns: &'static [&'static str]) -> bool {
+        let seen = self.0.entry(patterns).or_default();
+        if let Some(&found) = seen.get(dir) {
+            return found;
+        }
+        let found = dir_has_any(dir, patterns);
+        seen.insert(dir.to_path_buf(), found);
+        found
+    }
+}
+
+/// Every folder at or above one of a set of paths, built once:
+/// `contains(dir)` is `paths.any(|p| p.starts_with(dir))` in one lookup
+/// instead of a scan of the paths per question.
+pub(crate) struct AtOrAbove(HashSet<PathBuf>);
+
+impl AtOrAbove {
+    pub(crate) fn new<'a>(paths: impl IntoIterator<Item = &'a Path>) -> Self {
+        let mut set = HashSet::new();
+        for path in paths {
+            for dir in path.ancestors() {
+                stats::add(Counter::MarkerChecks, 1);
+                // Its own ancestors are in already.
+                if !set.insert(dir.to_path_buf()) {
+                    break;
+                }
+            }
+        }
+        Self(set)
+    }
+
+    pub(crate) fn contains(&self, dir: &Path) -> bool {
+        stats::counted(Counter::MarkerChecks, || self.0.contains(dir))
+    }
 }
 
 /// The rule's class after the downgrades, the project root and whether a
@@ -104,14 +149,15 @@ fn downgraded(
     path: &Path,
     roots: &[&Path],
     home: &Path,
+    locks: &mut LockFiles,
     notes: &mut Vec<Note>,
 ) -> (RiskClass, Option<PathBuf>, Option<bool>) {
     let mut class = rule.class;
     let project_root =
         (rule.category == Category::ProjectArtifact && rule.id != KEPT).then(|| project_root(path, roots, home));
-    let has_lockfile = rule.lockfiles.map(|locks| {
+    let has_lockfile = rule.lockfiles.map(|patterns| {
         let parent = path.parent();
-        [parent, project_root.as_deref()].into_iter().flatten().any(|dir| dir_has_any(dir, locks))
+        [parent, project_root.as_deref()].into_iter().flatten().any(|dir| locks.any(dir, patterns))
     });
     if class == RiskClass::Rebuildable && app_owned(path, home) {
         class = RiskClass::Review;

@@ -3,7 +3,7 @@
 //! list of every entry and its state, which `plan_listed` checks a picked
 //! entry against, not the report's top 100.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,6 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::backups;
 use crate::model::{Backup, Contents, Finding, FolderEntry, FolderEntryKind};
+use crate::rules::AtOrAbove;
 use crate::rules::entries::{BACKUP_RULE, ENTRY_RULES, EntryFacts, EntryLock, lock_of};
 use crate::rules::{KEPT, PROTECTED_IN_HOME};
 use crate::scan::reader::SF_DATALESS;
@@ -97,6 +98,16 @@ pub(crate) struct Context<'a> {
 pub(crate) fn attach(findings: &mut [Finding], walked: &[OwnerEntries], cx: &Context<'_>) -> EntryIndex {
     let protected: Vec<PathBuf> = PROTECTED_IN_HOME.iter().map(|rel| cx.home.join(rel)).collect();
     let others: Vec<(PathBuf, bool)> = findings.iter().map(|f| (f.path.clone(), f.rule == KEPT)).collect();
+    let known = Known {
+        found: others.iter().map(|(p, _)| p.as_path()).collect(),
+        kept: AtOrAbove::new(
+            others
+                .iter()
+                .filter(|(_, kept)| *kept)
+                .map(|(p, _)| p.as_path())
+                .chain(cx.markers.iter().map(PathBuf::as_path)),
+        ),
+    };
     let mut index = EntryIndex::default();
     for folder in findings.iter_mut().filter(|f| ENTRY_RULES.contains(&f.rule.as_str())) {
         let Some(children) = walked.iter().find(|w| w.owner == folder.path) else { continue };
@@ -111,7 +122,7 @@ pub(crate) fn attach(findings: &mut [Finding], walked: &[OwnerEntries], cx: &Con
         let (mut rest_count, mut rest_bytes) = (0u64, 0u64);
         for child in &children.entries {
             let path = folder.path.join(&child.name);
-            let state = state_of(child, &path, &folder.rule, &others, &protected, cx);
+            let state = state_of(child, &path, &folder.rule, &known, &protected, cx);
             let entry = IndexedEntry {
                 dev: child.dev,
                 ino: child.ino,
@@ -151,11 +162,17 @@ pub(crate) fn attach(findings: &mut [Finding], walked: &[OwnerEntries], cx: &Con
     index
 }
 
+/// The findings, and the folders that hold a kept finding or a keep marker.
+struct Known<'a> {
+    found: HashSet<&'a Path>,
+    kept: AtOrAbove,
+}
+
 fn state_of(
     child: &EntryResult,
     path: &Path,
     rule: &str,
-    others: &[(PathBuf, bool)],
+    known: &Known<'_>,
     protected: &[PathBuf],
     cx: &Context<'_>,
 ) -> EntryState {
@@ -170,11 +187,10 @@ fn state_of(
     if child.flags & SF_DATALESS != 0 {
         return EntryState::NotAnEntry(NotAnEntry::Dataless);
     }
-    if others.iter().any(|(p, _)| stats::counted(Counter::ClaimLookups, || p == path)) {
+    if stats::counted(Counter::ClaimLookups, || known.found.contains(path)) {
         return EntryState::NotAnEntry(NotAnEntry::Finding);
     }
-    let kept = others.iter().any(|(p, kept)| stats::counted(Counter::AncestorChecks, || *kept && p.starts_with(path)))
-        || cx.markers.iter().any(|m| stats::counted(Counter::AncestorChecks, || m.starts_with(path)))
+    let kept = known.kept.contains(path)
         || cx.excludes.iter().any(|e| stats::counted(Counter::AncestorChecks, || e.starts_with(path)));
     let facts = EntryFacts {
         home: cx.home,
@@ -256,7 +272,8 @@ mod tests {
             limits: ContentsLimits::default(),
         };
         let path = home.join("Downloads").join(&child.name);
-        state_of(child, &path, "user.downloads", &[], &[], &cx)
+        let known = Known { found: HashSet::new(), kept: AtOrAbove::new([]) };
+        state_of(child, &path, "user.downloads", &known, &[], &cx)
     }
 
     #[test]

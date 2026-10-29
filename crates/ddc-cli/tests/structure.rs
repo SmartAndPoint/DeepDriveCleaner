@@ -106,6 +106,7 @@ fn the_release_build_carries_no_counters() {
     for script in ["scripts/build-dist.sh", "scripts/build-app.sh"] {
         let text = std::fs::read_to_string(root.join(script)).unwrap().replace("\\\n", " ");
         assert!(text.contains(&format!("grep {marker} ")), "{script} does not look for {marker}");
+        assert!(text.contains("grep ' _main$'"), "{script} does not check that nm sees a symbol table");
         let build: Vec<&str> = text.lines().filter(|l| l.contains("\"$CARGO\" build")).collect();
         assert_eq!(build.len(), 1, "{script}: {build:?}");
         for word in build[0].split_whitespace() {
@@ -118,6 +119,7 @@ fn the_release_build_carries_no_counters() {
     }
     let makefile = std::fs::read_to_string(root.join("Makefile")).unwrap();
     assert!(makefile.contains(&format!("grep {marker} ")), "Makefile: release-check does not look for {marker}");
+    assert!(makefile.contains("grep ' _main$$'"), "Makefile: release-check does not check that nm sees a symbol table");
     let mut manifests = vec![root.join("Cargo.toml")];
     for entry in std::fs::read_dir(root.join("crates")).unwrap() {
         let manifest = entry.unwrap().path().join("Cargo.toml");

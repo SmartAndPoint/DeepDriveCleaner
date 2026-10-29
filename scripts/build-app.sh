@@ -84,6 +84,7 @@ CLI="$ROOT/target/$TARGET/release/deepdrivecleaner"
 [ "$(lipo -archs "$CLI")" = "arm64" ] || fail "not an arm64-only CLI: $(lipo -archs "$CLI")"
 # The cost counters of the complexity guard never ship (ddc-core feature op-stats).
 SYMBOLS="$(nm "$CLI")"
+grep ' _main$' <<<"$SYMBOLS" >/dev/null || fail "nm sees no symbol table, so it cannot see the counters"
 if grep DDC_OP_STATS <<<"$SYMBOLS" >/dev/null; then fail "the CLI carries the op-stats counters"; fi
 [ "$("$CLI" --version)" = "deepdrivecleaner $VERSION" ] || fail "the CLI reports '$("$CLI" --version)'"
 

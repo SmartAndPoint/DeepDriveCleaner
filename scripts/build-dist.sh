@@ -54,6 +54,7 @@ STRINGS="$(strings "$BIN")"
 if grep -F "$HOME" <<<"$STRINGS" >/dev/null; then fail "the binary still contains $HOME"; fi
 # The cost counters of the complexity guard never ship (ddc-core feature op-stats).
 SYMBOLS="$(nm "$BIN")"
+grep ' _main$' <<<"$SYMBOLS" >/dev/null || fail "nm sees no symbol table, so it cannot see the counters"
 if grep DDC_OP_STATS <<<"$SYMBOLS" >/dev/null; then fail "the binary carries the op-stats counters"; fi
 
 STAGE="$DIST/stage"

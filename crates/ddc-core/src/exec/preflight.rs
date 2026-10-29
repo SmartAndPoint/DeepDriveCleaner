@@ -16,6 +16,7 @@
 //! the scan derives it. Without a scan the dry run cannot see that a child
 //! of Downloads became another rule's finding; the clean skips it then.
 
+use std::cell::RefCell;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -31,7 +32,7 @@ use crate::model::{Finding, RemovalKind};
 use crate::plan::{Action, ActionKind, ListedItem, PlanItem, action_for};
 use crate::report::backups;
 use crate::rules::entries::{BACKUP_RULE, ENTRY_RULES, EntryFacts, lock_of};
-use crate::rules::{Catalog, KEEP_MARKER, PROTECTED_IN_HOME, Rule, effective_class};
+use crate::rules::{Catalog, KEEP_MARKER, LockFiles, PROTECTED_IN_HOME, Rule, effective_class};
 use crate::scan::reader::SF_DATALESS;
 use crate::scan::{self, DirCtx, DirReader, EntryMeta, OwnerKind, Progress, Tag, Visitor, WalkOptions};
 use crate::sys::fsops::DirFd;
@@ -110,14 +111,20 @@ pub fn preflight(
     // covers `.ddc-keep` above an item, the walk below the one inside it.
     let guard = Guard::new(env, catalog, &roots, Vec::new(), ports.procs);
     let root_refs: Vec<&Path> = roots.iter().map(PathBuf::as_path).collect();
+    let sheet = Sheet {
+        catalog,
+        roots: &root_refs,
+        excludes: &excludes,
+        guard: &guard,
+        ports,
+        env,
+        locks: RefCell::new(LockFiles::default()),
+    };
     // Picked entries first, as the clean runs them: an item inside one that
     // would go to the Trash would be skipped.
     let entries: Vec<Option<(Option<u64>, Prediction)>> = listed
         .iter()
-        .map(|item| {
-            (item.class == RiskClass::UserData)
-                .then(|| settle(check_entry(item, catalog, &root_refs, &excludes, &guard, ports, env)))
-        })
+        .map(|item| (item.class == RiskClass::UserData).then(|| settle(check_entry(item, &sheet))))
         .collect();
     let trashed: Vec<&Path> = listed
         .iter()
@@ -132,7 +139,7 @@ pub fn preflight(
             None if trashed.iter().any(|t| item.path != *t && item.path.starts_with(t)) => {
                 (None, Prediction::WouldSkip(SkipReason::InsideAnotherItem))
             }
-            None => settle(check(item, catalog, &root_refs, &excludes, &guard, ports, env)),
+            None => settle(check(item, &sheet)),
         };
         summary.items += 1;
         match &prediction {
@@ -159,6 +166,18 @@ pub fn preflight(
 
 type Checked = Result<(u64, Prediction), (Option<u64>, SkipReason)>;
 
+/// What every item of one list is checked against. Nothing is removed while
+/// the list is checked, so what `locks` remembers stays true for all of it.
+struct Sheet<'a> {
+    catalog: &'a Catalog,
+    roots: &'a [&'a Path],
+    excludes: &'a [PathBuf],
+    guard: &'a Guard<'a>,
+    ports: &'a PreflightPorts<'a>,
+    env: &'a Env,
+    locks: RefCell<LockFiles>,
+}
+
 fn settle(checked: Checked) -> (Option<u64>, Prediction) {
     match checked {
         Ok((bytes, prediction)) => (Some(bytes), prediction),
@@ -166,22 +185,15 @@ fn settle(checked: Checked) -> (Option<u64>, Prediction) {
     }
 }
 
-fn check(
-    item: &ListedItem,
-    catalog: &Catalog,
-    roots: &[&Path],
-    excludes: &[PathBuf],
-    guard: &Guard<'_>,
-    ports: &PreflightPorts<'_>,
-    env: &Env,
-) -> Checked {
+fn check(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
+    let Sheet { catalog, roots, excludes, guard, ports, env, locks } = sheet;
     let path = item.path.as_path();
     let skip = |reason| Err((None, reason));
     if excludes.iter().any(|e| path.starts_with(e) || e.starts_with(path)) {
         return skip(SkipReason::Kept);
     }
     let Some(rule) = catalog.by_id(&item.rule) else { return skip(SkipReason::RuleMismatch) };
-    let class = effective_class(rule, path, roots, env.home());
+    let class = effective_class(rule, path, roots, env.home(), &mut locks.borrow_mut());
     if class != item.class {
         return skip(SkipReason::ChangedSinceScan);
     }
@@ -242,15 +254,8 @@ fn not_ready(probe: &ReadyProbe, guard: &Guard<'_>, env: &Env) -> Option<SkipRea
 /// A picked entry, in the clean's order: the action, the folder itself and
 /// its own protection, the path, the folder, the entry and its identity, its
 /// lock, then the rest of §5 (the guard).
-fn check_entry(
-    item: &ListedItem,
-    catalog: &Catalog,
-    roots: &[&Path],
-    excludes: &[PathBuf],
-    guard: &Guard<'_>,
-    ports: &PreflightPorts<'_>,
-    env: &Env,
-) -> Checked {
+fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
+    let Sheet { catalog, roots, excludes, guard, ports, env, .. } = sheet;
     let path = item.path.as_path();
     let skip = |reason| Err((None, reason));
     let Some(rule) = catalog.by_id(&item.rule) else { return skip(SkipReason::RuleMismatch) };

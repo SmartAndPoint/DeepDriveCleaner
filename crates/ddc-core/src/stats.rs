@@ -2,7 +2,7 @@
 //! guard: operation counts and scaling exponents", DDC-005). They count work,
 //! not calls: every directory entry read, every comparison, every step up the
 //! ancestors. A test reads them as a [`Snapshot`] delta around a scan at n and
-//! 4n entries and checks each ratio against its [`Bound`].
+//! 2n entries and checks each ratio against its [`Bound`].
 //!
 //! Only the `op-stats` feature counts; without it [`add`] compiles to nothing
 //! and [`read_dir`] is `fs::read_dir`. The feature is never on in a release
@@ -28,16 +28,18 @@ pub enum Counter {
     ClaimLookups,
     RuleMatchAttempts,
     AncestorChecks,
+    MarkerChecks,
     Allocations,
     BytesAllocated,
 }
 
 impl Counter {
-    pub const ALL: [Counter; 6] = [
+    pub const ALL: [Counter; 7] = [
         Counter::DirEntriesRead,
         Counter::ClaimLookups,
         Counter::RuleMatchAttempts,
         Counter::AncestorChecks,
+        Counter::MarkerChecks,
         Counter::Allocations,
         Counter::BytesAllocated,
     ];
@@ -48,6 +50,7 @@ impl Counter {
             Counter::ClaimLookups => "claim_lookups",
             Counter::RuleMatchAttempts => "rule_match_attempts",
             Counter::AncestorChecks => "ancestor_checks",
+            Counter::MarkerChecks => "marker_checks",
             Counter::Allocations => "allocations",
             Counter::BytesAllocated => "bytes_allocated",
         }
@@ -63,6 +66,9 @@ impl Counter {
                 "the matchers of one catalog per directory read; their child lookups scan a listing already counted in dir_entries_read",
             ),
             Counter::AncestorChecks => (Bound::Linear, "ancestors to the scan root, a bounded depth per finding"),
+            Counter::MarkerChecks => {
+                (Bound::Linear, "one set of the markers' ancestors, looked up once per claim or entry")
+            }
             Counter::Allocations => (Bound::Linear, "a bounded number of buffers per entry"),
             Counter::BytesAllocated => {
                 (Bound::Linear, "a bounded number of bytes per entry; a realloc counts its whole new size")
