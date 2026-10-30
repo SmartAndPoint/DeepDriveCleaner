@@ -412,7 +412,8 @@ fn verify_uses_the_same_matching() {
     t.file(".cache/uv/a", 10);
     t.write("js/package.json", "{}");
     t.file("js/node_modules/x/i.js", 10);
-    let catalog = Catalog::builtin(t.root());
+    // `cache.uv` is `~/.cache/uv` on macOS; Windows has its own path.
+    let catalog = Catalog::from_rules(ddc_core::rules::rules_of(ddc_core::platform::Platform::Macos), t.root());
     let venv = catalog.by_id("python.venv").unwrap();
     let uv = catalog.by_id("cache.uv").unwrap();
     let nm = catalog.by_id("node.node_modules").unwrap();
