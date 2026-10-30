@@ -259,7 +259,7 @@ struct ReviewGroupsTests {
 
         // The Items view keeps its full line.
         let items = try ReviewFixture.items()
-        #expect(CleanWording.detail(try #require(items.row(4))) == "Idle 656 days · lock file")
+        #expect(CleanWording.detail(try #require(items.row(4))) == "Project untouched 656 days · lock file")
         #expect(CleanWording.detail(try #require(items.row(8))) == "Review · not selected by default · Re-download with ollama pull; remove one model with ollama rm")
     }
 

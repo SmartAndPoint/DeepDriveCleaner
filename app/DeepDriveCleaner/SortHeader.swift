@@ -77,6 +77,7 @@ struct SortColumns<Size: View>: View {
                 .lineLimit(1)
                 .frame(width: SortHeader.changedWidth, alignment: .trailing)
                 .help(tooltip ?? "")
+                .accessibilityLabel(changed == CleanWording.noDate ? "No date" : changed)
         }
     }
 }

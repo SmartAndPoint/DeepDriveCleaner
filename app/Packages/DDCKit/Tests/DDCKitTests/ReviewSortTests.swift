@@ -344,7 +344,7 @@ struct ReviewSortTests {
         let headings = items.layout(Self.venvs, matching: "").blocks.compactMap { if case .subgroup(let subgroup) = $0 { subgroup } else { nil } }
         let projects = try #require(headings.first { $0.title == "~/Projects" })
         let heading = try #require(CleanWording.subgroupChangedHelp(projects.modified, calendar: Self.gregorian, locale: Self.english, timeZone: Self.utc))
-        #expect(heading.hasPrefix("Newest change among its folders: Jan 1, 2025"), "\(heading)")
+        #expect(heading.hasPrefix("Newest change among them: Jan 1, 2025"), "\(heading)")
 
         let user = try UserDataFixture.items()
         let iso = try #require(user.rows.last { $0.finding.path.hasSuffix("big.iso") })
