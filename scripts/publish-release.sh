@@ -302,8 +302,12 @@ check_cli "$APP/Contents/Helpers/deepdrivecleaner" "the app's command-line tool"
 # ── Appcast ──────────────────────────────────────────────────────────────────
 # Rendered before the release exists, so the release carries its feed from the start.
 # A resumed release that already holds one keeps it: its copy is what Sparkle reads.
+# A pre-release has none: Sparkle never offers it, and its version is not x.y.z.
 APPCAST="$ASSETS/appcast.xml"   # the asset's name is the file's
-if [ "$RELEASE_EXISTS" = 1 ] && [ "$APPCAST_PRESENT" = 1 ]; then
+xpath_item() { xmllint --xpath "string(//*[local-name()='item']/$1)" "$2"; }
+if [ "$PRERELEASE" = 1 ]; then
+    step "A pre-release: no appcast"
+elif [ "$RELEASE_EXISTS" = 1 ] && [ "$APPCAST_PRESENT" = 1 ]; then
     step "Release $TAG holds its appcast — reading it"
     gh release download "$TAG" --repo "$REPO" --pattern appcast.xml --dir "$ASSETS" \
         || fail "could not download the appcast of release $TAG"
@@ -339,12 +343,13 @@ else
         --team "$APP_TEAM" --out "$APPCAST" \
         ${PREVIOUS_ARGS[@]+"${PREVIOUS_ARGS[@]}"} ${TEAM_CHANGE[@]+"${TEAM_CHANGE[@]}"}
 fi
-xpath_item() { xmllint --xpath "string(//*[local-name()='item']/$1)" "$2"; }
-APPCAST_VERSION="$(xpath_item "*[local-name()='version']" "$APPCAST")"
-APPCAST_SIGNATURE="$(xpath_item "*[local-name()='enclosure']/@*[local-name()='edSignature']" "$APPCAST")"
-[ "$APPCAST_VERSION" = "$(plist CFBundleVersion)" ] \
-    || fail "the appcast offers build $APPCAST_VERSION, the zip holds $(plist CFBundleVersion)"
-[ ${#TEAM_CHANGE[@]} -gt 0 ] || [ -n "$APPCAST_SIGNATURE" ] || fail "the appcast's enclosure has no edSignature"
+if [ "$PRERELEASE" = 0 ]; then
+    APPCAST_VERSION="$(xpath_item "*[local-name()='version']" "$APPCAST")"
+    APPCAST_SIGNATURE="$(xpath_item "*[local-name()='enclosure']/@*[local-name()='edSignature']" "$APPCAST")"
+    [ "$APPCAST_VERSION" = "$(plist CFBundleVersion)" ] \
+        || fail "the appcast offers build $APPCAST_VERSION, the zip holds $(plist CFBundleVersion)"
+    [ ${#TEAM_CHANGE[@]} -gt 0 ] || [ -n "$APPCAST_SIGNATURE" ] || fail "the appcast's enclosure has no edSignature"
+fi
 # What a new release holds: UPLOADS, and the appcast unless it is a pre-release.
 RELEASED=("${UPLOADS[@]}")
 [ "$PRERELEASE" = 1 ] || RELEASED+=(appcast.xml)

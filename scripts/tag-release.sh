@@ -36,6 +36,9 @@ TAG="v$VERSION"
 APP_VERSION="$(sed -n 's/^[[:space:]]*MARKETING_VERSION = "\{0,1\}\([^";]*\)"\{0,1\};$/\1/p' app/DeepDriveCleaner.xcodeproj/project.pbxproj | sort -u)"
 [ "$APP_VERSION" = "$VERSION" ] || fail "the app's MARKETING_VERSION ($APP_VERSION) is not the CLI's version ($VERSION): bump both"
 [ -f "docs/releases/$VERSION.md" ] || fail "docs/releases/$VERSION.md missing: write the release notes first"
+# Sparkle offers only a growing build number: scripts/build-dist.sh refuses one that is
+# not, too late for a tag that is already out.
+"$ROOT/scripts/check-build-number.sh"
 
 # Never moved: a tag that exists names a release, or a failed one whose recovery is
 # deleting it by hand on origin.

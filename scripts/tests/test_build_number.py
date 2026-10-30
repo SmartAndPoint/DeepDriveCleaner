@@ -80,6 +80,13 @@ class BuildNumber(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not greater than 12 at v0.10.0", result.stderr)
 
+    def test_the_tag_of_this_release_at_head_is_not_the_previous_one(self):
+        self.release(12, tag="v0.7.0")
+        self.release(13, tag="v0.8.0")
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("13, after 12 at v0.7.0", result.stdout)
+
     def test_passes_with_no_release_tag(self):
         self.release(1)
         result = self.check()

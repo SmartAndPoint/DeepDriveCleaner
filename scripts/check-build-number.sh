@@ -1,6 +1,6 @@
 #!/bin/bash
 # Refuses a release whose app build number (CURRENT_PROJECT_VERSION, the app's
-# CFBundleVersion) is not greater than the one at the last release tag (ADR "Updates
+# CFBundleVersion) is not greater than the one at the last release tag before HEAD (ADR "Updates
 # through Sparkle, alongside the Homebrew cask", §6). Sparkle compares CFBundleVersion,
 # not the short version, so a build number that does not grow is never offered.
 #
@@ -39,8 +39,9 @@ if [ "$FETCH" = 1 ]; then
 fi
 CURRENT="$(build_number < "$PBXPROJ")" || fail "$PBXPROJ has no single CURRENT_PROJECT_VERSION"
 
-# The highest version tag, wherever it points: a release is never cut below it.
-TAGS="$(git tag -l 'v[0-9]*' --sort=-v:refname)" || fail "git tag failed"
+# The highest version tag, wherever it points, but not this release's own: `make tag`
+# pushes v<version> at HEAD before `make dist` runs this. A release is never cut below it.
+TAGS="$(git tag -l 'v[0-9]*' --sort=-v:refname --no-contains HEAD)" || fail "git tag failed"
 TAG="${TAGS%%$'\n'*}"
 if [ -z "$TAG" ]; then
     echo "build number: $CURRENT (no release tag yet)"
