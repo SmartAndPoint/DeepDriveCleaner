@@ -5,6 +5,11 @@
 #   scripts/build-app.sh          Debug:   build/Debug/DeepDriveCleaner.app
 #   scripts/build-app.sh --dist   Release: notarized and stapled, dist/DeepDriveCleaner-<version>.zip
 #
+# Sparkle.framework is signed here too, before the app (ADR "Updates through Sparkle,
+# alongside the Homebrew cask", §8). A Debug build may take a Debug EdDSA public key
+# from DDC_DEBUG_ED_PUBLIC_KEY, and allows http to 127.0.0.1 for scripts/debug-feed.sh;
+# a release refuses both, the placeholder key and any feed but the production one.
+#
 # Debug and release are signed with the same Developer ID, so one Full Disk Access
 # grant covers both (GrammarHelper's rule). Xcode builds unsigned and this script
 # signs: Xcode's own signing would add get-task-allow, which notarization rejects.
@@ -20,6 +25,11 @@ APP_ID=com.smartandpoint.deepdrivecleaner
 CLI_ID=com.smartandpoint.deepdrivecleaner.cli
 TEAM_ID=8MSDJTBW2D
 TARGET=aarch64-apple-darwin
+# Sparkle's own identifiers: its bundles carry them, its bare Autoupdate is given one.
+SPARKLE_ID=org.sparkle-project.Sparkle
+FEED_URL=https://github.com/SmartAndPoint/DeepDriveCleaner/releases/latest/download/appcast.xml
+# What Info.plist holds until the owner pastes the public key of `generate_keys`.
+ED_KEY_PLACEHOLDER=SPARKLE_PUBLIC_ED_KEY_PLACEHOLDER
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"                                # rustup reads rust-toolchain.toml from here
@@ -67,6 +77,28 @@ sign_code() {
     grep -qxF "TeamIdentifier=$TEAM_ID" <<<"$info" || fail "$path is not signed by team $TEAM_ID"
 }
 
+# Signs one piece of Sparkle under Sparkle's identifier, never ours. A bundle keeps
+# its own (no --identifier), so it must already be $2: a Sparkle that renamed one
+# stops the build here. The bare Autoupdate's ad-hoc signature carries an identifier
+# the linker made up, so it is given $2.
+sign_sparkle() {
+    local path="$1" identifier="$2" plist
+    local args=(--force "$TIMESTAMP" --options runtime --sign "$DDC_SIGN_IDENTITY")
+    if [ -d "$path" ]; then
+        plist="$path/Contents/Info.plist"
+        [ -f "$plist" ] || plist="$path/Resources/Info.plist"
+        [ "$(plutil -extract CFBundleIdentifier raw -o - "$plist" 2>/dev/null)" = "$identifier" ] \
+            || fail "$path is not the bundle $identifier: did the Sparkle version change?"
+    else
+        args+=(--identifier "$identifier")
+    fi
+    codesign "${args[@]}" "$path"
+    local info
+    info="$(codesign -dv "$path" 2>&1)"
+    grep -qxF "Identifier=$identifier" <<<"$info" || fail "$path is not signed as $identifier"
+    grep -qxF "TeamIdentifier=$TEAM_ID" <<<"$info" || fail "$path is not signed by team $TEAM_ID"
+}
+
 # Retries a command every 20 s (15 times by default): a notarization ticket can
 # reach Apple's lookup service some time after notarytool reports Accepted.
 retry() {
@@ -91,7 +123,9 @@ if grep DDC_OP_STATS <<<"$SYMBOLS" >/dev/null; then fail "the CLI carries the op
 [ "$("$CLI" --version)" = "deepdrivecleaner $VERSION" ] || fail "the CLI reports '$("$CLI" --version)'"
 
 step "Building the app $APP_VERSION ($CONFIG)"
+# Sparkle is resolved to the version Package.resolved pins, never to a newer one.
 xcodebuild -project app/DeepDriveCleaner.xcodeproj -scheme DeepDriveCleaner -configuration "$CONFIG" \
+    -disableAutomaticPackageResolution \
     -destination "platform=macOS,arch=arm64" ARCHS=arm64 \
     -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO -quiet build
 STAGE="$ROOT/build/$CONFIG"
@@ -105,10 +139,46 @@ mkdir -p "$APP/Contents/Helpers"
 cp "$CLI" "$APP/Contents/Helpers/deepdrivecleaner"
 # The license and the disclaimer travel with the app: a cask install has no other copy.
 cp LICENSE.md DISCLAIMER.md "$APP/Contents/Resources/"
+
+PLIST="$APP/Contents/Info.plist"
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+[ -d "$SPARKLE" ] || fail "Sparkle.framework is missing from the app"
+[ "$(readlink "$SPARKLE/Versions/Current")" = B ] || fail "Sparkle.framework's current version is not B"
+# Its downloader and installer services are for sandboxed apps only (ADR §8): the
+# directory and the framework's link to it go.
+rm -rf "$SPARKLE/Versions/B/XPCServices" "$SPARKLE/XPCServices"
+if [ "$DIST" = 1 ]; then
+    # A release checks its updates against the owner's key and the production feed, and
+    # carries nothing of the Debug feed.
+    ED_KEY="$(plutil -extract SUPublicEDKey raw -o - "$PLIST" 2>/dev/null || true)"
+    [ "$ED_KEY" != "$ED_KEY_PLACEHOLDER" ] \
+        || fail "SUPublicEDKey is still the placeholder: the owner runs generate_keys and pastes the public key into app/DeepDriveCleaner/Info.plist"
+    [[ "$ED_KEY" =~ ^[A-Za-z0-9+/]{43}=$ ]] || fail "SUPublicEDKey is not an EdDSA public key: '$ED_KEY'"
+    [ "$(plutil -extract SUFeedURL raw -o - "$PLIST" 2>/dev/null || true)" = "$FEED_URL" ] \
+        || fail "SUFeedURL is not $FEED_URL"
+    if plutil -extract NSAppTransportSecurity xml1 -o /dev/null "$PLIST" 2>/dev/null; then
+        fail "a release carries no NSAppTransportSecurity exception"
+    fi
+    if strings "$APP/Contents/MacOS/DeepDriveCleaner" | grep -F 127.0.0.1 >/dev/null; then
+        fail "the app binary names 127.0.0.1: the Debug feed is compiled in"
+    fi
+else
+    # The Debug feed is http on 127.0.0.1 (scripts/debug-feed.sh).
+    plutil -replace NSAppTransportSecurity -json '{"NSAllowsLocalNetworking":true}' "$PLIST"
+    if [ -n "${DDC_DEBUG_ED_PUBLIC_KEY:-}" ]; then
+        [[ "$DDC_DEBUG_ED_PUBLIC_KEY" =~ ^[A-Za-z0-9+/]{43}=$ ]] \
+            || fail "DDC_DEBUG_ED_PUBLIC_KEY is not an EdDSA public key"
+        plutil -replace SUPublicEDKey -string "$DDC_DEBUG_ED_PUBLIC_KEY" "$PLIST"
+    fi
+fi
 xattr -cr "$APP"
 
 step "Signing with the Developer ID (team $TEAM_ID)"
-# Inside out: the embedded CLI first, the app last (no --deep, no entitlements).
+# Inside out: Sparkle's helpers, then its framework, then the embedded CLI, the app
+# last (no --deep, no entitlements).
+sign_sparkle "$SPARKLE/Versions/B/Autoupdate" "$SPARKLE_ID.Autoupdate"
+sign_sparkle "$SPARKLE/Versions/B/Updater.app" "$SPARKLE_ID.Updater"
+sign_sparkle "$SPARKLE" "$SPARKLE_ID"
 sign_code "$APP/Contents/Helpers/deepdrivecleaner" "$CLI_ID"
 sign_code "$APP" "$APP_ID"
 codesign --verify --deep --strict --verbose=2 "$APP"

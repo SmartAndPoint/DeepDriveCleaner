@@ -28,5 +28,26 @@
 	<string>NSApplication</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 SmartAndPoint. PolyForm Noncommercial License 1.0.0.</string>
+	<!-- Sparkle (ADR "Updates through Sparkle, alongside the Homebrew cask", §1): a
+	     check at most daily, on by default; install only on Update and Relaunch.
+	     System profiling and Sparkle's XPC services stay off (keys not set).
+	     SUPublicEDKey is the owner's `generate_keys` public key; until it is pasted
+	     here, build-app.sh refuses the placeholder for a release, and a Debug build's
+	     updater does not start. -->
+	<key>SUFeedURL</key>
+	<string>https://github.com/SmartAndPoint/DeepDriveCleaner/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>SPARKLE_PUBLIC_ED_KEY_PLACEHOLDER</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
+	<!-- The default, kept explicit: a key rotation ships in the same zip. -->
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<false/>
 </dict>
 </plist>
