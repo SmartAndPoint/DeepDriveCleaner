@@ -4,15 +4,23 @@
 # Two repositories, in this order and no other (the same contract as GrammarHelper's
 # publish script):
 #   1. SmartAndPoint/DeepDriveCleaner — release v<version> with the app zip (the
-#      cask's) and the CLI tarball (for a manual install), its tag created at the
-#      built commit
+#      cask's and Sparkle's), the CLI tarball (for a manual install) and appcast.xml
+#      (Sparkle's feed), its tag created at the built commit
 #   2. SmartAndPoint/homebrew-tap     — Casks/deepdrivecleaner.rb
 # A cask that names an asset which does not exist yet breaks `brew install` for
 # everyone who already ran `brew update`; a release nobody points at yet breaks
-# nothing. So the assets go first.
+# nothing. So the assets go first. The release becomes "latest" with its feed in
+# place, so releases/latest/download/appcast.xml never returns 404; after the tap is
+# written, the live feed is read back (ADR "Updates through Sparkle, alongside the
+# Homebrew cask", §6).
 #
 # The version is read from Cargo.toml and never passed in: a hand-typed version is
 # how the cask and the binary drift apart.
+#
+# The appcast is signed with Sparkle's sign_update, which reads the owner's EdDSA key
+# from the login keychain: run this unsandboxed, like `make dist`. --team-change
+# publishes a release signed by another team as information only: a link, never an
+# install.
 set -euo pipefail
 
 REPO="SmartAndPoint/DeepDriveCleaner"
@@ -25,6 +33,7 @@ CLI_ID=com.smartandpoint.deepdrivecleaner.cli
 MIN_MACOS=26.0   # the cask's `depends_on macos: :tahoe`
 GIT_NAME="Evgenii Konev"
 GIT_EMAIL="ekonev@smartandpoint.com"
+FEED_URL="https://github.com/$REPO/releases/latest/download/appcast.xml"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -36,16 +45,25 @@ fail() { printf '\033[0;31m❌ %s\033[0m\n' "$1" >&2; exit 1; }
 step() { printf '\033[0;34m→ %s\033[0m\n' "$1"; }
 
 DRY_RUN=0
-case "${1:-}" in
-    "") ;;
-    --dry-run) DRY_RUN=1 ;;
-    *) fail "usage: scripts/publish-release.sh [--dry-run]" ;;
-esac
+TEAM_CHANGE=()
+for ARG in "$@"; do
+    case "$ARG" in
+        --dry-run) DRY_RUN=1 ;;
+        --team-change) TEAM_CHANGE=(--team-change) ;;
+        *) fail "usage: scripts/publish-release.sh [--dry-run] [--team-change]" ;;
+    esac
+done
 
 # ── Preconditions ────────────────────────────────────────────────────────────
 command -v gh >/dev/null || fail "gh CLI not found"
 gh auth status >/dev/null 2>&1 || fail "gh is not authenticated (gh auth login)"
 [ -f "$TEMPLATE" ] || fail "cask template missing: $TEMPLATE"
+# Sparkle's tools from the package the build resolved (scripts/build-app.sh's DerivedData).
+SPARKLE_BIN="$ROOT/build/DerivedData/SourcePackages/artifacts/sparkle/Sparkle/bin"
+for TOOL in sign_update generate_keys; do
+    [ -x "$SPARKLE_BIN/$TOOL" ] || fail "Sparkle's $TOOL is missing from $SPARKLE_BIN: resolve the package with 'xcodebuild -resolvePackageDependencies -project app/DeepDriveCleaner.xcodeproj -scheme DeepDriveCleaner -derivedDataPath build/DerivedData', or run 'make dist'"
+done
+command -v xmllint >/dev/null || fail "xmllint not found"
 
 VERSION="$("$CARGO" pkgid -p ddc-cli | sed 's/.*[#@]//')"
 TAG="v$VERSION"
@@ -85,6 +103,7 @@ remote_digest() {
 # taken from dist/, which a `make dist` after the release would have rebuilt, and a
 # rebuild never reproduces the published digest (signature timestamp, tar mtimes).
 # A failed read is not "no release": only gh's "release not found" is.
+APPCAST_PRESENT=0
 if IS_DRAFT="$(gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft 2>&1)"; then
     RELEASE_EXISTS=1
 elif [ "$IS_DRAFT" = "release not found" ]; then
@@ -95,6 +114,8 @@ fi
 if [ "$RELEASE_EXISTS" = 1 ]; then
     NAMES="$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')" \
         || fail "could not read release $TAG"
+    # A release cut before the appcast was an asset gets it on resume.
+    grep -qxF appcast.xml <<<"$NAMES" && APPCAST_PRESENT=1
     for NAME in "$ZIP_NAME" "$TARBALL_NAME"; do
         grep -qxF "$NAME" <<<"$NAMES" && continue
         # gh deletes its own draft when an upload fails; this one was left by hand or by a failed cleanup.
@@ -117,7 +138,7 @@ if [ "$RELEASE_EXISTS" = 1 ]; then
     # assets: a cask fix is a commit.
     git merge-base --is-ancestor "$BUILD_SHA" HEAD || fail "HEAD does not descend from $TAG ($BUILD_SHA)"
     CHANGED="$(git diff --no-renames --name-only "$BUILD_SHA" HEAD \
-        | grep -v -E '^(packaging/homebrew/|scripts/publish-release\.sh$)' || true)"
+        | grep -v -E '^(packaging/homebrew/|packaging/sparkle/|scripts/publish-release\.sh$|scripts/render-appcast\.sh$|scripts/tests/)' || true)"
     [ -z "$CHANGED" ] || fail "since $TAG, files outside the cask changed: $CHANGED — bump the version"
 else
     # A new release is cut from HEAD, with the assets `make dist` built from it (it
@@ -180,10 +201,86 @@ plist() { plutil -extract "$1" raw -o - "$APP/Contents/Info.plist"; }
 [ "$(plist CFBundleIdentifier)" = "$APP_ID" ] || fail "the app's bundle id is $(plist CFBundleIdentifier), not $APP_ID"
 [ "$(plist LSMinimumSystemVersion)" = "$MIN_MACOS" ] \
     || fail "the app needs macOS $(plist LSMinimumSystemVersion), the cask says $MIN_MACOS"
+# Sparkle checks every update against this key: it must be the one sign_update signs with.
+ED_KEY="$(plist SUPublicEDKey 2>/dev/null || true)"
+[[ "$ED_KEY" =~ ^[A-Za-z0-9+/]{43}=$ ]] || fail "the app's SUPublicEDKey is not an EdDSA public key: '$ED_KEY'"
+[ "$(plist SUFeedURL)" = "$FEED_URL" ] || fail "the app's SUFeedURL is $(plist SUFeedURL), not $FEED_URL"
 for DOC in LICENSE.md DISCLAIMER.md; do
     cmp -s "$APP/Contents/Resources/$DOC" "$ROOT/$DOC" || fail "the app's $DOC is missing or differs from the repository's"
 done
 check_cli "$APP/Contents/Helpers/deepdrivecleaner" "the app's command-line tool"
+
+# ── Appcast ──────────────────────────────────────────────────────────────────
+# Rendered before the release exists, so the release carries its feed from the start.
+# A resumed release that already holds one keeps it: its copy is what Sparkle reads.
+APPCAST="$WORK/appcast.xml"   # the asset's name is the file's
+if [ "$RELEASE_EXISTS" = 1 ] && [ "$APPCAST_PRESENT" = 1 ]; then
+    step "Release $TAG holds its appcast — reading it"
+    gh release download "$TAG" --repo "$REPO" --pattern appcast.xml --dir "$WORK" \
+        || fail "could not download the appcast of release $TAG"
+    xmllint --noout "$APPCAST" || fail "the appcast of release $TAG is not well-formed XML"
+else
+    step "Rendering the appcast"
+    PUBLIC_KEY="$("$SPARKLE_BIN/generate_keys" -p)" || fail "generate_keys -p failed: is the EdDSA key in the login keychain?"
+    [ "$PUBLIC_KEY" = "$ED_KEY" ] \
+        || fail "the keychain's EdDSA public key ($PUBLIC_KEY) is not the app's SUPublicEDKey ($ED_KEY): Sparkle would reject the update"
+    # The previous release: the newest published one other than this. 0.7.0 and
+    # earlier hold no appcast, and there are no guards to apply against them.
+    PREVIOUS_ARGS=()
+    PREVIOUS_TAG="$(gh release list --repo "$REPO" --exclude-drafts --exclude-pre-releases --limit 20 \
+        --json tagName --jq '.[].tagName' | { grep -vxF "$TAG" || true; } | head -n 1)" \
+        || fail "could not list the releases of $REPO"
+    if [ -n "$PREVIOUS_TAG" ]; then
+        PREVIOUS_NAMES="$(gh release view "$PREVIOUS_TAG" --repo "$REPO" --json assets --jq '.assets[].name')" \
+            || fail "could not read release $PREVIOUS_TAG"
+        if grep -qxF appcast.xml <<<"$PREVIOUS_NAMES"; then
+            mkdir "$WORK/previous"
+            gh release download "$PREVIOUS_TAG" --repo "$REPO" --pattern appcast.xml --dir "$WORK/previous" \
+                || fail "could not download the appcast of release $PREVIOUS_TAG"
+            PREVIOUS_ARGS=(--previous "$WORK/previous/appcast.xml")
+            step "Previous appcast: $PREVIOUS_TAG"
+        else
+            step "$PREVIOUS_TAG has no appcast: no version or team guard to apply"
+        fi
+    fi
+    SPARKLE_SIGN_UPDATE="$SPARKLE_BIN/sign_update" "$ROOT/scripts/render-appcast.sh" \
+        --zip "$ZIP" --version "$(plist CFBundleVersion)" --short-version "$VERSION" --min-macos "$MIN_MACOS" \
+        --url "https://github.com/$REPO/releases/download/$TAG/$ZIP_NAME" \
+        --notes-url "https://github.com/$REPO/releases/tag/$TAG" \
+        --team "$TEAM_ID" --out "$APPCAST" \
+        ${PREVIOUS_ARGS[@]+"${PREVIOUS_ARGS[@]}"} ${TEAM_CHANGE[@]+"${TEAM_CHANGE[@]}"}
+fi
+xpath_item() { xmllint --xpath "string(//*[local-name()='item']/$1)" "$2"; }
+APPCAST_VERSION="$(xpath_item "*[local-name()='version']" "$APPCAST")"
+APPCAST_SIGNATURE="$(xpath_item "*[local-name()='enclosure']/@*[local-name()='edSignature']" "$APPCAST")"
+[ "$APPCAST_VERSION" = "$(plist CFBundleVersion)" ] \
+    || fail "the appcast offers build $APPCAST_VERSION, the zip holds $(plist CFBundleVersion)"
+[ ${#TEAM_CHANGE[@]} -gt 0 ] || [ -n "$APPCAST_SIGNATURE" ] || fail "the appcast's enclosure has no edSignature"
+
+# A release missing its appcast (resumed, or already in the tap) gets it, and its digest is checked.
+upload_appcast() {
+    [ "$RELEASE_EXISTS" = 1 ] && [ "$APPCAST_PRESENT" = 0 ] || return 0
+    step "Uploading the missing appcast.xml to $TAG"
+    gh release upload "$TAG" "$APPCAST" --repo "$REPO" || fail "could not upload appcast.xml to release $TAG"
+    local digest
+    digest="$(remote_digest appcast.xml)" || digest=""
+    [ "$digest" = "sha256:$(shasum -a 256 "$APPCAST" | awk '{print $1}')" ] \
+        || fail "the uploaded appcast.xml's digest is '${digest:-empty}' — check release $TAG before rerunning"
+}
+
+# What Sparkle reads now: the live feed must be this appcast, signature and all.
+check_live_feed() {
+    step "Reading the live feed $FEED_URL"
+    curl -fsSL --max-time 60 --retry 3 -o "$WORK/live.xml" "$FEED_URL" \
+        || fail "could not read $FEED_URL: the release is published; check it with 'gh release view $TAG --repo $REPO'"
+    xmllint --noout "$WORK/live.xml" || fail "the live feed $FEED_URL is not well-formed XML"
+    local version signature
+    version="$(xpath_item "*[local-name()='version']" "$WORK/live.xml")"
+    signature="$(xpath_item "*[local-name()='enclosure']/@*[local-name()='edSignature']" "$WORK/live.xml")"
+    [ "$version" = "$APPCAST_VERSION" ] && [ "$signature" = "$APPCAST_SIGNATURE" ] \
+        || fail "the live feed offers build '$version', not $APPCAST_VERSION, or another signature: is $TAG the latest release? Check 'gh release view $TAG --repo $REPO' and $FEED_URL"
+    printf '\033[0;32m✅ the live feed offers %s (build %s)\033[0m\n' "$VERSION" "$APPCAST_VERSION"
+}
 
 # ── Release notes and cask ────────────────────────────────────────────────
 NOTES="$WORK/release-notes.md"
@@ -196,7 +293,7 @@ NOTES="$WORK/release-notes.md"
     echo "brew install --cask smartandpoint/tap/deepdrivecleaner"
     echo '```'
     echo
-    echo "\`$ZIP_NAME\` is the app the cask installs. \`$TARBALL_NAME\` is the command-line tool alone, for a manual install."
+    echo "\`$ZIP_NAME\` is the app the cask installs; the app updates itself from \`appcast.xml\`. \`$TARBALL_NAME\` is the command-line tool alone, for a manual install."
     echo
     echo "## Build"
     echo
@@ -233,8 +330,9 @@ if [ "$DRY_RUN" = 1 ]; then
     echo "── release ──"
     if [ "$RELEASE_EXISTS" = 1 ]; then
         echo "exists: resume at the cask"
+        [ "$APPCAST_PRESENT" = 1 ] || echo "would upload the missing appcast.xml"
     else
-        echo "would create $TAG at $BUILD_SHA with $ZIP_NAME and $TARBALL_NAME"
+        echo "would create $TAG at $BUILD_SHA with $ZIP_NAME, $TARBALL_NAME and appcast.xml"
     fi
     echo "── tap $TAP_REPO ──"
     case "$TAP_STATE" in
@@ -244,6 +342,7 @@ if [ "$DRY_RUN" = 1 ]; then
     esac
     echo "── release notes ──"; cat "$NOTES"
     echo "── rendered cask ──"; cat "$CASK"
+    echo "── appcast.xml ──"; cat "$APPCAST"
     echo "   dry run — nothing was published"
     exit 0
 fi
@@ -251,7 +350,7 @@ fi
 # ── 1. Release ───────────────────────────────────────────────────────────────
 if [ "$RELEASE_EXISTS" = 0 ]; then
     step "Creating $TAG at $BUILD_SHA"
-    gh release create "$TAG" "$ZIP" "$TARBALL" --repo "$REPO" --target "$BUILD_SHA" \
+    gh release create "$TAG" "$ZIP" "$TARBALL" "$APPCAST" --repo "$REPO" --target "$BUILD_SHA" \
         --title "DeepDriveCleaner $VERSION" --notes-file "$NOTES"
     ZIP_DIGEST="$(remote_digest "$ZIP_NAME")" || ZIP_DIGEST=""
     [ "$ZIP_DIGEST" = "sha256:$ZIP_SHA" ] \
@@ -259,6 +358,9 @@ if [ "$RELEASE_EXISTS" = 0 ]; then
     TARBALL_DIGEST="$(remote_digest "$TARBALL_NAME")" || TARBALL_DIGEST=""
     [ "$TARBALL_DIGEST" = "sha256:$TARBALL_SHA" ] \
         || fail "the uploaded $TARBALL_NAME's digest is '${TARBALL_DIGEST:-empty}' — the release exists; check it before rerunning"
+    APPCAST_DIGEST="$(remote_digest appcast.xml)" || APPCAST_DIGEST=""
+    [ "$APPCAST_DIGEST" = "sha256:$(shasum -a 256 "$APPCAST" | awk '{print $1}')" ] \
+        || fail "the uploaded appcast.xml's digest is '${APPCAST_DIGEST:-empty}' — the release exists; check it before rerunning"
     REMOTE_TAG_SHA="$(remote_tag_commit)"
     [ "$REMOTE_TAG_SHA" = "$BUILD_SHA" ] \
         || fail "tag $TAG on origin points at '${REMOTE_TAG_SHA:-nothing}', not at the built commit $BUILD_SHA — the release exists; check it before rerunning"
@@ -269,8 +371,10 @@ fi
 # picks up whatever credential helper the machine has configured, and the local tap
 # clone belongs to `brew update`. The API call uses gh's own token and carries the
 # author and committer explicitly.
+upload_appcast
 if [ "$TAP_STATE" = current ]; then
-    printf '\033[0;32m✅ %s already holds this cask — nothing to publish\033[0m\n' "$TAP_REPO"
+    printf '\033[0;32m✅ %s already holds this cask\033[0m\n' "$TAP_REPO"
+    check_live_feed
     exit 0
 fi
 step "Updating $TAP_REPO"
@@ -284,6 +388,7 @@ if [ -n "$EXISTING_SHA" ]; then
     API_ARGS+=(-f "sha=$EXISTING_SHA")   # update in place; absent on the first publish
 fi
 gh api "${API_ARGS[@]}" >/dev/null
+check_live_feed
 
 printf '\033[0;32m✅ Published %s\033[0m\n' "$VERSION"
 echo "   brew update && brew install --cask smartandpoint/tap/deepdrivecleaner"

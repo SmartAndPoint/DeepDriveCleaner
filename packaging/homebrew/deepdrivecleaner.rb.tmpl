@@ -19,6 +19,10 @@ cask "deepdrivecleaner" do
   # shell over the ddc CLI", §8), signed with the SmartAndPoint Developer ID,
   # notarized and stapled. Apple Silicon and macOS 26 only: every test and
   # measurement ran there. On an older macOS the release's CLI tarball remains.
+  # The app updates itself through Sparkle (ADR "Updates through Sparkle,
+  # alongside the Homebrew cask"): `brew upgrade` leaves it alone, and
+  # `brew upgrade --greedy deepdrivecleaner` reinstalls it from the cask.
+  auto_updates true
   depends_on arch: :arm64
   depends_on macos: :tahoe
 
@@ -39,6 +43,8 @@ cask "deepdrivecleaner" do
       ],
       trash:     [
         "~/Library/Application Support/DeepDriveCleaner",
+        "~/Library/Caches/com.smartandpoint.deepdrivecleaner",
+        "~/Library/HTTPStorages/com.smartandpoint.deepdrivecleaner",
         "~/Library/LaunchAgents/com.smartandpoint.deepdrivecleaner.plist",
         "~/Library/Logs/DeepDriveCleaner",
         "~/Library/Preferences/com.smartandpoint.deepdrivecleaner.plist",
