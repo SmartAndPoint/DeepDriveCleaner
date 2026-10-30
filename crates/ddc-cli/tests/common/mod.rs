@@ -13,6 +13,12 @@ use std::path::Path;
 /// `if common::unsupported("name") { return; }`.
 pub use ddc_loadgen::unsupported;
 
+/// A test of a command or action that needs a capability (`ddc disk`, `ddc
+/// disk agents`, Homebrew) starts with
+/// `if common::lacks("name", Capability::WholeDisk) { return; }`.
+#[allow(unused_imports)] // only the capability tests use it
+pub use ddc_loadgen::lacks;
+
 /// `(dev, ino)` of one path, without following symlinks.
 pub fn id(path: impl AsRef<Path>) -> (u64, u64) {
     ddc_core::platform::meta::file_id(&fs::symlink_metadata(path).unwrap()).unwrap()

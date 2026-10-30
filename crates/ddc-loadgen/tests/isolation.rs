@@ -114,7 +114,10 @@ fn a_clean_whose_dry_run_predicts_a_tool_is_refused() {
 #[test]
 fn facts_of_a_built_tree() {
     let dir = target::Scratch::new().unwrap();
-    let Some(g) = skip_unported(generate(Profile::Projects, 10_000, 1, dir.path(), None)) else { return };
+    let Some(g) = skip_unported("facts_of_a_built_tree", generate(Profile::Projects, 10_000, 1, dir.path(), None))
+    else {
+        return;
+    };
     let real = isolate::real_home().unwrap();
     let a = args(&["scan", "--data-dir", g.layout.data.to_str().unwrap()]);
     let on = isolate::Target { dir: dir.path().to_owned(), device: None, entries: 10_000 };
@@ -130,7 +133,11 @@ fn facts_of_a_built_tree() {
 #[test]
 fn the_users_list_holds_no_tool_item() {
     let dir = target::Scratch::new().unwrap();
-    let Some(g) = skip_unported(generate(Profile::Users, 10_000, 1, dir.path(), None)) else { return };
+    let Some(g) =
+        skip_unported("the_users_list_holds_no_tool_item", generate(Profile::Users, 10_000, 1, dir.path(), None))
+    else {
+        return;
+    };
     assert!(
         g.manifest.plan.iter().any(|p| p.selected && p.action.starts_with("native")),
         "users plans no tool item any more; this test checks nothing"

@@ -341,4 +341,9 @@ pub mod testing {
     pub fn name_from_bytes(_bytes: &[u8]) -> Option<OsString> {
         None
     }
+
+    /// No `plutil` here: the binary property lists are Apple's.
+    pub fn plutil_to_binary(_path: &Path) -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::Unsupported, "no plutil on this platform"))
+    }
 }

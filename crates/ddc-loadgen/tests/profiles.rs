@@ -26,13 +26,14 @@ const EPSILON: f64 = 0.25;
 /// Below this a count is noise: a jump from 0 to 3 is not a growth of 3.
 const FLOOR: u64 = 64;
 
-fn check(p: Profile) {
-    if ddc_loadgen::unsupported(p.name()) {
+/// The checks of profile `p`, for the test named `test`.
+fn check(test: &str, p: Profile) {
+    if ddc_loadgen::unsupported(test) {
         return;
     }
     let small = own_process().then(|| {
         let dir = target::Scratch::new().unwrap();
-        let g = skip_unported(generate(p, N, 1, dir.path(), None))?;
+        let g = skip_unported(test, generate(p, N, 1, dir.path(), None))?;
         // Run once and measured the second time: one-time setup is no growth.
         verify::scan_and_plan(&g.layout, &g.home).unwrap();
         verify::preflight_items(&g.manifest, &g.layout, &g.home).unwrap();
@@ -41,7 +42,7 @@ fn check(p: Profile) {
     let small = small.flatten();
 
     let dir = target::Scratch::new().unwrap();
-    let Some(g) = skip_unported(generate(p, S, 1, dir.path(), None)) else { return };
+    let Some(g) = skip_unported(test, generate(p, S, 1, dir.path(), None)) else { return };
     assert_eq!(g.layout.tree.as_os_str().len(), target::ROOT_LEN);
     assert!(!g.manifest.findings.is_empty(), "{}: nothing planted", p.name());
     let (report, plan) = verify::scan_and_plan(&g.layout, &g.home).unwrap();
@@ -151,55 +152,55 @@ fn the_counters_are_visible_to_nm() {
 
 #[test]
 fn projects() {
-    check(Profile::Projects);
+    check("projects", Profile::Projects);
 }
 
 #[test]
 fn wide() {
-    check(Profile::Wide);
+    check("wide", Profile::Wide);
 }
 
 #[test]
 fn wide_root() {
-    check(Profile::WideRoot);
+    check("wide_root", Profile::WideRoot);
 }
 
 #[test]
 fn deep() {
-    check(Profile::Deep);
+    check("deep", Profile::Deep);
 }
 
 #[test]
 fn deep_path_max() {
-    check(Profile::DeepPathMax);
+    check("deep_path_max", Profile::DeepPathMax);
 }
 
 #[test]
 fn users() {
-    check(Profile::Users);
+    check("users", Profile::Users);
 }
 
 #[test]
 fn links() {
-    check(Profile::Links);
+    check("links", Profile::Links);
 }
 
 #[test]
 fn names() {
-    check(Profile::Names);
+    check("names", Profile::Names);
 }
 
 #[test]
 fn system_root() {
-    check(Profile::SystemRoot);
+    check("system_root", Profile::SystemRoot);
 }
 
 #[test]
 fn mixed() {
-    check(Profile::Mixed);
+    check("mixed", Profile::Mixed);
 }
 
 #[test]
 fn hostile() {
-    check(Profile::Hostile);
+    check("hostile", Profile::Hostile);
 }
