@@ -1,0 +1,3 @@
+# Tests that skip on linux, one name per line: scripts/native-skips.sh compares them with
+# the "skipped <test>:" lines of the native job (story "Build matrix: every target
+# built, tested and packaged from one tag", DDC-007, stage 2).
