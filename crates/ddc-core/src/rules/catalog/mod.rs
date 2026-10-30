@@ -2,17 +2,43 @@
 //! "Detection rule catalog" (epic DDC-001) and `bench/make_baseline.py`.
 //! Order matters for specialized rules: the first match wins.
 //!
-//! This module holds the builders and the helper lists the rules share; the
-//! rules themselves are in [`macos`].
+//! One list per platform (story "Rule catalog split: shared and per-OS
+//! sections", DDC-007): [`shared`] defines the rules every platform lists,
+//! and `macos`, `linux` and `windows` list theirs in match order. The list
+//! is chosen at run time from a [`Platform`] value, never by `cfg`, so every
+//! build holds all three and `ddc rules --platform` can print any of them.
+//! This module holds the builders and the helper lists.
 
+mod linux;
 mod macos;
+mod shared;
+// Never `windows::…`: that path names the OS crate, which the structure
+// test keeps inside the platform folders.
+mod windows;
+use self::windows as win;
 
-pub use macos::RULES;
+pub use shared::SHARED_IDS;
 
 use super::{Clones, Matcher, Rule, Scope};
 use crate::class::{
     CondaFolder, Fallback, Location, LocationCompare, LocationProbe, NativeCommand, ReadyProbe, Removal,
 };
+use crate::platform::{PLATFORM, Platform};
+
+/// The rules of platform `p`, in match order. A list is a `static`, so a
+/// rule's address is its identity ([`super::Catalog`] finds a rule's tag by
+/// it).
+pub const fn rules_of(p: Platform) -> &'static [Rule] {
+    match p {
+        Platform::Macos => &macos::RULES,
+        Platform::Linux => &linux::RULES,
+        Platform::Windows => &win::RULES,
+    }
+}
+
+/// The rules of the platform this build is for: the same slice as
+/// `rules_of(PLATFORM)`.
+pub static RULES: &[Rule] = rules_of(PLATFORM);
 
 const PY_LOCKS: &[&str] = &["uv.lock", "poetry.lock", "Pipfile.lock", "requirements*.txt"];
 const JS_LOCKS: &[&str] = &["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"];
@@ -140,3 +166,88 @@ const DOCKER_PRUNE: &[NativeCommand] = &[
 ];
 const PODMAN_PRUNE: &[NativeCommand] =
     &[NativeCommand { program: "podman", args: &["image", "prune", "-f"], location: None, ready: None, env: &[] }];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ALL: [Platform; 3] = [Platform::Macos, Platform::Linux, Platform::Windows];
+
+    fn ids(p: Platform) -> Vec<&'static str> {
+        rules_of(p).iter().map(|r| r.id).collect()
+    }
+
+    /// A rule's tag is its index, found by address: `RULES` is this
+    /// platform's list itself, not a copy.
+    #[test]
+    fn rules_is_the_list_of_this_platform() {
+        assert!(std::ptr::eq(RULES, rules_of(PLATFORM)));
+        for p in ALL {
+            assert!(std::ptr::eq(rules_of(p), rules_of(p)), "{p}: one list, not a copy per use");
+            // Each list is a catalog: it holds `user.kept`.
+            super::super::Catalog::from_rules(rules_of(p), std::path::Path::new("/home/example"));
+        }
+    }
+
+    /// Every rule id is in exactly one section, or in the shared section with
+    /// per-OS paths (story "Rule catalog split: shared and per-OS sections",
+    /// AC2).
+    #[test]
+    fn every_rule_id_is_in_one_section_or_shared() {
+        for p in ALL {
+            let mut sorted = ids(p);
+            sorted.sort_unstable();
+            sorted.dedup();
+            assert_eq!(sorted.len(), rules_of(p).len(), "{p}: an id repeats");
+        }
+        let (macos, linux, windows) = (ids(Platform::Macos), ids(Platform::Linux), ids(Platform::Windows));
+        assert_eq!(linux, windows);
+        // The Linux list keeps the macOS order: a subsequence of it.
+        let mut rest = macos.iter();
+        for id in &linux {
+            assert!(rest.any(|m| m == id), "{id} is out of the macOS order");
+        }
+        // ids(linux) ⊆ SHARED_IDS ⊆ ids(macos).
+        for id in &linux {
+            assert!(SHARED_IDS.contains(id), "{id} is on Linux but not shared");
+        }
+        for id in SHARED_IDS {
+            assert!(macos.contains(&id), "{id} is shared but not on macOS");
+        }
+        // An id on more than one platform is defined in `shared.rs`, and each
+        // list holds that definition resolved for its platform.
+        for p in ALL {
+            let resolved = shared::all(p);
+            for rule in rules_of(p) {
+                let on = ALL.iter().filter(|q| ids(**q).contains(&rule.id)).count();
+                assert!(on == 1 || SHARED_IDS.contains(&rule.id), "{p}: {} is on {on} platforms, not shared", rule.id);
+                if let Some(def) = resolved.iter().find(|d| d.id == rule.id) {
+                    assert_eq!(
+                        format!("{rule:?}"),
+                        format!("{def:?}"),
+                        "{p}: {} is not its shared definition",
+                        rule.id
+                    );
+                }
+            }
+        }
+        // A shared rule differs between platforms only in its matcher's paths.
+        let [m, l, w] = ALL.map(shared::all);
+        for (i, mac) in m.iter().enumerate() {
+            for other in [&l[i], &w[i]] {
+                assert_eq!(mac.id, other.id);
+                let same = mac.category == other.category
+                    && mac.class == other.class
+                    && mac.removal == other.removal
+                    && mac.lockfiles == other.lockfiles
+                    && mac.owners == other.owners
+                    && mac.hint == other.hint
+                    && mac.listed == other.listed
+                    && mac.clones == other.clones
+                    && mac.scope == other.scope
+                    && std::mem::discriminant(&mac.matcher) == std::mem::discriminant(&other.matcher);
+                assert!(same, "{}: {mac:?} and {other:?} differ beyond the paths", mac.id);
+            }
+        }
+    }
+}

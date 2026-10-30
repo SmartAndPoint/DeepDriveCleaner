@@ -29,10 +29,11 @@ fn rules_json_lists_every_rule_with_its_group() {
 /// The groups are the Types rows of the revised Settings (story "Settings:
 /// folders, types, notifications", D2): "Package downloads" are caches a
 /// package manager downloads again, and "Toolchain caches" holds only `safe`
-/// rules, so the `review` downloads have a row of their own.
+/// rules, so the `review` downloads have a row of their own. The macOS
+/// catalog, on every OS the tests run on.
 #[test]
 fn rules_json_groups_follow_the_settings_types() {
-    let list = RuleList::builtin();
+    let list = RuleList::for_platform(ddc_core::platform::Platform::Macos);
     assert_eq!(
         list.groups,
         [

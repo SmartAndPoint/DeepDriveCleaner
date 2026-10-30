@@ -14,7 +14,7 @@ mod visitor;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-pub use catalog::{DOCKER_DOWN, RULES};
+pub use catalog::{DOCKER_DOWN, RULES, SHARED_IDS, rules_of};
 pub(crate) use classify::AtOrAbove;
 pub use classify::{Classified, LockFiles, Note, classify, effective_class};
 pub use visitor::{KEEP_MARKER, LARGE_FILE_BYTES, Pins, RuleVisitor};

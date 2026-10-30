@@ -1,258 +1,65 @@
 //! The macOS catalog: every rule, in match order (the first specialized
-//! match wins, and a rule's index is its tag).
+//! match wins, and a rule's index is its tag). The shared rules sit in it
+//! where they match, resolved for macOS.
 
-use super::{
-    CONDA_CACHE_HINT, DOCKER_PRUNE, GRADLE, GRADLE_ANY, JETBRAINS, JS_BUILD, JS_LOCKS, NONE, PODMAN_PRUNE, PY_LOCKS,
-    conda, name, native, native_env, probe, rule,
-};
+use super::shared;
+use super::{DOCKER_PRUNE, JETBRAINS, rule};
 use crate::class::Category::*;
+use crate::class::Removal;
 use crate::class::RiskClass::*;
-use crate::class::{CondaFolder, Fallback, LocationCompare, Removal};
-use crate::rules::{Clones, Matcher, Rule, Scope, TOMBSTONE};
+use crate::platform::Platform;
+use crate::rules::{Matcher, Rule, Scope};
 
-pub static RULES: &[Rule] = &[
+/// How many rules macOS has.
+const COUNT: usize = 77;
+
+/// A named `static`, so the list has one address (its rules' tags are
+/// found by it).
+pub(super) static RULES: [Rule; COUNT] = [
     // ---- synthetic -------------------------------------------------------
-    Rule {
-        hint: "protected by --exclude or a .ddc-keep marker",
-        ..rule(crate::rules::KEPT, Personal, UserData, Removal::None, Matcher::Synthetic)
-    },
+    shared::USER_KEPT,
     // ---- project artifacts (specialized, in match order) -----------------
-    Rule {
-        hint: "left by an interrupted ddc clean",
-        ..rule(TOMBSTONE, ProjectArtifact, Safe, Removal::Delete, Matcher::NameContains(".ddc-deleting-"))
-    },
+    shared::DDC_TOMBSTONE,
     // App bundles are sealed: rules never apply inside (`.app/Contents/Resources/node_modules`).
     Rule {
         hint: "macOS application bundle",
         listed: false,
         ..rule("macos.app-bundle", Personal, UserData, Removal::None, Matcher::NameSuffix(".app"))
     },
-    Rule {
-        hint: "global packages; managed by the package manager",
-        listed: false,
-        ..rule(
-            "node.global-packages",
-            ProjectArtifact,
-            UserData,
-            Removal::None,
-            Matcher::Under {
-                name: "node_modules",
-                prefixes: &[".npm-global", ".config/yarn/global", ".bun/install/global", ".volta", ".fnm"],
-            },
-        )
-    },
-    Rule {
-        lockfiles: Some(PY_LOCKS),
-        clones: Clones::UvVenv,
-        hint: "recreate: uv sync / pip install -r requirements.txt",
-        ..rule("python.venv", ProjectArtifact, Rebuildable, Removal::Delete, Matcher::ContainsFile("pyvenv.cfg"))
-    },
-    // Never an install's own prefix (the base environment): only a child of
-    // an `envs` folder, and the probe refuses any install's `root_prefix`.
-    Rule {
-        hint: "recreate: conda create, or conda env create from its environment file",
-        ..rule(
-            "python.conda-env",
-            Toolchain,
-            Review,
-            conda(&crate::conda::ENV_REMOVE, CondaFolder::Environment, Fallback::Trash, &[]),
-            Matcher::ChildHolding {
-                parents: &["miniconda3/envs", "anaconda3/envs", "miniforge3/envs", ".conda/envs"],
-                file: "conda-meta/history",
-            },
-        )
-    },
-    Rule {
-        hint: "recreated by tox/nox on the next run",
-        ..rule(
-            "python.tox",
-            ProjectArtifact,
-            Safe,
-            Removal::Delete,
-            name(&[".tox", ".nox"], &["tox.ini", "noxfile.py", "pyproject.toml", "setup.cfg"]),
-        )
-    },
-    rule("python.pycache", ProjectArtifact, Safe, Removal::Delete, name(&["__pycache__"], NONE)),
-    rule(
-        "python.tool-cache",
-        ProjectArtifact,
-        Safe,
-        Removal::Delete,
-        name(&[".pytest_cache", ".mypy_cache", ".ruff_cache"], NONE),
-    ),
-    Rule {
-        lockfiles: Some(JS_LOCKS),
-        clones: Clones::PnpmModules,
-        hint: "recreate: npm ci / pnpm install / yarn install",
-        ..rule(
-            "node.node_modules",
-            ProjectArtifact,
-            Rebuildable,
-            Removal::Delete,
-            name(&["node_modules"], &["package.json"]),
-        )
-    },
-    Rule {
-        clones: Clones::PnpmModules,
-        hint: "no package.json next to it: origin unknown",
-        ..rule("node.node_modules-orphan", ProjectArtifact, Review, Removal::Trash, name(&["node_modules"], NONE))
-    },
-    Rule {
-        hint: "rebuilt by the next build",
-        ..rule("js.build-cache", ProjectArtifact, Safe, Removal::Delete, name(JS_BUILD, &["package.json"]))
-    },
-    Rule {
-        hint: "rebuilt by cargo build",
-        ..rule("rust.target", ProjectArtifact, Rebuildable, Removal::Delete, name(&["target"], &["Cargo.toml"]))
-    },
-    Rule {
-        hint: "rebuilt by mvn package",
-        ..rule("maven.target", ProjectArtifact, Rebuildable, Removal::Delete, name(&["target"], &["pom.xml"]))
-    },
-    Rule {
-        hint: "rebuilt by gradle build",
-        ..rule(
-            "gradle.build",
-            ProjectArtifact,
-            Rebuildable,
-            Removal::Delete,
-            Matcher::Name { names: &["build"], siblings: GRADLE, children_any: &["intermediates", "classes", "tmp"] },
-        )
-    },
-    rule("gradle.project-cache", ProjectArtifact, Safe, Removal::Delete, name(&[".gradle"], GRADLE_ANY)),
-    Rule {
-        hint: "rebuilt by cmake --build",
-        ..rule("cmake.build", ProjectArtifact, Rebuildable, Removal::Delete, Matcher::CmakeBuild)
-    },
-    Rule {
-        lockfiles: Some(&["Podfile.lock"]),
-        hint: "recreate: pod install",
-        ..rule("cocoapods.pods", ProjectArtifact, Rebuildable, Removal::Delete, name(&["Pods"], &["Podfile"]))
-    },
+    shared::NODE_GLOBAL_PACKAGES,
+    shared::PYTHON_VENV,
+    shared::PYTHON_CONDA_ENV,
+    shared::PYTHON_TOX,
+    shared::PYTHON_PYCACHE,
+    shared::PYTHON_TOOL_CACHE,
+    shared::NODE_MODULES,
+    shared::NODE_MODULES_ORPHAN,
+    shared::JS_BUILD_CACHE,
+    shared::RUST_TARGET,
+    shared::MAVEN_TARGET,
+    shared::GRADLE_BUILD,
+    shared::GRADLE_PROJECT_CACHE,
+    shared::CMAKE_BUILD,
+    shared::COCOAPODS_PODS,
     // ---- package caches ---------------------------------------------------
-    rule("cache.npm", PackageCache, Safe, Removal::Delete, Matcher::KnownPaths(&[".npm/_cacache", ".npm/_npx"])),
-    rule(
-        "cache.yarn",
-        PackageCache,
-        Safe,
-        Removal::Delete,
-        Matcher::KnownPaths(&["Library/Caches/Yarn", ".yarn/berry/cache"]),
-    ),
-    Rule {
-        clones: Clones::Always,
-        ..rule("cache.bun", PackageCache, Safe, Removal::Delete, Matcher::KnownPaths(&[".bun/install/cache"]))
-    },
-    Rule {
-        clones: Clones::Always,
-        hint: "node_modules installed by pnpm are clones and stay intact",
-        ..rule(
-            "cache.pnpm",
-            PackageCache,
-            Safe,
-            Removal::Delete,
-            Matcher::KnownPaths(&["Library/pnpm/store", ".pnpm-store"]),
-        )
-    },
-    Rule {
-        clones: Clones::Always,
-        ..rule(
-            "cache.uv",
-            PackageCache,
-            Safe,
-            // A lock taken after the in-use check fails in seconds, not at
-            // NATIVE_TIMEOUT (uv 0.9.16 and later; an older uv ignores it).
-            native_env(
-                "uv",
-                &["cache", "clean"],
-                probe("uv", &["cache", "dir"], LocationCompare::Equals),
-                Fallback::Delete,
-                &[("UV_LOCK_TIMEOUT", "10")],
-            ),
-            Matcher::KnownPaths(&[".cache/uv"]),
-        )
-    },
-    // Only conda cleans it: environments may link to its packages, so it is
-    // never deleted or moved to the Trash without conda.
-    Rule {
-        hint: CONDA_CACHE_HINT,
-        ..rule(
-            "cache.conda",
-            PackageCache,
-            Safe,
-            conda(
-                &crate::conda::CLEAN,
-                CondaFolder::PackageCache,
-                Fallback::Skip,
-                &[(crate::conda::PKGS_DIRS_VAR, "{path}")],
-            ),
-            Matcher::KnownPaths(&["miniconda3/pkgs", "anaconda3/pkgs", "miniforge3/pkgs", ".conda/pkgs"]),
-        )
-    },
-    rule("cache.pip", PackageCache, Safe, Removal::Delete, Matcher::KnownPaths(&["Library/Caches/pip"])),
-    rule(
-        "cache.poetry",
-        PackageCache,
-        Safe,
-        Removal::Delete,
-        Matcher::KnownPaths(&["Library/Caches/pypoetry/cache", "Library/Caches/pypoetry/artifacts"]),
-    ),
+    shared::cache_npm(Platform::Macos),
+    shared::cache_yarn(Platform::Macos),
+    shared::CACHE_BUN,
+    shared::cache_pnpm(Platform::Macos),
+    shared::cache_uv(Platform::Macos),
+    shared::CACHE_CONDA,
+    shared::cache_pip(Platform::Macos),
+    shared::cache_poetry(Platform::Macos),
     rule("cache.homebrew", PackageCache, Safe, Removal::Delete, Matcher::KnownPaths(&["Library/Caches/Homebrew"])),
-    rule(
-        "cache.go-build",
-        PackageCache,
-        Safe,
-        native("go", &["clean", "-cache"], probe("go", &["env", "GOCACHE"], LocationCompare::Equals), Fallback::Delete),
-        Matcher::KnownPaths(&["Library/Caches/go-build"]),
-    ),
-    rule(
-        "cache.go-mod",
-        PackageCache,
-        Safe,
-        native(
-            "go",
-            &["clean", "-modcache"],
-            probe("go", &["env", "GOMODCACHE"], LocationCompare::Equals),
-            Fallback::DeleteWritable,
-        ),
-        Matcher::KnownPaths(&["go/pkg/mod"]),
-    ),
-    rule(
-        "cache.cargo",
-        PackageCache,
-        Safe,
-        Removal::Delete,
-        Matcher::KnownPaths(&[".cargo/registry/cache", ".cargo/registry/src", ".cargo/git/checkouts"]),
-    ),
-    rule("cache.gradle", PackageCache, Safe, Removal::Delete, Matcher::KnownPaths(&[".gradle/caches"])),
-    Rule {
-        hint: "may contain artifacts installed locally with mvn install",
-        ..rule("repo.maven", PackageCache, Review, Removal::Trash, Matcher::KnownPaths(&[".m2/repository"]))
-    },
+    shared::cache_go_build(Platform::Macos),
+    shared::CACHE_GO_MOD,
+    shared::CACHE_CARGO,
+    shared::CACHE_GRADLE,
+    shared::REPO_MAVEN,
     rule("cache.cocoapods", PackageCache, Safe, Removal::Delete, Matcher::KnownPaths(&["Library/Caches/CocoaPods"])),
-    Rule {
-        hint: "reinstall: npx playwright install",
-        ..rule(
-            "browsers.playwright",
-            PackageCache,
-            Review,
-            Removal::Trash,
-            Matcher::KnownPaths(&["Library/Caches/ms-playwright"]),
-        )
-    },
-    Rule {
-        hint: "reinstall: npx puppeteer browsers install",
-        ..rule("browsers.puppeteer", PackageCache, Review, Removal::Trash, Matcher::KnownPaths(&[".cache/puppeteer"]))
-    },
-    Rule {
-        hint: "reinstall: npx cypress install",
-        ..rule(
-            "browsers.cypress",
-            PackageCache,
-            Review,
-            Removal::Trash,
-            Matcher::KnownPaths(&["Library/Caches/Cypress"]),
-        )
-    },
+    shared::browsers_playwright(Platform::Macos),
+    shared::BROWSERS_PUPPETEER,
+    shared::browsers_cypress(Platform::Macos),
     // ---- Xcode ------------------------------------------------------------
     Rule {
         owners: &["Xcode"],
@@ -302,24 +109,9 @@ pub static RULES: &[Rule] = &[
             Matcher::KnownPaths(&["Library/Containers/com.docker.docker"]),
         )
     },
-    Rule {
-        hint: "removes dangling images only",
-        ..rule(
-            "vm.podman",
-            VmContainer,
-            Review,
-            Removal::NativeOnly(PODMAN_PRUNE),
-            Matcher::KnownPaths(&[".local/share/containers"]),
-        )
-    },
-    Rule {
-        hint: "remove manually: colima delete (destroys containers and volumes)",
-        ..rule("vm.colima", VmContainer, Review, Removal::NativeOnly(&[]), Matcher::KnownPaths(&[".colima"]))
-    },
-    Rule {
-        hint: "remove manually: limactl delete <instance>",
-        ..rule("vm.lima", VmContainer, Review, Removal::NativeOnly(&[]), Matcher::KnownPaths(&[".lima"]))
-    },
+    shared::VM_PODMAN,
+    shared::VM_COLIMA,
+    shared::VM_LIMA,
     Rule {
         hint: "manage in the OrbStack app",
         ..rule("vm.orbstack", VmContainer, Review, Removal::NativeOnly(&[]), Matcher::KnownPaths(&[".orbstack"]))
@@ -336,51 +128,14 @@ pub static RULES: &[Rule] = &[
     },
     rule("cache.colima", PackageCache, Safe, Removal::Delete, Matcher::KnownPaths(&["Library/Caches/colima"])),
     // ---- toolchains (each version separately; protected versions dropped after the walk)
-    Rule {
-        hint: "reinstall: nvm install <version>",
-        scope: Scope::Tree,
-        ..rule("toolchain.nvm", Toolchain, Review, Removal::Trash, Matcher::KnownChildren(".nvm/versions/node"))
-    },
-    Rule {
-        hint: "reinstall: pyenv install <version>",
-        scope: Scope::Tree,
-        ..rule(
-            "toolchain.pyenv",
-            Toolchain,
-            Review,
-            native(
-                "pyenv",
-                &["uninstall", "-f", "{name}"],
-                probe("pyenv", &["root"], LocationCompare::Contains),
-                Fallback::Trash,
-            ),
-            Matcher::KnownChildren(".pyenv/versions"),
-        )
-    },
-    Rule {
-        hint: "reinstall: rustup toolchain install <name>",
-        scope: Scope::Tree,
-        ..rule(
-            "toolchain.rustup",
-            Toolchain,
-            Review,
-            native(
-                "rustup",
-                &["toolchain", "uninstall", "{name}"],
-                probe("rustup", &["show", "home"], LocationCompare::Contains),
-                Fallback::Trash,
-            ),
-            Matcher::KnownChildren(".rustup/toolchains"),
-        )
-    },
+    shared::TOOLCHAIN_NVM,
+    shared::TOOLCHAIN_PYENV,
+    shared::TOOLCHAIN_RUSTUP,
     // ---- ML models -----------------------------------------------------------
-    Rule {
-        hint: "re-download with ollama pull; remove one model with ollama rm",
-        ..rule("model.ollama", MlModel, Review, Removal::Trash, Matcher::KnownPaths(&[".ollama/models"]))
-    },
-    rule("model.huggingface", MlModel, Review, Removal::Trash, Matcher::KnownPaths(&[".cache/huggingface"])),
-    rule("model.lmstudio", MlModel, Review, Removal::Trash, Matcher::KnownPaths(&[".lmstudio/models"])),
-    rule("model.torch", MlModel, Review, Removal::Trash, Matcher::KnownPaths(&[".cache/torch"])),
+    shared::MODEL_OLLAMA,
+    shared::MODEL_HUGGINGFACE,
+    shared::MODEL_LMSTUDIO,
+    shared::MODEL_TORCH,
     // ---- IDEs ------------------------------------------------------------------
     Rule {
         owners: JETBRAINS,
@@ -523,10 +278,10 @@ pub static RULES: &[Rule] = &[
         ..rule("trash", Trash, Review, Removal::None, Matcher::KnownPaths(&[".Trash"]))
     },
     // ---- user data (report only) --------------------------------------------------
-    rule("user.pictures", Personal, UserData, Removal::None, Matcher::KnownPaths(&["Pictures"])),
-    rule("user.movies", Personal, UserData, Removal::None, Matcher::KnownPaths(&["Movies"])),
-    rule("user.music", Personal, UserData, Removal::None, Matcher::KnownPaths(&["Music"])),
-    rule("user.downloads", Personal, UserData, Removal::None, Matcher::KnownRegion(&["Downloads"])),
+    shared::USER_PICTURES,
+    shared::user_movies(Platform::Macos),
+    shared::USER_MUSIC,
+    shared::USER_DOWNLOADS,
     rule(
         "user.ios-backups",
         Personal,
@@ -566,8 +321,5 @@ pub static RULES: &[Rule] = &[
         )
     },
     // ---- generic, lowest priority -------------------------------------------------------
-    Rule {
-        hint: "tagged as a cache by its owner; regeneration may be slow",
-        ..rule("generic.cachedir-tag", GenericCache, Review, Removal::Trash, Matcher::CacheDirTag)
-    },
+    shared::GENERIC_CACHEDIR_TAG,
 ];

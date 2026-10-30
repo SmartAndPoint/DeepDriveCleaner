@@ -257,13 +257,14 @@ golden! {
     golden_mixed: Mixed,
 }
 
-/// The catalog does not depend on the tree: one file for every profile.
+/// The catalog does not depend on the tree: one file for every profile. The
+/// file is the macOS catalog, which every OS can print.
 #[test]
 fn golden_rules() {
     let dir = target::Scratch::new().unwrap();
     let home = dir.path().join("home");
     fs::create_dir(&home).unwrap();
-    let mut got = ddc(&home, &["rules", "--json"]);
+    let mut got = ddc(&home, &["rules", "--platform", "macos", "--json"]);
     // The catalog names no device, so this test runs where `file_id` does not.
     let at = Where { base: dir.path().to_str().unwrap().to_owned(), dev: None };
     normalise(&mut got, &at);
