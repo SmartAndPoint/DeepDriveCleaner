@@ -65,6 +65,11 @@ public actor CLIRunner {
         /// item 10, amended 2026-10-29).
         case brewPackages
 
+        /// `keep remove <folder> --folder-dev N --folder-ino N --json`,
+        /// Remove Protection… (menu bar ADR §6 item 12, amended 2026-10-30):
+        /// takes the exclusive lock, so it waits its turn in the queue.
+        case keepRemove
+
         /// Runs in a lane of its own, beside the queue.
         public var hasLane: Bool { self == .disk || self == .diskAgents || self == .brewPackages }
     }

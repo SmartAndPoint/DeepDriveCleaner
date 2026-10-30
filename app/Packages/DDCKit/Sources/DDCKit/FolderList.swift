@@ -143,6 +143,16 @@ public struct FolderList: Sendable, Equatable {
         file.skips.removeAll { $0 == path }
     }
 
+    /// The entry, as the file writes it, that names the folder the scan
+    /// report calls `path` (story "Protected by you: say what it is, and
+    /// Remove Protection"). The report's path is canonical and
+    /// `removeExclusion` matches by exact string, so the entry is the one of
+    /// `mode`'s list whose `realpath(3)` is `path`, or that is `path` as written.
+    public static func entry(for path: String, mode: Mode, in file: SettingsFile) -> String? {
+        let list = mode == .count ? file.excludes : file.skips
+        return list.first { $0 == path } ?? list.first { resolved($0) == path }
+    }
+
     /// Moves the path between `excludes` and `skips`.
     public static func setMode(_ mode: Mode, of path: String, in file: inout SettingsFile) {
         guard file.excludes.contains(path) || file.skips.contains(path) else { return }

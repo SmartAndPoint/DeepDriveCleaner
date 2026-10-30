@@ -91,12 +91,18 @@ public final class ReviewModel: ReviewRouting {
         case afterClean
         /// Scan again, from the window's header.
         case requested
+        /// Remove Protection… took a protection away: the next scan lists
+        /// the folder in its own group.
+        case afterRemovingProtection
     }
 
     /// A scan the window waits for; Clean stays off meanwhile.
     public internal(set) var rescanning: Rescan?
     /// A clean, or the rescan after it, is in flight.
     public internal(set) var isCleaning = false
+    /// Remove Protection… on a row, until the scan after it ends (story
+    /// "Protected by you: say what it is, and Remove Protection").
+    public internal(set) var removingProtection: RemoveProtection.Progress?
     /// What the last clean deleted or moved to the Trash: locked in any
     /// report scanned before the clean ended, so they never come back selected.
     @ObservationIgnored var cleaned: (identities: Set<Identity>, ended: Date)?
@@ -121,6 +127,8 @@ public final class ReviewModel: ReviewRouting {
     @ObservationIgnored let clock: @MainActor () -> Date
     @ObservationIgnored let log: @MainActor (String) -> Void
     @ObservationIgnored let home: String
+    @ObservationIgnored let editSettings: @MainActor (_ edit: (inout SettingsFile) -> Void) -> Bool
+    @ObservationIgnored let gitTracking: GitTracking
     /// Folders "Protect this folder" marked; locked until a scan reports them as protected.
     @ObservationIgnored private var protected: Set<Identity> = []
     @ObservationIgnored var dryRun: (ticket: CLIRunner.Ticket, task: Task<Void, Never>)?
@@ -146,6 +154,10 @@ public final class ReviewModel: ReviewRouting {
     /// - `paused`: scans are paused from the menu bar.
     /// - `updateWaiting`: an update's relaunch waits for the runner or runs
     ///   (`UpdateModel.jobsHeld`): no clean, sheet or Scan again starts.
+    /// - `editSettings`: `SettingsStore.update`, the one writer of
+    ///   `settings.json`, for Remove Protection… on a Settings exclusion or
+    ///   skip; false when the file could not be read or written.
+    /// - `gitTracking`: whether git tracks a marker, for the confirmation.
     public init(
         runner: (any CLIRunning)?,
         data: DataDirectory,
@@ -160,8 +172,12 @@ public final class ReviewModel: ReviewRouting {
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         clock: @escaping @MainActor () -> Date = { .now },
         log: @escaping @MainActor (String) -> Void = { _ in },
-        home: String = FileManager.default.homeDirectoryForCurrentUser.path
+        home: String = FileManager.default.homeDirectoryForCurrentUser.path,
+        editSettings: @escaping @MainActor (_ edit: (inout SettingsFile) -> Void) -> Bool = { _ in false },
+        gitTracking: GitTracking = GitTracking()
     ) {
+        self.editSettings = editSettings
+        self.gitTracking = gitTracking
         self.home = home.count > 1 && home.hasSuffix("/") ? String(home.dropLast()) : home
         self.runner = runner
         self.data = data

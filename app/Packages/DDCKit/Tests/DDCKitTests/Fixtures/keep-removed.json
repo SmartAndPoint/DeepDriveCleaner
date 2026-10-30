@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "path": "/Users/example/p/node_modules",
+  "dev": 16777232,
+  "ino": 339569697,
+  "rule": "node.node_modules",
+  "result": "removed"
+}

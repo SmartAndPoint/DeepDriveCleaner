@@ -276,6 +276,10 @@ struct ContractTests {
         #expect(Set(try values(scan, "EntryLock", key: "reason")) == Set(EntryLock.tags))
         #expect(Set(try values(scan, "SkipReason")) == Set(ScanReport.SkipArea.allCases.map(\.rawValue)))
         #expect(Set(try values(scan, "FolderEntryKind")) == ["file", "folder"])
+        #expect(Set(try values(scan, "ExclusionKind")) == Set(ScanReport.ExclusionKind.allCases.map(\.rawValue)))
+        #expect(Set(try values(scan, "ExclusionOrigin")) == Set(ScanReport.ExclusionOrigin.allCases.map(\.rawValue)))
+        let keep = try schema("keep")
+        #expect(Set(try values(keep, "KeepRefusal")) == Set(KeepReport.Refusal.allCases.map(\.rawValue)))
     }
 
     /// ADR "Platform seam: one platform module per OS with declared
@@ -558,6 +562,62 @@ struct ContractTests {
         #expect(Set(try values(agents, "SessionState")) == Set(AgentsReport.SessionState.allCases.map(\.rawValue)))
     }
 
+    /// Story "Protected by you: say what it is, and Remove Protection":
+    /// `keep remove` has one owner, and nothing scheduled takes a protection away.
+    @Test("only Remove Protection runs keep remove, once, and nothing scheduled does")
+    func keepCallers() throws {
+        let sources = try appSources()
+        func files(_ pattern: Regex<Substring>) -> Set<String> {
+            Set(sources.filter { $0.value.contains(pattern) }.map(\.key))
+        }
+        #expect(files(/\.keepRemove\b/) == ["RemoveProtection.swift"])
+        #expect(files(/"keep"/) == ["RemoveProtection.swift"])
+        let owner = try #require(sources["RemoveProtection.swift"])
+        #expect(owner.matches(of: /\.run\(\.keepRemove\b/).count == 1, "one run of keep remove")
+        #expect(owner.matches(of: /removeMarker\(/).count == 2, "declared once, called once: from removeProtection")
+        #expect(files(/func removeProtection\(/) == ["RemoveProtection.swift"])
+        // The confirmation's confirm button is the one caller; it comes with the
+        // window's UI, so for now there is none.
+        let callers = sources.filter { $0.value.contains(/\.removeProtection\(/) }
+        #expect(callers.count <= 1)
+        #expect(callers.values.allSatisfy { $0.matches(of: /\.removeProtection\(/).count == 1 })
+        for file in ["ScheduledWork.swift", "PopoverModel.swift", "AppDelegate.swift", "SchedulerAgent.swift", "ScanDue.swift"] {
+            #expect(!(try #require(sources[file])).contains(/keepRemove|removeProtection|removalConfirmation|"keep"/), "\(file) never removes a protection")
+        }
+    }
+
+    @Test("the keep report is the CLI's: version, results, refusals, and the fixtures validate against its schema")
+    func keepContracts() throws {
+        let source = try rustSource("crates/ddc-core/src/keep.rs")
+        let version = try #require(source.firstMatch(of: /pub const KEEP_SCHEMA_VERSION: u32 = (\d+);/))
+        #expect(Int(version.1) == KeepReport.schemaVersion)
+        let rules = try rustSource("crates/ddc-core/src/rules/mod.rs")
+        #expect(rules.contains("pub const KEPT: &str = \"\(ReviewItems.keptRule)\";"))
+        let keep = try schema("keep")
+        #expect(Set(try values(keep, "KeepRefusal")) == Set(KeepReport.Refusal.allCases.map(\.rawValue)))
+        let results = try #require(keep["oneOf"] as? [[String: Any]])
+            .compactMap { (($0["properties"] as? [String: Any])?["result"] as? [String: Any])?["const"] as? String }
+        #expect(results == KeepReport.Outcome.tags)
+        for name in ["keep-removed", "keep-refused"] {
+            let data = try Fixture.data(name)
+            #expect(try validate(JSONSerialization.jsonObject(with: data), against: keep) == [], "\(name)")
+            _ = try KeepReport.read(data)
+        }
+        // What the schema refuses, the app refuses too.
+        let refusals: [(String, (inout [String: Any]) -> Void)] = [
+            ("keep-refused", { $0["reason"] = "tired" }),
+            ("keep-refused", { $0.removeValue(forKey: "reason") }),
+            ("keep-removed", { $0["result"] = "renamed" }),
+            ("keep-removed", { $0.removeValue(forKey: "path") }),
+            ("keep-removed", { $0["result"] = "failed" }),
+        ]
+        for (name, edit) in refusals {
+            let data = try Fixture.edited(name, edit)
+            #expect(try validate(JSONSerialization.jsonObject(with: data), against: keep) != [], "\(name)")
+            #expect(throws: (any Error).self, "\(name)") { try KeepReport.read(data) }
+        }
+    }
+
     /// The app's Swift sources, comment lines stripped, by file name.
     private func appSources() throws -> [String: String] {
         let root = repositoryRoot()
@@ -591,5 +651,79 @@ struct ContractTests {
             }
             return (branch["enum"] as? [String] ?? []) + ((branch["const"] as? String).map { [$0] } ?? [])
         }
+    }
+
+    /// Where `value` breaks `schema`, by JSON pointer: the subset of JSON
+    /// Schema the CLI's generated schemas use. A keyword it does not know is
+    /// itself a break, so a schema that grows one fails here, not silently.
+    private func validate(_ value: Any, against schema: [String: Any], root: [String: Any]? = nil, at pointer: String = "") -> [String] {
+        let root = root ?? schema
+        let ignored: Set = ["$schema", "$defs", "title", "description", "format", "default"]
+        var errors: [String] = []
+        for (keyword, rule) in schema where !ignored.contains(keyword) {
+            switch keyword {
+            case "$ref":
+                guard let ref = rule as? String, ref.hasPrefix("#/$defs/"),
+                      let target = (root["$defs"] as? [String: Any])?[String(ref.dropFirst("#/$defs/".count))] as? [String: Any]
+                else {
+                    errors.append("\(pointer): unresolved $ref \(rule)")
+                    continue
+                }
+                errors += validate(value, against: target, root: root, at: pointer)
+            case "type":
+                let types = (rule as? [String]) ?? [rule as? String ?? ""]
+                if !types.contains(where: { jsonType(value, is: $0) }) { errors.append("\(pointer): not \(types)") }
+            case "properties":
+                guard let object = value as? [String: Any], let properties = rule as? [String: Any] else { continue }
+                for (key, sub) in properties {
+                    guard let field = object[key], let sub = sub as? [String: Any] else { continue }
+                    errors += validate(field, against: sub, root: root, at: "\(pointer)/\(key)")
+                }
+            case "required":
+                guard let object = value as? [String: Any] else { continue }
+                for key in rule as? [String] ?? [] where object[key] == nil { errors.append("\(pointer): no \(key)") }
+            case "oneOf", "anyOf":
+                let branches = (rule as? [[String: Any]] ?? []).map { validate(value, against: $0, root: root, at: pointer).isEmpty }
+                let matched = branches.filter { $0 }.count
+                if keyword == "oneOf" ? matched != 1 : matched == 0 { errors.append("\(pointer): \(matched) of \(keyword) match") }
+            case "const":
+                if !jsonEqual(value, rule) { errors.append("\(pointer): not \(rule)") }
+            case "enum":
+                if !(rule as? [Any] ?? []).contains(where: { jsonEqual(value, $0) }) { errors.append("\(pointer): not in \(rule)") }
+            case "minimum":
+                if let number = value as? NSNumber, !isBool(value), let minimum = rule as? NSNumber, number.doubleValue < minimum.doubleValue {
+                    errors.append("\(pointer): below \(minimum)")
+                }
+            case "items":
+                guard let array = value as? [Any], let sub = rule as? [String: Any] else { continue }
+                for (index, element) in array.enumerated() { errors += validate(element, against: sub, root: root, at: "\(pointer)/\(index)") }
+            default:
+                errors.append("\(pointer): unsupported keyword \(keyword)")
+            }
+        }
+        return errors
+    }
+
+    private func isBool(_ value: Any) -> Bool {
+        guard let number = value as? NSNumber else { return false }
+        return CFGetTypeID(number) == CFBooleanGetTypeID()
+    }
+
+    private func jsonType(_ value: Any, is type: String) -> Bool {
+        switch type {
+        case "null": value is NSNull
+        case "boolean": isBool(value)
+        case "integer": (value as? NSNumber).map { !isBool(value) && $0.doubleValue == $0.doubleValue.rounded() } ?? false
+        case "number": value is NSNumber && !isBool(value)
+        case "string": value is String
+        case "array": value is [Any]
+        case "object": value is [String: Any]
+        default: false
+        }
+    }
+
+    private func jsonEqual(_ a: Any, _ b: Any) -> Bool {
+        guard isBool(a) == isBool(b), let a = a as? NSObject, let b = b as? NSObject else { return false }
+        return a.isEqual(b)
     }
 }

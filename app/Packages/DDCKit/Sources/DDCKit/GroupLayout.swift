@@ -215,6 +215,8 @@ extension ReviewItems {
         let rules = Dictionary(grouping: all, by: { $0.finding.rule })
         // By the rule, not the label: an entry that holds the Trash only.
         let trash = !all.isEmpty && all.allSatisfy { $0.finding.rule == ReviewItems.trashRule }
+        // Protected by you says what a protection is, and how one goes.
+        let kept = !all.isEmpty && all.allSatisfy { $0.finding.rule == ReviewItems.keptRule }
         let checkable = entry.riskClass != .userData && !trash
         let blocks: [GroupLayout.Block]
         let facts: String?
@@ -240,7 +242,7 @@ extension ReviewItems {
         return GroupLayout(
             entry: entry,
             shape: shape,
-            blurb: trash ? CleanWording.trashBlurb : CleanWording.classBlurb(entry.riskClass),
+            blurb: trash ? CleanWording.trashBlurb : kept ? CleanWording.keptBlurb : CleanWording.classBlurb(entry.riskClass),
             facts: facts,
             hint: hint,
             selectAll: checkable ? shown.map(\.id) : nil,
@@ -291,7 +293,7 @@ extension ReviewItems {
             let item = GroupLayout.Item(
                 row: row,
                 shown: place?.shown ?? Wording.tilde(row.finding.path, home: report.home),
-                detail: CleanWording.ownDetail(row, omitting: appOwned ? shared.union([.appOwned]) : shared)
+                detail: CleanWording.ownDetail(row, omitting: appOwned ? shared.union([.appOwned]) : shared, home: report.home)
             )
             folders[tag, default: (place.map { Wording.escaped($0.title) } ?? "Inside apps' own folders", place == nil ? .appOwned : .folder, [])].items.append(item)
         }
@@ -321,7 +323,7 @@ extension ReviewItems {
                     title: title,
                     subtitle: ([rule, CleanWording.actionText(all)] + noted).joined(separator: " · "),
                     hint: hint,
-                    item: GroupLayout.Item(row: row, shown: Wording.tilde(row.finding.path, home: report.home), detail: CleanWording.ownDetail(row, omitting: shared))
+                    item: GroupLayout.Item(row: row, shown: Wording.tilde(row.finding.path, home: report.home), detail: CleanWording.ownDetail(row, omitting: shared, home: report.home))
                 ))
             }
             return .subgroup(GroupLayout.Subgroup(
@@ -332,7 +334,7 @@ extension ReviewItems {
                 hint: hint,
                 checkable: checkable,
                 items: Self.ordered(members.map { row in
-                    GroupLayout.Item(row: row, shown: Wording.tilde(row.finding.path, home: report.home), detail: CleanWording.ownDetail(row, omitting: shared))
+                    GroupLayout.Item(row: row, shown: Wording.tilde(row.finding.path, home: report.home), detail: CleanWording.ownDetail(row, omitting: shared, home: report.home))
                 }, sort)
             ))
         }
@@ -341,7 +343,7 @@ extension ReviewItems {
     /// The notes every row carries; none for an empty list.
     private static func sharedNotes(_ rows: [Row]) -> Set<ScanReport.Note> {
         guard let first = rows.first else { return [] }
-        return rows.dropFirst().reduce(Set(first.finding.notes)) { $0.intersection($1.finding.notes) }
+        return rows.dropFirst().reduce(Set(CleanWording.statedNotes(first.finding))) { $0.intersection(CleanWording.statedNotes($1.finding)) }
     }
 
     /// A path's folder subgroup: the first folder under the home folder, a

@@ -12,6 +12,9 @@ public struct ReviewItems: Sendable, Equatable {
     /// `TRASH_RULE` in `crates/ddc-core/src/report/after_clean.rs`: the Trash,
     /// report only, in a group of its own.
     public static let trashRule = "trash"
+    /// `rules::KEPT` of the core: what the user protected, never cleaned
+    /// (story "Protected by you: say what it is, and Remove Protection").
+    public static let keptRule = "user.kept"
 
     /// Why a finding cannot be selected.
     public enum Lock: Sendable, Equatable {
