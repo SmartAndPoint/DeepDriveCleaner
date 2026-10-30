@@ -129,7 +129,7 @@ struct DiskView: View {
                                 Divider()
                             }
                         }
-                        AgentsSection(agents: agents).padding(.top, 12)
+                        agentsSection.padding(.top, 12)
                     }
                     .padding(16)
                 }
@@ -137,12 +137,23 @@ struct DiskView: View {
         }
     }
 
+    /// Its total in Review is the last scan's, as the popover reads it; its
+    /// Review… link opens the Review window on the group, keeping what the
+    /// user selected there while the window is open.
+    private var agentsSection: AgentsSection {
+        AgentsSection(
+            agents: agents,
+            inReview: popover.codingAgentsInReview,
+            review: { popover.review(group: AgentsSummary.group, keepingSelection: true) }
+        )
+    }
+
     /// Without a whole-disk report, the Coding agents section still shows.
     private func withAgents(@ViewBuilder _ empty: () -> some View) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 empty().frame(minHeight: 220)
-                AgentsSection(agents: agents)
+                agentsSection
             }
             .padding(16)
         }
