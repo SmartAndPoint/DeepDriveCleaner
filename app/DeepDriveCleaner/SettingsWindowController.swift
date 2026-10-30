@@ -47,14 +47,16 @@ final class SettingsWindowController {
     private let model: SettingsModel
     private let privacy: PrivacySettings
     private let loginItem = LoginItem()
+    private let updates: UpdaterSettings
     private let notifications = NotificationPermission()
     private var window: NSWindow?
     private var tabs: SettingsTabViewController?
     private var activeObserver: NSObjectProtocol?
 
-    init(presence: DockPresenceController, model: SettingsModel, privacy: PrivacySettings) {
+    init(presence: DockPresenceController, model: SettingsModel, updates: UpdaterSettings, privacy: PrivacySettings) {
         self.presence = presence
         self.model = model
+        self.updates = updates
         self.privacy = privacy
     }
 
@@ -101,12 +103,13 @@ final class SettingsWindowController {
         guard window != nil else { return }
         model.refresh()
         loginItem.refresh()
+        updates.refresh()
         Task { await notifications.refresh() }
     }
 
     private func view(for pane: Pane) -> AnyView {
         switch pane {
-        case .general: AnyView(GeneralSettingsView(model: model, loginItem: loginItem))
+        case .general: AnyView(GeneralSettingsView(model: model, loginItem: loginItem, updates: updates))
         case .folders: AnyView(FoldersSettingsView(model: model, privacy: privacy))
         case .schedule: AnyView(ScheduleSettingsView(model: model))
         case .automation: AnyView(AutomationSettingsView(model: model))

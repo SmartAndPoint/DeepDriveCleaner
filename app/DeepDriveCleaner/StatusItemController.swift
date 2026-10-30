@@ -27,6 +27,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     init(
         model: PopoverModel,
+        update: UpdateModel?,
+        activity: RunnerActivity?,
         openSettings: @escaping @MainActor () -> Void,
         openNextScan: @escaping @MainActor (SettingsDestination) -> Void,
         openPrivacy: @escaping @MainActor () -> Void,
@@ -57,7 +59,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             openWholeDisk: { [weak self] in
                 self?.popover.performClose(nil)
                 openWholeDisk()
-            }
+            },
+            update: update,
+            activity: activity
         )
         let hosting = NSHostingController(rootView: view)
         // The popover takes the height of the state it shows.

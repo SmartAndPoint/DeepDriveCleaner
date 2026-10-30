@@ -13,6 +13,9 @@ struct PopoverView: View {
     let openPrivacy: () -> Void
     /// The Whole disk window (story "Whole disk in the app").
     let openWholeDisk: () -> Void
+    /// The update line's model, and the runner it waits for.
+    let update: UpdateModel?
+    let activity: RunnerActivity?
     /// With keyboard navigation on, the first focus is Review…, not the gear.
     @FocusState private var focus: PopoverFocus?
 
@@ -25,6 +28,9 @@ struct PopoverView: View {
                 NoticeRow(text: notice.text, action: notice.action.map { action in (action.title, { model.perform(action) }) }) {
                     model.dismiss(notice)
                 }
+            }
+            if let update {
+                UpdateLineView(model: update, activity: activity)
             }
             footer
         }
@@ -109,6 +115,9 @@ struct PopoverView: View {
                     TimelineView(.periodic(from: scan.started, by: 1)) { context in
                         Text("Scanning… \(Wording.elapsed(context.date.timeIntervalSince(scan.started)))").monospacedDigit()
                     }
+                } else if model.updateWaiting {
+                    // Scan Now, the clean and the free start nothing until the relaunch.
+                    Text("Updating after this run")
                 } else if model.paused {
                     HStack(spacing: 4) {
                         Text("Scans paused")

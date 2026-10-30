@@ -2,10 +2,11 @@ import DDCKit
 import SwiftUI
 
 /// Settings → General (artboard 10): Open at login, the two icon switches,
-/// and where the command-line tool is.
+/// updates, and where the command-line tool is.
 struct GeneralSettingsView: View {
     let model: SettingsModel
     let loginItem: LoginItem
+    let updates: UpdaterSettings
 
     var body: some View {
         Form {
@@ -33,6 +34,7 @@ struct GeneralSettingsView: View {
                     Text("After a notification, until you open Review.")
                 }
             }
+            UpdatesSection(updates: updates)
             Section {
                 LabeledContent {
                     Text(model.commandLineTool)
@@ -47,7 +49,51 @@ struct GeneralSettingsView: View {
             }
         }
         .settingsPane()
-        .onAppear { loginItem.refresh() }
+        .onAppear {
+            loginItem.refresh()
+            updates.refresh()
+        }
+    }
+}
+
+/// The daily check, the last one, Check Now, and the update line (ADR
+/// "Updates through Sparkle, alongside the Homebrew cask", §2 and §5).
+private struct UpdatesSection: View {
+    let updates: UpdaterSettings
+
+    var body: some View {
+        Section {
+            if let reason = updates.unavailable {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Updates are unavailable in this build")
+                    Text(reason).font(.system(size: 12)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundStyle(ReportClassStyle.ink(.review))
+            }
+            Toggle(isOn: Binding(get: { updates.checksDaily }, set: { updates.setChecksDaily($0) })) {
+                Text("Check for updates daily")
+                Text("One request to GitHub a day. Nothing installs until you press Update and Relaunch.")
+            }
+            .disabled(updates.unavailable != nil)
+            LabeledContent {
+                if updates.model.state == .checking {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button("Check Now") { updates.checkNow() }
+                        .disabled(updates.unavailable != nil || !updates.canCheck)
+                }
+            } label: {
+                Text("Last checked")
+                Text(updates.lastCheck.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Never")
+            }
+            if updates.model.item != nil {
+                UpdateLineView(model: updates.model, activity: updates.activity)
+            } else if updates.model.state == .failed, let message = updates.model.flow.message {
+                Text(message).foregroundStyle(ReportClassStyle.ink(.review))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 

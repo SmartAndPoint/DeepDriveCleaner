@@ -167,7 +167,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 scheduler: agent,
                 commandLineTool: HelperLocator.commandLineTool(bundleURL: Bundle.main.bundleURL)
             )
-            settings = SettingsWindowController(presence: presence, model: settingsModel, privacy: Self.privacy)
+            let updates = UpdaterSettings(updater: updater, model: update, activity: runner)
+            // A check that ends while Settings is open moves its last check time.
+            updater.onCycleFinished = { [weak updates] in updates?.refresh() }
+            settings = SettingsWindowController(presence: presence, model: settingsModel, updates: updates, privacy: Self.privacy)
             // At every launch with scheduled scans on: register (idempotent), which
             // recovers an agent approved later or dropped when brew replaced the bundle.
             healing = Task { await agent.heal() }
@@ -247,6 +250,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if NSApp.isHidden { NSApp.unhideWithoutActivation() }
                 let statusItem = StatusItemController(
                     model: model,
+                    update: update,
+                    activity: activity,
                     openSettings: { [weak self] in self?.settings?.show() },
                     openNextScan: { [weak self] destination in self?.settings?.show(pane: .init(destination)) },
                     openPrivacy: Self.privacy.openFullDiskAccess,
