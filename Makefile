@@ -377,8 +377,9 @@ install:
 # If release.yml fails, or a fix needs a commit, first check that the tag has no
 # release ('gh release view v<version>' says release not found), then merge the fix
 # through a PR and pull main, delete the tag on origin (git push origin
-# :refs/tags/v<version>) and locally, and run make tag again; or bump the version. publish-release.sh refuses a red run only
-# while RELEASE_TARGETS is non-empty. Never delete the tag of a published release.
+# :refs/tags/v<version>) and locally, and run make tag again; or bump the version.
+# publish-release.sh refuses a red run only while RELEASE_TARGETS is non-empty.
+# Never delete the tag of a published release.
 tag:
 	./scripts/tag-release.sh
 
