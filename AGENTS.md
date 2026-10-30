@@ -40,3 +40,24 @@
   such a push says nothing about Rust. `make tag` and `make dist` need a Gate run that
   ran the Rust jobs on the release commit itself: put the release notes in the commit
   that bumps the version, or start one by hand with `gh workflow run gate.yml --ref main`.
+- `main` takes no direct push, here or in the vault: a ruleset requires a pull request
+  and refuses `git push origin HEAD:main`. Here, start each branch from a fresh
+  `origin/main` (`git fetch && git switch -c <branch> origin/main`), push it
+  (`git push -u origin <branch>`, gated by the hook), then `gh pr create --fill` and
+  `gh pr merge --auto --rebase`. It merges once the Gate's `scope`, `gate`, `coverage`,
+  `app` and `release-build` pass.
+- The vault is one checkout on `main`, shared by every session, with other sessions'
+  uncommitted edits in it: never switch its branch and never `reset --hard` it. Commit on
+  `main` as before, then `git push origin HEAD:refs/heads/<topic>`,
+  `gh pr create --head <topic> --fill`, `gh pr merge <topic> --rebase` (no checks, so
+  no `--auto`; retry once if GitHub is still computing mergeability), and
+  `git pull --rebase --autostash origin main`: the merged copies replace yours.
+- A step is done when its PR is merged, not when auto-merge is on: a red check or a
+  conflict with a newer `main` cancels auto-merge with no more than an email. Check
+  `gh pr view <n> --json state` says `MERGED`. On a conflict, `git fetch && git rebase
+  origin/main && git push --force-with-lease`.
+- Never pass `--delete-branch` to `gh pr merge`: on a PR that merges at once it deletes
+  the local branch, and a worktree with it. GitHub deletes the remote branch.
+- A rebase merge gives the commits new SHAs: the branch's green run never counts for a
+  release, `main`'s own run after the merge does. To release, merge the bump's PR, then
+  `git switch main && git pull --ff-only`, then `make tag`.

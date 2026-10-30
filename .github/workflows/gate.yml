@@ -1,5 +1,5 @@
 # The mandatory gate on GitHub (story "Mandatory gate before every commit", DDC-005):
-# `make gate` on every push and pull request, with coverage and the app's tests beside
+# `make gate` on every branch push, with coverage and the app's tests beside
 # it. The M-size load trees run nightly (nightly.yml). `make tag` and `make dist` refuse
 # a commit whose run here is not green (scripts/ci-green.sh --full): every required job,
 # run on that commit. The Linux and Windows `check` jobs run with continue-on-error, so
@@ -13,22 +13,25 @@
 name: Gate
 
 # Branch pushes only: a tag push would start a second run of the same commit, and
-# scripts/ci-green.sh reads the newest. release.yml runs on the tag.
+# scripts/ci-green.sh reads the newest. release.yml runs on the tag. No `pull_request`
+# (story "Main only through pull requests, in the code and the vault", DDC-005): every
+# PR comes from a branch here, whose push run already posts the checks main requires on
+# the head commit. A second run would post the same names, and its `scope` would answer
+# `rust`. A fork's PR gets no run: a maintainer pushes its commits to a branch here.
 on:
   push:
     branches: ["**"]
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# A pull request's newer run replaces its older one. Every pushed commit keeps its own
-# run, never queued behind or replaced by a later push: `make dist` reads the run of
-# its HEAD (scripts/ci-green.sh).
+# Every pushed commit keeps its own run, never queued behind or replaced by a later
+# push: `make dist` reads the run of its HEAD (scripts/ci-green.sh). A run started by
+# hand on the same commit waits for the push run.
 concurrency:
-  group: gate-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: gate-${{ github.sha }}
+  cancel-in-progress: false
 
 env:
   NEXTEST_PROFILE: ci

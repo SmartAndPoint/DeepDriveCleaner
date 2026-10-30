@@ -25,7 +25,7 @@ step() { printf '\033[0;34m→ %s\033[0m\n' "$1"; }
 [ "$(git branch --show-current)" = "main" ] || fail "not on main: a release is tagged on main"
 git fetch -q origin main
 HEAD_SHA="$(git rev-parse HEAD)"
-[ "$HEAD_SHA" = "$(git rev-parse origin/main)" ] || fail "HEAD is not origin/main: push first, or pull"
+[ "$HEAD_SHA" = "$(git rev-parse origin/main)" ] || fail "HEAD is not origin/main: merge the change through a PR, then 'git switch main && git pull --ff-only'"
 # Here, not only in the Makefile, so running this script directly cannot skip it.
 "$ROOT/scripts/ci-green.sh" --full
 

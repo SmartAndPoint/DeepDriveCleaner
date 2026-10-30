@@ -106,7 +106,7 @@ UPLOADS=("${SUMMED[@]}" SHA256SUMS)
 [ "$(git branch --show-current)" = "main" ] || fail "not on main"
 git fetch -q origin main
 HEAD_SHA="$(git rev-parse HEAD)"
-[ "$HEAD_SHA" = "$(git rev-parse origin/main)" ] || fail "HEAD is not origin/main — push first"
+[ "$HEAD_SHA" = "$(git rev-parse origin/main)" ] || fail "HEAD is not origin/main — merge the change through a PR, then 'git pull --ff-only'"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -194,7 +194,7 @@ else
     cp "$ROOT/dist/$ZIP_NAME" "$ROOT/dist/$TARBALL_NAME" "$ASSETS/"
     if [ "${#CI_NAMES[@]}" -gt 0 ]; then
         # Every archive comes from the green release.yml run on this tag; a red or
-        # missing one is fixed on main and tagged again (the tag has no release yet).
+        # missing one is fixed through a PR and tagged again (the tag has no release yet).
         "$ROOT/scripts/ci-green.sh" release.yml
         RUN_ID="$(gh run list --repo "$REPO" --commit "$HEAD_SHA" --workflow release.yml --event push --limit 1 \
             --json databaseId,conclusion --jq '.[0] // empty | select(.conclusion == "success") | .databaseId')" \
