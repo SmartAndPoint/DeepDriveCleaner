@@ -172,10 +172,15 @@ jobs:
           tool: nextest@${{ steps.tools.outputs.nextest }}
       - run: cargo clippy --workspace --all-targets --locked --target ${{ matrix.target }} -- -D warnings
       # Profile ci (NEXTEST_PROFILE above): every test binary runs, a hang is killed,
-      # and a passing test's output is shown, so its skip line reaches the log.
+      # and a passing test's output is shown, so its skip line reaches the log. On
+      # Windows, bash sets HOME and the temp folder lies inside it, under AppData,
+      # which the test trees' guard refuses; TMP and TEMP move them out of the home.
       - name: Tests
         id: tests
         shell: bash
+        env:
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
         run: cargo nextest run --workspace --locked --target ${{ matrix.target }} 2>&1 | tee "$RUNNER_TEMP/native-tests.log"
       # nextest runs no doc tests.
       - name: Doc tests
