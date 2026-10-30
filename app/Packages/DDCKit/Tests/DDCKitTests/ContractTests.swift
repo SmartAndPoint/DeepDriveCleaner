@@ -223,7 +223,7 @@ struct ContractTests {
 
     @Test("the Docker details the sheet advises on are the catalog's")
     func dockerDetails() throws {
-        let source = try rustSource("crates/ddc-core/src/rules/catalog.rs")
+        let source = try rustSource("crates/ddc-core/src/rules/catalog/mod.rs")
         let down = try #require(source.firstMatch(of: /pub const DOCKER_DOWN: &str = "([^"]+)";/))
         #expect(String(down.1) == CleanWording.dockerDown)
         let missing = try #require(source.firstMatch(of: /no_context: "([^"]+)",/))
