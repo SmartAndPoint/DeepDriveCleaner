@@ -118,7 +118,7 @@ struct ReviewGroupsTests {
         #expect(folders[6].key != folders[7].key)
         #expect(Set(folders.map(\.key)).count == folders.count)
         // The row says only what is its own.
-        #expect(folders.flatMap(\.items).allSatisfy { $0.detail == "Untouched 63 days" })
+        #expect(folders.flatMap(\.items).allSatisfy { $0.detail == "Project untouched 63 days" })
         // A name that starts with a combining mark keeps it, apart from the "/".
         #expect(ReviewItems.folder(of: "/Users/example/\u{301}x/a/.venv", home: "/Users/example/") == ("~/\u{301}x", "a/.venv"))
         #expect(ReviewItems.folder(of: "/Users/example/.venv", home: "/Users/example") == ("~", ".venv"))

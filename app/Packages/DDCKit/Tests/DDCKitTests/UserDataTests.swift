@@ -89,7 +89,7 @@ struct UserDataTests {
         #expect(items.row(try id(items, ".photoslibrary"))?.lock == .entry(.appManaged(app: "Photos")))
         #expect(items.row(try id(items, "/Downloads"))?.lock == .userData)
         #expect(items.defaultSelection(classes: Set(ScanReport.RiskClass.allCases)).isDisjoint(with: entries.map(\.id)))
-        #expect(items.items(matching: "", sort: .size).allSatisfy { $0.userEntry == nil }, "not in the Items view")
+        #expect(items.items(matching: "", sort: .default).allSatisfy { $0.userEntry == nil }, "not in the Items view")
     }
 
     @Test("a user-data group lists its entries largest first, with no Select all, the rest as one line, names escaped")
@@ -104,7 +104,7 @@ struct UserDataTests {
         #expect(shown == ["big.iso", "Project", "cod\\u{202E}fdp.exe", "movie.part"])
         #expect(lines.last == .note("1,904 smaller items (2.3 GiB) are not listed"))
         let details = lines.compactMap { line -> String? in if case .entry(let item) = line { item.detail } else { nil } }
-        #expect(details[0].contains("Last changed"))
+        #expect(!details[0].contains("Last changed"), "the Changed column says it")
         #expect(details[1].contains("Holds 1 finding of its own") && details[1].contains("A project (has .git)"))
         #expect(details[3].hasPrefix("Still downloading"))
         #expect(!layout.lines(collapsed: []).contains { if case .heading = $0 { true } else { false } })

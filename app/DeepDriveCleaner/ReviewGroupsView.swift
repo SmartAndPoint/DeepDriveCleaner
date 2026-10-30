@@ -3,8 +3,9 @@ import SwiftUI
 
 /// One sidebar entry in the Groups view (story "Review window: sorted
 /// sidebar, Select all and folder groups"; board 9): Select all, then
-/// subgroups by folder or by rule, largest first, each folding to its
-/// heading. What a subgroup's rows share is said on its heading.
+/// subgroups by folder or by rule, in the sort header's order (story "Review
+/// window: sort a group's rows by name, size or last change"), each folding
+/// to its heading. What a subgroup's rows share is said on its heading.
 struct GroupView: View {
     @Bindable var model: ReviewModel
     let items: ReviewItems
@@ -16,7 +17,8 @@ struct GroupView: View {
     static let itemIndent: CGFloat = 49
 
     var body: some View {
-        let layout = items.layout(entry, matching: model.query)
+        let layout = items.layout(entry, matching: model.query, sort: model.sort)
+        let scanned = Wording.date(rfc3339: items.report.generatedAt)
         VStack(alignment: .leading, spacing: 0) {
             header(layout)
             Divider()
@@ -34,25 +36,32 @@ struct GroupView: View {
                     ContentUnavailableView.search(text: model.query)
                 }
             } else {
+                if layout.count > 0 {
+                    // Under Select all, above the rows: the Name title over
+                    // the paths, Size and Changed over the rows' columns.
+                    SortHeader(model: model, leading: 16 + Self.checkIndent + 26)
+                    Divider()
+                }
                 List(layout.lines(collapsed: model.collapsed)) { line in
                     switch line {
                     case .heading(let subgroup, let expanded):
-                        SubgroupHeading(model: model, subgroup: subgroup, expanded: expanded)
+                        SubgroupHeading(model: model, subgroup: subgroup, expanded: expanded, scanned: scanned)
                     case .item(let item):
-                        ItemRow(model: model, row: item.row, home: items.report.home, shown: item.shown, detail: item.detail)
+                        ItemRow(model: model, row: item.row, home: items.report.home, scanned: scanned, shown: item.shown, detail: item.detail)
                             .padding(.leading, Self.itemIndent)
                     case .single(let single):
                         ItemRow(
                             model: model,
                             row: single.item.row,
                             home: items.report.home,
+                            scanned: scanned,
                             heading: (single.title, single.subtitle),
                             shown: single.item.shown,
                             detail: single.detail
                         )
                         .padding(.leading, Self.checkIndent)
                     case .entry(let item):
-                        ItemRow(model: model, row: item.row, home: items.report.home, shown: item.shown, detail: item.detail)
+                        ItemRow(model: model, row: item.row, home: items.report.home, scanned: scanned, shown: item.shown, detail: item.detail)
                             .padding(.leading, Self.checkIndent)
                     case .note(let text):
                         Text(text)
@@ -185,6 +194,8 @@ private struct SubgroupHeading: View {
     @Bindable var model: ReviewModel
     let subgroup: GroupLayout.Subgroup
     let expanded: Bool
+    /// The scan's time: the Changed column's Today and Yesterday.
+    let scanned: Date?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -224,7 +235,14 @@ private struct SubgroupHeading: View {
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
-            Text(ByteSize.human(subgroup.bytes)).font(.system(size: 13, weight: .semibold)).monospacedDigit()
+            // Its total, and the newest change among its folders.
+            SortColumns(
+                changed: CleanWording.changed(subgroup.modified, scanned: scanned),
+                tooltip: CleanWording.subgroupChangedHelp(subgroup.modified),
+                weight: .semibold
+            ) {
+                Text(ByteSize.human(subgroup.bytes)).font(.system(size: 13, weight: .semibold)).monospacedDigit()
+            }
         }
         .padding(.top, 6)
         .padding(.bottom, 2)
