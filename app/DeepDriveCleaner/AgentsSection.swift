@@ -6,8 +6,16 @@ import SwiftUI
 /// sessions live now. Read-only: it names and sizes, and offers no button
 /// that removes anything; a folder's or a harness's context menu shows it in
 /// Finder. Its bytes are part of "Rest of the home folder".
+///
+/// Its total in Review comes from the last scan's findings, and its Review…
+/// link opens the Review window on the Coding agents group (story "Review
+/// window: coding agents' data as a group"): the removing happens there.
 struct AgentsSection: View {
     let agents: AgentsModel
+    /// Nil without a scan of this home folder, or with nothing in the group.
+    let inReview: AgentsSummary.InReview?
+    /// Opens the Review window on the group; it removes nothing.
+    let review: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -26,6 +34,16 @@ struct AgentsSection: View {
                 }
                 Button("Refresh") { Task { await agents.refresh() } }
                     .disabled(!agents.canRefresh || agents.refreshing)
+            }
+            if let inReview {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(inReview.line).font(.system(size: 12)).foregroundStyle(.secondary).monospacedDigit()
+                    Spacer(minLength: 12)
+                    Button("Review…", action: review)
+                        .controlSize(.small)
+                        .accessibilityLabel(AgentsSummary.reviewLabel)
+                        .accessibilityHint(AgentsSummary.reviewHint)
+                }
             }
             if let message = agents.message {
                 Text(message)

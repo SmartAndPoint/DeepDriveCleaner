@@ -213,6 +213,10 @@ public final class PopoverModel {
     /// the report or the settings change, never on a redraw.
     public private(set) var reportScope: ReportScope?
 
+    /// The Whole disk view's Coding agents total in Review: computed with
+    /// `reportScope`, when the report, the settings or the rules change.
+    public private(set) var codingAgentsInReview: AgentsSummary.InReview?
+
     /// The popover's line in place of "found in …" for a report of other roots.
     public var scopeNotice: String? {
         guard let reportScope, let report = loadedReport else { return nil }
@@ -392,12 +396,21 @@ public final class PopoverModel {
     private func recompute() {
         summary = loadedReport.map { ReportSummary.make(report: $0, settings: settings, rules: rules) }
         updateScope()
+        updateInReview()
     }
 
     private func updateScope() {
         let scope = loadedReport.flatMap { ReportScope.of(report: $0, settings: settings, home: home) }
         // Once a minute and on every open: a write would redraw what reads it.
-        if scope != reportScope { reportScope = scope }
+        if scope != reportScope {
+            reportScope = scope
+            updateInReview()
+        }
+    }
+
+    private func updateInReview() {
+        let total = AgentsSummary.InReview.make(report: loadedReport, scope: reportScope, settings: settings, rules: rules)
+        if total != codingAgentsInReview { codingAgentsInReview = total }
     }
 
     // MARK: - Scan now
@@ -559,9 +572,11 @@ public final class PopoverModel {
 
     // MARK: - The review seam
 
-    /// Review…, "See what was found", or a biggest find.
-    public func review(group: String? = nil) {
-        route(ReviewRequest(group: group, classes: included, confirm: false))
+    /// Review…, "See what was found", or a biggest find. `keepingSelection`:
+    /// the Whole disk view's Review… link, which leaves the window's selection
+    /// as the user made it (`ReviewRequest.keepsSelection`).
+    public func review(group: String? = nil, keepingSelection: Bool = false) {
+        route(ReviewRequest(group: group, classes: included, confirm: false, keepsSelection: keepingSelection))
     }
 
     /// Clean selected…: the confirmation sheet, never a clean from here.

@@ -476,11 +476,19 @@ struct ContractTests {
             let source = try #require(sources[file])
             #expect(!source.contains(/\.clean\b|"clean"|\.trash|removeItem|cleanConfirmedItems/), "\(file) removes nothing")
         }
-        // Its one action shows a folder in Finder; the user deletes there, if at all.
+        // It shows a folder in Finder, and its Review… link opens the Review
+        // window (story "Review window: coding agents' data as a group"); the
+        // user deletes there, or in Finder, if at all.
         let section = try #require(sources["AgentsSection.swift"])
-        #expect(section.matches(of: /Button\(|RevealButton\(/).count == 2, "Refresh, and Show in Finder in a context menu")
+        #expect(section.matches(of: /Button\(|RevealButton\(/).count == 3, "Refresh, Review…, and Show in Finder in a context menu")
         #expect(section.contains("RevealButton(reveal: .finder("))
-        #expect(!section.contains(/NSWorkspace|softwareUpdate|recycle/))
+        #expect(section.contains(#"Button("Review…", action: review)"#))
+        #expect(!section.contains(/NSWorkspace|softwareUpdate|recycle|ReviewModel|ReviewRequest|popover/))
+        // The link only opens the window on the group: no sheet, the selection kept.
+        let view = try #require(sources["DiskView.swift"])
+        #expect(view.matches(of: /\.review\(/).count == 1)
+        #expect(view.contains("review: { popover.review(group: AgentsSummary.group, keepingSelection: true) }"))
+        #expect(!view.contains(/cleanSelected|openSheet|confirm: true/))
     }
 
     @Test("only the sheet's confirm button runs disk free, and nothing scheduled does")

@@ -167,3 +167,55 @@ public struct AgentsSummary: Sendable, Equatable {
         }
     }
 }
+
+// MARK: - The group in the Review window
+
+extension AgentsSummary {
+    /// The Review window's group of the coding agents' data: its label in
+    /// `GROUPS` (`crates/ddc-core/src/rules/listing.rs`), which `rules --json`
+    /// gives the app. The section's Review… link opens it.
+    public static let group = "Coding agents"
+
+    /// The Review… link for VoiceOver: its visible title first, then what it opens.
+    public static let reviewLabel = "Review coding agents"
+    public static let reviewHint = "Opens the Review window on the Coding agents group."
+
+    /// The section's total from the last scan (story "Review window: coding
+    /// agents' data as a group"): the findings the Review window lists in its
+    /// Coding agents group, in every class. It counts what the sidebar counts
+    /// (`ReviewItems.total`): the user's own data, which has groups of its
+    /// own, and types switched off or under the minimum size left out.
+    public struct InReview: Sendable, Equatable {
+        public let bytes: UInt64
+        /// Its findings: one row per harness folder.
+        public let folders: Int
+
+        /// "In Review: 1.2 GiB in 3 folders".
+        public var line: String {
+            "In Review: \(ByteSize.human(bytes)) in \(Wording.items(folders, "folder"))"
+        }
+
+        /// Nil without a report, for a report of another home or of folders
+        /// outside the app's roots (`ReportScope.outside`), without the rules
+        /// that name the group, and when the group holds nothing.
+        public static func make(
+            report: ScanReport?,
+            scope: ReportScope?,
+            settings: SharedSettings?,
+            rules: RuleList?
+        ) -> InReview? {
+            guard let report, scope != .outside, let rules else { return nil }
+            let ids = Set(rules.rules.filter { $0.group == AgentsSummary.group }.map(\.id))
+            var bytes: UInt64 = 0
+            var folders = 0
+            for finding in report.findings where finding.class != .userData && ids.contains(finding.rule) {
+                // As `ReviewItems.make`: a user-data rule's finding shows
+                // whatever the settings; any other is left out when ignored.
+                if finding.ruleClass != .userData, ReportSummary.decide(finding, settings: settings).ignored { continue }
+                bytes += finding.bytes
+                folders += 1
+            }
+            return folders == 0 ? nil : InReview(bytes: bytes, folders: folders)
+        }
+    }
+}

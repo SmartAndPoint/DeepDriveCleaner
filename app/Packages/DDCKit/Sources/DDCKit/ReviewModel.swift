@@ -115,6 +115,9 @@ public final class ReviewModel: ReviewRouting {
     var lastClean: LastClean?
     /// The reload after the clean has yet to apply its report to the selection.
     @ObservationIgnored var selectAfterClean = false
+    /// Shown by `open` and not closed since (`windowClosed`): a Review… link
+    /// keeps the selection only then.
+    @ObservationIgnored var windowOpen = false
 
     @ObservationIgnored let runner: (any CLIRunning)?
     @ObservationIgnored let data: DataDirectory
@@ -205,10 +208,29 @@ public final class ReviewModel: ReviewRouting {
     /// sheet shows, a request only brings the window forward: the sheet's
     /// items never change behind the user's back.
     public func open(_ request: ReviewRequest) -> Bool {
-        if sheet == nil { load(request) }
+        if sheet == nil {
+            if request.keepsSelection, !request.confirm, let group = request.group, windowOpen, items != nil, snapshot() != nil {
+                turn(to: group)
+            } else {
+                load(request)
+            }
+        }
         guard present() else { return false }
+        windowOpen = true
         if request.confirm, sheet == nil { openSheet() }
         return true
+    }
+
+    /// The popover's report again with the selection kept, then the groups
+    /// view on `group`, as a click on its sidebar entry. A group the report
+    /// no longer holds leaves the window where it was.
+    private func turn(to group: String) {
+        reload()
+        guard let landing = items?.entry(for: group) else { return }
+        notice = nil
+        wholeDisk = false
+        mode = .groups
+        entry = landing
     }
 
     private func load(_ request: ReviewRequest) {
@@ -443,9 +465,12 @@ public final class ReviewModel: ReviewRouting {
         if collapsed.contains(key) { collapsed.remove(key) } else { collapsed.insert(key) }
     }
 
-    /// The window closed: every subgroup opens again next time.
+    /// The window closed: every subgroup opens again next time, and the
+    /// Whole disk view's Review… link opens it with the default selection,
+    /// as the popover's Review… does.
     public func windowClosed() {
         collapsed = []
+        windowOpen = false
     }
 
     public var selectedBytes: UInt64 { selectedRows.reduce(0) { $0 + $1.finding.bytes } }

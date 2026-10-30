@@ -8,11 +8,18 @@ public struct ReviewRequest: Sendable, Equatable {
     public let classes: Set<ScanReport.RiskClass>
     /// Clean selected…: open the confirmation sheet.
     public let confirm: Bool
+    /// The Whole disk view's Review… link (story "Review window: coding
+    /// agents' data as a group"): a window that is open keeps what the user
+    /// selected and only turns to `group`, as a click in its sidebar does.
+    /// The link also sits in the window's own Whole disk detail. A closed
+    /// window opens with the default selection, as for any request.
+    public let keepsSelection: Bool
 
-    public init(group: String?, classes: Set<ScanReport.RiskClass>, confirm: Bool) {
+    public init(group: String?, classes: Set<ScanReport.RiskClass>, confirm: Bool, keepsSelection: Bool = false) {
         self.group = group
         self.classes = classes
         self.confirm = confirm
+        self.keepsSelection = keepsSelection
     }
 }
 
