@@ -27,25 +27,18 @@
   `title:` (with their parent epic), never by session-invented shorthand.
 <!-- /projectstore:agents -->
 
-## The gate
+## Every change goes through a pull request
 
-- Run `make tools` and `make hooks` once per clone. The hooks run `make gate-fast`
-  before every commit and `make gate` before every push.
-- Never commit or push with `--no-verify`: fix what the gate names.
-- The pre-push gate takes about 2 minutes after a core change and longer cold:
-  run `git commit` and `git push` with a 10-minute tool timeout.
-- A commit or push whose every path is on `.config/rust-free-paths` (the app's own
-  sources, `website/`, `docs/releases/`) skips the Rust tiers, locally and in CI; a
-  push that touches `app/Packages/` runs `make ddckit-test` instead. A green hook on
-  such a push says nothing about Rust. `make tag` and `make dist` need a Gate run that
-  ran the Rust jobs on the release commit itself: put the release notes in the commit
-  that bumps the version, or start one by hand with `gh workflow run gate.yml --ref main`.
 - `main` takes no direct push, here or in the vault: a ruleset requires a pull request
-  and refuses `git push origin HEAD:main`. Here, start each branch from a fresh
-  `origin/main` (`git fetch && git switch -c <branch> origin/main`), push it
-  (`git push -u origin <branch>`, gated by the hook), then `gh pr create --fill` and
-  `gh pr merge --auto --rebase`. It merges once the Gate's `scope`, `gate`, `coverage`,
-  `app` and `release-build` pass.
+  and refuses `git push origin HEAD:main`. This binds every session and every agent,
+  whatever it changes: code, docs, the vault, one line.
+- A pull request that merges without conflicts may be merged by the session that opened
+  it, without asking. One with conflicts is rebased onto `origin/main` first; never
+  force it through, and never ask for a ruleset bypass.
+- Here, start each branch from a fresh `origin/main` (`git fetch && git switch -c
+  <branch> origin/main`), push it (`git push -u origin <branch>`, gated by the hook),
+  then `gh pr create --fill` and `gh pr merge --auto --rebase`. It merges once the
+  Gate's `scope`, `gate`, `coverage`, `app` and `release-build` pass.
 - The vault is one checkout on `main`, shared by every session, with other sessions'
   uncommitted edits in it: never switch its branch and never `reset --hard` it. Commit on
   `main` as before, then `git push origin HEAD:refs/heads/<topic>`,
@@ -61,3 +54,17 @@
 - A rebase merge gives the commits new SHAs: the branch's green run never counts for a
   release, `main`'s own run after the merge does. To release, merge the bump's PR, then
   `git switch main && git pull --ff-only`, then `make tag`.
+
+## The gate
+
+- Run `make tools` and `make hooks` once per clone. The hooks run `make gate-fast`
+  before every commit and `make gate` before every push.
+- Never commit or push with `--no-verify`: fix what the gate names.
+- The pre-push gate takes about 2 minutes after a core change and longer cold:
+  run `git commit` and `git push` with a 10-minute tool timeout.
+- A commit or push whose every path is on `.config/rust-free-paths` (the app's own
+  sources, `website/`, `docs/releases/`) skips the Rust tiers, locally and in CI; a
+  push that touches `app/Packages/` runs `make ddckit-test` instead. A green hook on
+  such a push says nothing about Rust. `make tag` and `make dist` need a Gate run that
+  ran the Rust jobs on the release commit itself: put the release notes in the commit
+  that bumps the version, or start one by hand with `gh workflow run gate.yml --ref main`.
