@@ -321,7 +321,8 @@ extension CleanWording {
             }
         }
         if let rule = protection.rule { parts.append("otherwise: \(ruleName(rule))") }
-        if protection.markers.isEmpty, !protection.exclusions.isEmpty, protection.exclusions.allSatisfy({ $0.origin == .flag }) {
+        // A flag is not in Settings: a row it protects is never sent there.
+        if protection.exclusions.contains(where: { $0.origin == .flag }) {
             parts.append(flagOnly)
         } else if protection.markers.count + protection.exclusions.count > 1 {
             parts.append(severalProtections)
@@ -329,9 +330,11 @@ extension CleanWording {
         return parts
     }
 
-    /// A rule as a row names it: its last part (`node.node_modules` is "node_modules").
+    /// A rule as a row names it: its whole id. Its last part alone is
+    /// shared by several rules (`rust.target`, `maven.target`), so
+    /// "otherwise: target" would not say which.
     public static func ruleName(_ rule: String) -> String {
-        Wording.escaped(rule.split(separator: ".").last.map(String.init) ?? rule)
+        Wording.escaped(rule)
     }
 }
 

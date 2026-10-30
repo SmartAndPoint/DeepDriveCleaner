@@ -395,6 +395,14 @@ struct ItemRow: View {
                         Text(progress.text).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                     }
                     .accessibilityElement(children: .combine)
+                } else if let stayed = model.protectionMessage(for: row.id) {
+                    // Why its Remove Protection… left the protection, until the next scan.
+                    Text(stayed)
+                        .font(.system(size: 11))
+                        .foregroundStyle(ReportClassStyle.ink(.review))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .help(stayed)
                 } else if !second.isEmpty {
                     Text(second).font(.system(size: 11)).foregroundStyle(warns ? ReportClassStyle.ink(.review) : .secondary).lineLimit(1)
                 }

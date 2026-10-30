@@ -103,6 +103,9 @@ public final class ReviewModel: ReviewRouting {
     /// Remove Protection… on a row, until the scan after it ends (story
     /// "Protected by you: say what it is, and Remove Protection").
     public internal(set) var removingProtection: RemoveProtection.Progress?
+    /// Why a row's protection stayed (a refusal or a failure), by the
+    /// finding's identity, until the next reload (menu bar ADR §6 item 12).
+    var protectionMessages: [Identity: String] = [:]
     /// What the last clean deleted or moved to the Trash: locked in any
     /// report scanned before the clean ended, so they never come back selected.
     @ObservationIgnored var cleaned: (identities: Set<Identity>, ended: Date)?
@@ -158,6 +161,7 @@ public final class ReviewModel: ReviewRouting {
     ///   `settings.json`, for Remove Protection… on a Settings exclusion or
     ///   skip; false when the file could not be read or written.
     /// - `gitTracking`: whether git tracks a marker, for the confirmation.
+    ///   Off unless the app passes the real one, so no test reaches a git.
     public init(
         runner: (any CLIRunning)?,
         data: DataDirectory,
@@ -174,7 +178,7 @@ public final class ReviewModel: ReviewRouting {
         log: @escaping @MainActor (String) -> Void = { _ in },
         home: String = FileManager.default.homeDirectoryForCurrentUser.path,
         editSettings: @escaping @MainActor (_ edit: (inout SettingsFile) -> Void) -> Bool = { _ in false },
-        gitTracking: GitTracking = GitTracking()
+        gitTracking: GitTracking = .off
     ) {
         self.editSettings = editSettings
         self.gitTracking = gitTracking
@@ -241,6 +245,7 @@ public final class ReviewModel: ReviewRouting {
     /// stay selected. The other reloads (Settings, Scan Again) leave it pending.
     func reload(afterClean: Bool) {
         guard sheet == nil, let snapshot = snapshot() else { return }
+        protectionMessages = [:]
         var kept = Set((items?.rows ?? []).filter { selection.contains($0.id) }.map { Identity($0.finding) })
         if afterClean, selectAfterClean, let report = lastClean?.report {
             selectAfterClean = false
@@ -267,7 +272,7 @@ public final class ReviewModel: ReviewRouting {
 
     /// Scan again, from the window's header.
     public func scanAgain() async {
-        guard rescanning == nil, !isCleaning, !scansPaused, !updateWaiting() else { return }
+        guard rescanning == nil, removingProtection == nil, !isCleaning, !scansPaused, !updateWaiting() else { return }
         rescanning = .requested
         await rescan()
         rescanning = nil
@@ -421,7 +426,7 @@ public final class ReviewModel: ReviewRouting {
     /// Whether "Protect this folder" is offered: never for a file, nor
     /// inside a device backup.
     public func canProtect(_ id: Int) -> Bool {
-        guard let items, let row = items.row(id), reportScope != .outside else { return false }
+        guard let items, let row = items.row(id), reportScope != .outside, removingProtection == nil else { return false }
         return row.selectable && items.canProtect(row)
     }
 
@@ -459,7 +464,8 @@ public final class ReviewModel: ReviewRouting {
     /// open the sheet.
     public func canClean(scope: [Int]?) -> Bool {
         let rows = scope.map(selectedRows(in:)) ?? selectedRows
-        return !rows.isEmpty && sheet == nil && rescanning == nil && !isCleaning && reportScope != .outside && !updateWaiting()
+        return !rows.isEmpty && sheet == nil && rescanning == nil && removingProtection == nil && !isCleaning && reportScope != .outside
+            && !updateWaiting()
     }
 
     /// A group's Select all row: "2 of 3 · 7.2 GiB".
@@ -512,7 +518,9 @@ public final class ReviewModel: ReviewRouting {
         // them: the scope crosses it by identity.
         let scoped = scope.map { ids in Set(ids.compactMap { items?.row($0).map { Identity($0.finding) } }) }
         refreshSettings()
-        guard sheet == nil, !isCleaning, rescanning == nil, reportScope != .outside, !updateWaiting(), let items else { return }
+        guard sheet == nil, !isCleaning, rescanning == nil, removingProtection == nil, reportScope != .outside, !updateWaiting(), let items else {
+            return
+        }
         var picked = selection
         if let scoped {
             picked = picked.filter { id in items.row(id).map { scoped.contains(Identity($0.finding)) } ?? false }

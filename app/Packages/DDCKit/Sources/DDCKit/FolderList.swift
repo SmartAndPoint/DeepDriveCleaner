@@ -143,14 +143,26 @@ public struct FolderList: Sendable, Equatable {
         file.skips.removeAll { $0 == path }
     }
 
-    /// The entry, as the file writes it, that names the folder the scan
+    /// The entries, as the file writes them, that name the folder the scan
     /// report calls `path` (story "Protected by you: say what it is, and
-    /// Remove Protection"). The report's path is canonical and
-    /// `removeExclusion` matches by exact string, so the entry is the one of
-    /// `mode`'s list whose `realpath(3)` is `path`, or that is `path` as written.
-    public static func entry(for path: String, mode: Mode, in file: SettingsFile) -> String? {
-        let list = mode == .count ? file.excludes : file.skips
-        return list.first { $0 == path } ?? list.first { resolved($0) == path }
+    /// Remove Protection"): every one of both lists that is `path` as
+    /// written or whose `realpath(3)` is `path`. The report's path is
+    /// canonical and `removeExclusion` matches by exact string, so two
+    /// spellings of one folder are two entries, and both protect it.
+    public static func entries(for path: String, in file: SettingsFile) -> [String] {
+        var seen = Set<String>()
+        return (file.excludes + file.skips).filter { entry in
+            (entry == path || resolved(entry) == path) && seen.insert(entry).inserted
+        }
+    }
+
+    /// Takes the folder the scan report calls `path` out of both lists,
+    /// whatever spelling names it. The entries it removed, as written.
+    @discardableResult
+    public static func removeEntries(for path: String, from file: inout SettingsFile) -> [String] {
+        let named = Self.entries(for: path, in: file)
+        for entry in named { removeExclusion(entry, from: &file) }
+        return named
     }
 
     /// Moves the path between `excludes` and `skips`.
