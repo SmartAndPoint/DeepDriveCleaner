@@ -58,7 +58,7 @@ test:
 gate-fast: require-tools fmt-check clippy nextest doctest
 
 # deny, machete and fuzz-lock read only metadata and take seconds: they go first.
-gate: require-tools deny machete fuzz-lock gate-fast clippy-dhat doc msrv release-check unported-check bench-test script-test leaks
+gate: require-tools deny machete fuzz-lock gate-fast cross-check clippy-dhat doc msrv release-check unported-check bench-test script-test leaks
 
 # The install script's tests join the gate on a line of their own.
 gate: install-test
