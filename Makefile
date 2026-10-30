@@ -32,7 +32,7 @@ MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
 .PHONY: build fmt fmt-check clippy test check release install tag require-tag dist app app-test app-dist icons \
 	gate-fast gate nextest doctest clippy-dhat doc deny machete fuzz-lock msrv release-check unported-check \
-	tools require-tools hooks coverage coverage-ratchet ci-green golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test script-test leaks asan fuzz ddckit-test ci-green-full
+	tools require-tools hooks coverage coverage-ratchet ci-green cross-check golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test script-test leaks asan fuzz ddckit-test ci-green-full
 
 build:
 	$(CARGO) build --workspace
@@ -109,6 +109,17 @@ unported-check:
 	  --test unported --test unported_cli --locked
 	$(UNPORTED) $(CARGO) clippy -p ddc-core -p ddc-cli --all-targets --features ddc-cli/simulate-unported \
 	  --locked -- -D warnings
+
+# Clippy, so `check` plus the unused imports a cfg move leaves, for each target the
+# platform seam builds besides this Mac (story "Move OS calls behind the platform
+# module", DDC-007). `make tools` adds the targets. Not a gate step yet: the gate.yml
+# native jobs build these targets.
+CROSS_TARGETS := x86_64-unknown-linux-gnu x86_64-unknown-linux-musl x86_64-pc-windows-msvc
+cross-check:
+	@for t in $(CROSS_TARGETS); do \
+		echo "cross-check: $$t"; \
+		$(CARGO) clippy --workspace --all-targets --target $$t --locked -- -D warnings || exit 1; \
+	done
 
 # Golden outputs of the S load trees (bench/golden/, story "Synthetic load trees:
 # large, wide, deep and hostile"). The check is part of `nextest`, so the gate runs
@@ -248,7 +259,7 @@ leaks:
 	$(CARGO) build --release -p ddc-loadgen -p ddc-cli --locked
 	target/release/ddc-loadgen leaks --cli target/release/deepdrivecleaner
 
-# AddressSanitizer on the code that holds `unsafe` (the sys:: unit tests) and on a
+# AddressSanitizer on the code that holds `unsafe` (the platform:: unit tests) and on a
 # scan of every profile's S tree in process (the generator's profile and hostile
 # tests), on a dated nightly. LeakSanitizer does not run on macOS; the explicit
 # --target keeps proc-macros uninstrumented. The nightly workflow runs it.
@@ -256,7 +267,7 @@ ASAN_TOOLCHAIN ?= nightly-2026-10-20
 asan:
 	rustup toolchain install $(ASAN_TOOLCHAIN) --profile minimal
 	RUSTFLAGS=-Zsanitizer=address ASAN_OPTIONS=detect_leaks=0 CARGO_TARGET_DIR=target/asan \
-	  $(CARGO) +$(ASAN_TOOLCHAIN) test --locked --target aarch64-apple-darwin -p ddc-core --lib sys::
+	  $(CARGO) +$(ASAN_TOOLCHAIN) test --locked --target aarch64-apple-darwin -p ddc-core --lib platform::
 	RUSTFLAGS=-Zsanitizer=address ASAN_OPTIONS=detect_leaks=0 CARGO_TARGET_DIR=target/asan \
 	  $(CARGO) +$(ASAN_TOOLCHAIN) test --locked --target aarch64-apple-darwin -p ddc-loadgen --test profiles --test hostile
 
@@ -298,10 +309,14 @@ tools:
 	$(call install-tool,llvm-cov,$(LLVM_COV_VERSION))
 	rustup component add llvm-tools-preview
 	rustup toolchain install $(MSRV) --profile minimal
+	rustup target add $(CROSS_TARGETS)
 
 require-tools:
 	@for t in nextest deny machete llvm-cov; do \
 		$(CARGO) $$t --version >/dev/null 2>&1 || { echo "cargo-$$t is missing: run make tools" >&2; exit 1; }; \
+	done
+	@installed="$$(rustup target list --installed 2>/dev/null)"; for t in $(CROSS_TARGETS); do \
+		echo "$$installed" | grep -qx "$$t" || { echo "the $$t target is missing: run make tools" >&2; exit 1; }; \
 	done
 
 # Once per clone: git runs .githooks/pre-commit and pre-push.
