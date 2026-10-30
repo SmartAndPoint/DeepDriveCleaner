@@ -7,7 +7,7 @@
 //! [`Scope::Siblings`] item: one classification path, the pruned walk only
 //! leaves directories unread, inside claims too.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use super::contents::EntryIndex;
@@ -75,6 +75,10 @@ pub struct Reach {
     ancestors: HashSet<PathBuf>,
     /// Parents of `Siblings` items, with their whole subtrees.
     families: HashSet<PathBuf>,
+    /// Per session folder, the sessions listed in it: the children named
+    /// after one, its key and its companions, with their whole subtrees.
+    /// The folder's other children stay unread.
+    sessions: HashMap<PathBuf, HashSet<String>>,
 }
 
 impl Reach {
@@ -92,13 +96,13 @@ impl Reach {
                 Scope::Item | Scope::Tree => {}
             }
             // A session's entry of a coding agent's session folder: its
-            // companions are its siblings, which its bytes and its lock hold.
-            // The user's own folders' entries have none.
+            // companions are its siblings named after its session, which its
+            // bytes and its lock hold. The user's own folders' entries have none.
             if entries::policy(rule.id).is_some_and(|p| p.shape != EntryShape::Child)
-                && item.path.file_name().and_then(|n| entries::session_of(n.as_encoded_bytes())).is_some()
+                && let Some(session) = item.path.file_name().and_then(|n| entries::session_of(n.as_encoded_bytes()))
                 && let Some(parent) = item.path.parent()
             {
-                reach.families.insert(parent.to_path_buf());
+                reach.sessions.entry(parent.to_path_buf()).or_default().insert(session.to_owned());
             }
             reach.ancestors.extend(item.path.ancestors().skip(1).map(Path::to_path_buf));
             reach.items.insert(item.path.clone());
@@ -110,7 +114,18 @@ impl Reach {
     /// whatever the length of the list.
     pub fn allows(&self, dir: &Path) -> bool {
         self.ancestors.contains(dir)
-            || dir.ancestors().any(|a| self.items.contains(a) || (a != dir && self.families.contains(a)))
+            || dir
+                .ancestors()
+                .any(|a| self.items.contains(a) || (a != dir && self.families.contains(a)) || self.of_a_session(a))
+    }
+
+    /// Whether `path` is a child of a session folder named after a session
+    /// listed there.
+    fn of_a_session(&self, path: &Path) -> bool {
+        let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else { return false };
+        self.sessions.get(parent).is_some_and(|listed| {
+            entries::session_of(name.as_encoded_bytes()).is_some_and(|session| listed.contains(session))
+        })
     }
 
     /// Whether `dir` lies above a listed item.

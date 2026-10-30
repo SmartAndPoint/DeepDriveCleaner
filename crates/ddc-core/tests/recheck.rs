@@ -13,12 +13,13 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
 use common::TreeBuilder;
+use common::fakes::FakeProcs;
 use common::fixtures::{TAG, rule_fixture};
 use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
 use ddc_core::exec::SkipReason;
 use ddc_core::model::{RemovalKind, ScanReport};
-use ddc_core::plan::{ActionKind, ListedItem, ListedPlan, action_for, plan_listed};
+use ddc_core::plan::{ActionKind, ListedItem, ListedPlan, action_for, plan_listed_with};
 use ddc_core::report::contents::ContentsLimits;
 use ddc_core::report::recheck::{self, Full, RecheckError, Walk, walk_for};
 use ddc_core::report::volumes::SystemStatFs;
@@ -120,14 +121,14 @@ impl Home {
     fn full(&self, list: &[ListedItem]) -> ListedPlan {
         let (scanned, entries) =
             report::scan_with_entries(&self.env(), &self.opts(), &Progress::default(), &SystemStatFs).unwrap();
-        plan_listed(&scanned, &entries, &self.catalog(), list)
+        plan_listed_with(&scanned, &entries, &self.catalog(), list, &FakeProcs::new(Vec::new()), &[])
     }
 
     fn pruned_with(&self, list: &[ListedItem], reader: Option<&dyn DirReader>) -> Result<ListedPlan, RecheckError> {
         let catalog = self.catalog();
         let (scanned, entries) =
             recheck::pruned(&self.env(), &self.opts(), &catalog, list, &Progress::default(), &SystemStatFs, reader)?;
-        Ok(plan_listed(&scanned, &entries, &catalog, list))
+        Ok(plan_listed_with(&scanned, &entries, &catalog, list, &FakeProcs::new(Vec::new()), &[]))
     }
 
     /// Both re-checks; they must plan the list alike.

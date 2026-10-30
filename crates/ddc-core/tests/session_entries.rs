@@ -4,8 +4,7 @@
 //! bounded consent for agents", §3). Fake harness folders in a temporary
 //! home, never the real ones; Claude Code's records are fakes, and the
 //! process table is injected, with fake pids only. The clean of a session
-//! entry comes with the story's next step: here the plan, the dry run and
-//! the clean refuse one as `not-an-entry`.
+//! entry is in `tests/harness_clean.rs`.
 
 mod common;
 
@@ -370,11 +369,12 @@ fn liveness_is_not_read_without_a_session() {
     assert_eq!(project.rest_count, 3);
 }
 
-/// Until the session entries' clean: the plan, the dry run and the clean
-/// each refuse a session's entry `not-an-entry`, and it stays.
+/// A session's entry listed as its folder's `review` class is no finding
+/// of the scan: the plan, the dry run and the clean each refuse it
+/// `changed-since-scan`, and it stays.
 #[test]
-fn the_plan_the_dry_run_and_the_clean_refuse_a_session_entry() {
-    if common::unsupported("the_plan_the_dry_run_and_the_clean_refuse_a_session_entry") {
+fn the_plan_the_dry_run_and_the_clean_refuse_a_session_entry_listed_as_review() {
+    if common::unsupported("the_plan_the_dry_run_and_the_clean_refuse_a_session_entry_listed_as_review") {
         return;
     }
     let h = Home::new();
@@ -382,15 +382,11 @@ fn the_plan_the_dry_run_and_the_clean_refuse_a_session_entry() {
     let catalog = h.catalog();
     let (r, index) = h.scan(FakeProcs::new(Vec::new()));
     assert_eq!(h.locks(&r, PROJECT)[1], (format!("{B}.jsonl"), None), "free in the scan");
-    let items = [h.listed(&format!("{PROJECT}/{B}.jsonl"))];
+    let items = [ListedItem { class: RiskClass::Review, ..h.listed(&format!("{PROJECT}/{B}.jsonl")) }];
 
     let listed = plan_listed(&r, &index, &catalog, &items);
     assert!(listed.plan.items.is_empty());
-    assert_eq!(listed.refused.iter().map(|x| x.reason.clone()).collect::<Vec<_>>(), [SkipReason::NotAnEntry]);
-    // Listed as the folder's `review` class, it is no finding either.
-    let as_finding = ListedItem { class: RiskClass::Review, ..items[0].clone() };
-    let planned = plan_listed(&r, &index, &catalog, &[as_finding]);
-    assert!(planned.plan.items.is_empty() && planned.refused.len() == 1, "{:?}", planned.refused);
+    assert_eq!(listed.refused.iter().map(|x| x.reason.clone()).collect::<Vec<_>>(), [SkipReason::ChangedSinceScan]);
 
     let mut predicted = Vec::new();
     let ports =
@@ -402,7 +398,7 @@ fn the_plan_the_dry_run_and_the_clean_refuse_a_session_entry() {
         Ok(())
     })
     .unwrap();
-    assert_eq!(predicted, [Prediction::WouldSkip(SkipReason::NotAnEntry)]);
+    assert_eq!(predicted, [Prediction::WouldSkip(SkipReason::ChangedSinceScan)]);
 
     let mut journal = MemoryJournal::default();
     let run = exec::execute(
@@ -421,12 +417,13 @@ fn the_plan_the_dry_run_and_the_clean_refuse_a_session_entry() {
     .unwrap();
     let report = CleanReport::new(&items, &listed.refused, &run, PathBuf::from("/journal"));
     let outcomes: Vec<_> = report.items.into_iter().map(|i| i.outcome).collect();
-    assert_eq!(outcomes, [Outcome::Skipped(SkipReason::NotAnEntry)]);
+    assert_eq!(outcomes, [Outcome::Skipped(SkipReason::ChangedSinceScan)]);
     assert!(h.path(&format!("{PROJECT}/{B}.jsonl")).exists());
 }
 
 /// The re-check before a clean walks a session entry's companions, its
-/// siblings; a user-data entry's siblings stay unread.
+/// siblings named after it, and no other session's; a user-data entry's
+/// siblings stay unread.
 #[test]
 fn the_recheck_reaches_a_session_entrys_companions() {
     if common::unsupported("the_recheck_reaches_a_session_entrys_companions") {
@@ -446,6 +443,8 @@ fn the_recheck_reaches_a_session_entrys_companions() {
     let reach = Reach::new(std::slice::from_ref(&session), &catalog);
     assert!(reach.allows(Path::new(&format!("/Users/example/{PROJECT}/{A}"))));
     assert!(reach.allows(Path::new(&format!("/Users/example/{PROJECT}/{A}/tool-results"))));
+    assert!(!reach.allows(Path::new(&format!("/Users/example/{PROJECT}/{B}"))));
+    assert!(!reach.allows(Path::new(&format!("/Users/example/{PROJECT}/memory"))));
 
     let download = ListedItem {
         path: PathBuf::from("/Users/example/Downloads/a"),

@@ -17,7 +17,7 @@ use ddc_core::exec::{
     SystemProcesses, SystemTrash,
 };
 use ddc_core::model::ScanReport;
-use ddc_core::plan::{ListedItem, ListedItems, Refused, plan_listed};
+use ddc_core::plan::{ListedItem, ListedItems, Refused, plan_listed_with};
 use ddc_core::platform::signals;
 use ddc_core::progress::{Phase, WalkStep};
 use ddc_core::report::after_clean::{self, Remeasured};
@@ -118,7 +118,9 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
         }
     };
     // A picked entry is checked against its folder's full list, not the report's top 100.
-    let mut listed = plan_listed(&scanned, &entries, &catalog, &items);
+    // No harness's records or locks are read under a skip, as the scan reads none.
+    let skips: Vec<PathBuf> = opts.skip.iter().chain(&opts.user_skips).cloned().collect();
+    let mut listed = plan_listed_with(&scanned, &entries, &catalog, &items, &SystemProcesses, &skips);
     listed.refused.extend(skipped.into_iter().map(|item| Refused { item, reason: exec::SkipReason::Kept }));
 
     let mut journal = FileJournal::open(&env).context("cannot open the action journal")?;
@@ -133,7 +135,13 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
             &listed.plan,
             &Consent::Listed,
             Ports { commands: &commands, trash: &SystemTrash, procs: &SystemProcesses, journal: &mut journal },
-            &ExecOptions { cancel, progress: Some(&exec_progress), events, local_snapshots: args.local_snapshots },
+            &ExecOptions {
+                cancel,
+                progress: Some(&exec_progress),
+                events,
+                local_snapshots: args.local_snapshots,
+                skips: &skips,
+            },
         )
     })?;
     let mut clean = CleanReport::new(&list.items, &listed.refused, &result, journal_path.clone());
@@ -208,15 +216,25 @@ fn dry_run(
     let ports = PreflightPorts { commands: &commands, procs: &SystemProcesses, reader: &SystemReader };
     let mut out = std::io::stdout().lock();
     let home = env.home().to_path_buf();
-    preflight::preflight(env, catalog, &opts.roots, &opts.excludes, &list.items, &ports, &mut |line| {
-        if args.json {
-            serde_json::to_writer(&mut out, line)?;
-            writeln!(out)?;
-        } else if let preflight::PreflightLine::Item(item) = line {
-            writeln!(out, "{}  {}", prediction_text(&item.prediction), render::tilde(&item.path, &home))?;
-        }
-        out.flush()
-    })?;
+    let skips: Vec<PathBuf> = opts.skip.iter().chain(&opts.user_skips).cloned().collect();
+    preflight::preflight_skipping(
+        env,
+        catalog,
+        &opts.roots,
+        &opts.excludes,
+        &skips,
+        &list.items,
+        &ports,
+        &mut |line| {
+            if args.json {
+                serde_json::to_writer(&mut out, line)?;
+                writeln!(out)?;
+            } else if let preflight::PreflightLine::Item(item) = line {
+                writeln!(out, "{}  {}", prediction_text(&item.prediction), render::tilde(&item.path, &home))?;
+            }
+            out.flush()
+        },
+    )?;
     Ok(ExitCode::SUCCESS)
 }
 

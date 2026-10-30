@@ -602,7 +602,7 @@
       "group": "Coding agents",
       "category": "app-cache",
       "class": "review",
-      "removal": "none",
+      "removal": "trash",
       "listed": true,
       "switchable": false
     },
@@ -611,7 +611,7 @@
       "group": "Coding agents",
       "category": "app-cache",
       "class": "review",
-      "removal": "none",
+      "removal": "trash",
       "listed": true,
       "switchable": false
     },
@@ -620,7 +620,7 @@
       "group": "Coding agents",
       "category": "app-cache",
       "class": "review",
-      "removal": "none",
+      "removal": "trash",
       "listed": true,
       "switchable": false
     },
@@ -629,7 +629,7 @@
       "group": "Coding agents",
       "category": "app-cache",
       "class": "review",
-      "removal": "none",
+      "removal": "trash",
       "listed": true,
       "switchable": false
     },

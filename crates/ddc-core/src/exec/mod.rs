@@ -36,7 +36,7 @@ use crate::env::Env;
 use crate::plan::{Action, Plan, PlanItem};
 /// What a [`ProcessTable`] lists: a fake table names it here, not under `platform`.
 pub use crate::platform::procs::{OpenVnode, ProcInfo, ProcStart};
-use crate::rules::entries::{ENTRY_RULES, EntryLock};
+use crate::rules::entries::{self, EntryLock};
 use crate::rules::{Catalog, KEEP_MARKER};
 use crate::scan::{self, EntryMeta, OwnerKind, Progress, Tag, Visitor, WalkOptions};
 
@@ -277,13 +277,16 @@ pub struct ExecOptions<'a> {
     /// Told on the executing thread before the first action and after each
     /// item (story "CLI: progress events").
     pub events: Option<&'a dyn ExecEvents>,
+    /// The scan's skips (`ScanOptions::skip` and `user_skips`): the guard
+    /// reads no harness's records or locks under one.
+    pub skips: &'a [PathBuf],
 }
 
 static NEVER: AtomicBool = AtomicBool::new(false);
 
 impl Default for ExecOptions<'_> {
     fn default() -> Self {
-        Self { cancel: &NEVER, progress: None, local_snapshots: None, events: None }
+        Self { cancel: &NEVER, progress: None, local_snapshots: None, events: None, skips: &[] }
     }
 }
 
@@ -318,7 +321,7 @@ pub fn execute(
     let snapshots = opts.local_snapshots.unwrap_or_else(|| local_snapshots(ports.commands));
     let mut report = ExecReport { local_snapshots: snapshots, ..ExecReport::default() };
     let markers = keep_markers(chosen.iter().map(|i| i.finding.path.clone()).collect(), opts, progress.walk());
-    let guard = guard::Guard::new(env, catalog, &plan.roots, markers, ports.procs);
+    let guard = guard::Guard::new(env, catalog, &plan.roots, markers, ports.procs).with_skips(opts.skips.to_vec());
     // Each conda install is asked for its folders once per clean.
     let installs = crate::conda::Installs::new(ports.commands, crate::conda::candidates(env.home(), env.system_root()));
     // Entries that went to the Trash: what lies inside them went with them.
@@ -332,6 +335,9 @@ pub fn execute(
     let n = chosen.len() as u64;
     for (index, item) in (1..).zip(chosen) {
         let path = &item.finding.path;
+        // A session's entry: its key's own bytes, and the companions moved.
+        let mut key_bytes: Option<u64> = None;
+        let mut companions: Vec<MovedCompanion> = Vec::new();
         let outcome = if opts.cancelled() {
             Outcome::NotRun
         } else {
@@ -345,7 +351,15 @@ pub fn execute(
             } else {
                 match guard.check(item) {
                     Err(reason) => Outcome::Skipped(reason),
-                    Ok(verified) => act(item, &verified, &guard, &ports, &installs, opts, progress),
+                    Ok(verified) => match &verified.session {
+                        Some(parts) => {
+                            let (outcome, moved) = trash_session(&ports, &verified, parts, path);
+                            key_bytes = Some(parts.key_bytes);
+                            companions = moved;
+                            outcome
+                        }
+                        None => act(item, &verified, &guard, &ports, &installs, opts, progress),
+                    },
                 }
             }
         };
@@ -355,7 +369,22 @@ pub fn execute(
         if outcome == Outcome::NotRun {
             report.cancelled = true;
         } else {
-            let recorded = ports.journal.record(&JournalEntry::new(item, &outcome));
+            // One line per moved path: the companions first, as they moved,
+            // then the entry's own line with its key's bytes.
+            let mut recorded: io::Result<()> = Ok(());
+            for companion in &companions {
+                recorded = ports.journal.record(&JournalEntry::companion(item, companion));
+                if recorded.is_err() {
+                    break;
+                }
+            }
+            if recorded.is_ok() {
+                let mut line = JournalEntry::new(item, &outcome);
+                if let Some(bytes) = key_bytes {
+                    line.bytes = bytes;
+                }
+                recorded = ports.journal.record(&line);
+            }
             if recorded.is_err() {
                 progress.item_finished(item, false);
             }
@@ -400,7 +429,9 @@ fn allowed(item: &PlanItem, consent: &Consent) -> bool {
 /// allows for this finding (ADR §1 — enforced here, not only by `build_plan`),
 /// under a consent the rule allows.
 /// The one way into user data is an entry of the user's own folders that
-/// the user listed (safety ADR, amendment of 2026-10-20).
+/// the user listed (safety ADR, amendment of 2026-10-20); a coding agent's
+/// session entry, listed, is the other way to the Trash of a folder whose
+/// own method is `none` (ADR "Agent footprint", §3).
 fn action_allowed(item: &PlanItem, catalog: &Catalog, consent: &Consent) -> Result<(), SkipReason> {
     let Some(rule) = catalog.by_id(&item.finding.rule) else { return Err(SkipReason::ActionNotAllowed) };
     // A `listed_only` rule's item runs from a person's list only, whatever
@@ -409,10 +440,10 @@ fn action_allowed(item: &PlanItem, catalog: &Catalog, consent: &Consent) -> Resu
         return Err(SkipReason::ActionNotAllowed);
     }
     if item.action == Action::TrashEntry {
+        // The user's own folders are `user-data`; a session folder is not.
         let entry = *consent == Consent::Listed
-            && ENTRY_RULES.contains(&rule.id)
+            && entries::policy(rule.id).is_some_and(|p| p.user_data == (rule.class == RiskClass::UserData))
             && rule.removal == Removal::None
-            && rule.class == RiskClass::UserData
             && item.finding.class == RiskClass::UserData;
         return if entry { Ok(()) } else { Err(SkipReason::ActionNotAllowed) };
     }
@@ -539,6 +570,55 @@ fn act(
             }
             if results.is_empty() { Outcome::NotRun } else { Outcome::Native { commands: results } }
         }
+    }
+}
+
+/// A companion of a session's entry that went to the Trash with it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MovedCompanion {
+    pub path: PathBuf,
+    pub id: (u64, u64),
+    pub bytes: u64,
+}
+
+/// A session's entry: each companion to the Trash first, by name, each
+/// checked unchanged through the parent descriptor right before its move,
+/// then the key (the transcript) last, so a session whose transcript is
+/// still there is never one with nothing left to resume. The first failure
+/// stops it: what moved stays moved, and is journaled; the key stays.
+fn trash_session(
+    ports: &Ports<'_>,
+    v: &guard::Verified,
+    parts: &guard::SessionParts,
+    path: &Path,
+) -> (Outcome, Vec<MovedCompanion>) {
+    let mut moved = Vec::new();
+    let Some(parent) = path.parent() else { return (Outcome::Skipped(SkipReason::Protected), moved) };
+    for c in &parts.companions {
+        let unchanged = v.parent.stat_child(&c.name).is_ok_and(|st| {
+            !st.is_symlink && st.is_dir == c.is_dir && (st.is_dir || st.is_file) && (st.dev, st.ino) == c.id
+        });
+        let at = parent.join(&c.name);
+        if !unchanged {
+            let outcome = if moved.is_empty() {
+                Outcome::Skipped(SkipReason::ChangedSinceScan)
+            } else {
+                Outcome::Failed { error: format!("{} changed after the check", at.display()) }
+            };
+            return (outcome, moved);
+        }
+        if let Err(e) = ports.trash.trash(&at) {
+            return (Outcome::Failed { error: format!("{}: {e}", at.display()) }, moved);
+        }
+        moved.push(MovedCompanion { path: at, id: c.id, bytes: c.bytes });
+    }
+    match trash(ports, v, path) {
+        // The key changed after its companions went: they stay in the Trash.
+        Outcome::Skipped(_) if !moved.is_empty() => {
+            let error = format!("{} changed after the check", path.display());
+            (Outcome::Failed { error }, moved)
+        }
+        outcome => (outcome, moved),
     }
 }
 

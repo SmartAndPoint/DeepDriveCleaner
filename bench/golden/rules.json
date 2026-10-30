@@ -602,8 +602,8 @@
       "group": "Coding agents",
       "id": "agent.codex-sessions",
       "listed": true,
-      "removal": "none",
-      "switchable": false
+      "removal": "trash",
+      "switchable": true
     },
     {
       "category": "app-cache",
@@ -611,8 +611,8 @@
       "group": "Coding agents",
       "id": "agent.codex-runtimes",
       "listed": true,
-      "removal": "none",
-      "switchable": false
+      "removal": "trash",
+      "switchable": true
     },
     {
       "category": "app-cache",
@@ -620,8 +620,8 @@
       "group": "Coding agents",
       "id": "agent.opencode-data",
       "listed": true,
-      "removal": "none",
-      "switchable": false
+      "removal": "trash",
+      "switchable": true
     },
     {
       "category": "app-cache",
@@ -629,8 +629,8 @@
       "group": "Coding agents",
       "id": "agent.cursor-agent-data",
       "listed": true,
-      "removal": "none",
-      "switchable": false
+      "removal": "trash",
+      "switchable": true
     },
     {
       "category": "personal",

@@ -147,7 +147,13 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
             &consent,
             Ports { commands: &commands, trash: &SystemTrash, procs: &SystemProcesses, journal: &mut journal },
             // The snapshots were counted for the note above: `tmutil` runs once.
-            &ExecOptions { cancel, progress: Some(&exec_progress), local_snapshots: Some(snapshots), events },
+            &ExecOptions {
+                cancel,
+                progress: Some(&exec_progress),
+                local_snapshots: Some(snapshots),
+                events,
+                skips: &[],
+            },
         )
     })?;
     prompt::print_result(&mut out, &result, &scanned.home, &journal_path, &style)?;

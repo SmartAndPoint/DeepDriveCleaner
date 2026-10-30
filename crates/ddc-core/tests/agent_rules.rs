@@ -3,7 +3,9 @@
 //! bounded consent for agents", §3. Fake harness folders in a temporary
 //! home, never the real ones; the Trash and the process table are fakes.
 //! A session folder's sessions are its entries (`tests/session_entries.rs`);
-//! the folder itself stays report only.
+//! the folder itself stays report only. Codex, opencode and Cursor's
+//! folders go to the Trash while their harness is not live
+//! (`tests/harness_clean.rs`).
 
 mod common;
 
@@ -16,6 +18,7 @@ use common::fixtures::rule_fixture;
 use ddc_core::agents::liveness::UnknownCause;
 use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
+use ddc_core::exec::preflight::{self, Prediction, PreflightLine, PreflightPorts};
 use ddc_core::exec::{self, Consent, ExecError, ExecOptions, ExecReport, MemoryJournal, Outcome, Ports, SkipReason};
 use ddc_core::model::{Finding, Origin, OriginHarness, OriginKind, RemovalKind, ScanReport};
 use ddc_core::plan::{Action, ActionKind, ListedItem, Plan, PlanItem, PlanOptions, build_plan, plan_listed};
@@ -24,7 +27,7 @@ use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, Processes, ScanOptions};
 use ddc_core::rules::entries::EntryLock;
 use ddc_core::rules::{Catalog, RULES};
-use ddc_core::scan::{Progress, WalkOptions};
+use ddc_core::scan::{Progress, StdReader, WalkOptions};
 
 const HOUR: Duration = Duration::from_secs(3_600);
 
@@ -141,16 +144,16 @@ fn each_path_of_the_eight_rules_is_found_with_its_rule_and_origin() {
         (PROJECT, "agent.claude-code-transcripts", Review, none, ClaudeCode, SessionData),
         (".claude/paste-cache", "agent.claude-code-history", Review, Trash, ClaudeCode, SessionData),
         (".claude/usage-data", "agent.claude-code-history", Review, Trash, ClaudeCode, SessionData),
-        // Report only until a liveness check refuses a running harness.
-        (".codex/sessions", "agent.codex-sessions", Review, none, Codex, SessionData),
-        (".codex/log", "agent.codex-sessions", Review, none, Codex, SessionData),
-        (".cache/codex-runtimes", "agent.codex-runtimes", Review, none, Codex, RuntimeCache),
-        (".local/share/opencode/storage", "agent.opencode-data", Review, none, Opencode, SessionData),
-        (".local/share/opencode/snapshot", "agent.opencode-data", Review, none, Opencode, SessionData),
-        (".local/share/opencode/log", "agent.opencode-data", Review, none, Opencode, SessionData),
-        (".cache/opencode", "agent.opencode-data", Review, none, Opencode, SessionData),
-        (".cursor/projects", "agent.cursor-agent-data", Review, none, Cursor, SessionData),
-        (".cursor/ai-tracking", "agent.cursor-agent-data", Review, none, Cursor, SessionData),
+        // To the Trash while the harness is not live.
+        (".codex/sessions", "agent.codex-sessions", Review, Trash, Codex, SessionData),
+        (".codex/log", "agent.codex-sessions", Review, Trash, Codex, SessionData),
+        (".cache/codex-runtimes", "agent.codex-runtimes", Review, Trash, Codex, RuntimeCache),
+        (".local/share/opencode/storage", "agent.opencode-data", Review, Trash, Opencode, SessionData),
+        (".local/share/opencode/snapshot", "agent.opencode-data", Review, Trash, Opencode, SessionData),
+        (".local/share/opencode/log", "agent.opencode-data", Review, Trash, Opencode, SessionData),
+        (".cache/opencode", "agent.opencode-data", Review, Trash, Opencode, SessionData),
+        (".cursor/projects", "agent.cursor-agent-data", Review, Trash, Cursor, SessionData),
+        (".cursor/ai-tracking", "agent.cursor-agent-data", Review, Trash, Cursor, SessionData),
     ];
     for (rel, ..) in table {
         h.t.file(&format!("{rel}/payload"), 1_000);
@@ -274,15 +277,31 @@ fn sealed_folders_and_auto_memory_are_never_findings() {
     let as_finding = ListedItem { class: RiskClass::Review, ..as_entry.clone() };
     // The project folder whole: its method is `none`.
     let whole = h.listed(&r, PROJECT, ActionKind::Trash);
-    let planned = plan_listed(&r, &entries, &h.catalog(), &[as_entry, as_finding, whole]);
+    let items = [as_entry, as_finding, whole];
+    let planned = plan_listed(&r, &entries, &h.catalog(), &items);
     assert!(planned.plan.items.is_empty(), "{:?}", planned.plan.items);
     assert_eq!(planned.refused.len(), 3);
     let refused = |path: &Path| -> Vec<SkipReason> {
         planned.refused.iter().filter(|x| x.item.path == path).map(|x| x.reason.clone()).collect()
     };
-    // No entry of a user-data folder, and no finding of the scan.
+    // No entry of the session folder, and no finding of the scan.
     assert_eq!(refused(&memory), [SkipReason::NotAnEntry, SkipReason::ChangedSinceScan]);
     assert_eq!(refused(&t.path(PROJECT)), [SkipReason::ActionNotAllowed]);
+    // The dry run gives each the plan's reason.
+    let mut predicted = Vec::new();
+    let ports =
+        PreflightPorts { commands: &FakeCommands::default(), procs: &FakeProcs::new(vec![]), reader: &StdReader };
+    preflight::preflight(&h.env(), &h.catalog(), &[], &[], &items, &ports, &mut |line| {
+        if let PreflightLine::Item(i) = line {
+            predicted.push(i.prediction.clone());
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(
+        predicted,
+        [SkipReason::NotAnEntry, SkipReason::ChangedSinceScan, SkipReason::ActionNotAllowed].map(Prediction::WouldSkip)
+    );
 }
 
 /// AC 6: `agent.claude-code-history` is not in a `--yes` plan, and
