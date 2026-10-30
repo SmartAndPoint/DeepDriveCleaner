@@ -4,7 +4,8 @@ import SwiftUI
 /// The Whole disk view's Coding agents section (story "Coding agents in the
 /// Whole disk view"): per harness, its folders with their sizes and its
 /// sessions live now. Read-only: it names and sizes, and offers no button
-/// that removes anything. Its bytes are part of "Rest of the home folder".
+/// that removes anything; a folder's or a harness's context menu shows it in
+/// Finder. Its bytes are part of "Rest of the home folder".
 struct AgentsSection: View {
     let agents: AgentsModel
 
@@ -54,6 +55,14 @@ private struct AgentsRow: View {
     let row: AgentsSummary.Row
 
     var body: some View {
+        if row.paths.isEmpty {
+            line
+        } else {
+            line.contextMenu { RevealButton(reveal: .finder(row.paths)) }
+        }
+    }
+
+    private var line: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             mark
             VStack(alignment: .leading, spacing: 2) {

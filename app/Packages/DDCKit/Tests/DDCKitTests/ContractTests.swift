@@ -468,6 +468,11 @@ struct ContractTests {
             let source = try #require(sources[file])
             #expect(!source.contains(/\.clean\b|"clean"|\.trash|removeItem|cleanConfirmedItems/), "\(file) removes nothing")
         }
+        // Its one action shows a folder in Finder; the user deletes there, if at all.
+        let section = try #require(sources["AgentsSection.swift"])
+        #expect(section.matches(of: /Button\(|RevealButton\(/).count == 2, "Refresh, and Show in Finder in a context menu")
+        #expect(section.contains("RevealButton(reveal: .finder("))
+        #expect(!section.contains(/NSWorkspace|softwareUpdate|recycle/))
     }
 
     @Test("only the sheet's confirm button runs disk free, and nothing scheduled does")
