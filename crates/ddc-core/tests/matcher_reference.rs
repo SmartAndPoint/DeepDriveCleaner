@@ -651,8 +651,12 @@ proptest! {
 
 /// The case CI's macOS runner found: two names that differ only in case are one
 /// folder on disk, so the tree holds one of them and the walk agrees with it.
+/// It walks, so it skips where the platform is not supported.
 #[test]
 fn names_that_differ_only_in_case_are_one_folder() {
+    if common::unsupported("names_that_differ_only_in_case_are_one_folder") {
+        return;
+    }
     let seed = |name: &str| -> Seed { (".gradle".to_owned(), vec![name.to_owned()], vec![], vec![]) };
     let t = Tree::build(vec![seed("caches"), seed("Caches")], None);
     assert!(!t.dirs.contains(Path::new(".gradle/Caches")), "{:?}", t.dirs);

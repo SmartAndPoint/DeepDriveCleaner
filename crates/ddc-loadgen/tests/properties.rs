@@ -829,19 +829,21 @@ fn injected(path: &Path, r: &'static Rule, class: RiskClass, action: Action) -> 
 }
 
 // ---- the properties --------------------------------------------------------------
+//
+// Each property skips where the platform is not supported before its
+// strategies are built: they draw from the catalog's cloud and entry folders,
+// which another platform's catalog may lack, and an empty `select` panics.
 
-proptest! {
-    #![proptest_config(config())]
-
-    /// For any tree: the default plan and the plan with every item selected
-    /// (Trash and permanent) hold no protected folder, scan root, VM folder
-    /// or kept folder; nothing in a cloud folder is opened or reported; and
-    /// the default selection holds over every finding.
-    #[test]
-    fn no_plan_holds_a_protected_folder_a_vm_or_a_kept_folder(parts in any_tree()) {
-        if ddc_loadgen::unsupported("no_plan_holds_a_protected_folder_a_vm_or_a_kept_folder") {
-            return Ok(());
-        }
+/// For any tree: the default plan and the plan with every item selected
+/// (Trash and permanent) hold no protected folder, scan root, VM folder
+/// or kept folder; nothing in a cloud folder is opened or reported; and
+/// the default selection holds over every finding.
+#[test]
+fn no_plan_holds_a_protected_folder_a_vm_or_a_kept_folder() {
+    if ddc_loadgen::unsupported("no_plan_holds_a_protected_folder_a_vm_or_a_kept_folder") {
+        return;
+    }
+    proptest!(config(), |(parts in any_tree())| {
         let t = build_tree(&parts);
         let (report, index) = scan_tree(&t);
         let tree = listing(&t.desc);
@@ -860,20 +862,22 @@ proptest! {
             selection_holds(&t, f).map_err(|e| with_tree(e, &tree))?;
         }
         clouds_untouched(&t, &report, &index).map_err(|e| with_tree(e, &tree))?;
-    }
+    });
+}
 
-    /// User data enters a plan only as an entry the list names, to the
-    /// Trash: a listed folder, an entry listed as `delete` or `permanent`
-    /// is refused, and so is a locked one, with its lock.
-    #[test]
-    fn user_data_is_planned_only_as_a_listed_entry_to_the_trash(
+/// User data enters a plan only as an entry the list names, to the
+/// Trash: a listed folder, an entry listed as `delete` or `permanent`
+/// is refused, and so is a locked one, with its lock.
+#[test]
+fn user_data_is_planned_only_as_a_listed_entry_to_the_trash() {
+    if ddc_loadgen::unsupported("user_data_is_planned_only_as_a_listed_entry_to_the_trash") {
+        return;
+    }
+    proptest!(config(), |(
         parts in any_tree(),
         folders in prop::collection::vec(select(ENTRY_FOLDERS.clone()), 1..3),
         picks in prop::collection::vec((any::<Index>(), pick()), 1..8),
-    ) {
-        if ddc_loadgen::unsupported("user_data_is_planned_only_as_a_listed_entry_to_the_trash") {
-            return Ok(());
-        }
+    )| {
         let mut parts = parts;
         // Every user folder holds payload entries; a kept one may hold a marker.
         parts.extend(folders.iter().map(|f| {
@@ -896,7 +900,12 @@ proptest! {
             out.plan.items.iter().map(|i| (i.finding.path.as_path(), i)).collect();
         let refused: BTreeMap<&Path, &SkipReason> =
             out.refused.iter().map(|r| (r.item.path.as_path(), &r.reason)).collect();
-        prop_assert_eq!(planned.len() + refused.len(), items.len(), "every listed item is planned or refused\n  {}", tree);
+        prop_assert_eq!(
+            planned.len() + refused.len(),
+            items.len(),
+            "every listed item is planned or refused\n  {}",
+            tree
+        );
         for (item, state, how) in &list {
             let path = item.path.as_path();
             match how {
@@ -921,23 +930,25 @@ proptest! {
                 }
             }
         }
-    }
+    });
+}
 
-    /// The plan is untrusted input: an injected protected folder is skipped
-    /// as `protected`, a `native-only` rule's Delete or Trash item as
-    /// `action-not-allowed`, a listed entry holding a `.ddc-keep` as
-    /// `entry-locked`; and every removed path lies under an item that was
-    /// cleaned.
-    #[test]
-    fn the_executor_refuses_what_the_plan_must_not_hold(
+/// The plan is untrusted input: an injected protected folder is skipped
+/// as `protected`, a `native-only` rule's Delete or Trash item as
+/// `action-not-allowed`, a listed entry holding a `.ddc-keep` as
+/// `entry-locked`; and every removed path lies under an item that was
+/// cleaned.
+#[test]
+fn the_executor_refuses_what_the_plan_must_not_hold() {
+    if ddc_loadgen::unsupported("the_executor_refuses_what_the_plan_must_not_hold") {
+        return;
+    }
+    proptest!(config(), |(
         parts in any_tree(),
         native in select(NATIVE_ONLY.clone()),
         trash in any::<bool>(),
         folder in select(ENTRY_FOLDERS.clone()),
-    ) {
-        if ddc_loadgen::unsupported("the_executor_refuses_what_the_plan_must_not_hold") {
-            return Ok(());
-        }
+    )| {
         let t = build_tree(&parts);
         let tree = listing(&t.desc);
         let (report, _) = scan_tree(&t);
@@ -999,16 +1010,18 @@ proptest! {
         let in_bin = fs::read_dir(&trash_dir).map(|d| d.count()).unwrap_or(0);
         prop_assert_eq!(in_bin, trashed, "the Trash holds what was trashed, nothing else");
         prop_assert!(t.outside.join("precious").exists(), "a file beside the tree was removed");
-    }
+    });
+}
 
-    /// Sizes are counted once: the scan matches the manifest (totals,
-    /// each finding's bytes and shared bytes, the default plan), and the
-    /// class totals are the sums over the findings that are not ignored.
-    #[test]
-    fn sizes_are_counted_once(parts in modeled_tree()) {
-        if ddc_loadgen::unsupported("sizes_are_counted_once") {
-            return Ok(());
-        }
+/// Sizes are counted once: the scan matches the manifest (totals,
+/// each finding's bytes and shared bytes, the default plan), and the
+/// class totals are the sums over the findings that are not ignored.
+#[test]
+fn sizes_are_counted_once() {
+    if ddc_loadgen::unsupported("sizes_are_counted_once") {
+        return;
+    }
+    proptest!(config(), |(parts in modeled_tree())| {
         let t = build_tree(&parts);
         let tree = listing(&t.desc);
         let m = manifest("properties", 0, &t.desc);
@@ -1024,7 +1037,7 @@ proptest! {
             prop_assert_eq!(c.selected_count, selected.len() as u64);
             prop_assert_eq!(c.selected_bytes, selected.iter().map(|f| f.bytes).sum::<u64>());
         }
-    }
+    });
 }
 
 /// A failure with the tree it happened on.

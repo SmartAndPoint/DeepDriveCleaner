@@ -121,7 +121,7 @@ pub fn show(path: &[u8]) -> String {
 pub fn manifest(profile: &str, seed: u64, desc: &Desc) -> Manifest {
     let tree = Index::new(desc);
     let catalog_home = std::path::Path::new("/");
-    let catalog = Catalog::builtin(catalog_home);
+    let catalog = Catalog::from_rules(crate::fixtures::catalog(), catalog_home);
     let mut findings: Vec<Expected> =
         desc.planted.iter().map(|p| tree.expect(&p.path, rule(&catalog, p.rule))).collect();
     findings.sort_by(|a, b| a.path.cmp(&b.path));

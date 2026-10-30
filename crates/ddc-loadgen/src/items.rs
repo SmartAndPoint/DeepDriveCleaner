@@ -27,8 +27,8 @@ pub fn listed(m: &Manifest, tree: &Path) -> anyhow::Result<Option<ListedItems>> 
     }
     let found: HashMap<&str, (RiskClass, bool)> =
         m.findings.iter().map(|f| (f.path.as_str(), (f.class, f.incomplete))).collect();
-    // Owners do not depend on the home.
-    let catalog = Catalog::builtin(Path::new("/"));
+    // Owners do not depend on the home; the manifest's rules are macOS's.
+    let catalog = Catalog::from_rules(crate::fixtures::catalog(), Path::new("/"));
     let mut items = Vec::new();
     for p in m.plan.iter().filter(|p| !p.path.is_empty()) {
         let action = match p.action.as_str() {
