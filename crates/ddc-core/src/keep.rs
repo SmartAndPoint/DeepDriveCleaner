@@ -187,6 +187,10 @@ mod tests {
 
     #[test]
     fn only_an_absolute_path_without_parent_steps_is_plain() {
+        // Its inputs are macOS paths, which Windows does not read as absolute.
+        if crate::platform::skipped("only_an_absolute_path_without_parent_steps_is_plain") {
+            return;
+        }
         assert!(plain(Path::new("/a/b")));
         assert!(plain(Path::new("/")));
         // A `.` inside is dropped by `Path` itself, for the roots check and

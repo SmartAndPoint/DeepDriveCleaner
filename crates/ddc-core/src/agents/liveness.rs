@@ -470,6 +470,10 @@ mod tests {
     fn a_harness_runs_by_its_process_or_a_held_codex_lock() {
         use HarnessCause as C;
         use HarnessId as H;
+        // Its inputs are macOS paths, which Windows does not read as absolute.
+        if crate::platform::skipped("a_harness_runs_by_its_process_or_a_held_codex_lock") {
+            return;
+        }
         const RUNNING: HarnessLiveness = HarnessLiveness::Live { by: HarnessBy::Running };
         const LOCK_HELD: HarnessLiveness = HarnessLiveness::Live { by: HarnessBy::LockHeld };
         const NOT: HarnessLiveness = HarnessLiveness::NotLive;
