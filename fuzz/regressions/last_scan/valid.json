@@ -1,5 +1,17 @@
 {
   "cancelled": false,
+  "capabilities": [
+    "private-size",
+    "in-use-check",
+    "dataless-files",
+    "full-disk-access",
+    "local-snapshots",
+    "whole-disk",
+    "coding-agents",
+    "homebrew",
+    "schedule",
+    "notifications"
+  ],
   "ddc_version": "0.7.0",
   "duration_ms": 12,
   "errors_total": 0,
@@ -67,10 +79,11 @@
   "inaccessible": [],
   "large_files": [],
   "min_age_days": 14,
+  "platform": "macos",
   "scan_roots": [
     "/Users/a"
   ],
-  "schema_version": 1,
+  "schema_version": 2,
   "skipped": [],
   "skipped_total": 0,
   "totals": {

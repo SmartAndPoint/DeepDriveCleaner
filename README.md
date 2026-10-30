@@ -337,7 +337,10 @@ ddc schedule status
 | 0 | Done. `clean --items --json` and `disk free --json` exit 0 even when an item or action failed: the report says which. |
 | 1 | An error; in text mode, `clean` also exits 1 when an item failed, and `disk free` when an action failed. |
 | 2 | Refused before anything was touched: run as root, a malformed list, a forbidden option, or a confirmation that cannot be asked without a terminal. |
+| 69 | Unavailable: ddc does not support this platform yet, where only `--version`, `--help` and `rules` run, or the command needs something this platform lacks. Nothing was scanned or changed. |
 | 75 | Busy: a clean is running, or a clean was asked for while another scan or clean runs. Try again when it ends. |
+
+With `--json` (and `scan --notify json`), a command refused with 69 prints an error report on stdout instead of its usual output ([`docs/error.schema.json`](docs/error.schema.json)): a `code`, `platform-not-supported` or `capability-absent`, the platform and, for the latter, the capability that is missing. The scan, clean and disk reports name their `platform` and its `capabilities`.
 
 The install script (under [Install](#on-an-older-macos-or-the-command-line-only)) has its own:
 

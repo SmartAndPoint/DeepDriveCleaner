@@ -72,6 +72,11 @@ impl Default for ScanOptions {
 pub enum ScanError {
     #[error(transparent)]
     Walk(#[from] WalkSetupError),
+    /// The platform is not supported: refused before any walk, so never
+    /// `Walk(WalkSetupError::Unsupported)` (ADR "Platform seam: one platform
+    /// module per OS with declared capabilities", §5).
+    #[error("{0}")]
+    Unsupported(crate::platform::Unsupported),
     #[error("cannot resolve --exclude {path}: {source}")]
     Exclude {
         path: PathBuf,
@@ -140,6 +145,7 @@ pub(crate) fn scan_inner(
     reader: Option<&dyn DirReader>,
     reach: Option<&recheck::Reach>,
 ) -> Result<Scanned, ScanError> {
+    crate::platform::require_supported().map_err(ScanError::Unsupported)?;
     let started = Instant::now();
     let roots = roots_of(env, opts);
     let excludes = opts
@@ -192,6 +198,8 @@ pub(crate) fn scan_inner(
     let report = ScanReport {
         schema_version: SCHEMA_VERSION,
         ddc_version: env!("CARGO_PKG_VERSION").to_owned(),
+        platform: crate::platform::PLATFORM,
+        capabilities: crate::platform::CAPABILITIES.to_vec(),
         generated_at: humantime::format_rfc3339_seconds(env.now()).to_string(),
         duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         home: env.home().to_path_buf(),

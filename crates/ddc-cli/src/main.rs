@@ -4,6 +4,7 @@ mod cli;
 mod cmd;
 mod disclaimer;
 mod exit;
+mod gate;
 mod launchd;
 mod notify;
 mod progress;
@@ -24,10 +25,20 @@ fn main() -> ExitCode {
         disclaimer::warn_if_terminal();
     }
     let cli = parsed.unwrap_or_else(|e| e.exit());
+    // Before the process setup, which is OS code too, and before any `Env`,
+    // lock or signal handler.
+    if let Some(code) = gate::check(&cli.command) {
+        return code;
+    }
+    let json = cli.command.prints_json();
     init_process();
     match cmd::run(cli) {
         Ok(code) => code,
         Err(err) => {
+            // A core refusal the gate missed exits the same way.
+            if let Some(refusal) = ddc_core::platform::refusal_in(err.as_ref()) {
+                return gate::refuse(&refusal, &format!("{err:#}"), json);
+            }
             eprintln!("ddc: {err:#}");
             let busy = err
                 .downcast_ref::<ddc_core::store::LockError>()

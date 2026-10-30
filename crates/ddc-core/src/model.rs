@@ -9,23 +9,35 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::class::{Category, Removal, RiskClass};
+use crate::platform::{Capability, Platform};
 use crate::rules::Note;
 use crate::rules::entries::EntryLock;
 use crate::scan::SkipReason;
 
-pub const SCHEMA_VERSION: u32 = 1;
+/// 2: `platform` and `capabilities`, against which the other fields read
+/// (ADR "Platform seam: one platform module per OS with declared
+/// capabilities", §4).
+pub const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ScanReport {
     pub schema_version: u32,
     pub ddc_version: String,
+    /// The platform the CLI was built for.
+    pub platform: Platform,
+    /// What this build can do on its platform, in declaration order. A
+    /// capability not listed is absent: without `private-size` no finding
+    /// has `private_bytes`; without `full-disk-access` `full_disk_access`
+    /// is true.
+    pub capabilities: Vec<Capability>,
     /// RFC 3339, UTC.
     pub generated_at: String,
     pub duration_ms: u64,
     pub home: PathBuf,
     pub scan_roots: Vec<PathBuf>,
-    /// Whether the scanning process could read TCC-protected data. Without it
-    /// parts of `~/Library` are unreadable and listed in `inaccessible`.
+    /// True unless a permission system withheld protected data. On macOS,
+    /// whether the scanning process could read TCC-protected data: without
+    /// it parts of `~/Library` are unreadable and listed in `inaccessible`.
     pub full_disk_access: bool,
     /// The volume of each scan root, once per volume. Absent when no volume
     /// could be read.

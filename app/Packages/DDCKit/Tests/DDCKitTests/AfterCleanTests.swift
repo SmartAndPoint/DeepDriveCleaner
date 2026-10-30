@@ -78,7 +78,7 @@ struct AfterCleanTests {
             try item(".npm/_cacache", #""outcome": "not-run""#),
         ]
         let json = """
-            {"schema_version": 3, "ddc_version": "0.4.0", "cancelled": true, "failed": 2, "local_snapshots": 0,
+            {"schema_version": 4, "ddc_version": "0.4.0", "platform": "macos", "capabilities": ["private-size", "in-use-check", "dataless-files", "full-disk-access", "local-snapshots", "whole-disk", "coding-agents", "homebrew", "schedule", "notifications"], "cancelled": true, "failed": 2, "local_snapshots": 0,
              "journal": "\(data.directory.journal.path)", "last_scan_saved": true,
              "volumes": [{"mount_point": "/System/Volumes/Data", "free_before": 1000, "free_after": 1000}],
              "items": [\(items.joined(separator: ","))]}
@@ -132,7 +132,7 @@ struct AfterCleanTests {
             let entries = outcomes.enumerated().map { index, outcome in
                 #"{"path": "/Users/example/\#(index)", "dev": 1, "ino": \#(index), "rule": "cache.npm", "class": "safe", "action": "delete", "bytes": 10, \#(outcome)}"#
             }
-            let json = #"{"schema_version": 3, "ddc_version": "0.4.0", "cancelled": false, "failed": 0, "local_snapshots": 0, "journal": "/j", "volumes": [], "items": [\#(entries.joined(separator: ","))]}"#
+            let json = #"{"schema_version": 4, "ddc_version": "0.4.0", "platform": "macos", "capabilities": ["private-size", "in-use-check", "dataless-files", "full-disk-access", "local-snapshots", "whole-disk", "coding-agents", "homebrew", "schedule", "notifications"], "cancelled": false, "failed": 0, "local_snapshots": 0, "journal": "/j", "volumes": [], "items": [\#(entries.joined(separator: ","))]}"#
             return CleanResult.make(report: try CleanReport.read(Data(json.utf8)), confirmation: confirmation, volumes: [])
         }
         let none = try make([#""outcome": "deleted""#, #""outcome": "skipped", "reason": "changed-since-scan""#, #""outcome": "skipped", "reason": "kept""#])

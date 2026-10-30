@@ -45,6 +45,27 @@ pub enum Command {
     Diag,
 }
 
+impl Command {
+    /// The command was asked for JSON on stdout, where a refusal's envelope
+    /// goes in its place (ADR "Platform seam: one platform module per OS
+    /// with declared capabilities", §7). `--progress json` alone is not:
+    /// its events go to stderr.
+    pub fn prints_json(&self) -> bool {
+        match self {
+            Command::Scan(args) => args.json || args.notify == Some(NotifyFormat::Json),
+            Command::Clean(args) => args.json,
+            Command::Rules(args) => args.json,
+            Command::Disk(args) => match &args.action {
+                None => args.json,
+                Some(DiskAction::Agents(a)) => a.json,
+                Some(DiskAction::Free(a)) => a.json,
+                Some(DiskAction::BrewPackages(a)) => a.json,
+            },
+            Command::Schedule { .. } | Command::Notify { .. } | Command::Du(_) | Command::Diag => false,
+        }
+    }
+}
+
 #[derive(Debug, Args)]
 pub struct ScanArgs {
     /// Paths to scan (default: your home directory).

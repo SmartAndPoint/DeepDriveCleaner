@@ -70,6 +70,20 @@ case "$TARGET" in
 esac
 [ "$("$BIN" --version)" = "deepdrivecleaner $VERSION" ] || fail "the binary reports '$("$BIN" --version)'"
 
+# A scan of a small tree runs and names its platform. clap answers --version before
+# the platform's gate, so a binary that refuses every scan (exit 69, ADR "Platform
+# seam: one platform module per OS with declared capabilities") passes the line above
+# and fails here. The tree is release.yml's smoke tree; the folder is ours to remove.
+TREE="$(mktemp -d)"
+trap 'rm -rf "$TREE"' EXIT
+mkdir -p "$TREE/home/app/node_modules/left-pad" "$TREE/data"
+printf '{}\n' > "$TREE/home/app/package.json"
+printf 'x\n' > "$TREE/home/app/node_modules/left-pad/index.js"
+STATUS=0
+HOME="$TREE/home" "$BIN" scan --json --data-dir "$TREE/data" "$TREE/home" > "$TREE/scan.json" || STATUS=$?
+[ "$STATUS" = 0 ] || fail "the binary refuses a scan of a small tree (exit $STATUS)"
+grep -q '"platform": "' "$TREE/scan.json" || fail "the scan report names no platform"
+
 # grep on the binary itself: status 1 is "not there", anything else is a grep that
 # could not read it, which must stop the build instead of passing the check.
 for NEEDLE in "${NEEDLES[@]}"; do

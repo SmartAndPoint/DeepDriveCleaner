@@ -51,7 +51,7 @@ struct DiskReportTests {
 
     @Test("a report of another schema version is not decoded")
     func otherSchema() throws {
-        for version in [1, 3] {
+        for version in [2, 4] {
             let data = try Fixture.edited("disk-report") { $0["schema_version"] = version }
             #expect(throws: ScanReport.ReadError.otherSchema(version)) { try DiskReport.read(data) }
         }

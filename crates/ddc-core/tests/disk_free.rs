@@ -21,6 +21,7 @@ use ddc_core::free::{
     ListedAction, Refusal, ReportEdit,
 };
 use ddc_core::model::SCHEMA_VERSION;
+use ddc_core::platform::{self, Capability, CapabilityAbsent};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::scan::{Progress, WalkOptions};
 use ddc_core::store;
@@ -202,7 +203,7 @@ fn a_runtime_is_deleted_with_coresimulators_simctl_alone_and_its_bytes_are_measu
 #[test]
 fn the_journal_has_its_own_version_and_the_scan_reports_is_unchanged() {
     assert_eq!(JOURNAL_SCHEMA_VERSION, 3);
-    assert_eq!(SCHEMA_VERSION, 1);
+    assert_eq!(SCHEMA_VERSION, 2);
     assert_eq!(serde_json::to_value(JournalKind::Item).unwrap(), "item");
 }
 
@@ -265,7 +266,7 @@ fn every_runtime_the_probe_cannot_vouch_for_is_refused_before_any_delete() {
         assert!(deletes(&commands).is_empty(), "{name}: {:?}", commands.calls.borrow());
         assert_eq!(journal.0.len(), 1, "{name}: a refusal is journaled");
         // The dry run refuses the same way and runs nothing either.
-        let dry = free::dry_run(&fx.ctx(&commands, &[]), &one(ActionId::SimctlRuntimeDelete, Some(id)));
+        let dry = free::dry_run(&fx.ctx(&commands, &[]), &one(ActionId::SimctlRuntimeDelete, Some(id))).unwrap();
         assert_eq!(dry[0].result, ActionResult::Refused { reason }, "{name} (dry run)");
         assert!(deletes(&commands).is_empty(), "{name} (dry run)");
     }
@@ -432,7 +433,7 @@ fn the_dry_run_runs_each_tools_own_dry_run_and_changes_nothing() {
         ],
     };
 
-    let reports = free::dry_run(&fx.ctx(&commands, &[]), &list);
+    let reports = free::dry_run(&fx.ctx(&commands, &[]), &list).unwrap();
 
     assert_eq!(reports[0].result, ActionResult::WouldRun);
     let preview = reports[0].preview.as_ref().unwrap();
@@ -654,6 +655,60 @@ fn available_offers_the_runtimes_the_probe_passes_and_homebrew() {
     assert!(deletes(&commands).is_empty());
 }
 
+/// Each action needs its capability (ADR "Platform seam: one platform module
+/// per OS with declared capabilities", §3): on a platform that declares
+/// Homebrew but not the whole-disk report, a list naming a runtime is
+/// refused whole, before anything runs or is journaled, and the terminal is
+/// offered Homebrew alone.
+#[test]
+fn an_action_whose_capability_is_absent_refuses_the_whole_list() {
+    let fx = Fx::new();
+    let commands = fx.brew(simctl(&fx, &[fx.runtime(|_| {})]));
+    let homebrew_only = [Capability::Homebrew];
+    let ctx = FreeContext { capabilities: &homebrew_only, ..fx.ctx(&commands, &[]) };
+    let list = ActionList {
+        schema_version: FREE_SCHEMA_VERSION,
+        actions: vec![
+            ListedAction::new(ActionId::BrewCleanup, None),
+            ListedAction::new(ActionId::SimctlRuntimeDelete, Some("A".into())),
+        ],
+    };
+    let absent = CapabilityAbsent {
+        platform: platform::PLATFORM,
+        capability: Capability::WholeDisk,
+        action: Some(ActionId::SimctlRuntimeDelete),
+    };
+
+    assert_eq!(free::check_capabilities(&ctx, &list), Err(absent));
+    assert_eq!(free::dry_run(&ctx, &list), Err(absent));
+    let mut journal = MemoryAreaJournal::default();
+    let err = free::run(&ctx, &list, &mut journal).unwrap_err();
+    assert_eq!(err.kind(), io::ErrorKind::Unsupported);
+    assert_eq!(platform::refusal_in(&err), Some(platform::Refusal::CapabilityAbsent(absent)));
+    assert!(journal.0.is_empty(), "nothing journaled");
+    assert!(commands.calls.borrow().is_empty(), "no tool ran: {:?}", commands.calls.borrow());
+
+    assert_eq!(free::available(&ctx), [ListedAction::new(ActionId::BrewCleanup, None)]);
+    let none: [Capability; 0] = [];
+    assert!(free::available(&FreeContext { capabilities: &none, ..fx.ctx(&commands, &[]) }).is_empty());
+    // The Homebrew actions alone pass.
+    assert_eq!(free::check_capabilities(&ctx, &one(ActionId::BrewCleanup, None)), Ok(()));
+}
+
+#[test]
+fn every_action_names_the_capability_it_needs() {
+    for (action, capability) in [
+        (ActionId::SimctlRuntimeDelete, Capability::WholeDisk),
+        (ActionId::CondaEnvRemove, Capability::WholeDisk),
+        (ActionId::CondaClean, Capability::WholeDisk),
+        (ActionId::BrewCleanup, Capability::Homebrew),
+        (ActionId::BrewUninstall, Capability::Homebrew),
+        (ActionId::BrewUninstallOrphans, Capability::Homebrew),
+    ] {
+        assert_eq!(action.capability(), capability, "{action:?}");
+    }
+}
+
 /// A saved disk report with both areas and runtimes `A` and `B`.
 fn last_disk(fx: &Fx) -> Value {
     let area = |id: &str| {
@@ -662,7 +717,8 @@ fn last_disk(fx: &Fx) -> Value {
     };
     let runtime = |id: &str, size: u64| json!({"identifier": id, "size_bytes": size, "devices": [], "booted": false});
     json!({
-        "schema_version": DISK_SCHEMA_VERSION, "ddc_version": "0", "generated_at": "2026-10-28T00:00:00Z",
+        "schema_version": DISK_SCHEMA_VERSION, "ddc_version": "0", "platform": platform::PLATFORM,
+        "capabilities": platform::CAPABILITIES, "generated_at": "2026-10-28T00:00:00Z",
         "duration_ms": 1, "cancelled": false,
         "home": {"path": fx.home, "source": "walk", "as_of": "2026-10-28T00:00:00Z", "bytes": 1, "unreadable": 0, "partial": false},
         "areas": [area("simulator-runtimes"), area("homebrew"), area("applications")],
@@ -1070,7 +1126,7 @@ fn a_package_folder_conda_could_clean_beyond_is_refused_in_the_dry_run_too() {
     ];
     for (name, commands, reason) in cases {
         let list = fx.conda_list(ActionId::CondaClean, &fx.opt_conda());
-        let previews = free::dry_run(&fx.ctx(&commands, &[]), &list);
+        let previews = free::dry_run(&fx.ctx(&commands, &[]), &list).unwrap();
         assert_eq!(previews[0].result, ActionResult::Refused { reason }, "{name} dry run");
         let (reports, _) = run(&fx, &commands, &list);
         assert_eq!(reports[0].result, ActionResult::Refused { reason }, "{name}");
@@ -1088,7 +1144,7 @@ fn the_conda_dry_runs_ask_the_probe_and_estimate_without_removing() {
         actions: vec![named(ActionId::CondaEnvRemove, fx.opt_env()), named(ActionId::CondaClean, fx.opt_conda())],
     };
 
-    let reports = free::dry_run(&fx.ctx(&commands, &[]), &list);
+    let reports = free::dry_run(&fx.ctx(&commands, &[]), &list).unwrap();
 
     assert_eq!(reports[0].result, ActionResult::WouldRun);
     assert_eq!(reports[0].preview.as_ref().unwrap().estimate_bytes, reports[0].bytes_before);

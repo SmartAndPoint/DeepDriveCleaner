@@ -220,7 +220,7 @@ fn check(fx: &Fx, case: &Case) -> Result<(), TestCaseError> {
     let listed = fx.list(case, None);
 
     let dry = fx.simctl(std::slice::from_ref(&listed));
-    let dry_report = free::dry_run(&fx.ctx(&dry), &one(&case.request)).remove(0);
+    let dry_report = free::dry_run(&fx.ctx(&dry), &one(&case.request)).unwrap().remove(0);
 
     let after = fx.list(case, same.first().copied());
     let real = fx.simctl(&[listed.clone(), after]);

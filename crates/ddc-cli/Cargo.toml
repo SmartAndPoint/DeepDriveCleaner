@@ -37,6 +37,12 @@ humantime.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[features]
+# ddc-core's simulate-unported, for `make unported-check` (ADR "Platform seam: one
+# platform module per OS with declared capabilities", §8): every command but rules
+# refuses. Never in a release build.
+simulate-unported = ["ddc-core/simulate-unported"]
+
 [dev-dependencies]
 ddc-loadgen.workspace = true
 jsonschema.workspace = true

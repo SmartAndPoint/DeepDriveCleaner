@@ -1,6 +1,19 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "ddc_version": "0.3.0",
+  "platform": "macos",
+  "capabilities": [
+    "private-size",
+    "in-use-check",
+    "dataless-files",
+    "full-disk-access",
+    "local-snapshots",
+    "whole-disk",
+    "coding-agents",
+    "homebrew",
+    "schedule",
+    "notifications"
+  ],
   "generated_at": "2026-10-19T09:00:00Z",
   "duration_ms": 13300,
   "cancelled": false,

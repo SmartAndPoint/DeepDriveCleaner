@@ -22,6 +22,7 @@ pub use model::*;
 
 use crate::env::Env;
 use crate::exec::{self, CommandRunner};
+use crate::platform::Unsupported;
 use crate::report::volumes::StatFs;
 use crate::rules::Catalog;
 use crate::scan::{self, DirReader, Progress, Tag, WalkOptions, WalkOutput};
@@ -102,7 +103,9 @@ pub struct DiskPorts<'a> {
 
 /// Measures the disk. A set `cancel` stops the tools not yet run and every
 /// folder not yet opened; the report is still complete in shape, with the
-/// unfinished areas partial.
+/// unfinished areas partial. Refused on a platform that is not supported:
+/// its walks fold their errors into partial areas, so without its own gate a
+/// refusal would come back as a report.
 pub fn measure(
     env: &Env,
     sources: &Sources,
@@ -110,7 +113,7 @@ pub fn measure(
     ports: &DiskPorts<'_>,
     progress: &Progress,
     cancel: &AtomicBool,
-) -> DiskReport {
+) -> Result<DiskReport, Unsupported> {
     measure_with(env, sources, opts, ports, progress, cancel, None)
 }
 
@@ -123,7 +126,8 @@ pub fn measure_with(
     progress: &Progress,
     cancel: &AtomicBool,
     reader: Option<&dyn DirReader>,
-) -> DiskReport {
+) -> Result<DiskReport, Unsupported> {
+    crate::platform::require_supported()?;
     let started = Instant::now();
     let stopped = || cancel.load(Ordering::SeqCst);
 
@@ -276,9 +280,11 @@ pub fn measure_with(
         .collect();
     holds.extend(opts.user_skips.iter().map(|p| Held { kind: HeldKind::Skip, path: p.clone() }));
 
-    DiskReport {
+    Ok(DiskReport {
         schema_version: DISK_SCHEMA_VERSION,
         ddc_version: env!("CARGO_PKG_VERSION").to_owned(),
+        platform: crate::platform::PLATFORM,
+        capabilities: crate::platform::CAPABILITIES.to_vec(),
         generated_at,
         duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         cancelled,
@@ -298,7 +304,7 @@ pub fn measure_with(
             holds,
             unreadable: out.as_ref().map_or(0, |o| o.errors_total),
         },
-    }
+    })
 }
 
 #[derive(Debug, Default)]

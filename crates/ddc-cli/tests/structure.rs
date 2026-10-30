@@ -272,3 +272,104 @@ fn the_core_reads_directories_only_through_the_counters() {
         }
     }
 }
+
+/// The simulated unported build stays a test build (ADR "Platform seam: one
+/// platform module per OS with declared capabilities", §8): the feature
+/// `simulate-unported` is declared in a `[features]` table, enabled by no
+/// dependency and no default, and passed by no build script, hook or
+/// workflow; in the Makefile only `unported-check`, which builds into its
+/// own target folder, passes it.
+#[test]
+fn only_the_unported_check_builds_the_simulated_platform() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let feature = "simulate-unported";
+    let mut manifests = vec![root.join("Cargo.toml"), root.join("fuzz/Cargo.toml")];
+    for entry in std::fs::read_dir(root.join("crates")).unwrap() {
+        let manifest = entry.unwrap().path().join("Cargo.toml");
+        if manifest.exists() {
+            manifests.push(manifest);
+        }
+    }
+    for manifest in manifests {
+        let text = std::fs::read_to_string(&manifest).unwrap();
+        let mut section = "";
+        for line in text.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
+            if line.starts_with('[') && !line.starts_with("[\"") {
+                section = line;
+                continue;
+            }
+            if line.contains(feature) {
+                assert_eq!(section, "[features]", "{}: {line}", manifest.display());
+                let key = line.split_once('=').map_or("", |(k, _)| k.trim());
+                assert_eq!(key, feature, "{}: only the feature itself forwards it: {line}", manifest.display());
+            }
+        }
+    }
+    let mut scripts: Vec<_> = ["scripts", ".github/workflows", ".githooks"]
+        .iter()
+        .filter_map(|dir| std::fs::read_dir(root.join(dir)).ok())
+        .flat_map(|entries| entries.map(|e| e.unwrap().path()))
+        .filter(|p| p.is_file())
+        .collect();
+    scripts.sort();
+    assert!(scripts.iter().any(|p| p.ends_with("scripts/build-cli.sh")), "{scripts:?}");
+    for script in scripts {
+        let text = std::fs::read_to_string(&script).unwrap();
+        assert!(!text.contains(feature), "{} passes {feature}", script.display());
+    }
+    let makefile = std::fs::read_to_string(root.join("Makefile")).unwrap();
+    assert!(makefile.contains("UNPORTED := CARGO_TARGET_DIR=target/unported\n"), "Makefile: no own target folder");
+    for line in makefile.lines().filter(|l| l.contains(feature) && !l.starts_with('#')) {
+        assert!(line.starts_with("\t$(UNPORTED) $(CARGO) "), "Makefile: {line}");
+    }
+}
+
+/// The seam's switches are literals (ADR "Platform seam: one platform module
+/// per OS with declared capabilities", §5, §8): `platform/mod.rs` reads no
+/// environment variable and its only `cfg!(feature …)` is
+/// `simulate-unported`; each OS module's `SUPPORTED` is `true` or `false`
+/// and its `CAPABILITIES` a slice written out, and it reads the environment
+/// only for the folders of its user.
+#[test]
+fn the_platform_switches_are_literals() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ddc-core/src/platform");
+    let code = |file: &str| -> String {
+        let text = std::fs::read_to_string(dir.join(file)).unwrap();
+        text.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n")
+    };
+    let env_reads = ["env::var", "var_os(", "option_env!(", "env!("];
+    let shared = code("mod.rs");
+    for read in env_reads {
+        assert!(!shared.contains(read), "platform/mod.rs reads the environment: {read}");
+    }
+    let features: Vec<&str> = shared.match_indices("feature").map(|(i, _)| &shared[i..]).collect();
+    assert!(!features.is_empty(), "platform/mod.rs: the simulate-unported switch is gone");
+    for at in features {
+        assert!(at.starts_with("feature = \"simulate-unported\")"), "platform/mod.rs: {}", at.lines().next().unwrap());
+    }
+    let allowed = ["HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA"];
+    for file in ["macos.rs", "linux.rs", "windows.rs"] {
+        let text = code(file);
+        let supported: Vec<&str> = text.lines().filter(|l| l.contains("const SUPPORTED")).collect();
+        assert!(
+            supported == ["pub const SUPPORTED: bool = true;"] || supported == ["pub const SUPPORTED: bool = false;"],
+            "{file}: {supported:?}"
+        );
+        let start = text.find("pub const CAPABILITIES: &[Capability] = &[").unwrap_or_else(|| panic!("{file}"));
+        let list = &text[start..];
+        let list = &list[list.find("= &[").unwrap() + 4..list.find("];").unwrap()];
+        for item in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            let name = item.strip_prefix("Capability::").unwrap_or_else(|| panic!("{file}: {item}"));
+            assert!(name.chars().all(char::is_alphanumeric), "{file}: {item}");
+        }
+        for read in env_reads {
+            for (i, _) in text.match_indices(read) {
+                let name = text[i + read.len()..].trim_start_matches(['(', '"']).split('"').next().unwrap();
+                assert!(
+                    allowed.contains(&name) || name.starts_with("XDG_"),
+                    "{file} reads {name} from the environment"
+                );
+            }
+        }
+    }
+}

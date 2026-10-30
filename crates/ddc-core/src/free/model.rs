@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::brew::NeededBy;
 use crate::disk::ActionId;
+use crate::platform::Capability;
 
 /// Version of [`ActionList`] and of [`FreeReport`].
 pub const FREE_SCHEMA_VERSION: u32 = 3;
@@ -183,6 +184,16 @@ impl ActionId {
             ActionId::SimctlRuntimeDelete => "simulator-runtimes",
             ActionId::BrewCleanup | ActionId::BrewUninstall | ActionId::BrewUninstallOrphans => "homebrew",
             ActionId::CondaEnvRemove | ActionId::CondaClean => "conda",
+        }
+    }
+
+    /// The capability the action needs (ADR "Platform seam: one platform
+    /// module per OS with declared capabilities", §3): the whole-disk
+    /// report's rows, or Homebrew's.
+    pub fn capability(self) -> Capability {
+        match self {
+            ActionId::SimctlRuntimeDelete | ActionId::CondaEnvRemove | ActionId::CondaClean => Capability::WholeDisk,
+            ActionId::BrewCleanup | ActionId::BrewUninstall | ActionId::BrewUninstallOrphans => Capability::Homebrew,
         }
     }
 }

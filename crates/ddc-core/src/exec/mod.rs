@@ -199,6 +199,10 @@ pub enum ExecError {
     ReviewWithYes,
     #[error("cannot write the action journal: {0}")]
     Journal(#[from] io::Error),
+    /// The platform is not supported: nothing was touched (ADR "Platform
+    /// seam: one platform module per OS with declared capabilities", §5).
+    #[error("{0}")]
+    Unsupported(crate::platform::Unsupported),
 }
 
 pub struct Ports<'a> {
@@ -264,6 +268,7 @@ pub fn execute(
     ports: Ports<'_>,
     opts: &ExecOptions<'_>,
 ) -> Result<ExecReport, ExecError> {
+    crate::platform::require_supported().map_err(ExecError::Unsupported)?;
     if crate::sys::procs::is_root() {
         return Err(ExecError::Root);
     }

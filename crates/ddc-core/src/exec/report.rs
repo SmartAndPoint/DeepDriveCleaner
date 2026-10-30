@@ -10,16 +10,23 @@ use serde::{Deserialize, Serialize};
 use super::{ExecReport, Outcome, VolumeSpace};
 use crate::class::RiskClass;
 use crate::plan::{ActionKind, ListedItem, Refused};
+use crate::platform::{Capability, Platform};
 
 /// Version of [`CleanReport`]; the scan report has its own. 2: the skip
 /// reasons `not-an-entry`, `entry-locked` and `inside-another-item`. 3: the
-/// skip reason `tool-not-ready`.
-pub const CLEAN_SCHEMA_VERSION: u32 = 3;
+/// skip reason `tool-not-ready`. 4: `platform` and `capabilities` (ADR
+/// "Platform seam: one platform module per OS with declared capabilities", §4).
+pub const CLEAN_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CleanReport {
     pub schema_version: u32,
     pub ddc_version: String,
+    /// The platform the CLI was built for.
+    pub platform: Platform,
+    /// What this build can do on its platform, in declaration order. Without
+    /// `local-snapshots`, `local_snapshots` is 0 and has no meaning.
+    pub capabilities: Vec<Capability>,
     /// A signal stopped the run; the items it left are `not-run`.
     pub cancelled: bool,
     /// In the order of the list.
@@ -93,6 +100,8 @@ impl CleanReport {
         Self {
             schema_version: CLEAN_SCHEMA_VERSION,
             ddc_version: env!("CARGO_PKG_VERSION").to_owned(),
+            platform: crate::platform::PLATFORM,
+            capabilities: crate::platform::CAPABILITIES.to_vec(),
             cancelled: run.cancelled,
             items,
             failed,

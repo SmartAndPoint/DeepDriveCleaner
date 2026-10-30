@@ -99,6 +99,9 @@ pub fn preflight(
     ports: &PreflightPorts<'_>,
     out: &mut dyn FnMut(&PreflightLine) -> io::Result<()>,
 ) -> io::Result<PreflightSummary> {
+    // Its walk would refuse too, but only after the folders are opened and
+    // the in-use checks run, and it folds walk errors away.
+    crate::platform::require_supported().map_err(|u| io::Error::new(io::ErrorKind::Unsupported, u))?;
     let roots = canonical_roots(env, roots);
     // As the clean's rescan: an exclude that cannot be resolved is an error, not dropped.
     let excludes = excludes

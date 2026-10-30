@@ -23,6 +23,7 @@ pub use model::*;
 use crate::disk::{ActionId, Sources};
 use crate::env::Env;
 use crate::exec::{AreaActionEntry, AreaJournal, CmdOutput, CommandRunner, NATIVE_TIMEOUT, ProcessTable};
+use crate::platform::{self, Capability, CapabilityAbsent};
 use crate::report::after_clean::{self, Remeasured};
 use crate::report::{ScanOptions, recheck};
 use crate::rules::Catalog;
@@ -48,6 +49,11 @@ pub struct FreeContext<'a> {
     /// What must be left of `timeout` after the re-read for `brew
     /// uninstall` to start.
     pub floor: Duration,
+    /// What the platform can do: an action whose capability is not here is
+    /// refused, and not offered (ADR "Platform seam: one platform module per
+    /// OS with declared capabilities", §3). [`platform::CAPABILITIES`]; a
+    /// test passes another list.
+    pub capabilities: &'a [Capability],
 }
 
 impl<'a> FreeContext<'a> {
@@ -69,6 +75,7 @@ impl<'a> FreeContext<'a> {
             timeout: NATIVE_TIMEOUT,
             poll: Duration::from_secs(1),
             floor: Duration::from_secs(60),
+            capabilities: platform::CAPABILITIES,
         }
     }
 
@@ -77,9 +84,20 @@ impl<'a> FreeContext<'a> {
     }
 }
 
+/// The first listed action whose capability the platform does not declare:
+/// the whole list is refused for it, before anything runs.
+pub fn check_capabilities(ctx: &FreeContext<'_>, list: &ActionList) -> Result<(), CapabilityAbsent> {
+    list.actions.iter().try_for_each(|l| platform::require(l.action.capability(), ctx.capabilities, Some(l.action)))
+}
+
 /// Runs each listed action in order, journaling each. A stop leaves the
-/// actions not yet started `not-run`, journaled too.
+/// actions not yet started `not-run`, journaled too. Refused whole, with
+/// `io::ErrorKind::Unsupported` and the refusal as its payload, on a
+/// platform that is not supported or for an action whose capability it
+/// does not declare.
 pub fn run(ctx: &FreeContext<'_>, list: &ActionList, journal: &mut dyn AreaJournal) -> io::Result<Vec<ActionReport>> {
+    platform::require_supported().map_err(|u| io::Error::new(io::ErrorKind::Unsupported, u))?;
+    check_capabilities(ctx, list).map_err(|c| io::Error::new(io::ErrorKind::Unsupported, c))?;
     let mut reports = Vec::with_capacity(list.actions.len());
     for listed in &list.actions {
         let report = if ctx.cancelled() {
@@ -104,9 +122,12 @@ pub fn run(ctx: &FreeContext<'_>, list: &ActionList, journal: &mut dyn AreaJourn
 }
 
 /// Each tool's own dry run, after the same probe. Changes nothing and
-/// journals nothing.
-pub fn dry_run(ctx: &FreeContext<'_>, list: &ActionList) -> Vec<ActionReport> {
-    list.actions
+/// journals nothing. Refused whole for an action whose capability the
+/// platform does not declare.
+pub fn dry_run(ctx: &FreeContext<'_>, list: &ActionList) -> Result<Vec<ActionReport>, CapabilityAbsent> {
+    check_capabilities(ctx, list)?;
+    Ok(list
+        .actions
         .iter()
         .map(|listed| match (listed.action, &listed.identifier) {
             (ActionId::SimctlRuntimeDelete, Some(id)) => simctl::dry_run(ctx, id),
@@ -118,7 +139,7 @@ pub fn dry_run(ctx: &FreeContext<'_>, list: &ActionList) -> Vec<ActionReport> {
                 unreachable!("an action without its identifier")
             }
         })
-        .collect()
+        .collect())
 }
 
 /// A `brew-uninstall` or `brew-uninstall-orphans`, as confirmed.
@@ -131,16 +152,21 @@ fn confirmed(listed: &ListedAction) -> uninstall::Confirmed<'_> {
 /// each runtime that passes, then Homebrew when its `brew` is there, then
 /// each `/opt` conda install with its own `bin/conda`: its package folder,
 /// then its environments, as the file system lists them. No formula is
-/// offered here: a package is removed from the app's list of them.
+/// offered here: a package is removed from the app's list of them. An
+/// action whose capability the platform does not declare is not offered.
 pub fn available(ctx: &FreeContext<'_>) -> Vec<ListedAction> {
-    let mut out: Vec<ListedAction> = simctl::available(ctx)
-        .into_iter()
-        .map(|id| ListedAction::new(ActionId::SimctlRuntimeDelete, Some(id)))
-        .collect();
-    if brew::available(ctx) {
+    let declared = |action: ActionId| ctx.capabilities.contains(&action.capability());
+    let mut out: Vec<ListedAction> = Vec::new();
+    if declared(ActionId::SimctlRuntimeDelete) {
+        out.extend(
+            simctl::available(ctx).into_iter().map(|id| ListedAction::new(ActionId::SimctlRuntimeDelete, Some(id))),
+        );
+    }
+    if declared(ActionId::BrewCleanup) && brew::available(ctx) {
         out.push(ListedAction::new(ActionId::BrewCleanup, None));
     }
-    for prefix in crate::conda::PREFIXES.iter().map(|p| ctx.sources.opt.join(p)) {
+    let conda = declared(ActionId::CondaClean) && declared(ActionId::CondaEnvRemove);
+    for prefix in crate::conda::PREFIXES.iter().filter(|_| conda).map(|p| ctx.sources.opt.join(p)) {
         if ctx.commands.at(&crate::conda::exe(&prefix)).is_none() {
             continue;
         }

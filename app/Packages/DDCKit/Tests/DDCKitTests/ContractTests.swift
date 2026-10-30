@@ -278,6 +278,32 @@ struct ContractTests {
         #expect(Set(try values(scan, "FolderEntryKind")) == ["file", "folder"])
     }
 
+    /// ADR "Platform seam: one platform module per OS with declared
+    /// capabilities", §4: the scan, clean and disk reports carry both
+    /// fields, required, decoded strictly, in the order the CLI declares.
+    @Test("the platform and its capabilities are the CLI's, in every report that carries them")
+    func platformContracts() throws {
+        for name in ["scan", "clean", "disk"] {
+            let s = try schema(name)
+            #expect(try values(s, "Platform") == Platform.allCases.map(\.rawValue), "\(name)")
+            #expect(try values(s, "Capability") == Capability.allCases.map(\.rawValue), "\(name)")
+            let required = try #require(s["required"] as? [String])
+            #expect(required.contains("platform") && required.contains("capabilities"), "\(name)")
+        }
+        let scan = try ScanReport.read(try Fixture.data("scan-report"))
+        #expect(scan.platform == .macos && scan.capabilities == Capability.allCases)
+        let disk = try DiskReport.read(try Fixture.data("disk-report"))
+        #expect(disk.platform == .macos && disk.capabilities == Capability.allCases)
+        let clean = try CleanReport.read(try Fixture.data("clean-report"))
+        #expect(clean.platform == .macos && clean.capabilities == Capability.allCases)
+        let unknown = try Fixture.edited("disk-report") { $0["capabilities"] = ["private-size", "teleport"] }
+        #expect(throws: DecodingError.self) { try DiskReport.read(unknown) }
+        let other = try Fixture.edited("disk-report") { $0["platform"] = "freebsd" }
+        #expect(throws: DecodingError.self) { try DiskReport.read(other) }
+        let missing = try Fixture.edited("disk-report") { $0.removeValue(forKey: "capabilities") }
+        #expect(throws: DecodingError.self) { try DiskReport.read(missing) }
+    }
+
     @Test("the whole-disk report is the CLI's: version and every enum")
     func diskContracts() throws {
         let source = try rustSource("crates/ddc-core/src/disk/model.rs")

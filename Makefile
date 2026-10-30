@@ -31,7 +31,7 @@ export PROPTEST_CASES
 MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
 .PHONY: build fmt fmt-check clippy test check release install tag require-tag dist app app-test app-dist icons \
-	gate-fast gate nextest doctest clippy-dhat doc deny machete msrv release-check \
+	gate-fast gate nextest doctest clippy-dhat doc deny machete msrv release-check unported-check \
 	tools require-tools hooks coverage coverage-ratchet ci-green golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test script-test leaks asan fuzz
 
 build:
@@ -56,7 +56,7 @@ test:
 gate-fast: require-tools fmt-check clippy nextest doctest
 
 # deny and machete read only metadata and take seconds: they go first.
-gate: require-tools deny machete gate-fast clippy-dhat doc msrv release-check bench-test script-test leaks
+gate: require-tools deny machete gate-fast clippy-dhat doc msrv release-check unported-check bench-test script-test leaks
 
 # The install script's tests join the gate on a line of their own.
 gate: install-test
@@ -95,6 +95,18 @@ release-check:
 	  echo "release-check: nm sees no symbol table, so it cannot see the counters" >&2; exit 1; }
 	@if grep DDC_OP_STATS target/release/deepdrivecleaner.symbols >/dev/null; then \
 	  echo "release-check: the release CLI carries the op-stats counters" >&2; exit 1; fi
+
+# A build that is not supported (ADR "Platform seam: one platform module per OS with
+# declared capabilities", section 8): ddc-core and the CLI with simulate-unported, so
+# SUPPORTED is false on this Mac. It builds into its own target folder, so the
+# feature never reaches target/debug or target/release, and runs only the two test
+# files compiled for it; everything else assumes a supported platform.
+UNPORTED := CARGO_TARGET_DIR=target/unported
+unported-check:
+	$(UNPORTED) $(CARGO) nextest run -p ddc-core -p ddc-cli --features ddc-cli/simulate-unported \
+	  --test unported --test unported_cli --locked
+	$(UNPORTED) $(CARGO) clippy -p ddc-core -p ddc-cli --all-targets --features ddc-cli/simulate-unported \
+	  --locked -- -D warnings
 
 # Golden outputs of the S load trees (bench/golden/, story "Synthetic load trees:
 # large, wide, deep and hostile"). The check is part of `nextest`, so the gate runs

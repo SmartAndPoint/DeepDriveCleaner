@@ -542,7 +542,7 @@ impl Area {
         let (procs, cancel) = (FakeProcs(vec![]), AtomicBool::new(false));
         let ctx = FreeContext::new(commands, &self.sources, &self.home, skips, &procs, &cancel);
         list.validate().unwrap();
-        let mut reports = free::dry_run(&ctx, list);
+        let mut reports = free::dry_run(&ctx, list).unwrap();
         assert_eq!(reports.len(), 1);
         reports.remove(0)
     }
@@ -1002,7 +1002,7 @@ fn an_empty_set_of_orphans_is_refused_and_never_a_nameless_uninstall() {
     let commands = a.brew(&listing_fixture(), "[]").answer("brew", "uninstall --formula --force", true, "");
     let (procs, cancel) = (FakeProcs(vec![]), AtomicBool::new(false));
     let ctx = FreeContext::new(&commands, &a.sources, &a.home, &[], &procs, &cancel);
-    let report = free::dry_run(&ctx, &list).remove(0);
+    let report = free::dry_run(&ctx, &list).unwrap().remove(0);
     assert_eq!(report.result, ActionResult::Refused { reason: Refusal::BrewNotInstalled });
     let mut journal = MemoryAreaJournal(Vec::new());
     let report = free::run(&ctx, &list, &mut journal).unwrap().remove(0);

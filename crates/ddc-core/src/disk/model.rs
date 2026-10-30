@@ -5,10 +5,14 @@ use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::platform::{Capability, Platform};
+
 /// Version of [`DiskReport`]; the scan report has its own. A new enum
 /// variant needs a bump: the app decodes strictly, except [`AreaReveal`],
-/// which it reads leniently (an unknown value is no button).
-pub const DISK_SCHEMA_VERSION: u32 = 2;
+/// which it reads leniently (an unknown value is no button). 3: `platform`
+/// and `capabilities` (ADR "Platform seam: one platform module per OS with
+/// declared capabilities", §4).
+pub const DISK_SCHEMA_VERSION: u32 = 3;
 
 /// What uses the startup disk, the home folder and everything outside it
 /// (story "Whole disk: what lies outside the home folder"). Read-only:
@@ -17,6 +21,10 @@ pub const DISK_SCHEMA_VERSION: u32 = 2;
 pub struct DiskReport {
     pub schema_version: u32,
     pub ddc_version: String,
+    /// The platform the CLI was built for.
+    pub platform: Platform,
+    /// What this build can do on its platform, in declaration order.
+    pub capabilities: Vec<Capability>,
     /// RFC 3339, UTC.
     pub generated_at: String,
     pub duration_ms: u64,

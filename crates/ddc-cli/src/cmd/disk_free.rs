@@ -70,9 +70,12 @@ pub fn run(args: &FreeArgs) -> anyhow::Result<ExitCode> {
     };
     let cancel = signals::install().context("cannot install the signal handler")?;
     let ctx = FreeContext::new(&commands, &sources, env.home(), &skips, &SystemProcesses, cancel);
+    // An action this platform cannot run refuses the whole list before the
+    // lock or the journal is touched (exit 69 in `main`).
+    free::check_capabilities(&ctx, &list)?;
     if args.dry_run {
         let _lock = store::try_lock(&env, LockMode::Shared)?;
-        let report = FreeReport::new(true, free::dry_run(&ctx, &list));
+        let report = FreeReport::new(true, free::dry_run(&ctx, &list)?);
         print(args, &report, &env, &style)?;
         end_by_signal();
         return Ok(ExitCode::SUCCESS);
@@ -80,7 +83,11 @@ pub fn run(args: &FreeArgs) -> anyhow::Result<ExitCode> {
 
     let _lock = store::try_lock(&env, LockMode::Exclusive)?;
     let mut journal = FileJournal::open(&env).context("cannot open the action journal")?;
-    let actions = free::run(&ctx, &list, &mut journal).context("cannot write the action journal")?;
+    // A platform refusal keeps its own message, and `main` still finds it (exit 69).
+    let actions = free::run(&ctx, &list, &mut journal).map_err(|e| match e.kind() {
+        std::io::ErrorKind::Unsupported => anyhow::Error::from(e),
+        _ => anyhow::Error::from(e).context("cannot write the action journal"),
+    })?;
     let mut report = FreeReport::new(false, actions);
     report.journal = Some(journal.path.clone());
     // The saved reports follow what was done, after a stop too.
@@ -115,7 +122,7 @@ fn ask(ctx: &FreeContext<'_>, env: &Env, args: &FreeArgs, style: &Style) -> anyh
     }
     let previews = {
         let _lock = store::try_lock(env, LockMode::Shared)?;
-        free::dry_run(ctx, &available)
+        free::dry_run(ctx, &available)?
     };
     render::free(&mut out, &FreeReport::new(true, previews.clone()), env.home(), style)?;
     if args.dry_run {

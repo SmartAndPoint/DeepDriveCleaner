@@ -38,7 +38,7 @@ pub fn run(args: DiskArgs) -> anyhow::Result<ExitCode> {
     let walked = Progress::default();
     let report = reporter.walk(&walked, "measuring the disk", WalkStep::Disk, None, || {
         disk::measure(&env, &sources, &opts, &ports, &walked, cancel)
-    });
+    })?;
     reporter.walk_done_counts(WalkEvent {
         step: WalkStep::Disk,
         files: report.walk.files,

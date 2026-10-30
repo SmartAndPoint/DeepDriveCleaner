@@ -119,6 +119,7 @@ pub fn walk_with_reader(
     progress: &Progress,
     reader: &dyn DirReader,
 ) -> Result<WalkOutput, WalkSetupError> {
+    crate::platform::require_supported().map_err(WalkSetupError::Unsupported)?;
     let started = Instant::now();
     let roots = normalize_roots(roots)?;
     let pool = rayon::ThreadPoolBuilder::new()

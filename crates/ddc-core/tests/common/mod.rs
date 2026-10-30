@@ -115,6 +115,22 @@ impl Drop for TreeBuilder {
     }
 }
 
+/// True, after printing why, when the build's platform is not supported
+/// (ADR "Platform seam: one platform module per OS with declared
+/// capabilities", §9): a test of a gated entry point that will run on every
+/// platform once its switch flips starts with
+/// `if common::unsupported("name") { return; }`. On macOS it is never true:
+/// `tests/platform.rs` asserts `SUPPORTED`.
+pub fn unsupported(test: &str) -> bool {
+    match ddc_core::platform::require_supported() {
+        Ok(()) => false,
+        Err(why) => {
+            eprintln!("skipped {test}: {why}");
+            true
+        }
+    }
+}
+
 /// Allocated bytes of one path, without following symlinks.
 pub fn alloc(path: &Path) -> u64 {
     fs::symlink_metadata(path).unwrap().blocks() * 512

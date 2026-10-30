@@ -6,10 +6,10 @@ import Foundation
 /// The schema version is read first: a report of another version is
 /// unreadable as a whole, never half-decoded. Fields the CLI leaves out when
 /// empty (`volumes`, `ignored`, the ignored totals, `not_scanned`) decode as
-/// their defaults, so a report of the 0.1.0 CLI still reads.
+/// their defaults, so a report of this version without them still reads.
 public struct ScanReport: Decodable, Sendable, Equatable {
     /// `SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)
@@ -17,12 +17,17 @@ public struct ScanReport: Decodable, Sendable, Equatable {
 
     public let schemaVersion: Int
     public let ddcVersion: String
+    /// The platform the CLI was built for.
+    public let platform: Platform
+    /// What the CLI can do on its platform, in declaration order.
+    public let capabilities: [Capability]
     /// When the scan started (RFC 3339).
     public let generatedAt: String
     public let durationMs: UInt64
     public let home: String
     public let scanRoots: [String]
-    /// Whether the CLI that wrote the report could read TCC.db: a fact about
+    /// True unless a permission system withheld protected data. On macOS,
+    /// whether the CLI that wrote the report could read TCC.db: a fact about
     /// that scan, not about the app now (the app probes for itself).
     public let fullDiskAccess: Bool
     public let volumes: [Volume]
@@ -41,7 +46,7 @@ public struct ScanReport: Decodable, Sendable, Equatable {
     public let notScanned: [String]
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, ddcVersion, generatedAt, durationMs, home, scanRoots, fullDiskAccess, volumes
+        case schemaVersion, ddcVersion, platform, capabilities, generatedAt, durationMs, home, scanRoots, fullDiskAccess, volumes
         case minAgeDays, totals, findings, inaccessible, errorsTotal, skipped, cancelled, notScanned
     }
 
@@ -49,6 +54,8 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
         ddcVersion = try c.decode(String.self, forKey: .ddcVersion)
+        platform = try c.decode(Platform.self, forKey: .platform)
+        capabilities = try c.decode([Capability].self, forKey: .capabilities)
         generatedAt = try c.decode(String.self, forKey: .generatedAt)
         durationMs = try c.decode(UInt64.self, forKey: .durationMs)
         home = try c.decode(String.self, forKey: .home)

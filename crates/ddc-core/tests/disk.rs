@@ -72,7 +72,7 @@ impl Fixture {
     ) -> DiskReport {
         let ports = DiskPorts { commands, statfs: &OneVolume::DATA };
         let opts = DiskOptions { threads: Some(1), ..opts.clone() };
-        disk::measure_with(&self.env(), &self.sources(), &opts, &ports, &Progress::default(), cancel, reader)
+        disk::measure_with(&self.env(), &self.sources(), &opts, &ports, &Progress::default(), cancel, reader).unwrap()
     }
 }
 

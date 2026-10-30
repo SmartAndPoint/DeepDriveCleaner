@@ -5,9 +5,9 @@ import Testing
 @Suite("Review window: the result")
 struct CleanResultTests {
     /// A report with every outcome, in the clean schema's shape.
-    private func report(_ items: [String], version: Int = 3) throws -> CleanReport {
+    private func report(_ items: [String], version: Int = 4) throws -> CleanReport {
         let json = """
-            {"schema_version": \(version), "ddc_version": "0.2.0", "cancelled": true, "failed": 2, "local_snapshots": 1,
+            {"schema_version": \(version), "ddc_version": "0.2.0", "platform": "macos", "capabilities": ["private-size", "in-use-check", "dataless-files", "full-disk-access", "local-snapshots", "whole-disk", "coding-agents", "homebrew", "schedule", "notifications"], "cancelled": true, "failed": 2, "local_snapshots": 1,
              "journal": "/Users/example/Library/Logs/DeepDriveCleaner/actions.jsonl",
              "volumes": [{"mount_point": "/System/Volumes/Data", "free_before": 1000, "free_after": 4000},
                          {"mount_point": "/Volumes/Work", "free_before": 10, "free_after": 10}],
@@ -89,7 +89,7 @@ struct CleanResultTests {
         ])
 
         // An older CLI's report, without the reason, is refused whole.
-        #expect(throws: CleanReport.ReadError.otherSchema(2)) { try self.report(entries, version: 2) }
+        #expect(throws: CleanReport.ReadError.otherSchema(3)) { try self.report(entries, version: 3) }
     }
 
     @Test("more than three running apps are named three and counted")

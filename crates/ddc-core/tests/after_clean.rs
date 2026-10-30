@@ -96,6 +96,8 @@ fn clean(items: Vec<CleanItem>) -> CleanReport {
     CleanReport {
         schema_version: CLEAN_SCHEMA_VERSION,
         ddc_version: "test".to_owned(),
+        platform: ddc_core::platform::PLATFORM,
+        capabilities: ddc_core::platform::CAPABILITIES.to_vec(),
         cancelled: false,
         items,
         failed: 0,

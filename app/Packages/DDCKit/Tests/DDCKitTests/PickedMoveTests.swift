@@ -139,7 +139,7 @@ struct PickedMoveTests {
 
             """.utf8))
         try fake.put("clean-report.json", Data("""
-            {"schema_version": 3, "ddc_version": "0.5.0", "cancelled": false, "failed": 0, "local_snapshots": 0,
+            {"schema_version": 4, "ddc_version": "0.5.0", "platform": "macos", "capabilities": ["private-size", "in-use-check", "dataless-files", "full-disk-access", "local-snapshots", "whole-disk", "coding-agents", "homebrew", "schedule", "notifications"], "cancelled": false, "failed": 0, "local_snapshots": 0,
              "journal": "/Users/example/Library/Logs/DeepDriveCleaner/actions.jsonl", "volumes": [],
              "items": [{"path": "\(home)/Movies/Holiday.mov", "dev": 1, "ino": 301, "rule": "user.movies",
                         "class": "user-data", "action": "trash", "bytes": 2000000000, "outcome": "trashed"}]}

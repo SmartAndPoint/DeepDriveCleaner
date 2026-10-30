@@ -80,7 +80,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
 /// `clean --items --json`: what happened to each listed item.
 public struct CleanReport: Decodable, Sendable, Equatable {
     /// `CLEAN_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 3
+    public static let schemaVersion = 4
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)
@@ -88,6 +88,11 @@ public struct CleanReport: Decodable, Sendable, Equatable {
 
     public let schemaVersion: Int
     public let ddcVersion: String
+    /// The platform the CLI was built for.
+    public let platform: Platform
+    /// What the CLI can do on its platform, in declaration order. Without
+    /// `localSnapshots`, `localSnapshots` below is 0 and means nothing.
+    public let capabilities: [Capability]
     /// A signal stopped the run; the items it left are `notRun`.
     public let cancelled: Bool
     /// In the order of the list.
@@ -105,13 +110,16 @@ public struct CleanReport: Decodable, Sendable, Equatable {
     public let lastScanSaved: Bool
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, ddcVersion, cancelled, items, failed, volumes, localSnapshots, journal, lastScanSaved
+        case schemaVersion, ddcVersion, platform, capabilities, cancelled, items, failed, volumes, localSnapshots, journal
+        case lastScanSaved
     }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
         ddcVersion = try c.decode(String.self, forKey: .ddcVersion)
+        platform = try c.decode(Platform.self, forKey: .platform)
+        capabilities = try c.decode([Capability].self, forKey: .capabilities)
         cancelled = try c.decode(Bool.self, forKey: .cancelled)
         items = try c.decode([Item].self, forKey: .items)
         failed = try c.decode(UInt64.self, forKey: .failed)

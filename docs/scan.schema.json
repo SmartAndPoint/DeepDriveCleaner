@@ -6,6 +6,13 @@
     "cancelled": {
       "type": "boolean"
     },
+    "capabilities": {
+      "description": "What this build can do on its platform, in declaration order. A\ncapability not listed is absent: without `private-size` no finding\nhas `private_bytes`; without `full-disk-access` `full_disk_access`\nis true.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Capability"
+      }
+    },
     "ddc_version": {
       "type": "string"
     },
@@ -27,7 +34,7 @@
       }
     },
     "full_disk_access": {
-      "description": "Whether the scanning process could read TCC-protected data. Without it\nparts of `~/Library` are unreadable and listed in `inaccessible`.",
+      "description": "True unless a permission system withheld protected data. On macOS,\nwhether the scanning process could read TCC-protected data: without\nit parts of `~/Library` are unreadable and listed in `inaccessible`.",
       "type": "boolean"
     },
     "generated_at": {
@@ -63,6 +70,10 @@
       "items": {
         "type": "string"
       }
+    },
+    "platform": {
+      "description": "The platform the CLI was built for.",
+      "$ref": "#/$defs/Platform"
     },
     "scan_roots": {
       "type": "array",
@@ -100,6 +111,8 @@
   "required": [
     "schema_version",
     "ddc_version",
+    "platform",
+    "capabilities",
     "generated_at",
     "duration_ms",
     "home",
@@ -133,6 +146,61 @@
           ]
         }
       }
+    },
+    "Capability": {
+      "description": "What a platform can do beyond listing, measuring and removing files\n(ADR \"Platform seam\", §3). A closed list in declaration order: a new\nvalue bumps the schema version of every report that carries the list.",
+      "oneOf": [
+        {
+          "description": "The clone-aware private size where clones are expected (APFS).\nWithout it `private_bytes` is never present.",
+          "type": "string",
+          "const": "private-size"
+        },
+        {
+          "description": "The in-use checks before a delete (safety ADR §5). Its absence is no\npermission to delete without them.",
+          "type": "string",
+          "const": "in-use-check"
+        },
+        {
+          "description": "Evicted cloud files are recognised and never downloaded while scanning.",
+          "type": "string",
+          "const": "dataless-files"
+        },
+        {
+          "description": "A permission system (TCC) can withhold parts of the home folder.\nWithout it `full_disk_access` is `true`.",
+          "type": "string",
+          "const": "full-disk-access"
+        },
+        {
+          "description": "Local backup snapshots that delay freeing space are counted. Without\nit a clean report's `local_snapshots` is 0 and has no meaning.",
+          "type": "string",
+          "const": "local-snapshots"
+        },
+        {
+          "description": "`ddc disk` and the `disk free` actions on its rows.",
+          "type": "string",
+          "const": "whole-disk"
+        },
+        {
+          "description": "`ddc disk agents`.",
+          "type": "string",
+          "const": "coding-agents"
+        },
+        {
+          "description": "`ddc disk brew-packages` and the `disk free` actions on its rows.",
+          "type": "string",
+          "const": "homebrew"
+        },
+        {
+          "description": "`ddc schedule`.",
+          "type": "string",
+          "const": "schedule"
+        },
+        {
+          "description": "The background scan shows a notification.",
+          "type": "string",
+          "const": "notifications"
+        }
+      ]
     },
     "Category": {
       "oneOf": [
@@ -678,6 +746,15 @@
           "type": "string",
           "const": "excluded"
         }
+      ]
+    },
+    "Platform": {
+      "description": "The operating system a build is for, as `std::env::consts::OS` names it.",
+      "type": "string",
+      "enum": [
+        "macos",
+        "linux",
+        "windows"
       ]
     },
     "Project": {

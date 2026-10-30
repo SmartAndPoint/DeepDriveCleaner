@@ -7,6 +7,13 @@
       "description": "A signal stopped the run; the items it left are `not-run`.",
       "type": "boolean"
     },
+    "capabilities": {
+      "description": "What this build can do on its platform, in declaration order. Without\n`local-snapshots`, `local_snapshots` is 0 and has no meaning.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Capability"
+      }
+    },
     "ddc_version": {
       "type": "string"
     },
@@ -38,6 +45,10 @@
       "format": "uint",
       "minimum": 0
     },
+    "platform": {
+      "description": "The platform the CLI was built for.",
+      "$ref": "#/$defs/Platform"
+    },
     "schema_version": {
       "type": "integer",
       "format": "uint32",
@@ -53,6 +64,8 @@
   "required": [
     "schema_version",
     "ddc_version",
+    "platform",
+    "capabilities",
     "cancelled",
     "items",
     "failed",
@@ -80,6 +93,61 @@
           "description": "Only the tool's commands.",
           "type": "string",
           "const": "native-only"
+        }
+      ]
+    },
+    "Capability": {
+      "description": "What a platform can do beyond listing, measuring and removing files\n(ADR \"Platform seam\", §3). A closed list in declaration order: a new\nvalue bumps the schema version of every report that carries the list.",
+      "oneOf": [
+        {
+          "description": "The clone-aware private size where clones are expected (APFS).\nWithout it `private_bytes` is never present.",
+          "type": "string",
+          "const": "private-size"
+        },
+        {
+          "description": "The in-use checks before a delete (safety ADR §5). Its absence is no\npermission to delete without them.",
+          "type": "string",
+          "const": "in-use-check"
+        },
+        {
+          "description": "Evicted cloud files are recognised and never downloaded while scanning.",
+          "type": "string",
+          "const": "dataless-files"
+        },
+        {
+          "description": "A permission system (TCC) can withhold parts of the home folder.\nWithout it `full_disk_access` is `true`.",
+          "type": "string",
+          "const": "full-disk-access"
+        },
+        {
+          "description": "Local backup snapshots that delay freeing space are counted. Without\nit a clean report's `local_snapshots` is 0 and has no meaning.",
+          "type": "string",
+          "const": "local-snapshots"
+        },
+        {
+          "description": "`ddc disk` and the `disk free` actions on its rows.",
+          "type": "string",
+          "const": "whole-disk"
+        },
+        {
+          "description": "`ddc disk agents`.",
+          "type": "string",
+          "const": "coding-agents"
+        },
+        {
+          "description": "`ddc disk brew-packages` and the `disk free` actions on its rows.",
+          "type": "string",
+          "const": "homebrew"
+        },
+        {
+          "description": "`ddc schedule`.",
+          "type": "string",
+          "const": "schedule"
+        },
+        {
+          "description": "The background scan shows a notification.",
+          "type": "string",
+          "const": "notifications"
         }
       ]
     },
@@ -414,6 +482,15 @@
       "required": [
         "schema_version",
         "items"
+      ]
+    },
+    "Platform": {
+      "description": "The operating system a build is for, as `std::env::consts::OS` names it.",
+      "type": "string",
+      "enum": [
+        "macos",
+        "linux",
+        "windows"
       ]
     },
     "PreflightItem": {

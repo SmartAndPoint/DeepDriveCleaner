@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ErrorReport",
+  "type": "object",
+  "properties": {
+    "error": {
+      "$ref": "#/$defs/ErrorBody"
+    },
+    "error_schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "error_schema_version",
+    "error"
+  ],
+  "$defs": {
+    "ActionId": {
+      "description": "The one-click tool an area can be freed with (story \"Whole disk: free\nspace with the owning tool\"); this report only names it.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "simctl-runtime-delete",
+            "brew-cleanup"
+          ]
+        },
+        {
+          "description": "`conda env remove -p` of one `/opt` environment; its identifier is\nthe environment's path.",
+          "type": "string",
+          "const": "conda-env-remove"
+        },
+        {
+          "description": "`conda clean` of one `/opt` install's package folder; its\nidentifier is the install's prefix.",
+          "type": "string",
+          "const": "conda-clean"
+        },
+        {
+          "description": "`brew uninstall --formula` of one formula, every keg of it; its\nidentifier is the formula's `full_name` (story \"Whole disk: Homebrew\npackages, their sizes, and brew uninstall\"). No area names it.",
+          "type": "string",
+          "const": "brew-uninstall"
+        },
+        {
+          "description": "`brew uninstall --formula` of the formulae a removal left needed by\nnothing; no identifier.",
+          "type": "string",
+          "const": "brew-uninstall-orphans"
+        }
+      ]
+    },
+    "Capability": {
+      "description": "What a platform can do beyond listing, measuring and removing files\n(ADR \"Platform seam\", §3). A closed list in declaration order: a new\nvalue bumps the schema version of every report that carries the list.",
+      "oneOf": [
+        {
+          "description": "The clone-aware private size where clones are expected (APFS).\nWithout it `private_bytes` is never present.",
+          "type": "string",
+          "const": "private-size"
+        },
+        {
+          "description": "The in-use checks before a delete (safety ADR §5). Its absence is no\npermission to delete without them.",
+          "type": "string",
+          "const": "in-use-check"
+        },
+        {
+          "description": "Evicted cloud files are recognised and never downloaded while scanning.",
+          "type": "string",
+          "const": "dataless-files"
+        },
+        {
+          "description": "A permission system (TCC) can withhold parts of the home folder.\nWithout it `full_disk_access` is `true`.",
+          "type": "string",
+          "const": "full-disk-access"
+        },
+        {
+          "description": "Local backup snapshots that delay freeing space are counted. Without\nit a clean report's `local_snapshots` is 0 and has no meaning.",
+          "type": "string",
+          "const": "local-snapshots"
+        },
+        {
+          "description": "`ddc disk` and the `disk free` actions on its rows.",
+          "type": "string",
+          "const": "whole-disk"
+        },
+        {
+          "description": "`ddc disk agents`.",
+          "type": "string",
+          "const": "coding-agents"
+        },
+        {
+          "description": "`ddc disk brew-packages` and the `disk free` actions on its rows.",
+          "type": "string",
+          "const": "homebrew"
+        },
+        {
+          "description": "`ddc schedule`.",
+          "type": "string",
+          "const": "schedule"
+        },
+        {
+          "description": "The background scan shows a notification.",
+          "type": "string",
+          "const": "notifications"
+        }
+      ]
+    },
+    "ErrorBody": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "The `disk free` action that needs the absent capability.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ActionId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "capability": {
+          "description": "The capability this platform does not declare (`capability-absent`).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Capability"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "description": "For people; never parsed.",
+          "type": "string"
+        },
+        "platform": {
+          "description": "The platform the CLI was built for.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Platform"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "simulated": {
+          "description": "True only in a build made with `simulate-unported`: the refusal is a\ntest build's, not the platform's.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "simulated"
+      ]
+    },
+    "ErrorCode": {
+      "oneOf": [
+        {
+          "description": "The platform is not supported yet: only `--version`, `--help` and\n`rules` run.",
+          "type": "string",
+          "const": "platform-not-supported"
+        },
+        {
+          "description": "The platform does not declare the capability the command, or a\n`disk free` action, needs.",
+          "type": "string",
+          "const": "capability-absent"
+        }
+      ]
+    },
+    "Platform": {
+      "description": "The operating system a build is for, as `std::env::consts::OS` names it.",
+      "type": "string",
+      "enum": [
+        "macos",
+        "linux",
+        "windows"
+      ]
+    }
+  }
+}

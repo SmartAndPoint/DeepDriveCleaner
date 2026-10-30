@@ -10,10 +10,14 @@ import Foundation
 /// unknown one is no button.
 public struct DiskReport: Decodable, Sendable, Equatable {
     /// `DISK_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 2
+    public static let schemaVersion = 3
 
     public let schemaVersion: Int
     public let ddcVersion: String
+    /// The platform the CLI was built for.
+    public let platform: Platform
+    /// What the CLI can do on its platform, in declaration order.
+    public let capabilities: [Capability]
     /// When the measurement started (RFC 3339).
     public let generatedAt: String
     public let durationMs: UInt64

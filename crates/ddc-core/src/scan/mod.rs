@@ -259,4 +259,8 @@ pub enum WalkSetupError {
     },
     #[error("cannot start worker threads: {0}")]
     Pool(#[from] rayon::ThreadPoolBuildError),
+    /// The platform is not supported: nothing was opened (ADR "Platform
+    /// seam: one platform module per OS with declared capabilities", §5).
+    #[error("{0}")]
+    Unsupported(crate::platform::Unsupported),
 }

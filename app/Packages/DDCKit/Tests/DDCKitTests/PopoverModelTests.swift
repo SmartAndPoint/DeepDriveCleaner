@@ -118,7 +118,7 @@ struct PopoverModelTests {
         #expect(await model.reloadReport())
         #expect(model.loadedReport?.findings.count == 11)
 
-        try data.write(lastScan: try Fixture.data("scan-report-v2"))
+        try data.write(lastScan: try Fixture.data("scan-report-v1"))
         #expect(await model.reloadReport() == false, "the caller scans instead")
     }
 
@@ -182,10 +182,10 @@ struct PopoverModelTests {
 
     @Test("a report of another schema version could not be read, and Scan now stays")
     func otherSchema() async throws {
-        try data.write(lastScan: try Fixture.data("scan-report-v2"))
+        try data.write(lastScan: try Fixture.data("scan-report-v1"))
         let model = try makeModel(runner: FakeRunner(scan: FakeRunner.done(Data())), data: data, defaults: defaults)
         await model.start()
-        #expect(model.content == .unreadable("It was written by another version of ddc (schema 2)."))
+        #expect(model.content == .unreadable("It was written by another version of ddc (schema 1)."))
         #expect(model.canScan)
     }
 

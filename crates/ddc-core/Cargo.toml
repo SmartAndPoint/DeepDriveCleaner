@@ -28,6 +28,11 @@ op-stats = []
 # A dhat heap profile of one run (story "Memory and CPU under load: peak memory,
 # leaks and CPU time", DDC-005): `make heap-profile`.
 dhat-heap = ["dep:dhat"]
+# A build whose platform::SUPPORTED is false, so every scan and clean is refused:
+# `make unported-check` tests that refusal on macOS, into target/unported (ADR
+# "Platform seam: one platform module per OS with declared capabilities", §8). It
+# can only turn the switch off. Never in the gate's FEATURES or a release build.
+simulate-unported = []
 
 [dev-dependencies]
 proptest.workspace = true

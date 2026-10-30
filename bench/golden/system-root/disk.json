@@ -246,6 +246,18 @@
     }
   ],
   "cancelled": false,
+  "capabilities": [
+    "private-size",
+    "in-use-check",
+    "dataless-files",
+    "full-disk-access",
+    "local-snapshots",
+    "whole-disk",
+    "coding-agents",
+    "homebrew",
+    "schedule",
+    "notifications"
+  ],
   "container": null,
   "ddc_version": null,
   "duration_ms": null,
@@ -275,7 +287,8 @@
     "inconsistent": false,
     "unreadable": 0
   },
-  "schema_version": 2,
+  "platform": "macos",
+  "schema_version": 3,
   "snapshots": {},
   "walk": {
     "bytes": 19501056,

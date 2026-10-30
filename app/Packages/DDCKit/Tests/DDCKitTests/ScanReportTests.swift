@@ -24,8 +24,8 @@ struct ScanReportTests {
 
     @Test("a report of another schema version is unreadable")
     func otherSchemaIsUnreadable() throws {
-        let data = try Data(contentsOf: try Self.fixture("scan-report-v2"))
-        #expect(throws: ScanReport.ReadError.otherSchema(2)) { try ScanReport.read(data) }
+        let data = try Data(contentsOf: try Self.fixture("scan-report-v1"))
+        #expect(throws: ScanReport.ReadError.otherSchema(1)) { try ScanReport.read(data) }
     }
 
     @Test("the app reads the schema version the embedded CLI writes")
