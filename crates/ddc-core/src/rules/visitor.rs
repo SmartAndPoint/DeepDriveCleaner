@@ -223,7 +223,10 @@ impl Visitor for RuleVisitor<'_> {
                 .or_else(|| c.regions.get(dir.path))
                 .or_else(|| dir.path.parent().and_then(|p| c.children_of.get(p)))
                 .copied();
-            return Pre::Claim(self.kept(dir.path, rule, false));
+            // A marker at its top protects it too (a file, a symlink or a
+            // folder of that name), and `ddc keep remove` needs its identity.
+            let marker = fs::symlink_metadata(dir.path.join(KEEP_MARKER)).is_ok();
+            return Pre::Claim(self.kept(dir.path, rule, marker));
         }
         if let Some(&tag) = c.known.get(dir.path) {
             return Pre::Claim(self.claim_unless_kept(dir.path, tag));

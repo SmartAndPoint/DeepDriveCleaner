@@ -9,6 +9,7 @@ mod disk_agents;
 mod disk_brew_packages;
 mod disk_free;
 mod du;
+mod keep;
 mod notify;
 mod rules;
 mod scan;
@@ -20,7 +21,7 @@ use std::process::ExitCode;
 use ddc_core::env::Env;
 use ddc_core::settings::{self, Resolved, ScanFlags};
 
-use crate::cli::{Cli, Command, DiskAction, DiskArgs};
+use crate::cli::{Cli, Command, DiskAction, DiskArgs, KeepAction};
 
 pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
@@ -31,6 +32,7 @@ pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Disk(DiskArgs { action: Some(DiskAction::Free(args)), .. }) => disk_free::run(&args),
         Command::Disk(DiskArgs { action: Some(DiskAction::BrewPackages(args)), .. }) => disk_brew_packages::run(&args),
         Command::Disk(args) => disk::run(args),
+        Command::Keep { action: KeepAction::Remove(args) } => keep::remove(&args),
         Command::Notify { action } => notify::run(action),
         Command::Schedule { action } => schedule::run(action),
         Command::Du(args) => du::run(args),

@@ -122,6 +122,10 @@ pub mod fsops {
         pub fn rename_child(&self, _from: &OsStr, _to: &OsStr) -> io::Result<()> {
             match self.0 {}
         }
+
+        pub fn unlink_child(&self, _name: &OsStr) -> io::Result<()> {
+            match self.0 {}
+        }
     }
 }
 

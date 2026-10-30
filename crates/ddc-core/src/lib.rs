@@ -15,6 +15,7 @@ pub mod env;
 pub mod exec;
 pub mod free;
 pub mod heap;
+pub mod keep;
 pub mod model;
 pub mod notify;
 pub mod plan;

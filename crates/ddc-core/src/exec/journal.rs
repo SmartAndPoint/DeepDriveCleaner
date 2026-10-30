@@ -1,5 +1,6 @@
-//! Action journal: one JSON line per item in `<log-dir>/actions.jsonl`, and
-//! one per area action (safety ADR, amendment of 2026-10-28).
+//! Action journal: one JSON line per item in `<log-dir>/actions.jsonl`, one
+//! per area action (safety ADR, amendment of 2026-10-28), and one per
+//! decision of `ddc keep remove` (amendment of 2026-10-30).
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write as _};
@@ -12,19 +13,22 @@ use crate::class::RiskClass;
 use crate::disk::ActionId;
 use crate::env::Env;
 use crate::free::ActionResult;
+use crate::keep::{KeepReport, KeepResult};
 use crate::plan::PlanItem;
 
 /// The journal's own version. Its lines carried the scan report's
 /// `SCHEMA_VERSION` (1) until area actions came, so it starts at 2; a
 /// version 1 line has no `kind` and is an item line. 3: the skip reason
-/// `tool-not-ready`.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 3;
+/// `tool-not-ready`. 4: the kind `keep-remove`.
+pub const JOURNAL_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum JournalKind {
     Item,
     AreaAction,
+    /// A decision of `ddc keep remove` under the lock.
+    KeepRemove,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -112,6 +116,37 @@ impl AreaActionEntry {
     }
 }
 
+/// A decision of `ddc keep remove` under the lock: the marker's folder, its
+/// `(dev, ino)`, the rule it kept when the saved report knows it, and the
+/// result. No class or bytes: no finding is cleaned by it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct KeepRemoveEntry {
+    pub schema_version: u32,
+    pub kind: JournalKind,
+    pub ts: String,
+    pub path: PathBuf,
+    pub dev: Option<u64>,
+    pub ino: Option<u64>,
+    pub rule: Option<String>,
+    #[serde(flatten)]
+    pub result: KeepResult,
+}
+
+impl KeepRemoveEntry {
+    pub fn new(report: &KeepReport) -> Self {
+        Self {
+            schema_version: JOURNAL_SCHEMA_VERSION,
+            kind: JournalKind::KeepRemove,
+            ts: now(),
+            path: report.path.clone(),
+            dev: report.dev,
+            ino: report.ino,
+            rule: report.rule.clone(),
+            result: report.result.clone(),
+        }
+    }
+}
+
 pub trait Journal {
     fn record(&mut self, entry: &JournalEntry) -> io::Result<()>;
 }
@@ -119,6 +154,11 @@ pub trait Journal {
 /// Where `ddc disk free` journals its runs.
 pub trait AreaJournal {
     fn record_area(&mut self, entry: &AreaActionEntry) -> io::Result<()>;
+}
+
+/// Where `ddc keep remove` journals its decisions.
+pub trait KeepJournal {
+    fn record_keep(&mut self, entry: &KeepRemoveEntry) -> io::Result<()>;
 }
 
 /// Appends to `<log-dir>/actions.jsonl`.
@@ -157,6 +197,12 @@ impl AreaJournal for FileJournal {
     }
 }
 
+impl KeepJournal for FileJournal {
+    fn record_keep(&mut self, entry: &KeepRemoveEntry) -> io::Result<()> {
+        self.append(entry)
+    }
+}
+
 /// In-memory journal for tests.
 #[derive(Debug, Default)]
 pub struct MemoryJournal(pub Vec<JournalEntry>);
@@ -174,6 +220,17 @@ pub struct MemoryAreaJournal(pub Vec<AreaActionEntry>);
 
 impl AreaJournal for MemoryAreaJournal {
     fn record_area(&mut self, entry: &AreaActionEntry) -> io::Result<()> {
+        self.0.push(entry.clone());
+        Ok(())
+    }
+}
+
+/// In-memory keep journal for tests.
+#[derive(Debug, Default)]
+pub struct MemoryKeepJournal(pub Vec<KeepRemoveEntry>);
+
+impl KeepJournal for MemoryKeepJournal {
+    fn record_keep(&mut self, entry: &KeepRemoveEntry) -> io::Result<()> {
         self.0.push(entry.clone());
         Ok(())
     }

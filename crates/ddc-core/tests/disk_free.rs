@@ -205,7 +205,7 @@ fn a_runtime_is_deleted_with_coresimulators_simctl_alone_and_its_bytes_are_measu
 
 #[test]
 fn the_journal_has_its_own_version_and_the_scan_reports_is_unchanged() {
-    assert_eq!(JOURNAL_SCHEMA_VERSION, 3);
+    assert_eq!(JOURNAL_SCHEMA_VERSION, 4);
     assert_eq!(SCHEMA_VERSION, 2);
     assert_eq!(serde_json::to_value(JournalKind::Item).unwrap(), "item");
 }

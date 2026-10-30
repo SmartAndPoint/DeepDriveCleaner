@@ -214,7 +214,7 @@ fn a_confirmed_runtime_is_deleted_journaled_and_left_out_of_the_saved_disk_repor
 
     let journal = fx.journal();
     assert_eq!(journal.len(), 1);
-    assert_eq!(journal[0]["schema_version"], 3);
+    assert_eq!(journal[0]["schema_version"], 4);
     assert_eq!(journal[0]["kind"], "area-action");
     assert_eq!(journal[0]["result"]["status"], "freed");
     assert!(journal[0]["command"].as_str().unwrap().ends_with("simctl runtime delete A"));

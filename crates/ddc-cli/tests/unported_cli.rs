@@ -71,6 +71,8 @@ const REFUSED: &[(&[&str], bool)] = &[
     (&["disk", "agents", "--json"], true),
     (&["disk", "free", "--json"], true),
     (&["disk", "brew-packages", "--json"], true),
+    (&["keep", "remove", "/p", "--folder-dev", "1", "--folder-ino", "2", "--json"], true),
+    (&["keep", "remove", "/p"], false),
     (&["schedule", "status"], false),
     (&["notify", "ack", "--bytes", "1"], false),
     (&["diag"], false),

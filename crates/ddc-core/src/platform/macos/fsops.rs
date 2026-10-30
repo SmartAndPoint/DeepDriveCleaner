@@ -173,4 +173,18 @@ impl DirFd {
         }
         Ok(())
     }
+
+    /// Unlinks the child `name` of this directory (`unlinkat` without
+    /// `AT_REMOVEDIR`, so never a folder). The only removal outside the
+    /// executor: `ddc keep remove` calls it once, for `.ddc-keep`, after
+    /// [`Self::stat_child`] said it is a regular file (safety ADR, amendment
+    /// of 2026-10-30).
+    pub fn unlink_child(&self, name: &OsStr) -> io::Result<()> {
+        let c = cstring(name.as_bytes())?;
+        // SAFETY: open fd, NUL-terminated name.
+        if unsafe { libc::unlinkat(self.0, c.as_ptr(), 0) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
 }

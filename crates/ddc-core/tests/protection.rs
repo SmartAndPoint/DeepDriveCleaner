@@ -132,6 +132,47 @@ fn a_kept_finding_names_what_protects_it_and_the_rule_it_displaced() {
     assert_eq!(by_flag.exclusions, [h.exclusion("c/node_modules", Exclude, Flag, false)]);
 }
 
+/// The identities `ddc keep remove` compares: a marker at a finding's top
+/// names that folder's own `(dev, ino)`, whichever route claimed it.
+#[test]
+fn a_marker_at_the_top_names_its_folders_own_identity_on_every_route() {
+    if common::unsupported("a_marker_at_the_top_names_its_folders_own_identity_on_every_route") {
+        return;
+    }
+    use ExclusionKind::Exclude;
+    use ExclusionOrigin::Settings as InSettings;
+    let h = Home::new();
+    // A folder named `.ddc-keep`, seen after the read (a matcher rule).
+    h.t.dir("a/node_modules/.ddc-keep");
+    // A file at a known path's top, seen before the read (`claim_unless_kept`).
+    h.t.write(".cache/uv/.ddc-keep", "");
+    // Excluded folders that hold a marker at their top: a file and a folder.
+    h.t.write("c/node_modules/.ddc-keep", "");
+    h.t.dir("d/node_modules/.ddc-keep");
+    let settings = Settings { excludes: h.paths(&["c/node_modules", "d/node_modules"]), ..Settings::default() };
+    let r = h.scan(&settings, &ScanFlags::default());
+
+    let folder = protection(&r, &h, "a/node_modules");
+    assert_eq!(folder.markers, [h.marker("a/node_modules")], "a folder marker names the finding itself");
+    assert_eq!(folder.rule.as_deref(), Some("node.node_modules"));
+
+    let known = protection(&r, &h, ".cache/uv");
+    assert_eq!(known.markers, [h.marker(".cache/uv")], "the known path's own identity");
+    assert!(known.exclusions.is_empty());
+    assert_eq!(known.rule.as_deref(), Some("cache.uv"));
+
+    for rel in ["c/node_modules", "d/node_modules"] {
+        let excluded = protection(&r, &h, rel);
+        assert_eq!(excluded.markers, [h.marker(rel)], "{rel}: the excluded folder's marker is listed");
+        assert_eq!(excluded.exclusions, [h.exclusion(rel, Exclude, InSettings, false)], "{rel}");
+    }
+
+    // Without a marker the exclusion lists none.
+    let plain =
+        h.scan(&Settings { excludes: h.paths(&["e/node_modules"]), ..Settings::default() }, &ScanFlags::default());
+    assert!(protection(&plain, &h, "e/node_modules").markers.is_empty());
+}
+
 #[test]
 fn the_apps_protection_fixture_is_a_report_the_cli_could_write() {
     // Written by hand for the app's tests: it reads as a `ScanReport` and

@@ -27,7 +27,12 @@ pub fn check(cmd: &Command) -> Option<ExitCode> {
 fn refusal_for(cmd: &Command, supported: Result<(), Unsupported>, declared: &[Capability]) -> Option<Refusal> {
     let needs = match cmd {
         Command::Rules(_) => return None,
-        Command::Scan(_) | Command::Clean(_) | Command::Du(_) | Command::Notify { .. } | Command::Diag => None,
+        Command::Scan(_)
+        | Command::Clean(_)
+        | Command::Keep { .. }
+        | Command::Du(_)
+        | Command::Notify { .. }
+        | Command::Diag => None,
         Command::Schedule { .. } => Some(Capability::Schedule),
         Command::Disk(DiskArgs { action: None, .. }) => Some(Capability::WholeDisk),
         Command::Disk(DiskArgs { action: Some(DiskAction::Agents(_)), .. }) => Some(Capability::CodingAgents),
@@ -99,6 +104,7 @@ mod tests {
         &["disk", "agents", "--json"],
         &["disk", "free", "--json"],
         &["disk", "brew-packages", "--json"],
+        &["keep", "remove", "/p", "--folder-dev", "1", "--folder-ino", "2", "--json"],
         &["schedule", "status"],
         &["notify", "ack", "--bytes", "1"],
         &["diag"],

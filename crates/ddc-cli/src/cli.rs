@@ -26,6 +26,11 @@ pub enum Command {
     Rules(RulesArgs),
     /// Show what uses the whole startup disk, outside your home folder too (read-only).
     Disk(DiskArgs),
+    /// Remove a folder's protection: its .ddc-keep file, never the folder.
+    Keep {
+        #[command(subcommand)]
+        action: KeepAction,
+    },
     /// Scan in the background on a schedule and notify; never deletes anything.
     Schedule {
         #[command(subcommand)]
@@ -61,6 +66,7 @@ impl Command {
                 Some(DiskAction::Free(a)) => a.json,
                 Some(DiskAction::BrewPackages(a)) => a.json,
             },
+            Command::Keep { action: KeepAction::Remove(a) } => a.json,
             Command::Schedule { .. } | Command::Notify { .. } | Command::Du(_) | Command::Diag => false,
         }
     }
@@ -143,6 +149,33 @@ impl From<PlatformArg> for ddc_core::platform::Platform {
             PlatformArg::Windows => Self::Windows,
         }
     }
+}
+
+#[derive(Debug, Subcommand)]
+pub enum KeepAction {
+    /// Remove the .ddc-keep file in one folder; the next scan lists the folder in its own group.
+    Remove(KeepRemoveArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct KeepRemoveArgs {
+    /// The folder that holds the .ddc-keep file, as an absolute path (the
+    /// scan report's `protection.markers[].folder`).
+    #[arg(value_name = "FOLDER")]
+    pub folder: PathBuf,
+    /// The folder's device as the scan report recorded it. With
+    /// --folder-ino, nothing is asked; without them, a terminal asks.
+    #[arg(long, value_name = "DEV", requires = "folder_ino")]
+    pub folder_dev: Option<u64>,
+    /// The folder's inode as the scan report recorded it.
+    #[arg(long, value_name = "INO", requires = "folder_dev")]
+    pub folder_ino: Option<u64>,
+    /// Print the report as JSON (schema: docs/keep.schema.json).
+    #[arg(long)]
+    pub json: bool,
+    /// Where the last scan, the lock and the journal live (default: ~/Library/Application Support/DeepDriveCleaner).
+    #[arg(long, value_name = "DIR")]
+    pub data_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
