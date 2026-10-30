@@ -23,7 +23,7 @@ struct GroupView: View {
             header(layout)
             Divider()
             if let all = layout.selectAll, !all.isEmpty {
-                SelectAllRow(model: model, ids: all, group: entry.group, total: "\(Wording.items(layout.count, "folder")) · \(ByteSize.human(layout.bytes))")
+                SelectAllRow(model: model, ids: all, group: entry.group, total: layout.selectAllTotal ?? "")
                 Divider()
             }
             // A User data folder's picks, or a coding agent's sessions beside Select all.
@@ -213,7 +213,7 @@ private struct SubgroupHeading: View {
             .foregroundStyle(.secondary)
             .accessibilityLabel(subgroup.title)
             .accessibilityValue(expanded ? "expanded" : "collapsed")
-            .accessibilityHint(expanded ? "Hides its folders" : "Shows its folders")
+            .accessibilityHint(subgroup.foldHint(expanded: expanded))
             if subgroup.checkable {
                 CheckBox(state: model.checkState(subgroup.ids), enabled: model.canSelect(subgroup.ids), label: "Select all in \(subgroup.title)") {
                     model.toggleAll(subgroup.ids)
