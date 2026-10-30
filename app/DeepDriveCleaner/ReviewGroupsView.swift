@@ -25,7 +25,9 @@ struct GroupView: View {
             if let all = layout.selectAll, !all.isEmpty {
                 SelectAllRow(model: model, ids: all, group: entry.group, total: "\(Wording.items(layout.count, "folder")) · \(ByteSize.human(layout.bytes))")
                 Divider()
-            } else if !layout.pickScope.isEmpty {
+            }
+            // A User data folder's picks, or a coding agent's sessions beside Select all.
+            if !layout.pickScope.isEmpty {
                 PickedRow(model: model, ids: layout.pickScope, group: entry.group)
                 Divider()
             }

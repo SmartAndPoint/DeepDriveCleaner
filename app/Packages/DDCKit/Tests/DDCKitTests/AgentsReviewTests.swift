@@ -18,7 +18,7 @@ struct AgentsReviewTests {
     }
 
     /// `scan-report-origin`'s scratch (safe, deleted) and transcripts
-    /// (review, no command yet), then Claude Code's history (review, to the
+    /// (review, its sessions picked one by one), then Claude Code's history (review, to the
     /// Trash) and a sealed folder of its own (user data), which the Review
     /// window shows under Your data. Onto `base`'s own findings, when given.
     static func report(onto base: String? = nil, edit: (inout [[String: Any]]) -> Void = { _ in }) throws -> Data {
@@ -104,18 +104,22 @@ struct AgentsReviewTests {
         #expect(safe.hint == CleanWording.hint("debug logs and legacy folders Claude Code no longer writes"))
         #expect(safe.selectAll == [try id(items, "agent.claude-code-scratch")])
 
-        // Review: a row per harness folder kind, each titled by its rule.
+        // Review: the history a row titled by its rule; the transcripts folder a
+        // subgroup of its two sessions (story "Review window: pick a coding
+        // agent's sessions one by one").
         let review = items.layout(ReviewItems.Entry(riskClass: .review, group: AgentsSummary.group), matching: "")
         #expect(review.shape == .rules)
         #expect(review.blurb == CleanWording.classBlurb(.review))
         let singles = review.blocks.compactMap { if case .single(let single) = $0 { single } else { nil } }
-        #expect(Set(singles.map(\.title)) == ["claude-code-history", "claude-code-transcripts"])
-        #expect(review.count == 2)
-        #expect(review.bytes == 49152 + 16384)
+        #expect(singles.map(\.title) == ["claude-code-history"])
+        let subgroups = review.blocks.compactMap { if case .subgroup(let subgroup) = $0 { subgroup } else { nil } }
+        #expect(subgroups.map(\.title) == ["~/.claude/projects/-Users-example-proj"])
+        #expect(review.count == 3)
+        #expect(review.bytes == 16384 + 36864 + 8192)
         #expect(items.total(ReviewItems.Entry(riskClass: .review, group: AgentsSummary.group)) == 49152 + 16384)
     }
 
-    @Test("its rows select and clean like any group's: scratch deleted, history to the Trash, a folder with no command locked")
+    @Test("its rows select and clean like any group's: scratch deleted, history to the Trash, the session folder never whole")
     func selectAndClean() throws {
         let review = try review(try Self.report())
         #expect(review.open(ReviewRequest(group: AgentsSummary.group, classes: [.safe], confirm: false)))
@@ -125,7 +129,8 @@ struct AgentsReviewTests {
         let transcripts = try id(items, "agent.claude-code-transcripts")
         #expect(review.entry == ReviewItems.Entry(riskClass: .safe, group: AgentsSummary.group))
         #expect(review.selection == [scratch])
-        #expect(items.row(transcripts)?.lock == .noAction)
+        // Its sessions are picked one by one; the folder itself is locked.
+        #expect(items.row(transcripts)?.lock == .sessions)
         #expect(!review.canSelect([transcripts]))
 
         // Select all of the Review entry takes the history only.

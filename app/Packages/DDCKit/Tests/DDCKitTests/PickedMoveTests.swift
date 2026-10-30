@@ -48,6 +48,9 @@ struct PickedMoveTests {
         for group in items.sidebar.flatMap(\.entries) {
             let layout = items.layout(group, matching: "")
             if layout.shape != .entries { #expect(layout.pickScope.isEmpty, "\(group.group)") }
+            // Never both rows in these groups. Only a group with a coding agent's
+            // session folders has both, on purpose: Select all over its other rows,
+            // the picks over its sessions (`SessionPickTests`).
             #expect(layout.selectAll == nil || layout.pickScope.isEmpty, "never both rows: \(group.group)")
         }
     }

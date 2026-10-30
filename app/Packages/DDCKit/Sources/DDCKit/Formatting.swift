@@ -58,9 +58,10 @@ public enum Wording {
         count == 0 ? "Move to the Trash…" : "Move \(number(count)) from \(group) to the Trash…"
     }
 
-    /// That folder's row: "2 picked · 3.1 GiB", or what to do with nothing picked.
-    public static func picked(count: Int, bytes: UInt64) -> String {
-        count == 0 ? "Pick files below to move them to the Trash" : "\(number(count)) picked · \(ByteSize.human(bytes))"
+    /// That folder's row: "2 picked · 3.1 GiB", or what to do with nothing
+    /// picked: "files", or a coding agent's "sessions".
+    public static func picked(count: Int, bytes: UInt64, what: String = "files") -> String {
+        count == 0 ? "Pick \(what) below to move them to the Trash" : "\(number(count)) picked · \(ByteSize.human(bytes))"
     }
 
     /// What a group's Select all row acts on: "2 of 3 · 7.2 GiB"; with

@@ -220,12 +220,52 @@ extension CleanWording {
         return "\(Wording.number(Int(clamping: count))) \(noun) (\(ByteSize.human(bytes))) \(count == 1 ? "is" : "are") not listed"
     }
 
+    /// A session folder's heading: "2 sessions"; `listed` is nil when the scan
+    /// could not list them (story "Review window: pick a coding agent's
+    /// sessions one by one").
+    public static func sessionCount(_ listed: Int?) -> String {
+        guard let listed else { return "Its sessions could not be listed" }
+        return listed == 0 ? "No sessions listed" : Wording.items(listed, "session")
+    }
+
+    /// A session folder's children that are no session: "1 other item (4 KiB) is not listed".
+    public static func sessionsRest(count: UInt64, bytes: UInt64) -> String {
+        let noun = count == 1 ? "other item" : "other items"
+        return "\(Wording.number(Int(clamping: count))) \(noun) (\(ByteSize.human(bytes))) \(count == 1 ? "is" : "are") not listed"
+    }
+
+    /// The sheet's line over a coding agent's sessions: where they go, then
+    /// each session folder's way back as its rule's hint says it ("--resume
+    /// of it fails…", "/rewind cannot use them…"); nil when it holds none.
+    public static func sessions(_ confirmation: Confirmation) -> String? {
+        let sessions = confirmation.items.filter(\.isSession)
+        guard !sessions.isEmpty else { return nil }
+        let count = sessions.count
+        var parts = [
+            count == 1
+                ? "1 session goes to the Trash with its companion files; nothing is deleted permanently."
+                : "\(Wording.number(count)) sessions go to the Trash with their companion files; nothing is deleted permanently."
+        ]
+        var rules: [String] = []
+        for item in sessions where !rules.contains(item.finding.rule) {
+            rules.append(item.finding.rule)
+            if let hint = hint(item.finding.hint) { parts.append("\(ruleName(item.finding.rule)): \(hint)") }
+        }
+        return parts.joined(separator: " ")
+    }
+
     /// An entry row's own facts: its lock, a backup's device and date, the
     /// findings inside it, `.git`. When it last changed is its Changed column.
+    /// A session says its lock only: its size, companions included, and its
+    /// last change are its columns, and the user-data facts are not its own.
     public static func entryDetail(_ row: ReviewItems.Row) -> String {
         guard let entry = row.userEntry else { return "" }
         var parts: [String] = []
         if let lock = row.lock { parts.append(lock.text) }
+        if entry.isSession {
+            if row.finding.incomplete { parts.append("Partly unreadable") }
+            return parts.joined(separator: " · ")
+        }
         if let backup = entry.backup {
             if let name = backup.deviceName { parts.append(Wording.escaped(name)) }
             if let date = backup.lastBackup.flatMap(Wording.date(rfc3339:)) {
