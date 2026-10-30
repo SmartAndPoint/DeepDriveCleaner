@@ -5,8 +5,8 @@ mod cmd;
 mod disclaimer;
 mod exit;
 mod gate;
-mod launchd;
 mod notify;
+mod platform;
 mod progress;
 mod prompt;
 mod render;
@@ -31,7 +31,7 @@ fn main() -> ExitCode {
         return code;
     }
     let json = cli.command.prints_json();
-    init_process();
+    platform::init_process();
     match cmd::run(cli) {
         Ok(code) => code,
         Err(err) => {
@@ -45,17 +45,5 @@ fn main() -> ExitCode {
                 .is_some_and(|e| matches!(e, ddc_core::store::LockError::Busy(_)));
             if busy { ExitCode::from(exit::BUSY) } else { ExitCode::FAILURE }
         }
-    }
-}
-
-/// Process-wide setup that must happen before any filesystem access.
-fn init_process() {
-    // Never download evicted iCloud / File Provider content while scanning.
-    if let Err(err) = ddc_core::platform::iopolicy::disable_dataless_materialization() {
-        eprintln!("ddc: warning: cannot disable dataless file materialization: {err}");
-    }
-    // launchd starts agents with 256 open files; the walker needs headroom.
-    if let Err(err) = ddc_core::platform::rlimit::raise_nofile_limit() {
-        eprintln!("ddc: warning: cannot raise the open-file limit: {err}");
     }
 }

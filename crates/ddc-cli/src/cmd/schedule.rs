@@ -12,7 +12,7 @@ use ddc_core::store;
 
 use crate::cli::{IntervalArg, ScheduleAction};
 use crate::exit;
-use crate::launchd::{self, AgentSpec, Launchctl, ProgramState, SystemLaunchctl};
+use crate::platform::launchd::{self, AgentSpec, Launchctl, ProgramState, SystemLaunchctl};
 use crate::size::human;
 
 pub fn run(action: ScheduleAction) -> anyhow::Result<ExitCode> {
@@ -111,7 +111,7 @@ mod tests {
     use ddc_core::settings::{SchedulerOwner, SchedulerRecord, Settings};
 
     use super::*;
-    use crate::launchd::fake::FakeLaunchctl;
+    use crate::platform::launchd::fake::FakeLaunchctl;
 
     struct Fx {
         tmp: tempfile::TempDir,

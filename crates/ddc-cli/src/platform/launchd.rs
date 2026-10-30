@@ -271,7 +271,8 @@ pub(crate) mod fake {
     }
 }
 
-#[cfg(test)]
+// Unix only: the Homebrew layouts below are built with symlinks.
+#[cfg(all(test, unix))]
 mod tests {
     use std::cell::RefCell;
 

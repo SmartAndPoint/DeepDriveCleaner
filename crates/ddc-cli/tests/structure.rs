@@ -6,7 +6,14 @@ use std::path::Path;
 #[test]
 fn background_sources_never_reference_cleanup() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    for file in ["cmd/background.rs", "cmd/notify.rs", "notify.rs", "launchd.rs"] {
+    for file in [
+        "cmd/background.rs",
+        "cmd/notify.rs",
+        "notify.rs",
+        "platform/launchd.rs",
+        "platform/macos.rs",
+        "platform/unported.rs",
+    ] {
         let text = std::fs::read_to_string(src.join(file)).unwrap();
         let code: String = text.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
         for forbidden in ["exec::", "plan::", "Executor", "build_plan", "trash", "remove_dir_all", "Consent"] {

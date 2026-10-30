@@ -15,11 +15,11 @@ use ddc_core::settings::{self, ScanFlags, Settings};
 use ddc_core::store::{self, LockMode};
 
 use crate::cli::ScanArgs;
-use crate::{notify, progress, prompt, render};
+use crate::{progress, prompt, render};
 
 pub fn run(args: ScanArgs) -> anyhow::Result<ExitCode> {
     if args.background {
-        return super::background::run(&args, &notify::Osascript, &SystemStatFs);
+        return super::background::run(&args, &crate::platform::SystemNotifier, &SystemStatFs);
     }
     let env = Env::from_process(args.data_dir.clone())?;
     let settings = settings::load(&env)?;
