@@ -3,7 +3,6 @@
 //! so a nested area's bytes leave its parent's.
 
 use std::collections::HashMap;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 
@@ -100,7 +99,8 @@ impl DiskVisitor<'_> {
             return false;
         }
         let left = self.budget.saturating_sub(self.entries[i].load(Relaxed)).min(LISTING_LIMIT);
-        std::fs::symlink_metadata(dir).is_ok_and(|md| entries_of(md.nlink(), md.size()) > left)
+        std::fs::symlink_metadata(dir)
+            .is_ok_and(|md| entries_of(crate::platform::meta::link_count(&md), md.len()) > left)
     }
 
     fn area_of(&self, dir: &Path) -> Option<Tag> {

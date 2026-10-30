@@ -3,10 +3,9 @@
 //! tests and as a fallback.
 
 use std::fs;
-use std::os::macos::fs::MetadataExt as _;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::Path;
 
+use crate::platform::meta;
 pub use crate::platform::types::{DirListing, EntryKind, EntryMeta, ReadError, ReadErrorKind};
 
 /// `SF_DATALESS` from `<sys/stat.h>`: the item's content lives in the cloud.
@@ -79,11 +78,12 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
     if !md.is_dir() {
         return Err(ReadError::new(ReadErrorKind::Changed, None));
     }
+    let (dev, ino) = meta::file_id(&md).map_err(|e| ReadError::from_io(&e))?;
     if let Some((want_dev, want_ino)) = expect {
-        if md.dev() != want_dev {
+        if dev != want_dev {
             return Err(ReadError::new(ReadErrorKind::OtherFilesystem, None));
         }
-        if md.ino() != want_ino {
+        if ino != want_ino {
             return Err(ReadError::new(ReadErrorKind::Changed, None));
         }
     }
@@ -91,8 +91,8 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
     for entry in crate::stats::read_dir(dir).map_err(|e| ReadError::from_io(&e))? {
         let entry = entry.map_err(|e| ReadError::from_io(&e))?;
         // `DirEntry::metadata` is `fstatat(.., AT_SYMLINK_NOFOLLOW)` on macOS.
-        let meta = match entry.metadata() {
-            Ok(m) => m,
+        let (em, (edev, eino)) = match entry.metadata().and_then(|m| meta::file_id(&m).map(|id| (m, id))) {
+            Ok(found) => found,
             Err(e) => {
                 entries.push(EntryMeta {
                     name: entry.file_name(),
@@ -110,7 +110,7 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
                 continue;
             }
         };
-        let ft = meta.file_type();
+        let ft = em.file_type();
         let kind = if ft.is_dir() {
             EntryKind::Dir
         } else if ft.is_file() {
@@ -123,16 +123,16 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
         entries.push(EntryMeta {
             name: entry.file_name(),
             kind,
-            dev: meta.dev(),
-            ino: meta.ino(),
-            nlink: u32::try_from(meta.nlink()).unwrap_or(u32::MAX),
-            flags: meta.st_flags(),
-            alloc: if kind == EntryKind::Dir { 0 } else { meta.blocks() * 512 },
+            dev: edev,
+            ino: eino,
+            nlink: u32::try_from(meta::link_count(&em)).unwrap_or(u32::MAX),
+            flags: meta::st_flags(&em),
+            alloc: if kind == EntryKind::Dir { 0 } else { meta::alloc_bytes(&em) },
             private: None,
             error: None,
-            modified: times.then(|| meta.mtime()),
+            modified: times.then(|| meta::mtime(&em)),
             added: None,
         });
     }
-    Ok(DirListing { dev: md.dev(), ino: md.ino(), entries })
+    Ok(DirListing { dev, ino, entries })
 }

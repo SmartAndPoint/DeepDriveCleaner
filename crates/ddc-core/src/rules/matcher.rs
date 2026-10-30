@@ -5,7 +5,6 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::io::Read as _;
-use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 
 use super::Matcher;
@@ -97,7 +96,7 @@ pub(crate) fn matches(m: &Matcher, dir: &dyn DirView, home: &Path) -> bool {
                 && !dir.has_child("CMakeLists.txt")
                 && cmake_out_of_source(path)
         }
-        Matcher::NameContains(text) => name.as_bytes().windows(text.len()).any(|w| w == text.as_bytes()),
+        Matcher::NameContains(text) => name.as_encoded_bytes().windows(text.len()).any(|w| w == text.as_bytes()),
         Matcher::CacheDirTag => dir.has_child("CACHEDIR.TAG") && cachedir_tag_valid(&path.join("CACHEDIR.TAG")),
         Matcher::Under { name: want, prefixes } => {
             name == OsStr::new(want)

@@ -112,10 +112,7 @@ impl<'a> Guard<'a> {
         let protected_ids = paths
             .iter()
             .filter_map(|p| fs::symlink_metadata(p).ok())
-            .map(|m| {
-                use std::os::unix::fs::MetadataExt as _;
-                (m.dev(), m.ino())
-            })
+            .filter_map(|m| crate::platform::meta::file_id(&m).ok())
             .collect();
         Self {
             catalog,

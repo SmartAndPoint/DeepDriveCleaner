@@ -17,7 +17,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use super::{ScanOptions, count_findings, hidden, sort_findings};
@@ -62,8 +61,8 @@ pub fn remeasure(catalog: &Catalog, rule: &str, path: &Path, opts: &scan::WalkOp
         Err(_) => return Remeasured::Unknown,
     };
     if !md.is_dir() {
-        let bytes = md.blocks() * 512;
-        let shared = if md.nlink() > 1 { bytes } else { 0 };
+        let bytes = crate::platform::meta::alloc_bytes(&md);
+        let shared = if crate::platform::meta::link_count(&md) > 1 { bytes } else { 0 };
         return Remeasured::Measured(Measure {
             bytes: bytes - shared,
             shared_bytes: shared,

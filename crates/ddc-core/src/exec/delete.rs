@@ -5,7 +5,6 @@
 use std::ffi::OsString;
 use std::fs;
 use std::io;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -60,7 +59,7 @@ fn make_dirs_writable(root: &Path) {
             continue;
         }
         let mut perms = md.permissions();
-        perms.set_mode(perms.mode() | 0o700);
+        crate::platform::meta::add_owner_rwx(&mut perms);
         let _ = fs::set_permissions(&dir, perms);
         if let Ok(rd) = crate::stats::read_dir(&dir) {
             stack.extend(
@@ -72,15 +71,18 @@ fn make_dirs_writable(root: &Path) {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::MetadataExt as _;
-
     use super::*;
     use crate::exec::SkipReason;
     use crate::platform::fsops::DirFd;
 
     fn verified(parent: &Path, name: &str) -> Verified {
         let md = fs::symlink_metadata(parent.join(name)).unwrap();
-        Verified { parent: DirFd::open(parent).unwrap(), name: name.into(), id: (md.dev(), md.ino()), is_dir: true }
+        Verified {
+            parent: DirFd::open(parent).unwrap(),
+            name: name.into(),
+            id: crate::platform::meta::file_id(&md).unwrap(),
+            is_dir: true,
+        }
     }
 
     /// A folder swapped in after the check is not renamed to a tombstone or removed.

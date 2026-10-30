@@ -5,9 +5,7 @@
 //! a plist library. Never through a symlink, with capped reads; anything it
 //! cannot read means "not finished" and "unknown device".
 
-use std::fs::OpenOptions;
 use std::io::Read as _;
-use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -59,7 +57,7 @@ pub fn info(dir: &Path) -> Info {
 
 /// A regular file, opened without following a symlink or blocking on a FIFO.
 fn read(path: &Path) -> Option<Vec<u8>> {
-    let file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path).ok()?;
+    let file = crate::platform::fsops::open_nofollow_nonblock(path).ok()?;
     let md = file.metadata().ok()?;
     if !md.is_file() || md.len() > MAX_PLIST {
         return None;
@@ -447,7 +445,7 @@ mod tests {
     fn a_symlink_or_a_fifo_is_never_read() {
         let d = dir();
         let real = plist(d.path(), "real.plist", &STATUS.replace("STATE", "finished"), false);
-        std::os::unix::fs::symlink(&real, d.path().join("Status.plist")).unwrap();
+        crate::platform::testing::symlink(&real, &d.path().join("Status.plist")).unwrap();
         assert!(!finished(d.path()), "a symlink");
 
         let d = dir();

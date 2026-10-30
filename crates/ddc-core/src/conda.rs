@@ -6,7 +6,6 @@
 //! install is run as `<prefix>/bin/conda`, through [`CommandRunner::at`].
 
 use std::cell::OnceCell;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -230,14 +229,17 @@ pub fn package_folder<'i>(installs: &'i [Install], folder: &Path) -> Result<&'i 
 /// `(dev, ino)` of what `path` names, following symlinks; `None` when it
 /// does not exist.
 pub fn identity(path: &Path) -> Option<(u64, u64)> {
-    std::fs::metadata(path).ok().map(|m| (m.dev(), m.ino()))
+    std::fs::metadata(path).ok().and_then(|m| crate::platform::meta::file_id(&m).ok())
 }
 
 /// Both are folders and the same one, by `(dev, ino)`: `/opt` and
 /// `/System/Volumes/Data/opt` spell one folder through a firmlink.
 pub fn same_folder(a: &Path, b: &Path) -> bool {
     match (std::fs::metadata(a), std::fs::metadata(b)) {
-        (Ok(a), Ok(b)) => a.is_dir() && b.is_dir() && a.dev() == b.dev() && a.ino() == b.ino(),
+        (Ok(a), Ok(b)) => {
+            use crate::platform::meta::file_id;
+            a.is_dir() && b.is_dir() && matches!((file_id(&a), file_id(&b)), (Ok(x), Ok(y)) if x == y)
+        }
         _ => false,
     }
 }
@@ -248,10 +250,11 @@ mod tests {
 
     #[test]
     fn a_comma_or_a_non_utf8_path_is_never_given_to_conda() {
-        use std::os::unix::ffi::OsStrExt as _;
         assert_eq!(spelled(Path::new("/Users/example/.conda/pkgs")), Some("/Users/example/.conda/pkgs"));
         assert_eq!(spelled(Path::new("/Users/example/a,b/pkgs")), None);
-        assert_eq!(spelled(Path::new(std::ffi::OsStr::from_bytes(b"/Users/example/\xff"))), None);
+        if let Some(name) = crate::platform::testing::name_from_bytes(b"/Users/example/\xff") {
+            assert_eq!(spelled(Path::new(&name)), None);
+        }
     }
 
     #[test]

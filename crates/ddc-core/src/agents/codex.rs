@@ -5,7 +5,6 @@
 //! folder could make macOS ask. No lock is ever taken.
 
 use std::collections::{HashMap, HashSet};
-use std::os::unix::fs::MetadataExt as _;
 use std::path::Path;
 
 use crate::platform::procs::OpenVnode;
@@ -38,7 +37,7 @@ pub(super) fn threads(
                 return None;
             }
             let md = std::fs::symlink_metadata(e.path()).ok().filter(|m| m.is_file())?;
-            Some((id.to_owned(), (md.dev(), md.ino())))
+            Some((id.to_owned(), crate::platform::meta::file_id(&md).ok()?))
         })
         .collect();
     locks.sort();

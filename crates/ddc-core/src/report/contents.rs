@@ -289,7 +289,7 @@ mod tests {
         file.flags = SF_DATALESS;
         assert_eq!(state(&file), EntryState::NotAnEntry(NotAnEntry::Dataless), "a dataless file too");
         let mut broken = child("b", EntryKind::File);
-        broken.error = Some(libc::EACCES);
+        broken.error = Some(crate::platform::errno::EACCES);
         assert_eq!(state(&broken), EntryState::NotAnEntry(NotAnEntry::Unreadable));
         assert_eq!(state(&child("p", EntryKind::Other)), EntryState::NotAnEntry(NotAnEntry::Other));
         assert_eq!(state(&child("l", EntryKind::Symlink)), EntryState::NotAnEntry(NotAnEntry::Symlink));

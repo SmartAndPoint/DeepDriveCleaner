@@ -12,7 +12,6 @@ pub mod plist;
 pub(crate) mod simulators;
 pub(crate) mod visitor;
 
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -151,10 +150,11 @@ pub fn measure_with(
             for path in area_paths(root, def) {
                 let Ok(md) = std::fs::metadata(&path) else { continue };
                 let Ok(canon) = path.canonicalize() else { continue };
-                if !md.is_dir() || seen.contains(&(md.dev(), md.ino())) {
+                let Ok(id) = crate::platform::meta::file_id(&md) else { continue };
+                if !md.is_dir() || seen.contains(&id) {
                     continue;
                 }
-                seen.push((md.dev(), md.ino()));
+                seen.push(id);
                 paths[i].push(canon);
             }
         }
@@ -349,11 +349,11 @@ fn area_paths(root: &Path, def: &AreaDef) -> Vec<PathBuf> {
 /// The user's home folder as `<data root>/Users/<name>`, when it lies there:
 /// the `users` area leaves it to the home row.
 fn own_home_in_users(data_root: &Path, home: &Path) -> Option<PathBuf> {
-    let md = std::fs::metadata(home).ok()?;
+    let id = std::fs::metadata(home).ok().and_then(|md| crate::platform::meta::file_id(&md).ok())?;
     crate::stats::read_dir(data_root.join("Users"))
         .ok()?
         .flatten()
         .map(|e| e.path())
-        .find(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.dev() == md.dev() && m.ino() == md.ino()))
+        .find(|p| std::fs::symlink_metadata(p).is_ok_and(|m| crate::platform::meta::file_id(&m).is_ok_and(|i| i == id)))
         .and_then(|p| p.canonicalize().ok())
 }

@@ -339,7 +339,7 @@ fn the_platform_switches_are_literals() {
         let text = std::fs::read_to_string(path).unwrap();
         text.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n")
     };
-    let env_reads = ["env::var", "var_os(", "option_env!(", "env!("];
+    let env_reads = ["env::var(", "var_os(", "option_env!(", "env!("];
     let shared = code(&dir.join("mod.rs"));
     let features: Vec<&str> = shared.match_indices("feature").map(|(i, _)| &shared[i..]).collect();
     assert!(!features.is_empty(), "platform/mod.rs: the simulate-unported switch is gone");

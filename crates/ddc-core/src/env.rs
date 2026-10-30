@@ -1,5 +1,5 @@
-//! Process environment. This is the only place that reads `$HOME`,
-//! `DDC_DATA_DIR` and `DOCKER_CONFIG`; everything else receives paths through [`Env`], so tests
+//! Process environment. This is the only place that reads `$HOME` (through
+//! `platform::folders`), `DDC_DATA_DIR` and `DOCKER_CONFIG`; everything else receives paths through [`Env`], so tests
 //! can point the whole tool at temporary directories.
 
 use std::io;
@@ -45,16 +45,14 @@ impl Env {
     /// to `<data_dir>/logs` so nothing lands in the real `~/Library`.
     #[allow(clippy::disallowed_methods)] // the one sanctioned reader of the process environment
     pub fn from_process(data_dir: Option<PathBuf>) -> Result<Self, EnvError> {
-        let home = std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from).ok_or(EnvError::NoHome)?;
+        let home = crate::platform::folders::home().ok_or(EnvError::NoHome)?;
         let home = home.canonicalize().map_err(|source| EnvError::Home { path: home.clone(), source })?;
         let data_dir =
             data_dir.or_else(|| std::env::var_os(Self::DATA_DIR_VAR).filter(|v| !v.is_empty()).map(PathBuf::from));
         let default_data_dir = data_dir.is_none();
         let (data_dir, log_dir) = match data_dir {
             Some(dir) => (dir.clone(), dir.join("logs")),
-            None => {
-                (home.join("Library/Application Support/DeepDriveCleaner"), home.join("Library/Logs/DeepDriveCleaner"))
-            }
+            None => crate::platform::folders::default_data_and_log(&home),
         };
         let path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
         let docker_config = std::env::var_os("DOCKER_CONFIG").filter(|v| !v.is_empty()).map(PathBuf::from);

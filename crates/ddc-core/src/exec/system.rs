@@ -1,8 +1,6 @@
 //! Real ports: tools on disk, the macOS Trash, the process table.
 
 use std::io::{self, Read as _};
-use std::os::unix::fs::PermissionsExt as _;
-use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -10,7 +8,7 @@ use std::time::{Duration, Instant};
 use super::{CmdOutput, CommandRunner, ProcessTable, Trasher};
 use crate::env::Env;
 use crate::platform::procs::{self, ProcInfo};
-use crate::platform::signals;
+use crate::platform::{meta, process, signals, trash};
 
 /// Finds tools in `Env::tool_dirs()` (plus `/usr/bin` for system tools).
 pub struct SystemCommands {
@@ -34,14 +32,9 @@ impl CommandRunner for SystemCommands {
     /// SIGINT/SIGTERM reaches everything it started, and a grandchild cannot
     /// keep the pipes open after the command is gone.
     fn run(&self, exe: &Path, args: &[String], env: &[(&str, &str)], timeout: Duration) -> io::Result<CmdOutput> {
-        let mut child = Command::new(exe)
-            .args(args)
-            .envs(env.iter().copied())
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .process_group(0)
-            .spawn()?;
+        let mut cmd = Command::new(exe);
+        cmd.args(args).envs(env.iter().copied()).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = process::own_process_group(&mut cmd).spawn()?;
         // The group id is the child's pid; a signal that came before this is forwarded now.
         let group = i32::try_from(child.id()).unwrap_or(0);
         signals::set_child_group(group);
@@ -63,14 +56,14 @@ impl CommandRunner for SystemCommands {
             match child.try_wait() {
                 Ok(Some(status)) => break Ok(status),
                 Ok(None) if started.elapsed() > timeout => {
-                    signals::kill_group(group, libc::SIGKILL);
+                    signals::kill_group(group, signals::SIGKILL);
                     let _ = child.wait();
                     break Err(io::Error::new(io::ErrorKind::TimedOut, format!("{} timed out", exe.display())));
                 }
                 Ok(None) => std::thread::park_timeout(Duration::from_millis(50)),
                 Err(e) => {
                     // Its pipes are drained below: a command left running would hold them open.
-                    signals::kill_group(group, libc::SIGKILL);
+                    signals::kill_group(group, signals::SIGKILL);
                     break Err(e);
                 }
             }
@@ -88,18 +81,16 @@ impl CommandRunner for SystemCommands {
 
 /// Whether `path` is a file someone may execute (symlinks followed).
 pub(super) fn executable(path: &Path) -> bool {
-    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && meta::is_executable(&m))
 }
 
-/// The macOS Trash through `NSFileManager` (no AppleScript, no Automation prompt).
+/// The system Trash (`platform::trash`): on macOS through `NSFileManager`
+/// (no AppleScript, no Automation prompt).
 pub struct SystemTrash;
 
 impl Trasher for SystemTrash {
     fn trash(&self, path: &Path) -> io::Result<()> {
-        use trash::macos::{DeleteMethod, TrashContextExtMacos as _};
-        let mut ctx = trash::TrashContext::default();
-        ctx.set_delete_method(DeleteMethod::NsFileManager);
-        ctx.delete(path).map_err(io::Error::other)
+        trash::move_to_trash(path)
     }
 }
 

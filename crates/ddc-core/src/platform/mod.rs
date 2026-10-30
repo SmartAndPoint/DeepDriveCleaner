@@ -40,15 +40,22 @@ use windows as imp;
 
 // The OS calls, as `platform::<module>::<item>` (ADR §1, amended): shared
 // code never names `macos`, which stays private.
-pub use imp::{bulk, errno, fsops, iopolicy, procs, rlimit, signals, statfs, term, usage};
+pub use imp::{
+    bulk, errno, folders, fsops, iopolicy, meta, process, procs, rlimit, signals, statfs, term, trash, usage,
+};
+
+/// What in-source tests need from the OS (a symlink, a non-UTF-8 name).
+#[cfg(test)]
+pub use imp::testing;
 
 // Every OS module provides these items with these signatures (ADR §1): a
 // module that drifts fails `cargo check --target <t>` here, not at a caller.
 mod pins {
     use std::ffi::OsStr;
+    use std::fs::{File, Metadata, Permissions};
     use std::io;
     use std::path::{Path, PathBuf};
-    use std::process::ExitStatus;
+    use std::process::{Command, ExitStatus};
     use std::sync::atomic::AtomicBool;
     use std::time::{Duration, SystemTime};
 
@@ -71,14 +78,28 @@ mod pins {
 
     const _: fn(&Path, SystemTime, SystemTime) -> io::Result<()> = imp::fsops::set_times;
     const _: fn(&Path) -> bool = imp::fsops::can_write;
+    const _: fn(&Path) -> io::Result<File> = imp::fsops::open_nofollow_nonblock;
     const _: fn(&Path) -> io::Result<DirFd> = DirFd::open;
     const _: fn(&DirFd) -> io::Result<(u64, u64)> = DirFd::identity;
     const _: fn(&DirFd, &OsStr) -> io::Result<EntryStat> = DirFd::stat_child;
     const _: fn(&DirFd, &OsStr) -> io::Result<Times> = DirFd::child_times;
     const _: fn(&DirFd, &OsStr, &OsStr) -> io::Result<()> = DirFd::rename_child;
 
+    const _: fn() -> Option<PathBuf> = imp::folders::home;
+    const _: fn(&Path) -> (PathBuf, PathBuf) = imp::folders::default_data_and_log;
+
     const _: fn() -> io::Result<()> = imp::iopolicy::disable_dataless_materialization;
     const _: fn() -> io::Result<bool> = imp::iopolicy::dataless_materialization_disabled;
+
+    const _: fn(&Metadata) -> io::Result<(u64, u64)> = imp::meta::file_id;
+    const _: fn(&Metadata) -> u64 = imp::meta::link_count;
+    const _: fn(&Metadata) -> u64 = imp::meta::alloc_bytes;
+    const _: fn(&Metadata) -> i64 = imp::meta::mtime;
+    const _: fn(&Metadata) -> u32 = imp::meta::st_flags;
+    const _: fn(&mut Permissions) = imp::meta::add_owner_rwx;
+    const _: fn(&Metadata) -> bool = imp::meta::is_executable;
+
+    const _: fn(&mut Command) -> &mut Command = imp::process::own_process_group;
 
     const _: fn() -> u32 = imp::procs::uid;
     const _: fn() -> Option<PathBuf> = imp::procs::real_home;
@@ -99,17 +120,25 @@ mod pins {
     const _: fn() = imp::signals::clear_child_group;
     const _: fn(i32, i32) = imp::signals::kill_group;
     const _: fn(i32) -> ! = imp::signals::reraise;
+    const _: i32 = imp::signals::SIGKILL;
 
     const _: fn(&Path) -> io::Result<VolumeStats> = imp::statfs::statfs;
     const _: fn() -> io::Result<Vec<VolumeStats>> = imp::statfs::mounts;
 
     const _: fn() -> Option<u16> = imp::term::stderr_columns;
 
+    const _: fn(&Path) -> io::Result<()> = imp::trash::move_to_trash;
+
     const _: fn(u32, bool) -> io::Result<Waited> = imp::usage::wait4;
     const _: fn() -> io::Result<Usage> = imp::usage::self_usage;
     const _: fn() -> io::Result<Duration> = imp::usage::thread_cpu_time;
     const _: fn() -> Option<f64> = imp::usage::load_average;
     const _: fn() -> Option<String> = imp::usage::machine_model;
+
+    #[cfg(test)]
+    const _: fn(&Path, &Path) -> io::Result<()> = imp::testing::symlink;
+    #[cfg(test)]
+    const _: fn(&[u8]) -> Option<std::ffi::OsString> = imp::testing::name_from_bytes;
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]

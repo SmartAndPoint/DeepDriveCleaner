@@ -11,6 +11,9 @@
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
+/// Ends a process at once; it cannot be caught.
+pub const SIGKILL: i32 = libc::SIGKILL;
+
 static CANCEL: AtomicBool = AtomicBool::new(false);
 static SIGNAL: AtomicI32 = AtomicI32::new(0);
 /// Process group of the native command running now; 0 when none. One slot:
