@@ -1,7 +1,8 @@
 //! Directory reader on `getattrlistbulk(2)`: one syscall returns a batch of
 //! entries with name, type, inode, device, flags, link count, allocated size
-//! and, on request, the APFS private size and the modification and added times. Only the syscalls are `unsafe`;
-//! the attribute buffer is parsed with bounds-checked safe code.
+//! and, on request, the APFS private size and the modification and added
+//! times ([`Times`]). Only the syscalls are `unsafe`; the attribute buffer is
+//! parsed with bounds-checked safe code.
 
 use std::cell::RefCell;
 use std::ffi::{CString, OsStr};
@@ -10,7 +11,7 @@ use std::path::Path;
 
 use libc::c_int;
 
-use crate::platform::types::{DirListing, EntryKind, EntryMeta, ReadError, ReadErrorKind};
+use crate::platform::types::{DirListing, EntryKind, EntryMeta, ReadError, ReadErrorKind, Times};
 
 // <sys/attr.h>
 pub(super) const ATTR_BIT_MAP_COUNT: u16 = 5;
@@ -74,8 +75,9 @@ impl Drop for Fd {
 /// Lists `dir` by `getattrlistbulk` (macOS, APFS/HFS+), as
 /// `scan::reader::SystemReader` asks: without following a symlink, nothing
 /// read when the directory is not `expect`, the private size with
-/// `want_private`, the times with `times`.
-pub fn list(dir: &Path, expect: Option<(u64, u64)>, want_private: bool, times: bool) -> Result<DirListing, ReadError> {
+/// `want_private`, the entries' `times`. The directory's own modification
+/// time comes from the `fstat` that checks `expect`.
+pub fn list(dir: &Path, expect: Option<(u64, u64)>, want_private: bool, times: Times) -> Result<DirListing, ReadError> {
     let path = CString::new(dir.as_os_str().as_bytes()).map_err(|_| ReadError::from_errno(libc::EINVAL))?;
     // Retried on EINTR, as std does: a signal is not an unreadable directory.
     let raw = loop {
@@ -99,7 +101,7 @@ pub fn list(dir: &Path, expect: Option<(u64, u64)>, want_private: bool, times: b
         return Err(ReadError::from_errno(super::last_errno()));
     }
     // Same widening as std's `MetadataExt::dev()`.
-    let (dev, ino) = (st.st_dev as u64, st.st_ino);
+    let (dev, ino, modified) = (st.st_dev as u64, st.st_ino, st.st_mtime);
     if let Some((want_dev, want_ino)) = expect {
         if dev != want_dev {
             return Err(ReadError::new(ReadErrorKind::OtherFilesystem, None));
@@ -119,7 +121,11 @@ pub fn list(dir: &Path, expect: Option<(u64, u64)>, want_private: bool, times: b
             | ATTR_CMN_OBJTYPE
             | ATTR_CMN_FLAGS
             | ATTR_CMN_FILEID
-            | if times { ATTR_CMN_MODTIME | ATTR_CMN_ADDEDTIME } else { 0 },
+            | match times {
+                Times::None => 0,
+                Times::Modified => ATTR_CMN_MODTIME,
+                Times::ModifiedAndAdded => ATTR_CMN_MODTIME | ATTR_CMN_ADDEDTIME,
+            },
         volattr: 0,
         dirattr: 0,
         fileattr: ATTR_FILE_LINKCOUNT | ATTR_FILE_ALLOCSIZE,
@@ -147,7 +153,7 @@ pub fn list(dir: &Path, expect: Option<(u64, u64)>, want_private: bool, times: b
     })?;
     // Counted once the listing is whole; a listing that fails part-way counts nothing.
     crate::stats::add(crate::stats::Counter::DirEntriesRead, entries.len() as u64);
-    Ok(DirListing { dev, ino, entries })
+    Ok(DirListing { dev, ino, modified: Some(modified), entries })
 }
 
 /// Bounds-checked reader over one attribute record.

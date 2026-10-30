@@ -189,6 +189,16 @@ impl Visitor for RuleVisitor<'_> {
         }
     }
 
+    /// A finding shows the newest change inside it (story "Review window:
+    /// sort a group's rows by name, size or last change"). By the rule's
+    /// class, as [`Self::wants_private`]: a user-data folder's entries carry
+    /// their own times, and a protected or unlisted claim (an app bundle)
+    /// shows no date.
+    fn wants_times(&self, _dir: &DirCtx<'_>, tag: Tag) -> bool {
+        let rule = self.catalog.rule(tag);
+        tag != self.catalog.kept && rule.listed && rule.class != RiskClass::UserData
+    }
+
     /// The user's own folders list their entries (story "User data: pick
     /// your own files for the Trash").
     fn lists_entries(&self, _dir: &DirCtx<'_>, tag: Tag) -> bool {

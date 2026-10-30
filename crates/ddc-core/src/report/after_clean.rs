@@ -109,6 +109,10 @@ impl Visitor for Alone<'_> {
     fn wants_private(&self, dir: &DirCtx<'_>, tag: Tag) -> bool {
         self.rules.wants_private(dir, tag)
     }
+
+    fn wants_times(&self, dir: &DirCtx<'_>, tag: Tag) -> bool {
+        self.rules.wants_times(dir, tag)
+    }
 }
 
 /// Edits `report` by what `clean` did (gate decision 6). `fresh` is the

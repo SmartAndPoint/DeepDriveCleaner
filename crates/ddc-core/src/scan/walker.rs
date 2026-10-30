@@ -4,18 +4,28 @@
 
 use std::fs::Metadata;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use super::inodes::{Holder, InodeTable};
 use super::reader::EntryMeta;
-use super::reader::{DirReader, EntryKind, ReadError, ReadErrorKind, SF_DATALESS, StdReader, SystemReader};
+use super::reader::{DirReader, EntryKind, ReadError, ReadErrorKind, SF_DATALESS, StdReader, SystemReader, Times};
 use super::{
     DirCtx, EntryResult, OwnerEntries, OwnerKind, OwnerResult, Post, Pre, Progress, ReaderKind, RootResult, SkipReason,
     Skipped, Tag, Visitor, WalkError, WalkOptions, WalkOutput, WalkSetupError,
 };
 use crate::platform::meta;
+
+/// [`OwnerAcc::modified`] before any time is folded in.
+const NO_TIME: i64 = i64::MIN;
+
+/// What an owner's listings read besides the defaults.
+#[derive(Clone, Copy)]
+struct Wants {
+    private: bool,
+    times: bool,
+}
 
 struct OwnerAcc {
     id: usize,
@@ -26,6 +36,10 @@ struct OwnerAcc {
     ino: u64,
     parent: (u64, u64),
     want_private: bool,
+    /// Its listings read [`Times::Modified`] for [`Self::modified`].
+    want_times: bool,
+    /// The newest modification time folded in so far, or [`NO_TIME`].
+    modified: AtomicI64,
     bytes: AtomicU64,
     shared: AtomicU64,
     private: AtomicU64,
@@ -238,25 +252,28 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
                 return;
             }
             Pre::Claim(tag) => {
-                let private = sh.visitor.wants_private(&ctx, tag);
+                let wants = sh.claim_wants(&ctx, tag);
                 lists = sh.visitor.lists_entries(&ctx, tag);
-                owner = Some(sh.new_owner(tag, OwnerKind::Claim, &dir, expect, parent, private));
+                owner = Some(sh.new_owner(tag, OwnerKind::Claim, &dir, expect, parent, wants));
                 hooks = false;
             }
             Pre::Region(tag) => {
                 lists = sh.visitor.lists_entries(&ctx, tag);
-                owner = Some(sh.new_owner(tag, OwnerKind::Region, &dir, expect, parent, false));
+                let wants = Wants { private: false, times: false };
+                owner = Some(sh.new_owner(tag, OwnerKind::Region, &dir, expect, parent, wants));
             }
         }
     }
 
     let want_private = sh.opts.private_everywhere || owner.as_ref().is_some_and(|o| o.want_private);
-    let read = if lists {
-        sh.reader.read_with_times(&dir, Some(expect), want_private)
+    let times = if lists {
+        Times::ModifiedAndAdded
+    } else if owner.as_ref().is_some_and(|o| o.want_times) {
+        Times::Modified
     } else {
-        sh.reader.read(&dir, Some(expect), want_private)
+        Times::None
     };
-    let mut listing = match read {
+    let mut listing = match sh.reader.read(&dir, Some(expect), want_private, times) {
         Ok(listing) => listing,
         Err(err) => {
             sh.read_failed(dir, err, root, owner.as_deref(), entry.as_deref());
@@ -267,18 +284,25 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
     if hooks {
         let ctx = DirCtx { path: &dir, name, depth, dev: expect.0, ino: expect.1, owner: owner_ctx(&owner) };
         if let Post::Claim(tag) = sh.visitor.after_read(&ctx, &listing) {
-            let private = sh.visitor.wants_private(&ctx, tag);
-            let claim = sh.new_owner(tag, OwnerKind::Claim, &dir, expect, parent, private);
-            if !want_private && claim.want_private {
+            let wants = sh.claim_wants(&ctx, tag);
+            let claim = sh.new_owner(tag, OwnerKind::Claim, &dir, expect, parent, wants);
+            let for_private = !want_private && claim.want_private;
+            let for_times = times == Times::None && claim.want_times;
+            if for_private || for_times {
                 // The listing was read before we knew this is a finding: re-read
-                // this one directory with private sizes.
-                match sh.reader.read(&dir, Some(expect), true) {
+                // this one directory with what the claim wants.
+                let again_times = if claim.want_times { Times::Modified } else { Times::None };
+                match sh.reader.read(&dir, Some(expect), want_private || claim.want_private, again_times) {
                     Ok(again) => listing = again,
-                    Err(err) => {
+                    Err(err) if for_private => {
                         // Keep the first listing; its files then count as "private unknown".
                         claim.errors.fetch_add(1, Relaxed);
                         sh.error(dir.clone(), err);
                     }
+                    // For the times alone: the first listing is whole, and only its
+                    // files' times are missing. The date stays a lower bound, and the
+                    // size is not made incomplete for it.
+                    Err(_) => {}
                 }
             }
             owner = Some(claim);
@@ -300,6 +324,9 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
     let root_dev = sh.roots[root].dev;
     let (mut files, mut bytes, mut private, mut errors) = (0u64, 0u64, 0u64, 0u64);
     let (mut linked_bytes, mut skipped, mut private_missing) = (0u64, 0u64, 0u64);
+    // The directory's own time, then each entry's, which the listing has only
+    // when it asked for times.
+    let mut newest = listing.modified;
 
     let here = (listing.dev, listing.ino);
     for (i, meta) in listing.entries.iter().enumerate() {
@@ -317,6 +344,10 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             }
             continue;
         }
+        // Before the kind decides where the bytes go: a hard-linked file (most
+        // of a pnpm or uv tree), a skipped or unreadable directory still tells
+        // when it last changed.
+        newest = newest.max(meta.modified);
         match meta.kind {
             EntryKind::Dir => {
                 let child = dir.join(&meta.name);
@@ -378,6 +409,11 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             o.errors.fetch_add(errors, Relaxed);
             o.skipped.fetch_add(skipped, Relaxed);
             o.private_missing.fetch_add(private_missing, Relaxed);
+            if o.want_times
+                && let Some(t) = newest
+            {
+                o.modified.fetch_max(t, Relaxed);
+            }
         }
         None => {
             sh.unowned.fetch_add(bytes, Relaxed);
@@ -400,6 +436,15 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl Shared<'_> {
+    /// What the visitor asks for a claim of `tag` at `ctx`, the times only
+    /// while [`WalkOptions::claim_times`] is on.
+    fn claim_wants(&self, ctx: &DirCtx<'_>, tag: Tag) -> Wants {
+        Wants {
+            private: self.visitor.wants_private(ctx, tag),
+            times: self.opts.claim_times && self.visitor.wants_times(ctx, tag),
+        }
+    }
+
     fn new_owner(
         &self,
         tag: Tag,
@@ -407,7 +452,7 @@ impl Shared<'_> {
         path: &Path,
         (dev, ino): (u64, u64),
         parent: (u64, u64),
-        private: bool,
+        wants: Wants,
     ) -> Arc<OwnerAcc> {
         let mut owners = lock(&self.owners);
         let acc = Arc::new(OwnerAcc {
@@ -418,7 +463,9 @@ impl Shared<'_> {
             dev,
             ino,
             parent,
-            want_private: private,
+            want_private: wants.private,
+            want_times: wants.times,
+            modified: AtomicI64::new(NO_TIME),
             bytes: AtomicU64::new(0),
             shared: AtomicU64::new(0),
             private: AtomicU64::new(0),
@@ -578,6 +625,7 @@ impl Shared<'_> {
                 dirs: o.dirs.load(Relaxed),
                 errors: o.errors.load(Relaxed),
                 skipped: o.skipped.load(Relaxed),
+                modified: Some(o.modified.load(Relaxed)).filter(|&t| t != NO_TIME),
             })
             .collect();
         owner_results.sort_by(|a, b| a.path.cmp(&b.path));

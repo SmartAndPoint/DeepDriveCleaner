@@ -13,7 +13,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub use progress::{Progress, ProgressSnapshot};
-pub use reader::{DirListing, DirReader, EntryKind, EntryMeta, ReadError, ReadErrorKind, StdReader, SystemReader};
+pub use reader::{
+    DirListing, DirReader, EntryKind, EntryMeta, ReadError, ReadErrorKind, StdReader, SystemReader, Times,
+};
 pub use walker::{normalized_roots, walk, walk_with_reader};
 
 /// Rule identifier chosen by the visitor (opaque to the walker).
@@ -86,6 +88,14 @@ pub trait Visitor: Sync {
         true
     }
 
+    /// Whether a claim reads its entries' modification times for
+    /// [`OwnerResult::modified`] (story "Review window: sort a group's rows by
+    /// name, size or last change"). Asked when the claim is made; a region
+    /// never has one. [`WalkOptions::claim_times`] off overrides it.
+    fn wants_times(&self, _dir: &DirCtx<'_>, _tag: Tag) -> bool {
+        false
+    }
+
     /// Whether a [`Pre::Claim`] or [`Pre::Region`] measures each direct child
     /// on its own ([`WalkOutput::entries`]), its listing read with times
     /// (story "User data: pick your own files for the Trash"). Asked before
@@ -128,11 +138,22 @@ pub struct WalkOptions {
     pub private_everywhere: bool,
     /// Errors and skips beyond this many are counted but not listed.
     pub max_recorded: usize,
+    /// Read the modification times inside the claims whose visitor
+    /// [wants them](Visitor::wants_times). Off only to measure what they
+    /// cost (`ddc scan --no-times`); a listed folder's own entry times
+    /// ([`Visitor::lists_entries`]) are read either way.
+    pub claim_times: bool,
 }
 
 impl Default for WalkOptions {
     fn default() -> Self {
-        Self { threads: None, reader: ReaderKind::Bulk, private_everywhere: false, max_recorded: 10_000 }
+        Self {
+            threads: None,
+            reader: ReaderKind::Bulk,
+            private_everywhere: false,
+            max_recorded: 10_000,
+            claim_times: true,
+        }
     }
 }
 
@@ -163,6 +184,13 @@ pub struct OwnerResult {
     /// Subdirectories skipped (dataless, other filesystem, changed) or
     /// vanished inside; the size is then incomplete.
     pub skipped: u64,
+    /// The newest modification time inside, Unix seconds: of every entry
+    /// listed without an error, each directory itself included. Only for a
+    /// claim that [wants times](Visitor::wants_times); `None` when its root
+    /// could not be read. A lower bound when it is incomplete, and when a
+    /// [`Post::Claim`]'s root could not be listed again with times (which
+    /// does not make it incomplete).
+    pub modified: Option<i64>,
 }
 
 impl OwnerResult {

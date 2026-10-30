@@ -34,8 +34,8 @@ pub fn run(args: ScanArgs) -> anyhow::Result<ExitCode> {
         eprintln!("ddc: {}", prompt::dropped_excludes(&resolved.dropped_excludes, env.home()));
     }
     let _lock = store::try_lock(&env, LockMode::Shared)?;
-    let opts =
-        ScanOptions { walk: WalkOptions { threads: args.threads, ..WalkOptions::default() }, ..resolved.options };
+    let walk = WalkOptions { threads: args.threads, claim_times: !args.no_times, ..WalkOptions::default() };
+    let opts = ScanOptions { walk, ..resolved.options };
     let reporter = progress::Reporter::new(args.progress.is_some());
     let progress = Progress::default();
     let report = reporter.walk(&progress, "scanning", WalkStep::Scan, None, || report::scan(&env, &opts, &progress))?;

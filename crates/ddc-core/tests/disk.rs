@@ -20,7 +20,7 @@ use ddc_core::env::Env;
 use ddc_core::platform::statfs::VolumeStats;
 use ddc_core::report::volumes::StatFs;
 use ddc_core::report::{self, ScanOptions};
-use ddc_core::scan::{DirListing, DirReader, Progress, ReadError, StdReader};
+use ddc_core::scan::{DirListing, DirReader, Progress, ReadError, StdReader, Times};
 use ddc_core::store;
 
 const DATA: &str = "sys/System/Volumes/Data";
@@ -501,11 +501,17 @@ struct CancelAt<'a> {
 }
 
 impl DirReader for CancelAt<'_> {
-    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
+    fn read(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: Times,
+    ) -> Result<DirListing, ReadError> {
         if self.opened.fetch_add(1, Ordering::SeqCst) + 1 == self.at {
             self.cancel.store(true, Ordering::SeqCst);
         }
-        StdReader.read(dir, expect, want_private)
+        StdReader.read(dir, expect, want_private, times)
     }
 }
 
@@ -554,9 +560,15 @@ fn a_stop_before_the_tools_runs_none_of_them() {
 struct Opened(Mutex<Vec<PathBuf>>);
 
 impl DirReader for Opened {
-    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
+    fn read(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: Times,
+    ) -> Result<DirListing, ReadError> {
         self.0.lock().unwrap().push(dir.to_path_buf());
-        StdReader.read(dir, expect, want_private)
+        StdReader.read(dir, expect, want_private, times)
     }
 }
 

@@ -24,13 +24,13 @@ fn unsupported<T>() -> io::Result<T> {
 pub mod bulk {
     use std::path::Path;
 
-    use crate::platform::types::{DirListing, ReadError, ReadErrorKind};
+    use crate::platform::types::{DirListing, ReadError, ReadErrorKind, Times};
 
     pub fn list(
         _dir: &Path,
         _expect: Option<(u64, u64)>,
         _private: bool,
-        _times: bool,
+        _times: Times,
     ) -> Result<DirListing, ReadError> {
         Err(ReadError::new(ReadErrorKind::Other, None))
     }
