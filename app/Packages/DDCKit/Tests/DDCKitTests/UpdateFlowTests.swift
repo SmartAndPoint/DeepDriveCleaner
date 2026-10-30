@@ -99,6 +99,98 @@ struct UpdateFlowTests {
         #expect(flow.state == .installingOnQuit)
     }
 
+    // MARK: The postpone gate, by any path
+
+    @Test func aPressedFoundItemThatGoesStraightToThePostponeQuestionIsHeld() {
+        var flow = UpdateFlow()
+        _ = flow.handle(.pressed)
+        _ = flow.handle(.found(item, informationOnly: false))
+        #expect(flow.state == .downloading)
+        #expect(flow.handle(.postponeAsked(busy: true)) == [.postpone])
+        #expect(flow.state == .waitingForIdle)
+        #expect(flow.handle(.runnerIdle) == [.resumeInstall])
+        #expect(flow.state == .installing)
+    }
+
+    @Test func anUpdateAPastSessionDownloadedIsHeldWithoutAPress() {
+        // Sparkle resumes it at the installing stage: found, then the postpone question.
+        var flow = UpdateFlow()
+        _ = flow.handle(.found(item, informationOnly: false))
+        #expect(flow.handle(.postponeAsked(busy: true)) == [.postpone])
+        #expect(flow.state == .waitingForIdle)
+    }
+
+    @Test func anIdleRunnerAtThePostponeQuestionGoesToInstallingFromAnyStep() {
+        for setup in [[UpdateFlow.Event](), [.checkStarted], [.found(item, informationOnly: false)],
+                      [.pressed, .found(item, informationOnly: false)]] {
+            var flow = UpdateFlow()
+            for event in setup { _ = flow.handle(event) }
+            #expect(flow.handle(.postponeAsked(busy: false)) == [])
+            #expect(flow.state == .installing)
+            #expect(flow.pressed == false)
+        }
+    }
+
+    @Test func anInformationOnlyItemOrAQuitIsNeverHeld() {
+        var flow = UpdateFlow()
+        _ = flow.handle(.found(item, informationOnly: true))
+        #expect(flow.handle(.postponeAsked(busy: true)) == [])
+        #expect(flow.state == .informationOnly)
+
+        var quitting = UpdateFlow()
+        _ = quitting.handle(.found(item, informationOnly: false))
+        _ = quitting.handle(.postponeAsked(busy: true))
+        _ = quitting.handle(.appQuits)
+        #expect(quitting.handle(.postponeAsked(busy: true)) == [])
+        #expect(quitting.state == .installingOnQuit)
+    }
+
+    @Test func anErrorWhileTheInstallIsHeldDropsTheHandler() {
+        var flow = UpdateFlow()
+        _ = flow.handle(.pressed)
+        _ = flow.handle(.found(item, informationOnly: false))
+        _ = flow.handle(.postponeAsked(busy: true))
+        #expect(flow.handle(.error("The install failed.")) == [.dropPostponed])
+        #expect(flow.state == .available)
+        #expect(flow.message == "The install failed.")
+        #expect(flow.handle(.runnerIdle) == [])
+    }
+
+    // MARK: A session Sparkle ends without an error
+
+    @Test func anEndedSessionReturnsEachStepToRest() {
+        let steps: [[UpdateFlow.Event]] = [
+            [.checkStarted],
+            [.pressed, .found(item, informationOnly: false)],
+            [.pressed, .found(item, informationOnly: false), .downloadStarted, .extracting],
+            [.pressed, .found(item, informationOnly: false), .readyToInstall],
+        ]
+        for setup in steps {
+            var flow = UpdateFlow()
+            for event in setup { _ = flow.handle(event) }
+            #expect(flow.handle(.sessionEnded) == [])
+            #expect(flow.state == (flow.item == nil ? .idle : .available))
+            #expect(flow.pressed == false)
+            #expect(flow.message == nil)
+        }
+    }
+
+    @Test func anEndedSessionLeavesAHeldOrQuittingInstallAndARestingLineAlone() {
+        var waiting = UpdateFlow()
+        _ = waiting.handle(.found(item, informationOnly: false))
+        _ = waiting.handle(.postponeAsked(busy: true))
+        _ = waiting.handle(.sessionEnded)
+        #expect(waiting.state == .waitingForIdle)
+        _ = waiting.handle(.appQuits)
+        _ = waiting.handle(.sessionEnded)
+        #expect(waiting.state == .installingOnQuit)
+
+        var resting = UpdateFlow()
+        _ = resting.handle(.found(item, informationOnly: true))
+        _ = resting.handle(.sessionEnded)
+        #expect(resting.state == .informationOnly)
+    }
+
     @Test func aQuitWithNothingWaitingDoesNothing() {
         var flow = UpdateFlow()
         _ = flow.handle(.found(item, informationOnly: false))

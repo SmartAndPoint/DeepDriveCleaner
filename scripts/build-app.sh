@@ -163,7 +163,11 @@ if [ "$DIST" = 1 ]; then
         fail "the app binary names 127.0.0.1: the Debug feed is compiled in"
     fi
 else
-    # The Debug feed is http on 127.0.0.1 (scripts/debug-feed.sh).
+    # The Debug feed is http on 127.0.0.1 (scripts/debug-feed.sh). The Release
+    # guard above looks for this string; a Debug binary without it means the
+    # guard looks for the wrong thing.
+    strings "$APP/Contents/MacOS/DeepDriveCleaner" | grep -F 127.0.0.1 >/dev/null \
+        || fail "the Debug app binary does not name 127.0.0.1: the Release guard against the Debug feed would see nothing"
     plutil -replace NSAppTransportSecurity -json '{"NSAllowsLocalNetworking":true}' "$PLIST"
     if [ -n "${DDC_DEBUG_ED_PUBLIC_KEY:-}" ]; then
         [[ "$DDC_DEBUG_ED_PUBLIC_KEY" =~ ^[A-Za-z0-9+/]{43}=$ ]] \

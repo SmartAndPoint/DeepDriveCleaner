@@ -81,7 +81,7 @@ private struct UpdatesSection: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Button("Check Now") { updates.checkNow() }
-                        .disabled(updates.unavailable != nil || !updates.canCheck)
+                        .disabled(!updates.checkNowEnabled)
                 }
             } label: {
                 Text("Last checked")

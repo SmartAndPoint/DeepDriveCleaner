@@ -94,6 +94,14 @@ public final class UpdateModel {
         }
     }
 
+    /// Nothing is under way: Check Now may start a check.
+    public var atRest: Bool {
+        switch flow.state {
+        case .idle, .available, .informationOnly, .failed: return true
+        default: return false
+        }
+    }
+
     /// The relaunch is held or under way: no scan, clean, free or uninstall starts.
     public var jobsHeld: Bool { flow.state == .waitingForIdle || flow.state == .installing }
 
@@ -168,7 +176,9 @@ public final class UpdateModel {
             resume?()
         case .dropPostponed:
             postponed = nil
-            log("update: the app quits, the install finishes without a relaunch")
+            log(flow.state == .installingOnQuit
+                ? "update: the app quits, the install finishes without a relaunch"
+                : "update: the held install failed, it does not resume")
         case .reply, .postpone:
             // The adapter's to give.
             break

@@ -24,6 +24,10 @@ final class SparkleUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
     private var receivedBytes: UInt64 = 0
     /// Called when a check ends, so Settings shows the new last check time.
     var onCycleFinished: (@MainActor () -> Void)?
+    /// Called when `canCheckForUpdates` changes, so Check Now follows Sparkle's session.
+    var onCanCheckChanged: (@MainActor () -> Void)?
+    /// KVO of `SPUUpdater.canCheckForUpdates`, which Sparkle documents as observable.
+    private var canCheckObservation: NSKeyValueObservation?
 
     init(model: UpdateModel) {
         self.model = model
@@ -32,6 +36,10 @@ final class SparkleUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
         updater.userAgentString = Self.userAgent
         self.updater = updater
         model.startCheck = { [weak self] in self?.check() }
+        canCheckObservation = updater.observe(\.canCheckForUpdates, options: [.new]) { [weak self] _, _ in
+            // Sparkle changes it on the main thread; the hop keeps that an assumption of nobody's.
+            Task { @MainActor in self?.onCanCheckChanged?() }
+        }
     }
 
     /// The feed this build reads: the Debug feed in a Debug build, else `SUFeedURL`.
@@ -92,8 +100,13 @@ final class SparkleUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
     /// Check Now, and the check Update and Relaunch starts.
     func check() {
         guard let updater, updater.canCheckForUpdates else {
-            // Update and Relaunch waits for a check that would never come.
-            model.send(.error("Another check is running. Try again in a moment."))
+            if model.state == .checking {
+                // Update and Relaunch, or Check Now, waits for a check that would never come.
+                model.send(.error("Another check is running. Try again in a moment."))
+            } else {
+                // Sparkle's session runs (a background check, or an install): the line follows it.
+                AppLog.write("updater: no check started, Sparkle's session is running")
+            }
             return
         }
         AppLog.write("updater: a check you asked for")
@@ -180,7 +193,9 @@ final class SparkleUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
     }
 
     func dismissUpdateInstallation() {
-        // The session ended; the line keeps what the flow knows.
+        // Sparkle ended the session, at times without an error of its own (a
+        // cancelled authorization): a check, download or install it ran is over.
+        model.send(.sessionEnded)
     }
 
     // MARK: SPUUpdaterDelegate

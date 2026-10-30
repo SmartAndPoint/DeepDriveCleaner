@@ -105,12 +105,79 @@ final class UpdateModelTests {
         #expect(resumed == 0)
     }
 
-    @Test func aPostponeQuestionOutsideAnInstallHoldsNothing() {
+    @Test func aPostponeQuestionWithoutAPressStillHoldsTheRelaunch() {
+        // An update a past session downloaded: Sparkle resumes it without a press.
         let model = model()
+        var held: [Bool] = []
+        model.onJobsHeld = { held.append($0) }
+        var resumed = 0
         busy = true
         _ = model.send(.found(item, informationOnly: false))
+        #expect(model.shouldPostpone { resumed += 1 })
+        #expect(model.state == .waitingForIdle)
+        #expect(held == [true])
+        model.runnerIdle()
+        #expect(resumed == 1)
+    }
+
+    @Test func aPostponeQuestionWithTheRunnerIdleHoldsTheJobsForTheInstall() {
+        let model = model()
+        var held: [Bool] = []
+        model.onJobsHeld = { held.append($0) }
+        _ = model.send(.found(item, informationOnly: false))
+        model.press()
+        _ = model.send(.found(item, informationOnly: false))
         #expect(model.shouldPostpone {} == false)
+        #expect(model.state == .installing)
+        #expect(held == [true])
+    }
+
+    @Test func aPostponeQuestionForAnInformationOnlyUpdateHoldsNothing() {
+        let model = model()
+        busy = true
+        _ = model.send(.found(item, informationOnly: true))
+        #expect(model.shouldPostpone {} == false)
+        #expect(model.state == .informationOnly)
+    }
+
+    @Test func aFailedHeldInstallNeverResumes() {
+        let model = model()
+        var resumed = 0
+        busy = true
+        _ = model.send(.found(item, informationOnly: false))
+        #expect(model.shouldPostpone { resumed += 1 })
+        _ = model.send(.error("The install failed."))
+        busy = false
+        model.runnerIdle()
+        #expect(resumed == 0)
+        #expect(model.jobsHeld == false)
+        #expect(logged.contains("update: the held install failed, it does not resume"))
+    }
+
+    @Test func anEndedSessionReleasesTheJobs() {
+        let model = readyToRelaunch()
+        var held: [Bool] = []
+        model.onJobsHeld = { held.append($0) }
+        #expect(model.jobsHeld)
+        _ = model.send(.sessionEnded)
         #expect(model.state == .available)
+        #expect(held == [false])
+        #expect(model.canPress)
+    }
+
+    @Test func checkNowWaitsForTheLineToRest() {
+        let model = model()
+        #expect(model.atRest)
+        _ = model.send(.checkStarted)
+        #expect(model.atRest == false)
+        _ = model.send(.found(item, informationOnly: false))
+        #expect(model.atRest)
+        model.press()
+        #expect(model.atRest == false)
+        _ = model.send(.found(item, informationOnly: false))
+        #expect(model.atRest == false)
+        _ = model.send(.sessionEnded)
+        #expect(model.atRest)
     }
 
     @Test func theJobsAreHeldWhileTheRelaunchWaitsOrRuns() {

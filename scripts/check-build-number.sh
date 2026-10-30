@@ -49,5 +49,5 @@ fi
 TAGGED="$(git show "$TAG:$PBXPROJ" 2>/dev/null)" || fail "$TAG has no $PBXPROJ"
 PREVIOUS="$(build_number <<<"$TAGGED")" || fail "$PBXPROJ at $TAG has no single CURRENT_PROJECT_VERSION"
 [ "$CURRENT" -gt "$PREVIOUS" ] \
-    || fail "CURRENT_PROJECT_VERSION is $CURRENT, not greater than $PREVIOUS at $TAG: Sparkle would never offer this build (raise it in $PBXPROJ)"
+    || fail "CURRENT_PROJECT_VERSION is $CURRENT, not greater than $PREVIOUS at $TAG: Sparkle would never offer this build. Raise CURRENT_PROJECT_VERSION in $PBXPROJ to $((PREVIOUS + 1)), in Debug and Release"
 echo "build number: $CURRENT, after $PREVIOUS at $TAG"

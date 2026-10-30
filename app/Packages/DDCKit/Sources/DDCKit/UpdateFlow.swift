@@ -11,7 +11,9 @@ import Foundation
 /// starts finds the item and is answered Install, and so is ready-to-install.
 /// An information-only item (a team change) is never installed. While the
 /// runner has work, the relaunch is held and resumes when it is idle; a quit
-/// meanwhile lets Sparkle finish the install after the app is gone.
+/// meanwhile lets Sparkle finish the install after the app is gone. The hold
+/// does not depend on how the install was reached: Sparkle's postpone
+/// question is the gate, also for an update a past session downloaded.
 public struct UpdateFlow: Sendable, Equatable {
     public enum State: Sendable, Equatable {
         /// No update known this session.
@@ -68,6 +70,9 @@ public struct UpdateFlow: Sendable, Equatable {
         case runnerIdle
         case installStarted
         case error(String)
+        /// Sparkle ended its session without an error of its own
+        /// (`dismissUpdateInstallation`), e.g. a cancelled authorization.
+        case sessionEnded
         case appQuits
         case startFailed(String)
     }
@@ -86,7 +91,8 @@ public struct UpdateFlow: Sendable, Equatable {
         case postpone
         /// Call the stored postpone handler, once.
         case resumeInstall
-        /// Forget the stored postpone handler without calling it.
+        /// Forget the stored postpone handler without calling it: the app
+        /// quits, or the held install failed.
         case dropPostponed
         /// Keep the found item, so the line survives a restart.
         case record(Item, informationOnly: Bool)
@@ -187,7 +193,16 @@ public struct UpdateFlow: Sendable, Equatable {
             state = .installing
             return [.reply(.install)]
         case .postponeAsked(let busy):
-            guard state == .installing || state == .waitingForIdle else { return [] }
+            // Sparkle asks only right before it relaunches into an install, by
+            // whatever path: a press, or an update a past session downloaded.
+            // An information-only item never installs; a quit already lets
+            // Sparkle finish without a relaunch.
+            switch state {
+            case .informationOnly, .installingOnQuit: return []
+            default: break
+            }
+            pressed = false
+            message = nil
             guard busy else {
                 state = .installing
                 return []
@@ -203,10 +218,22 @@ public struct UpdateFlow: Sendable, Equatable {
             return []
         case .error(let text):
             let shown = userInitiated
+            // A held install that failed never resumes.
+            let effects: [Effect] = state == .waitingForIdle ? [.dropPostponed] : []
             pressed = false
-            guard shown else { return [] }
+            guard shown else { return effects }
             message = text
             state = item == nil ? .failed : resting
+            return effects
+        case .sessionEnded:
+            switch state {
+            case .checking, .downloading, .extracting, .installing:
+                pressed = false
+                state = resting
+            default:
+                // A held install and one finishing after a quit go on; a resting state stays.
+                break
+            }
             return []
         case .appQuits:
             guard state == .waitingForIdle else { return [] }

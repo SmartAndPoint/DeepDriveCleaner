@@ -70,6 +70,7 @@ class BuildNumber(unittest.TestCase):
                 result = self.check()
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"CURRENT_PROJECT_VERSION is {number}, not greater than 12 at v0.7.0", result.stderr)
+                self.assertIn("Raise CURRENT_PROJECT_VERSION in app/DeepDriveCleaner.xcodeproj/project.pbxproj to 13", result.stderr)
 
     def test_the_highest_version_tag_counts_not_the_newest_name(self):
         self.release(9, tag="v0.9.0")

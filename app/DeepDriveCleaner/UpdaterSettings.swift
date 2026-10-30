@@ -25,6 +25,9 @@ final class UpdaterSettings {
         self.model = model
         self.activity = activity
         refresh()
+        // Sparkle's session starts and ends on its own (a background check, an
+        // install): Check Now follows it, not only Settings appearing.
+        updater.onCanCheckChanged = { [weak self] in self?.refresh() }
     }
 
     /// `SPUUpdater.start()` threw: the switch and Check Now are off, with the reason.
@@ -43,6 +46,9 @@ final class UpdaterSettings {
         updater.automaticallyChecksForUpdates = on
         refresh()
     }
+
+    /// Check Now: Sparkle can start a check, and the update line has nothing under way.
+    var checkNowEnabled: Bool { unavailable == nil && canCheck && model.atRest }
 
     /// One request, also with the daily check off.
     func checkNow() {

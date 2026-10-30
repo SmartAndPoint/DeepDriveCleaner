@@ -195,6 +195,8 @@ codesign --verify --deep --strict "$APP" || fail "the app fails codesign --verif
 APP_INFO="$(codesign -dv "$APP" 2>&1)" || fail "codesign cannot read the app's signature"
 grep -qxF "Identifier=$APP_ID" <<<"$APP_INFO" || fail "the app is not signed as $APP_ID"
 grep -qxF "TeamIdentifier=$TEAM_ID" <<<"$APP_INFO" || fail "the app is not signed by team $TEAM_ID"
+# The appcast names the team the zip's app is signed by, read from it, not assumed.
+APP_TEAM="$(sed -n 's/^TeamIdentifier=//p' <<<"$APP_INFO")"
 xcrun stapler validate -q "$APP" || fail "the app has no valid stapled notarization ticket"
 plist() { plutil -extract "$1" raw -o - "$APP/Contents/Info.plist"; }
 [ "$(plist CFBundleShortVersionString)" = "$VERSION" ] || fail "the app is $(plist CFBundleShortVersionString), not $VERSION"
@@ -247,7 +249,7 @@ else
         --zip "$ZIP" --version "$(plist CFBundleVersion)" --short-version "$VERSION" --min-macos "$MIN_MACOS" \
         --url "https://github.com/$REPO/releases/download/$TAG/$ZIP_NAME" \
         --notes-url "https://github.com/$REPO/releases/tag/$TAG" \
-        --team "$TEAM_ID" --out "$APPCAST" \
+        --team "$APP_TEAM" --out "$APPCAST" \
         ${PREVIOUS_ARGS[@]+"${PREVIOUS_ARGS[@]}"} ${TEAM_CHANGE[@]+"${TEAM_CHANGE[@]}"}
 fi
 xpath_item() { xmllint --xpath "string(//*[local-name()='item']/$1)" "$2"; }
@@ -269,17 +271,23 @@ upload_appcast() {
 }
 
 # What Sparkle reads now: the live feed must be this appcast, signature and all.
+# GitHub's "latest" redirect and its CDN can lag the release by a little: a
+# mismatch is read again, 6 tries 10 s apart, before it fails.
 check_live_feed() {
     step "Reading the live feed $FEED_URL"
-    curl -fsSL --max-time 60 --retry 3 -o "$WORK/live.xml" "$FEED_URL" \
-        || fail "could not read $FEED_URL: the release is published; check it with 'gh release view $TAG --repo $REPO'"
-    xmllint --noout "$WORK/live.xml" || fail "the live feed $FEED_URL is not well-formed XML"
-    local version signature
-    version="$(xpath_item "*[local-name()='version']" "$WORK/live.xml")"
-    signature="$(xpath_item "*[local-name()='enclosure']/@*[local-name()='edSignature']" "$WORK/live.xml")"
-    [ "$version" = "$APPCAST_VERSION" ] && [ "$signature" = "$APPCAST_SIGNATURE" ] \
-        || fail "the live feed offers build '$version', not $APPCAST_VERSION, or another signature: is $TAG the latest release? Check 'gh release view $TAG --repo $REPO' and $FEED_URL"
-    printf '\033[0;32m✅ the live feed offers %s (build %s)\033[0m\n' "$VERSION" "$APPCAST_VERSION"
+    local try version="" signature=""
+    for try in 1 2 3 4 5 6; do
+        [ "$try" = 1 ] || { echo "   the live feed is not this release yet; reading it again in 10 s ($try/6)"; sleep 10; }
+        curl -fsSL --max-time 60 --retry 3 -o "$WORK/live.xml" "$FEED_URL" || continue
+        xmllint --noout "$WORK/live.xml" 2>/dev/null || continue
+        version="$(xpath_item "*[local-name()='version']" "$WORK/live.xml")"
+        signature="$(xpath_item "*[local-name()='enclosure']/@*[local-name()='edSignature']" "$WORK/live.xml")"
+        if [ "$version" = "$APPCAST_VERSION" ] && [ "$signature" = "$APPCAST_SIGNATURE" ]; then
+            printf '\033[0;32m✅ the live feed offers %s (build %s)\033[0m\n' "$VERSION" "$APPCAST_VERSION"
+            return 0
+        fi
+    done
+    fail "the live feed $FEED_URL offers build '${version:-unreadable}', not $APPCAST_VERSION, or another signature: is $TAG the latest release? Check 'gh release view $TAG --repo $REPO' and $FEED_URL"
 }
 
 # ── Release notes and cask ────────────────────────────────────────────────
