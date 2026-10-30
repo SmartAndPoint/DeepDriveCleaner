@@ -238,13 +238,17 @@ fn event(line: &str) -> Option<serde_json::Value> {
 }
 
 /// Stopped first, so the run cannot move on before the signal: SIGSTOP,
-/// `sig`, SIGCONT. `false` when the run had already ended.
+/// `sig`, SIGCONT. `false` when the run had already ended. SIGKILL ends a
+/// stopped process at once, and macOS then refuses SIGCONT to the group of
+/// a zombie, so it gets no SIGCONT.
 fn stop_and_signal(w: &mut Watched, sig: i32) -> bool {
     if !w.stop() {
         return false;
     }
     w.signal(sig);
-    w.signal(libc::SIGCONT);
+    if sig != libc::SIGKILL {
+        w.signal(libc::SIGCONT);
+    }
     true
 }
 
