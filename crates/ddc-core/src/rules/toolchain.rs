@@ -181,15 +181,18 @@ fn jetbrains_current(names: &[String]) -> HashSet<String> {
 #[cfg(test)]
 mod tests {
     use super::{NEWEST_KEPT, PINNED};
-    use crate::rules::{Matcher, RULES, Scope};
+    use crate::platform::Platform;
+    use crate::rules::{Matcher, Scope, rules_of};
 
-    /// The scopes name exactly the rules `dropped` decides from outside their item.
+    /// The scopes name exactly the rules `dropped` decides from outside their
+    /// item, in the macOS catalog, which holds them all.
     #[test]
     fn the_scopes_are_the_rules_dropped_reads_beyond_their_item() {
-        let ids = |scope| RULES.iter().filter(|r| r.scope == scope).map(|r| r.id).collect::<Vec<_>>();
+        let rules = rules_of(Platform::Macos);
+        let ids = |scope| rules.iter().filter(|r| r.scope == scope).map(|r| r.id).collect::<Vec<_>>();
         assert_eq!(ids(Scope::Tree), PINNED);
         assert_eq!(ids(Scope::Siblings), [NEWEST_KEPT]);
-        for rule in RULES.iter().filter(|r| matches!(r.matcher, Matcher::KnownChildren(_))) {
+        for rule in rules.iter().filter(|r| matches!(r.matcher, Matcher::KnownChildren(_))) {
             assert_ne!(rule.scope, Scope::Item, "{}: a known-children rule decides from its siblings", rule.id);
         }
     }

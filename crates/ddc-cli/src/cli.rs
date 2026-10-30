@@ -117,6 +117,27 @@ pub struct RulesArgs {
     /// Print the rules as JSON (schema: docs/rules.schema.json).
     #[arg(long)]
     pub json: bool,
+    /// Print another platform's rules, for review (default: this one's).
+    #[arg(long, value_enum, value_name = "OS")]
+    pub platform: Option<PlatformArg>,
+}
+
+/// A platform `ddc rules --platform` can print.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PlatformArg {
+    Macos,
+    Linux,
+    Windows,
+}
+
+impl From<PlatformArg> for ddc_core::platform::Platform {
+    fn from(p: PlatformArg) -> Self {
+        match p {
+            PlatformArg::Macos => Self::Macos,
+            PlatformArg::Linux => Self::Linux,
+            PlatformArg::Windows => Self::Windows,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]

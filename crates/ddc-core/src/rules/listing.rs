@@ -5,10 +5,11 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{KEPT, RULES, Rule, TOMBSTONE};
+use super::{KEPT, Rule, TOMBSTONE, rules_of};
 use crate::class::{Category, RiskClass};
 use crate::model::RemovalKind;
 use crate::plan::action_for;
+use crate::platform::{PLATFORM, Platform};
 
 /// Version of [`RuleList`]; the scan report has its own.
 pub const RULES_SCHEMA_VERSION: u32 = 1;
@@ -133,11 +134,22 @@ pub fn switchable(rule: &Rule) -> bool {
 }
 
 impl RuleList {
+    /// The rules of the platform this build is for.
     pub fn builtin() -> Self {
+        Self::for_platform(PLATFORM)
+    }
+
+    /// The rules of platform `p`, with the groups that hold one of them.
+    pub fn for_platform(p: Platform) -> Self {
+        let rules = rules_of(p);
         Self {
             schema_version: RULES_SCHEMA_VERSION,
-            groups: GROUPS.iter().map(|(label, _)| (*label).to_owned()).collect(),
-            rules: RULES
+            groups: GROUPS
+                .iter()
+                .filter(|(_, ids)| rules.iter().any(|r| ids.contains(&r.id)))
+                .map(|(label, _)| (*label).to_owned())
+                .collect(),
+            rules: rules
                 .iter()
                 .map(|r| RuleInfo {
                     id: r.id.to_owned(),

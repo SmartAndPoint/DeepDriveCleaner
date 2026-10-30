@@ -1042,8 +1042,13 @@ fn the_claim_checked_folders_are_protected() {
     }
 }
 
+/// The premises of the property tests, which skip where the platform is not
+/// supported: its catalog may lack an entry folder or the cloud folders.
 #[test]
 fn every_entry_folder_and_vm_rule_has_a_path() {
+    if ddc_loadgen::unsupported("every_entry_folder_and_vm_rule_has_a_path") {
+        return;
+    }
     assert_eq!(ENTRY_FOLDERS.len(), ENTRY_RULES.len());
     assert!(!VM.is_empty() && !NATIVE_ONLY.is_empty() && !CLOUD.is_empty());
 }

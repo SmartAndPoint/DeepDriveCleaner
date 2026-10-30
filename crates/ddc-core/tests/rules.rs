@@ -625,24 +625,29 @@ fn excluding_a_cloud_folder_still_never_traverses_it() {
 }
 
 /// Every rule sits in exactly one group of the Types settings. A new rule
-/// without a group fails here.
+/// without a group fails here. The macOS catalog holds every group's rules,
+/// on every OS the tests run on.
 #[test]
 fn every_rule_has_a_group() {
+    use ddc_core::platform::Platform;
     use ddc_core::rules::listing::{GROUPS, RuleList, group_of};
-    for rule in RULES {
+    use ddc_core::rules::rules_of;
+    let macos = rules_of(Platform::Macos);
+    for rule in macos {
         let groups = GROUPS.iter().filter(|(_, ids)| ids.contains(&rule.id)).count();
         assert_eq!(groups, 1, "{} is in {groups} groups", rule.id);
     }
     for (label, ids) in GROUPS {
         assert!(!ids.is_empty(), "{label} is empty");
         for id in *ids {
-            assert!(RULES.iter().any(|r| r.id == *id), "{label} names an unknown rule {id}");
+            assert!(macos.iter().any(|r| r.id == *id), "{label} names an unknown rule {id}");
         }
     }
-    let list = RuleList::builtin();
+    let list = RuleList::for_platform(Platform::Macos);
+    assert_eq!(list.groups.len(), GROUPS.len(), "every group has a macOS rule");
     assert_eq!(
         list.rules.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
-        RULES.iter().map(|r| r.id).collect::<Vec<_>>()
+        macos.iter().map(|r| r.id).collect::<Vec<_>>()
     );
     let fixed: Vec<&str> = list.rules.iter().filter(|r| !r.switchable).map(|r| r.group.as_str()).collect();
     assert!(

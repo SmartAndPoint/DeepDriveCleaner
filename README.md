@@ -252,14 +252,15 @@ ddc clean --items list.json --json       # clean them, report as JSON
 ### `ddc rules`: what it looks for
 
 ```
-ddc rules [--json]
+ddc rules [--json] [--platform macos|linux|windows]
 ```
 
-Lists every rule by group: what each type of finding is, its class, and whether `settings.json` can switch it off (`disabled_rules`). `--json` follows [`docs/rules.schema.json`](docs/rules.schema.json).
+Lists every rule by group: what each type of finding is, its class, and whether `settings.json` can switch it off (`disabled_rules`). `--json` follows [`docs/rules.schema.json`](docs/rules.schema.json). The rules are those of the platform ddc runs on; `--platform` prints another platform's, for review.
 
 ```
 ddc rules                                         # every rule, by group
 ddc rules --json | jq -r '.rules[] | .id'         # rule ids for disabled_rules
+ddc rules --platform linux                        # the rules ddc would use on Linux
 ```
 
 ### `ddc disk`: what uses the whole disk

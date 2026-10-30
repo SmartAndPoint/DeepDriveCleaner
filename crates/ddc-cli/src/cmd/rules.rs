@@ -1,14 +1,16 @@
-//! `ddc rules`: the rule catalog by group, as the app's Types settings show it.
+//! `ddc rules`: the rule catalog by group, as the app's Types settings show it;
+//! `--platform` prints another platform's.
 
 use std::io::Write as _;
 use std::process::ExitCode;
 
+use ddc_core::platform::{PLATFORM, Platform};
 use ddc_core::rules::listing::RuleList;
 
 use crate::cli::RulesArgs;
 
 pub fn run(args: &RulesArgs) -> anyhow::Result<ExitCode> {
-    let list = RuleList::builtin();
+    let list = RuleList::for_platform(args.platform.map_or(PLATFORM, Platform::from));
     let mut out = std::io::stdout().lock();
     let written = if args.json {
         serde_json::to_writer_pretty(&mut out, &list).map_err(std::io::Error::from).and_then(|()| writeln!(out))
