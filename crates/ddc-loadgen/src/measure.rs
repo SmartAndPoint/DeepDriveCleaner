@@ -72,6 +72,10 @@ mod tests {
     /// to the repository, while the child runs in its tree's home.
     #[test]
     fn a_relative_cli_runs_in_another_directory() {
+        // The measured child is waited for with wait4, not ported off macOS yet.
+        if crate::unsupported("a_relative_cli_runs_in_another_directory") {
+            return;
+        }
         let here = std::env::current_dir().unwrap();
         let mut relative = PathBuf::new();
         here.components().skip(1).for_each(|_| relative.push(".."));
