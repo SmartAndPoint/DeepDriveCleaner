@@ -19,6 +19,21 @@ pub use ddc_loadgen::unsupported;
 #[allow(unused_imports)] // only the capability tests use it
 pub use ddc_loadgen::lacks;
 
+/// The value of a harness tool (the pseudo-terminal driver), or `None`
+/// after printing why when the tool is missing here
+/// (`io::ErrorKind::Unsupported`), and the test skips (ADR "Platform seam",
+/// §9, amended). Any other error fails the test.
+pub fn skipped_without<T>(test: &str, made: std::io::Result<T>) -> Option<T> {
+    match made {
+        Ok(value) => Some(value),
+        Err(why) if why.kind() == std::io::ErrorKind::Unsupported => {
+            eprintln!("skipped {test}: {why}");
+            None
+        }
+        Err(why) => panic!("{test}: {why}"),
+    }
+}
+
 /// `(dev, ino)` of one path, without following symlinks.
 pub fn id(path: impl AsRef<Path>) -> (u64, u64) {
     ddc_core::platform::meta::file_id(&fs::symlink_metadata(path).unwrap()).unwrap()

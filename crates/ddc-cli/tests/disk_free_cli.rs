@@ -164,6 +164,9 @@ fn without_actions_and_without_a_terminal_it_refuses_and_runs_nothing() {
 
 #[test]
 fn there_is_no_yes() {
+    if common::unsupported("there_is_no_yes") {
+        return;
+    }
     let fx = Fx::new();
     let out = fx.ddc(&["free", "--yes"]).output().unwrap();
     assert_eq!(out.status.code(), Some(2));
