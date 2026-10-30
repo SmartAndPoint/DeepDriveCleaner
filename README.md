@@ -255,7 +255,7 @@ ddc clean --items list.json --json       # clean them, report as JSON
 ddc rules [--json] [--platform macos|linux|windows]
 ```
 
-Lists every rule by group: what each type of finding is, its class, and whether `settings.json` can switch it off (`disabled_rules`). `--json` follows [`docs/rules.schema.json`](docs/rules.schema.json). The rules are those of the platform ddc runs on; `--platform` prints another platform's, for review.
+Lists every rule by group: what each type of finding is, its class, how it is removed, and under it the folders in your home it looks at (`~/…/*` claims each child, `~/…/…/name` a folder of that name anywhere below). `settings.json` can switch a rule off (`disabled_rules`). `--json` follows [`docs/rules.schema.json`](docs/rules.schema.json). The rules are those of the platform ddc runs on; `--platform` prints another platform's, for review.
 
 ```
 ddc rules                                         # every rule, by group

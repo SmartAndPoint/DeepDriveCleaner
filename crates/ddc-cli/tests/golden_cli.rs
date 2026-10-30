@@ -268,8 +268,17 @@ fn golden_rules() {
     // The catalog names no device, so this test runs where `file_id` does not.
     let at = Where { base: dir.path().to_str().unwrap().to_owned(), dev: None };
     normalise(&mut got, &at);
-    let d = against(&golden_dir().join("rules.json"), &got);
-    assert_golden(&d.into_iter().map(|d| format!("rules: {d}")).collect::<Vec<_>>());
+    let mut d: Vec<String> =
+        against(&golden_dir().join("rules.json"), &got).into_iter().map(|d| format!("rules: {d}")).collect();
+    // On macOS the catalog with no `--platform` is the same file.
+    if ddc_core::platform::PLATFORM == ddc_core::platform::Platform::Macos {
+        let mut native = ddc(&home, &["rules", "--json"]);
+        normalise(&mut native, &at);
+        d.extend(
+            against(&golden_dir().join("rules.json"), &native).into_iter().map(|d| format!("rules (native): {d}")),
+        );
+    }
+    assert_golden(&d);
 }
 
 /// The check catches a change to one rule: switched off in `settings.json`,
