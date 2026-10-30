@@ -5,7 +5,7 @@
 #
 #   scripts/ci-green.sh [--full] [workflow file]
 #
-# Only push runs count. Waits while the run is still going, so a release right after a push does not fail.
+# Only push runs count. Waits while the run is still going, so a release right after a merge does not fail.
 # A green Gate run may have skipped its Rust jobs: the commit changed only Rust-free paths
 # since a fully green ancestor (scripts/gate-scope.sh). --full, for `make tag` and `make
 # dist`, also requires the gate, coverage and release-build jobs of HEAD's own run to have
@@ -32,7 +32,7 @@ latest_run() {
 }
 
 row="$(latest_run)" || fail "gh could not list the $workflow runs for HEAD (see its message above)"
-[ -n "$row" ] || fail "no $workflow push run for $sha: push it (a tag, for release.yml) and wait for CI"
+[ -n "$row" ] || fail "no $workflow push run for ${sha:0:7} yet: after a PR merges, main's run starts within a minute (a tag's, for release.yml); wait and rerun"
 IFS='|' read -r id status conclusion url <<<"$row"
 
 if [ "$status" != completed ]; then

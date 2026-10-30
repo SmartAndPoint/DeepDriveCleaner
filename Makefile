@@ -337,7 +337,7 @@ coverage:
 
 # The owner, on main: raises bench/coverage-floor.tsv from the summary of the latest
 # green Gate run on main whose coverage job ran (an app-only push skips it), never lowers
-# it. CI never runs this. Commit the result.
+# it. CI never runs this. Commit the result on a branch and merge it through a PR.
 coverage-ratchet:
 	rm -rf target/coverage/ci
 	@run=""; for id in $$(gh run list --workflow gate.yml --branch main --event push --status success --limit 20 \
@@ -373,11 +373,11 @@ install:
 #   2. release.yml runs on the tag: the enabled targets' archives, as workflow artifacts.
 #   3. make dist: the macOS assets from the tagged commit.
 #   4. scripts/publish-release.sh: one release with all of them and SHA256SUMS.
-# The release is one commit: nothing is pushed to main between make tag and publish.
+# The release is one commit: nothing is merged into main between make tag and publish.
 # If release.yml fails, or a fix needs a commit, first check that the tag has no
-# release ('gh release view v<version>' says release not found), then fix on main,
-# delete the tag on origin (git push origin :refs/tags/v<version>) and locally, and
-# run make tag again; or bump the version. publish-release.sh refuses a red run only
+# release ('gh release view v<version>' says release not found), then merge the fix
+# through a PR and pull main, delete the tag on origin (git push origin
+# :refs/tags/v<version>) and locally, and run make tag again; or bump the version. publish-release.sh refuses a red run only
 # while RELEASE_TARGETS is non-empty. Never delete the tag of a published release.
 tag:
 	./scripts/tag-release.sh

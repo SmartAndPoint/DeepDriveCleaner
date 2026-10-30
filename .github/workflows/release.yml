@@ -86,7 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # Every packaged binary passed the test suite: the Gate run of this commit (its
-      # push to main) is green, or this waits for it.
+      # run on main after its PR merged) is green, or this waits for it.
       - name: Gate green for this commit
         env:
           GH_TOKEN: ${{ github.token }}

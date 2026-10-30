@@ -480,6 +480,17 @@ make hooks      # git runs .githooks/: gate-fast before a commit, gate before a 
 
 A commit or push that changes only paths on `.config/rust-free-paths` (the app's own sources, the website, the release notes) skips the Rust tiers in the hooks and in CI (`scripts/gate-scope.sh`): a green hook on such a push says nothing about Rust. `make tag` and `make dist` need the Rust jobs to have passed on the release commit itself. The M-size load trees run nightly.
 
+`main` takes no direct push. Work on a branch started from `origin/main`, push it, open a pull request and let it merge itself once the Gate passes:
+
+```
+git fetch && git switch -c my-change origin/main
+git push -u origin my-change   # the pre-push hook gates it
+gh pr create --fill
+gh pr merge --auto --rebase    # merges once scope, gate, coverage, app and release-build pass
+```
+
+A rebase merge gives the commits new SHAs, so the next branch starts from a fresh `origin/main` again. A pull request from a fork gets no Gate run: a maintainer pushes its commits to a branch here to run it.
+
 ```
 make gate-fast  # fmt check, clippy -D warnings, all tests (nextest), doc tests
 make gate       # gate-fast plus cargo deny, unused dependencies, docs, the MSRV build, a release build
@@ -490,7 +501,7 @@ make install    # install deepdrivecleaner + ddc
 make app-test   # the app's logic (DDCKit) under swift test, then the signing check
 make ddckit-test # DDCKit's swift test alone
 make app        # the app, Debug, signed with your Developer ID
-make tag        # maintainers: after a green CI run for HEAD of main, push the tag v<version>; release.yml builds the other targets from it
+make tag        # maintainers: after the bump's PR merged, main is pulled and its CI run is green, push the tag v<version>; release.yml builds the other targets from it
 make dist       # maintainers: then, on the tagged commit whose own CI run is green, the signed, notarized CLI tarball and app zip (then scripts/publish-release.sh)
 ```
 

@@ -1,6 +1,6 @@
 # The one-line install (story "One-line install on macOS and Linux: ddc.sh/install.sh
 # and cargo", DDC-007).
-# - On every push and pull request: packaging/install/install.sh against fake releases
+# - On every branch push: packaging/install/install.sh against fake releases
 #   on 127.0.0.1 (make install-test), on macOS and Ubuntu, and shellcheck on Ubuntu.
 #   The macOS job also runs the case that creates a real LaunchAgent with
 #   `ddc schedule install` and upgrades under it.
@@ -11,7 +11,6 @@ name: Install
 on:
   push:
     branches: ["**"]
-  pull_request:
   release:
     types: [published]
   schedule:
@@ -22,8 +21,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: install-${{ github.event_name == 'pull_request' && github.ref || github.sha }}-${{ github.event_name }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: install-${{ github.sha }}-${{ github.event_name }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
