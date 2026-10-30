@@ -33,9 +33,13 @@ This installs `/Applications/DeepDriveCleaner.app` and links two commands into H
 
 Open the app once from Applications and grant it Full Disk Access when it asks (see [Full Disk Access](#full-disk-access)).
 
-To update: `brew upgrade --cask deepdrivecleaner`, but not while the app is cleaning. An upgrade quits the app; it opens again at your next login if Open at login is on, or when you open it.
+The app updates itself. It checks for a new version once a day (see [Network](#network)); when there is one, the popover and Settings → General show "Version X is available" with its release notes and **Update and Relaunch**. Nothing installs until you press it. If a scan or a clean is running, the update waits for it to finish, then the app quits, is replaced and opens again. A copy dragged to Applications by hand updates the same way.
 
-To remove: `brew uninstall --zap --cask deepdrivecleaner` removes the app, the commands, the background agent, the saved scan, the settings and the logs. Without `--zap` they stay, and the app's entry in Login Items can stay until macOS drops it. If you use the background scan and uninstall without `--zap`, run `ddc schedule uninstall` first.
+Because the app updates itself, the cask says `auto_updates true`, and a plain `brew upgrade` leaves it alone. If you use only the command line from Homebrew and never open the app, update with `brew upgrade --greedy deepdrivecleaner`. An upgrade through brew quits the app; it opens again at your next login if Open at login is on, or when you open it. Do not run it while the app is cleaning.
+
+To go back to an older version: download its zip from the [releases](https://github.com/SmartAndPoint/DeepDriveCleaner/releases) and replace the app in Applications with it, or install an older cask with `brew reinstall`. Then switch off Check for updates daily in Settings → General, or the app offers the newer version again.
+
+To remove: `brew uninstall --zap --cask deepdrivecleaner` removes the app, the commands, the background agent, the saved scan, the settings, the logs and the update cache. Without `--zap` they stay, and the app's entry in Login Items can stay until macOS drops it. If you use the background scan and uninstall without `--zap`, run `ddc schedule uninstall` first.
 
 ### On an older macOS, or the command line only
 
@@ -60,7 +64,8 @@ This installs `~/.cargo/bin/deepdrivecleaner` and a `ddc` symlink to it. A local
 - **Whole disk** (Where Does the Rest Go? in the popover, or the last row of the Review sidebar) shows the startup disk as one bar: the home folder, with what the last scan can free in its class colours, then apps, system data, Homebrew, conda, simulator runtimes and what could not be counted, one row each. Scan Whole Disk runs `ddc disk` beside any scan or clean, never on its own, and Stop keeps what it measured so far. Under the rows, **Coding agents** shows what Claude Code, Codex, Cursor and opencode keep and their live sessions, from `ddc disk agents`; it shows project folders and session names. Some rows offer their owning tool's cleanup: Delete Runtime… on a downloaded simulator runtime no simulator runs on, Clean Up Homebrew…, and for a conda install in /opt, Clean Package Cache… and Remove Environment… on each of its environments, listed under the Conda row (none on a folder your user cannot write). Each opens a sheet with the tool's own dry run and the exact command, and runs only after you confirm (`ddc disk free`); nothing else in this view removes anything.
 - **The confirmation sheet** lists every item with its action, checks each one with a dry run first, and names what would be skipped and why. Review items go to the Trash unless you choose Delete permanently for one. After the clean it shows what was deleted, moved to the Trash or skipped, grouped by cause.
 - **Your own files.** Downloads, Pictures, Movies, Music and iPhone and iPad backups list what they hold, largest first. Nothing in them is ever selected for you; you pick files and folders one by one, and they go to the Trash, never deleted. App libraries (Photos and others), partial downloads, unfinished backups and anything changed in the last 10 minutes are locked. Cloud folders (iCloud Drive and other File Provider folders) are not scanned.
-- **Settings** has Open at login for now.
+- **Settings** has General (Open at login, the icon, the daily update check, when it last ran, and Check Now), Folders, Schedule, Automation, Types and Permissions.
+- **Updates.** When a new version is out, a line above the popover's footer says so, with its release notes and Update and Relaunch. See [Install](#install) and [Network](#network).
 - **In the Dock while a window is open.** While the Review window, Settings or About is open, the app is in the Dock and in Cmd-Tab, with its own menu bar (⌘W, ⌘Q, copy and paste in the search field). When the last window closes, it lives in the menu bar only again and the app you were using comes back to the front.
 
 The app runs the same command-line tool for every scan and clean, so everything below applies to it too.
@@ -332,12 +337,21 @@ These checks lower the risk; they do not remove it. See the [Disclaimer](#discla
 
 ## Full Disk Access
 
-Without Full Disk Access some of `~/Library` cannot be read; the report lists those folders instead of guessing. Grant it to the app: System Settings → Privacy & Security → Full Disk Access → DeepDriveCleaner. The grant is tied to the app's identity (its Developer ID signature and bundle id) rather than to one copy of it, so it should survive `brew upgrade`; if the app reports no Full Disk Access after an upgrade, switch it off and on again in that list.
+Without Full Disk Access some of `~/Library` cannot be read; the report lists those folders instead of guessing. Grant it to the app: System Settings → Privacy & Security → Full Disk Access → DeepDriveCleaner. The grant is tied to the app's identity (its Developer ID signature and bundle id) rather than to one copy of it, so it should survive an update, by Update and Relaunch or by `brew upgrade`: both replace the app with a copy of the same identity. If the app reports no Full Disk Access after an update, switch it off and on again in that list.
 
 - Run from Terminal, `ddc` is covered by Terminal's own grant, not the app's.
 - The app's own scheduled scans (Settings → Schedule) use the app's grant; they replace the agent of `ddc schedule install`, which refuses while the app schedules.
 - The background agent of `ddc schedule install` runs the binary inside the app. To let it scan everything, add `/Applications/DeepDriveCleaner.app/Contents/Helpers/deepdrivecleaner` to Full Disk Access (press ⇧⌘G in the file picker to type the path). Since 0.2.0 that path stays the same across upgrades. If you upgraded from 0.1.0, remove the old `Caskroom/deepdrivecleaner/0.1.0` entry.
 - A local `make install` build is not signed with the Developer ID and has to be granted again after every build.
+
+## Network
+
+The app's only network requests of its own are for updates, made through [Sparkle](https://sparkle-project.org):
+
+- **What.** One HTTPS request for `appcast.xml`, the list of releases, from github.com (GitHub redirects it to its download host). The first launch of a version with the updater checks at once, then at most once a day. Check Now in Settings → General makes one request, also with the daily check off. Update and Relaunch downloads the release's zip from the same hosts.
+- **What GitHub sees.** Your IP address, the time, the `User-Agent` `DeepDriveCleaner` with no version, and your system language through the `Accept-Language` header. The app sends no headers or parameters of its own, and Sparkle's system profiling is off.
+- **What the maintainers see.** GitHub's download counter for `appcast.xml`: a total count, nothing per user or per Mac.
+- **To turn it off,** switch off Check for updates daily in Settings → General. Updates then come only from Check Now or from `brew upgrade --greedy deepdrivecleaner`.
 
 ## How it is built
 
