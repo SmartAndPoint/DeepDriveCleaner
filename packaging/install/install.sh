@@ -59,7 +59,7 @@ TEAM_ID=8MSDJTBW2D
 MIN_MACOS=26.0
 # The first release that carries SHA256SUMS: older ones have nothing to verify against.
 FIRST_VERIFIABLE=0.8.0
-# The LaunchAgent of `ddc schedule install` (crates/ddc-cli/src/launchd.rs LABEL).
+# The LaunchAgent of `ddc schedule install` (crates/ddc-cli/src/platform/launchd.rs LABEL).
 LABEL=com.smartandpoint.deepdrivecleaner
 # The app the Homebrew cask installs, or a copy dragged into ~/Applications; it
 # carries the same CLI.

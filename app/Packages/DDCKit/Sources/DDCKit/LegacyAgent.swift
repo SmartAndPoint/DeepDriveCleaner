@@ -1,7 +1,7 @@
 import Foundation
 
 /// The CLI's own LaunchAgent, from 0.1.0 or a 0.2.x `ddc schedule install`
-/// (`crates/ddc-cli/src/launchd.rs`): a plist in `~/Library/LaunchAgents`
+/// (`crates/ddc-cli/src/platform/launchd.rs`): a plist in `~/Library/LaunchAgents`
 /// that runs `deepdrivecleaner scan --background` at 11:30, daily or on
 /// Mondays. While it exists the app schedules nothing (B1) and offers to
 /// replace it (B2).

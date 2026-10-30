@@ -301,7 +301,7 @@ class MacInstall(Case):
         self.publish("0.8.1")
         self.ok(self.install("--version", "0.8.0"))
         dest = os.path.join(self.prefix, "deepdrivecleaner")
-        # The agent `ddc schedule install` writes (crates/ddc-cli/src/launchd.rs).
+        # The agent `ddc schedule install` writes (crates/ddc-cli/src/platform/launchd.rs).
         agents = os.path.join(self.home, "Library", "LaunchAgents")
         os.makedirs(agents)
         with open(os.path.join(agents, f"{LABEL}.plist"), "wb") as f:
@@ -702,7 +702,7 @@ class Constants(unittest.TestCase):
             self.assertEqual(re.findall(r"MACOSX_DEPLOYMENT_TARGET=([0-9.]+)", text), [floor], name)
         project = read("app/DeepDriveCleaner.xcodeproj/project.pbxproj")
         self.assertEqual(set(re.findall(r"MACOSX_DEPLOYMENT_TARGET = ([0-9.]+);", project)), {floor})
-        launchd = read("crates/ddc-cli/src/launchd.rs")
+        launchd = read("crates/ddc-cli/src/platform/launchd.rs")
         self.assertIn(f'pub const LABEL: &str = "{constant(script, "LABEL")}";', launchd)
         self.assertIn('ARCHIVE=deepdrivecleaner-$VERSION-$TARGET.tar.gz', script)
         self.assertIn('ASSET="deepdrivecleaner-$VERSION-$TARGET.tar.gz"', dist)

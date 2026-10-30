@@ -363,12 +363,12 @@ struct ContractTests {
 
     @Test("the 0.1.0 agent is the CLI's: its label, 11 o'clock, and Monday as launchd's Weekday 1")
     func legacyAgentContract() throws {
-        let source = try rustSource("crates/ddc-cli/src/launchd.rs")
+        let source = try rustSource("crates/ddc-cli/src/platform/launchd.rs")
         let label = try #require(source.firstMatch(of: /pub const LABEL: &str = "([^"]+)";/))
         #expect(String(label.1) == LegacyAgent.label)
         #expect(source.contains("<key>Hour</key><integer>\(LegacyAgent.hour)</integer><key>Minute</key><integer>30</integer>"))
         #expect(source.contains("<key>Weekday</key><integer>1</integer>"))
-        let plist = try rustSource("crates/ddc-cli/src/launchd.rs").firstMatch(of: /home\.join\("Library\/LaunchAgents"\)\.join\(format!\("\{LABEL\}\.plist"\)\)/)
+        let plist = try rustSource("crates/ddc-cli/src/platform/launchd.rs").firstMatch(of: /home\.join\("Library\/LaunchAgents"\)\.join\(format!\("\{LABEL\}\.plist"\)\)/)
         #expect(plist != nil, "the plist path is ~/Library/LaunchAgents/<label>.plist")
         #expect(LegacyAgent.plist(home: URL(filePath: "/Users/example")).path == "/Users/example/Library/LaunchAgents/com.smartandpoint.deepdrivecleaner.plist")
     }
