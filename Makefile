@@ -31,7 +31,7 @@ export PROPTEST_CASES
 MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
 .PHONY: build fmt fmt-check clippy test check release install tag require-tag dist app app-test app-dist icons \
-	gate-fast gate nextest doctest clippy-dhat doc deny machete fuzz-lock msrv release-check unported-check \
+	lint gate-fast gate nextest nextest-unit doctest clippy-dhat doc deny machete fuzz-lock msrv release-check unported-check \
 	tools require-tools hooks coverage coverage-ratchet ci-green cross-check golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test script-test leaks asan fuzz ddckit-test ci-green-full
 
 build:
@@ -50,16 +50,22 @@ test:
 	$(CARGO) test --workspace
 
 # The mandatory gate (story "Mandatory gate before every commit", DDC-005). Each step
-# is its own target, so a failure names the step. gate-fast runs before every commit
-# (.githooks/pre-commit), gate before every push (.githooks/pre-push) and in CI; the
-# hooks and CI skip them when only Rust-free paths changed (scripts/gate-scope.sh,
+# is its own target, so a failure names the step. Three tiers, since the owner's
+# 2026-10-31 call (unit tests for code work, the load tests before a release):
+# - lint before every commit (.githooks/pre-commit);
+# - gate-fast before every push (.githooks/pre-push) and in CI on a branch: the unit
+#   tests, without the load trees, the goldens and the interruption tests;
+# - gate in CI on main, whose run `make tag` and `make dist` read (scripts/ci-green.sh).
+# The hooks and CI skip them when only Rust-free paths changed (scripts/gate-scope.sh,
 # .config/rust-free-paths; story "Gate by what changed: load at night, one gate per
 # release, app-only pushes skip Rust", DDC-005). CI's required Linux and Windows check
 # jobs run the tests natively beside it, against .config/native-skips (gate.yml).
-gate-fast: require-tools fmt-check clippy nextest doctest
+lint: require-tools fmt-check clippy
+
+gate-fast: lint nextest-unit doctest
 
 # deny, machete and fuzz-lock read only metadata and take seconds: they go first.
-gate: require-tools deny machete fuzz-lock gate-fast cross-check clippy-dhat doc msrv release-check unported-check bench-test script-test leaks
+gate: require-tools deny machete fuzz-lock lint nextest doctest cross-check clippy-dhat doc msrv release-check unported-check bench-test script-test leaks
 
 # The install script's tests join the gate on a line of their own.
 gate: install-test
@@ -69,6 +75,12 @@ check: gate-fast
 
 nextest:
 	$(CARGO) nextest run --workspace $(FEATURES) --locked
+
+# The unit tier: every test but the ones that build load trees (the `load` group of
+# .config/nextest.toml). `make golden-check` runs the goldens alone.
+UNIT_FILTER := not (package(ddc-loadgen) | binary(load_cli) | binary(interrupt_cli) | binary(golden_cli))
+nextest-unit:
+	$(CARGO) nextest run --workspace $(FEATURES) --locked -E '$(UNIT_FILTER)'
 
 # Nextest does not run doc tests.
 doctest:

@@ -57,11 +57,14 @@
 
 ## The gate
 
-- Run `make tools` and `make hooks` once per clone. The hooks run `make gate-fast`
-  before every commit and `make gate` before every push.
+- Run `make tools` and `make hooks` once per clone. The hooks run `make lint` (fmt and
+  clippy) before every commit and `make gate-fast` (the unit tests, no load trees)
+  before every push. CI runs `gate-fast` on a branch and the whole `make gate` on
+  main, which a release needs. For code work the unit tier is the bar; the load tests
+  are for a release (the owner, 2026-10-31).
 - Never commit or push with `--no-verify`: fix what the gate names.
-- The pre-push gate takes about 2 minutes after a core change and longer cold:
-  run `git commit` and `git push` with a 10-minute tool timeout.
+- The pre-push tier takes about a minute after a core change and longer cold: run
+  `git commit` and `git push` with a 10-minute tool timeout.
 - A commit or push whose every path is on `.config/rust-free-paths` (the app's own
   sources, `website/`, `docs/releases/`) skips the Rust tiers, locally and in CI; a
   push that touches `app/Packages/` runs `make ddckit-test` instead. A green hook on
