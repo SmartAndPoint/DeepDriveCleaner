@@ -88,6 +88,10 @@ mod tests {
     /// A folder swapped in after the check is not renamed to a tombstone or removed.
     #[test]
     fn a_folder_swapped_in_after_the_check_is_left_alone() {
+        // The verified-parent operations (fsops) are not ported off macOS yet.
+        if crate::platform::skipped("a_folder_swapped_in_after_the_check_is_left_alone") {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir_all(dir.path().join("cache/old")).unwrap();
         let v = verified(dir.path(), "cache");

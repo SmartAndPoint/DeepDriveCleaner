@@ -115,6 +115,11 @@ mod tests {
 
     #[test]
     fn codex_is_a_cli_or_its_app_server() {
+        // macOS paths, which are not absolute on Windows: until story "Windows
+        // scanner and rule catalog" adds Windows-shaped inputs.
+        if crate::platform::skipped("codex_is_a_cli_or_its_app_server") {
+            return;
+        }
         assert_eq!(
             classify(&proc("codex", "/opt/homebrew/bin/codex", &["codex"])),
             Some((HarnessId::Codex, RunningKind::Cli))
@@ -140,6 +145,11 @@ mod tests {
 
     #[test]
     fn cursor_is_its_main_binary_only() {
+        // macOS paths, which are not absolute on Windows: until story "Windows
+        // scanner and rule catalog" adds Windows-shaped inputs.
+        if crate::platform::skipped("cursor_is_its_main_binary_only") {
+            return;
+        }
         assert_eq!(
             classify(&proc("Cursor", "/Applications/Cursor.app/Contents/MacOS/Cursor", &[])),
             Some((HarnessId::Cursor, RunningKind::App))

@@ -266,6 +266,11 @@ mod tests {
 
     #[test]
     fn only_whole_components_below_the_root_are_under_it() {
+        // macOS paths, which are not absolute on Windows: until story "Windows
+        // scanner and rule catalog" adds Windows-shaped inputs.
+        if crate::platform::skipped("only_whole_components_below_the_root_are_under_it") {
+            return;
+        }
         let root = Path::new("/System/Library/AssetsV2");
         assert!(strictly_under(Path::new("/System/Library/AssetsV2/x/a.asset"), root));
         assert!(!strictly_under(root, root));
@@ -277,6 +282,11 @@ mod tests {
 
     #[test]
     fn the_asset_folder_is_the_nearest_dot_asset_ancestor_under_assets() {
+        // macOS paths, which are not absolute on Windows: until story "Windows
+        // scanner and rule catalog" adds Windows-shaped inputs.
+        if crate::platform::skipped("the_asset_folder_is_the_nearest_dot_asset_ancestor_under_assets") {
+            return;
+        }
         let root = Path::new("/S/AssetsV2");
         assert_eq!(
             asset_folder(Path::new("/S/AssetsV2/com_x/abc.asset/AssetData"), root),
