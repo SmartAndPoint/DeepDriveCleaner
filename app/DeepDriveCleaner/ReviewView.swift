@@ -143,8 +143,8 @@ struct ReviewView: View {
     }
 }
 
-/// The selection and Clean N items…: its own view, so a tick redraws it and
-/// not the window around it.
+/// The selection, Deselect All and Clean N items…: its own view, so a tick
+/// redraws it and not the window around it.
 private struct SelectionFooter: View {
     @Bindable var model: ReviewModel
     /// The filter has the focus and holds text.
@@ -163,6 +163,9 @@ private struct SelectionFooter: View {
                     .monospacedDigit()
                 Text(sub.joined(separator: " · ")).font(.system(size: 12)).foregroundStyle(.secondary)
             }
+            // Beside the selection it clears, away from Close and Clean.
+            Button("Deselect All") { model.deselectAll() }
+                .disabled(!model.canDeselectAll)
             Spacer()
             // Esc closes the window (owner, 2026-10-19), unless it is
             // clearing the filter.
