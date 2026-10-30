@@ -31,13 +31,13 @@
 	<!-- Sparkle (ADR "Updates through Sparkle, alongside the Homebrew cask", §1): a
 	     check at most daily, on by default; install only on Update and Relaunch.
 	     System profiling and Sparkle's XPC services stay off (keys not set).
-	     SUPublicEDKey is the owner's `generate_keys` public key; until it is pasted
-	     here, build-app.sh refuses the placeholder for a release, and a Debug build's
-	     updater does not start. -->
+	     SUPublicEDKey is the public half of the owner's `generate_keys` key, whose
+	     private half stays in the owner's keychain; build-app.sh --dist refuses
+	     anything but an EdDSA public key here. -->
 	<key>SUFeedURL</key>
 	<string>https://github.com/SmartAndPoint/DeepDriveCleaner/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>SPARKLE_PUBLIC_ED_KEY_PLACEHOLDER</string>
+	<string>MwO79np4MPskuB2YpRXZo22v/ELI5bo8sJ2q1jIJdVs=</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUScheduledCheckInterval</key>
