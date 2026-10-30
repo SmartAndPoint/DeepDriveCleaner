@@ -2,9 +2,8 @@
 # `make gate` on every branch push, with coverage and the app's tests beside
 # it. The M-size load trees run nightly (nightly.yml). `make tag` and `make dist` refuse
 # a commit whose run here is not green (scripts/ci-green.sh --full): every required job,
-# run on that commit. The Linux and Windows `check` jobs run with continue-on-error, so
-# they are not required until they run the gate natively (story "Build matrix: every
-# target built, tested and packaged from one tag", DDC-007, stage 2).
+# run on that commit, the Linux and Windows `check-<target>` jobs included (story "Build
+# matrix: every target built, tested and packaged from one tag", DDC-007, stage 2).
 #
 # The Rust jobs wait for `scope` (story "Gate by what changed: load at night, one gate
 # per release, app-only pushes skip Rust", DDC-005): a push whose every path since the
@@ -136,9 +135,9 @@ jobs:
   # what is not ported yet skips with a printed "skipped <test>: <reason>" (ADR
   # "Platform seam", §9, amended), and the last step compares those lines with
   # .config/native-skips/<os>.txt, so a new skip is a reviewed diff (stage 2). The
-  # names do not carry the runner label, so a label bump renames no check.
-  # continue-on-error stays until the lists are committed. cargo directly: there is
-  # no make on Windows.
+  # names do not carry the runner label, so a label bump renames no check. Both are
+  # required checks on main, as gate is; a Rust-free push skips them as it skips gate.
+  # cargo directly: there is no make on Windows.
   check:
     name: check-${{ matrix.target }}
     needs: scope
@@ -153,7 +152,6 @@ jobs:
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - name: Toolchain from rust-toolchain.toml

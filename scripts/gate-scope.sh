@@ -7,7 +7,8 @@
 #   scripts/gate-scope.sh staged      the index, for .githooks/pre-commit
 #   scripts/gate-scope.sh push        git's pre-push lines on stdin, for .githooks/pre-push
 #   scripts/gate-scope.sh ci <sha>    the Gate's scope job: <sha> against the newest ancestor
-#                                     whose push run passed gate, coverage and release-build
+#                                     whose push run passed gate, coverage, release-build and
+#                                     the two native check jobs
 #
 # Prints one word and exits 0: `rust`, `skip`, or for `push` `swift` (the Rust tiers are
 # skipped, DDCKit's package changed). A usage error prints `rust` and exits 2. Callers
@@ -18,7 +19,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LIST="$ROOT/.config/rust-free-paths"
 # The Gate jobs a base run must have passed: the ones the scope job skips that judge.
-BASE_JOBS='["gate","coverage","release-build"]'
+BASE_JOBS='["gate","coverage","release-build","check-x86_64-unknown-linux-gnu","check-x86_64-pc-windows-msvc"]'
 MAX_ANCESTORS=20
 
 answer() { printf '%s\n' "$1"; exit 0; }
@@ -146,7 +147,7 @@ ci_scope() {
             *) rust "a path off .config/rust-free-paths changed since ${sha:0:7}" ;;
         esac
     done <<<"$rows"
-    rust "no Gate run passed gate, coverage and release-build on an ancestor of ${head:0:7}"
+    rust "no Gate run passed gate, coverage, release-build and the native checks on an ancestor of ${head:0:7}"
 }
 
 case "${1:-}" in

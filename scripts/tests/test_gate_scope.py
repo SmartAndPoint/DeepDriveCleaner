@@ -27,6 +27,8 @@ GIT_ENV = {
     "GIT_COMMITTER_EMAIL": "test@example.com",
 }
 ZERO = "0" * 40
+# The Gate's native check jobs, as gate.yml names them (check-${{ matrix.target }}).
+NATIVE = ("check-x86_64-unknown-linux-gnu", "check-x86_64-pc-windows-msvc")
 
 # A gh that answers `gh api <path>` from $FAKE_GH/<path with / and ? as _>.json, and
 # `gh run list` from $FAKE_GH/run-list.json; it fails when $FAKE_GH/fail exists. --jq is
@@ -255,7 +257,7 @@ class Push(unittest.TestCase):
 
 class Ci(unittest.TestCase):
     """`ci <sha>` against the fake gh: the base is the newest ancestor whose push run
-    passed gate, coverage and release-build."""
+    passed gate, coverage, release-build and the two native check jobs."""
 
     REPO = "example/ddc"
     RUNS = f"repos/{REPO}/actions/workflows/gate.yml/runs?event=push&status=success&per_page=50"
@@ -275,7 +277,7 @@ class Ci(unittest.TestCase):
 
     def full(self, sha):
         self.run_for(sha, {"scope": "success", "gate": "success", "coverage": "success",
-                           "release-build": "success", "app": "success"})
+                           "release-build": "success", "app": "success", **{name: "success" for name in NATIVE}})
 
     def ci(self, head, event="push"):
         self.repo.answer(self.RUNS, {"workflow_runs": self.runs})
@@ -310,6 +312,14 @@ class Ci(unittest.TestCase):
         # Listed with status=success only if the run passed; a failed coverage fails the
         # run, but a rerun of gate alone could still show it, so the jobs decide.
         self.run_for(y, {"gate": "success", "coverage": "failure", "release-build": "success"})
+        x = self.repo.commit("app/DeepDriveCleaner/A.swift", message="x")
+        self.assertEqual(self.ci(x), "rust")
+
+    def test_a_base_whose_native_check_failed_is_not_a_base(self):
+        self.full(self.green)
+        y = self.repo.commit("crates/a.rs", message="y")
+        self.run_for(y, {"gate": "success", "coverage": "success", "release-build": "success",
+                         NATIVE[0]: "success", NATIVE[1]: "failure"})
         x = self.repo.commit("app/DeepDriveCleaner/A.swift", message="x")
         self.assertEqual(self.ci(x), "rust")
 
@@ -361,10 +371,11 @@ class CiGreenFull(unittest.TestCase):
             json.dump([{"databaseId": run_id, "event": event, "status": "completed", "conclusion": "success",
                         "url": f"https://example/{run_id}"} for run_id, event in runs], f)
 
-    def jobs(self, conclusion, run_id=7):
+    def jobs(self, conclusion, run_id=7, native=None):
         self.repo.answer(f"repos/{{owner}}/{{repo}}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", {"jobs": [
             {"name": name, "conclusion": conclusion} for name in ("gate", "coverage", "release-build")
-        ] + [{"name": "app", "conclusion": "success"}]})
+        ] + [{"name": name, "conclusion": native or conclusion} for name in NATIVE]
+          + [{"name": "app", "conclusion": "success"}]})
 
     def ci_green(self, *args):
         return subprocess.run([CI_GREEN, *args], cwd=self.repo.path, env=self.repo.env, capture_output=True, text=True)
@@ -384,6 +395,10 @@ class CiGreenFull(unittest.TestCase):
     def test_full_passes_a_run_that_ran_them(self):
         self.jobs("success")
         self.assertEqual(self.ci_green("--full").returncode, 0)
+
+    def test_full_refuses_a_run_whose_native_checks_did_not_pass(self):
+        self.jobs("success", native="skipped")
+        self.assertEqual(self.ci_green("--full").returncode, 1)
 
     def test_without_full_the_run_conclusion_decides(self):
         self.jobs("skipped")

@@ -498,13 +498,15 @@ make hooks      # git runs .githooks/: gate-fast before a commit, gate before a 
 
 A commit or push that changes only paths on `.config/rust-free-paths` (the app's own sources, the website, the release notes) skips the Rust tiers in the hooks and in CI (`scripts/gate-scope.sh`): a green hook on such a push says nothing about Rust. `make tag` and `make dist` need the Rust jobs to have passed on the release commit itself. The M-size load trees run nightly.
 
+CI also builds and tests the workspace natively on Linux and Windows (the required checks `check-x86_64-unknown-linux-gnu` and `check-x86_64-pc-windows-msvc`). A test of something not ported to that OS yet skips with a printed reason, and the job fails unless those skips match `.config/native-skips/<os>.txt`: a new skip is a reviewed line in the same change.
+
 `main` takes no direct push. Work on a branch started from `origin/main`, push it, open a pull request and let it merge itself once the Gate passes:
 
 ```
 git fetch && git switch -c my-change origin/main
 git push -u origin my-change   # the pre-push hook gates it
 gh pr create --fill
-gh pr merge --auto --rebase    # merges once scope, gate, coverage, app and release-build pass
+gh pr merge --auto --rebase    # merges once scope, gate, coverage, app, release-build and the Linux and Windows checks pass
 ```
 
 A rebase merge gives the commits new SHAs, so the next branch starts from a fresh `origin/main` again. A pull request from a fork gets no Gate run: a maintainer pushes its commits to a branch here to run it.
