@@ -11,12 +11,16 @@ publish.workspace = true
 [dependencies]
 dhat = { workspace = true, optional = true }
 humantime.workspace = true
-libc.workspace = true
 rayon.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+# Only the macOS module calls them (platform/macos/); the other OS modules are
+# stubs until their port (story "Move OS calls behind the platform module").
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true
 trash.workspace = true
 
 [features]

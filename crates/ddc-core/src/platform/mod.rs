@@ -28,6 +28,8 @@ pub mod types;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(not(target_os = "macos"))]
+mod unported;
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -418,9 +420,8 @@ mod tests {
         assert_eq!(refusal_in(&exec), Some(Refusal::Unsupported(unsupported)));
         // The kind alone is no refusal: std gives it to ENOSYS, and the core
         // returns it for other reasons too.
-        let enosys = std::io::Error::from_raw_os_error(libc::ENOSYS);
-        assert_eq!(enosys.kind(), std::io::ErrorKind::Unsupported);
-        assert_eq!(refusal_in(&enosys), None);
+        let bare = std::io::Error::from(std::io::ErrorKind::Unsupported);
+        assert_eq!(refusal_in(&bare), None);
         let other = std::io::Error::new(std::io::ErrorKind::Unsupported, "not a regular file");
         assert_eq!(refusal_in(&other), None);
         let absent = CapabilityAbsent { platform: Platform::Linux, capability: Capability::Schedule, action: None };

@@ -5,6 +5,9 @@
 
 use super::{Capability, Platform};
 
+// The OS calls: the shared stubs until the port gives this module its own.
+pub use super::unported::*;
+
 pub const PLATFORM: Platform = Platform::Linux;
 
 pub const SUPPORTED: bool = false;
