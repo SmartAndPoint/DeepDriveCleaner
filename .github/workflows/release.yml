@@ -91,7 +91,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: scripts/ci-green.sh
+        run: scripts/ci-green.sh --full
       - name: Toolchain from rust-toolchain.toml
         run: |
           rustup toolchain install

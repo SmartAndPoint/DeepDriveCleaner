@@ -1,10 +1,15 @@
 # The mandatory gate on GitHub (story "Mandatory gate before every commit", DDC-005):
-# `make gate` on every push and pull request, with coverage, the app's tests and the
-# M-size load trees beside it. `make dist` refuses a commit whose run here is not
-# green (scripts/ci-green.sh): every required job, the load job included. The
-# Linux and Windows `check` jobs run with continue-on-error, so they are not required
-# until they run the gate natively (story "Build matrix: every target built, tested
-# and packaged from one tag", DDC-007, stage 2).
+# `make gate` on every push and pull request, with coverage and the app's tests beside
+# it. The M-size load trees run nightly (nightly.yml). `make tag` and `make dist` refuse
+# a commit whose run here is not green (scripts/ci-green.sh --full): every required job,
+# run on that commit. The Linux and Windows `check` jobs run with continue-on-error, so
+# they are not required until they run the gate natively (story "Build matrix: every
+# target built, tested and packaged from one tag", DDC-007, stage 2).
+#
+# The Rust jobs wait for `scope` (story "Gate by what changed: load at night, one gate
+# per release, app-only pushes skip Rust", DDC-005): a push whose every path since the
+# newest fully green ancestor is Rust-free (.config/rust-free-paths) skips them, and the
+# run is green on `app` alone. Any doubt, and a failed `scope`, runs them.
 name: Gate
 
 # Branch pushes only: a tag push would start a second run of the same commit, and
@@ -30,7 +35,33 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # `rust` or `skip`, from scripts/gate-scope.sh. Never continue-on-error: the Rust jobs
+  # run unless it answered `skip`.
+  scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Ancestry of the candidate base runs needs the history; it is small.
+          fetch-depth: 0
+      - id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          scope="$(scripts/gate-scope.sh ci "$GITHUB_SHA" || true)"
+          [ "$scope" = skip ] || scope=rust
+          echo "scope=$scope" >> "$GITHUB_OUTPUT"
+          echo "Rust jobs: $scope" >> "$GITHUB_STEP_SUMMARY"
+
   gate:
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.scope != 'skip' }}
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
@@ -51,30 +82,9 @@ jobs:
       - run: make tools
       - run: make gate
 
-  # Every load profile at M (10^5 entries) on a disposable disk image, each scanned and
-  # checked against its manifest (story "Synthetic load trees: large, wide, deep and
-  # hostile"), then the release CLI measured on it, recorded and not judged (story
-  # "Memory and CPU under load: peak memory, leaks and CPU time"). The S trees run
-  # inside `make gate`.
-  load:
-    runs-on: macos-26
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v7
-      - name: Toolchain from rust-toolchain.toml
-        run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-bin: false
-          key: load
-      - run: make load LOAD_SIZE=M LOAD_LIMITS=record LOAD_REPEAT=1
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: load-m
-          path: target/load
-
   coverage:
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.scope != 'skip' }}
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
@@ -103,7 +113,7 @@ jobs:
             target/coverage/summary.json
 
   # The app's logic. It runs against the debug CLI, so build that first: without it
-  # the real-CLI tests skip themselves.
+  # the real-CLI tests skip themselves. It runs on every push, without waiting for scope.
   app:
     runs-on: macos-26
     steps:
@@ -123,6 +133,8 @@ jobs:
   # shows how far the port is, and continue-on-error keeps it out of the run's
   # result. cargo directly: there is no make on Windows.
   check:
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.scope != 'skip' }}
     strategy:
       fail-fast: false
       matrix:
@@ -150,6 +162,8 @@ jobs:
   # breakage (LTO, codegen units, the path remap) shows on the push, not on the
   # owner's Mac in the middle of a release.
   release-build:
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.scope != 'skip' }}
     runs-on: macos-26
     timeout-minutes: 30
     steps:

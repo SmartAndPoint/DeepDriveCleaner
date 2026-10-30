@@ -478,6 +478,8 @@ make tools      # cargo-nextest, cargo-deny, cargo-machete, cargo-llvm-cov, the 
 make hooks      # git runs .githooks/: gate-fast before a commit, gate before a push
 ```
 
+A commit or push that changes only paths on `.config/rust-free-paths` (the app's own sources, the website, the release notes) skips the Rust tiers in the hooks and in CI (`scripts/gate-scope.sh`): a green hook on such a push says nothing about Rust. `make tag` and `make dist` need the Rust jobs to have passed on the release commit itself. The M-size load trees run nightly.
+
 ```
 make gate-fast  # fmt check, clippy -D warnings, all tests (nextest), doc tests
 make gate       # gate-fast plus cargo deny, unused dependencies, docs, the MSRV build, a release build
@@ -485,10 +487,11 @@ make check      # the same as make gate-fast
 make coverage   # line coverage, written to target/lcov.info
 make release    # optimized build
 make install    # install deepdrivecleaner + ddc
-make app-test   # the app's logic (DDCKit) under swift test
+make app-test   # the app's logic (DDCKit) under swift test, then the signing check
+make ddckit-test # DDCKit's swift test alone
 make app        # the app, Debug, signed with your Developer ID
 make tag        # maintainers: after a green CI run for HEAD of main, push the tag v<version>; release.yml builds the other targets from it
-make dist       # maintainers: then, on the tagged commit, the signed, notarized CLI tarball and app zip (then scripts/publish-release.sh)
+make dist       # maintainers: then, on the tagged commit whose own CI run is green, the signed, notarized CLI tarball and app zip (then scripts/publish-release.sh)
 ```
 
 By submitting a contribution you agree that SmartAndPoint may use, modify and relicense it under any terms, including commercial ones, and you confirm that you have the right to grant this.

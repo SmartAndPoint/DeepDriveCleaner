@@ -1,0 +1,16 @@
+# Paths no step of `make gate` reads (story "Gate by what changed: load at night, one
+# gate per release, app-only pushes skip Rust", DDC-005). A commit or push that changes
+# only these skips the Rust tiers: the pre-commit and pre-push hooks and the Gate's Rust
+# jobs (scripts/gate-scope.sh). scripts/tests/test_gate_scope.py fails when a test or a
+# gate recipe names a path listed here.
+#
+# One entry per line. An entry ending in / is a folder; any other is one file. A leading
+# ! takes a path back off the list, whatever the order. This file is off its own list.
+
+app/
+# crates/ddc-core/tests/disk.rs checks the app's fixtures against the CLI's reports.
+!app/Packages/DDCKit/Tests/DDCKitTests/Fixtures/
+# packaging/install/test_install.py reads its deployment target.
+!app/DeepDriveCleaner.xcodeproj/project.pbxproj
+website/
+docs/releases/

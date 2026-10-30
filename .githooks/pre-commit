@@ -1,8 +1,16 @@
 #!/bin/sh
 # The fast tier of the gate (`make gate-fast`) before every commit. Installed once per
-# clone by `make hooks`. It checks the working tree, not only what is staged.
+# clone by `make hooks`. Skipped when every staged path is Rust-free
+# (.config/rust-free-paths, scripts/gate-scope.sh); otherwise it checks the working tree,
+# not only what is staged.
 set -eu
 # Homebrew's Rust may sit earlier in PATH; cargo finds rustc through PATH.
 export PATH="$HOME/.cargo/bin:$PATH"
 cd "$(git rev-parse --show-toplevel)"
+case "$(scripts/gate-scope.sh staged </dev/null)" in
+    skip)
+        echo "pre-commit: only Rust-free paths staged (.config/rust-free-paths): gate-fast skipped"
+        exit 0
+        ;;
+esac
 exec make gate-fast </dev/null

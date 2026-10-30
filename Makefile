@@ -31,8 +31,8 @@ export PROPTEST_CASES
 MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
 .PHONY: build fmt fmt-check clippy test check release install tag require-tag dist app app-test app-dist icons \
-	gate-fast gate nextest doctest clippy-dhat doc deny machete msrv release-check unported-check \
-	tools require-tools hooks coverage coverage-ratchet ci-green golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test script-test leaks asan fuzz
+	gate-fast gate nextest doctest clippy-dhat doc deny machete fuzz-lock msrv release-check unported-check \
+	tools require-tools hooks coverage coverage-ratchet ci-green golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test script-test leaks asan fuzz ddckit-test ci-green-full
 
 build:
 	$(CARGO) build --workspace
@@ -51,12 +51,14 @@ test:
 
 # The mandatory gate (story "Mandatory gate before every commit", DDC-005). Each step
 # is its own target, so a failure names the step. gate-fast runs before every commit
-# (.githooks/pre-commit), gate before every push (.githooks/pre-push), in CI and in
-# `make dist`.
+# (.githooks/pre-commit), gate before every push (.githooks/pre-push) and in CI; the
+# hooks and CI skip them when only Rust-free paths changed (scripts/gate-scope.sh,
+# .config/rust-free-paths; story "Gate by what changed: load at night, one gate per
+# release, app-only pushes skip Rust", DDC-005).
 gate-fast: require-tools fmt-check clippy nextest doctest
 
-# deny and machete read only metadata and take seconds: they go first.
-gate: require-tools deny machete gate-fast clippy-dhat doc msrv release-check unported-check bench-test script-test leaks
+# deny, machete and fuzz-lock read only metadata and take seconds: they go first.
+gate: require-tools deny machete fuzz-lock gate-fast clippy-dhat doc msrv release-check unported-check bench-test script-test leaks
 
 # The install script's tests join the gate on a line of their own.
 gate: install-test
@@ -119,7 +121,7 @@ golden-record:
 
 # Load trees past S on a disposable disk image, each scanned and checked against its
 # manifest: `make load-image LOAD_PROFILE=mixed LOAD_SIZE=L` (LOAD_PROFILE=all for every
-# profile; LOAD_SIZE is S, M, L or XL). CI runs every profile at M; the nightly run,
+# profile; LOAD_SIZE is S, M, L or XL). The nightly run checks every profile at M and
 # mixed at L.
 LOAD_PROFILE ?= mixed
 LOAD_SIZE ?= M
@@ -266,15 +268,21 @@ asan:
 # Every target runs even after one crashes; the nightly workflow runs it longer.
 FUZZ_SECONDS ?= 60
 FUZZ_TARGETS := disk_plist listed_items action_list settings last_scan
-fuzz:
+fuzz: fuzz-lock
 	$(call install-tool,fuzz,$(FUZZ_VERSION))
 	rustup toolchain install $(ASAN_TOOLCHAIN) --profile minimal
-	$(CARGO) +$(ASAN_TOOLCHAIN) metadata --locked --format-version 1 --manifest-path fuzz/Cargo.toml >/dev/null
 	@status=0; for t in $(FUZZ_TARGETS); do \
 		mkdir -p fuzz/corpus/$$t; \
 		$(CARGO) +$(ASAN_TOOLCHAIN) fuzz run $$t fuzz/corpus/$$t fuzz/regressions/$$t -- \
 		  -max_total_time=$(FUZZ_SECONDS) -timeout=10 || status=1; \
 	done; exit $$status
+
+# fuzz/Cargo.lock records the workspace version of ddc-core, so every version bump makes
+# it stale; the gate checks it on the stable toolchain, and the nightly fuzz run needs it.
+fuzz-lock:
+	@$(CARGO) metadata --locked --format-version 1 --manifest-path fuzz/Cargo.toml >/dev/null || { \
+		echo "fuzz/Cargo.lock is stale: run cargo update -p ddc-core --manifest-path fuzz/Cargo.toml and commit it" >&2; \
+		exit 1; }
 
 # Removes the load trees `ddc-loadgen mktemp` left in $$TMPDIR (only marked ones).
 loadgen-clean:
@@ -313,17 +321,26 @@ coverage:
 	python3 -I bench/coverage_floor.py check target/coverage/summary.json bench/coverage-floor.tsv
 
 # The owner, on main: raises bench/coverage-floor.tsv from the summary of the latest
-# green Gate run on main, never lowers it. CI never runs this. Commit the result.
+# green Gate run on main whose coverage job ran (an app-only push skips it), never lowers
+# it. CI never runs this. Commit the result.
 coverage-ratchet:
 	rm -rf target/coverage/ci
-	gh run download "$$(gh run list --workflow gate.yml --branch main --status success --limit 1 \
-		--json databaseId --jq '.[0].databaseId')" --name coverage --dir target/coverage/ci
+	@run=""; for id in $$(gh run list --workflow gate.yml --branch main --event push --status success --limit 20 \
+		--json databaseId --jq '.[].databaseId'); do \
+		[ "$$(gh api "repos/{owner}/{repo}/actions/runs/$$id/jobs?filter=latest&per_page=100" \
+		  --jq '[.jobs[] | select(.name == "coverage" and .conclusion == "success")] | length')" = 1 ] && { run=$$id; break; }; \
+	done; [ -n "$$run" ] || { echo "no green Gate run on main with a coverage job in the last 20" >&2; exit 1; }; \
+	gh run download "$$run" --name coverage --dir target/coverage/ci
 	python3 -I bench/coverage_floor.py ratchet target/coverage/ci/summary.json bench/coverage-floor.tsv
 
 # Refuses unless the Gate workflow passed on GitHub for HEAD (scripts/ci-green.sh
-# release.yml asks the same of the release workflow).
+# release.yml asks the same of the release workflow). ci-green-full also requires HEAD's
+# own run to have run and passed its Rust jobs: what a release rests on.
 ci-green:
 	./scripts/ci-green.sh
+
+ci-green-full:
+	./scripts/ci-green.sh --full
 
 release:
 	$(CARGO) build --workspace --release
@@ -350,15 +367,16 @@ install:
 tag:
 	./scripts/tag-release.sh
 
-# Origin holds v<version> at HEAD: the first step of make dist, before the gate.
+# Origin holds v<version> at HEAD: the first step of make dist, before ci-green.
 require-tag:
 	./scripts/require-tag.sh
 
 # Both macOS release assets in dist/, from one commit (needs .env with DDC_SIGN_IDENTITY
 # and NOTARY_PROFILE): the signed, notarized CLI tarball, then the notarized, stapled
-# app zip. Only from the commit `make tag` tagged on origin, whose CI run is green, and
-# only after the full gate passes here too.
-dist: require-tag ci-green gate app-test
+# app zip. Only from the commit `make tag` tagged on origin, whose own CI run is green with
+# its Rust jobs: that run is `make gate` and `make app-test` on this very commit, so they
+# do not run here again.
+dist: require-tag ci-green-full
 	./scripts/build-dist.sh
 	./scripts/build-app.sh --dist
 
@@ -367,11 +385,14 @@ dist: require-tag ci-green gate app-test
 app:
 	./scripts/build-app.sh
 
-# The app's logic (DDCKit) runs under `swift test`, with no app host. Then the
-# per-binary signing check on a fixture signed ad hoc (`codesign -s -`): it must fail.
-app-test:
-	cd app/Packages/DDCKit && swift test
+# The app's logic (DDCKit) runs under `swift test`, with no app host (ddckit-test, which
+# the pre-push hook runs alone when only DDCKit and other Rust-free paths changed). Then
+# the per-binary signing check on a fixture signed ad hoc (`codesign -s -`): it must fail.
+app-test: ddckit-test
 	DDC_RUN_CODESIGN_TESTS=1 python3 -I -m unittest discover -s scripts/tests -p 'test_signing_check.py'
+
+ddckit-test:
+	cd app/Packages/DDCKit && swift test
 
 # The same as `make dist`, under the name story "App skeleton and build pipeline" used.
 app-dist: dist

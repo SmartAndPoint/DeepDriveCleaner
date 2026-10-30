@@ -1,6 +1,7 @@
 # The nightly tier of the gate (story "Mandatory gate before every commit", DDC-005):
 # the full gate and coverage on main, so advisories published since the last commit
-# reach `cargo deny`. Later stories add their slots below.
+# reach `cargo deny`, and a main the Gate's scope rule let through green is caught within
+# a day. Later stories add their slots below.
 name: Nightly
 
 on:
@@ -86,6 +87,33 @@ jobs:
         with:
           name: fuzz-artifacts
           path: fuzz/artifacts
+
+  # Every load profile at M (10^5 entries) on a disposable disk image, each scanned and
+  # checked against its manifest (story "Synthetic load trees: large, wide, deep and
+  # hostile"), then the release CLI measured on it, recorded and not judged (story
+  # "Memory and CPU under load: peak memory, leaks and CPU time"). It ran on every push
+  # until story "Gate by what changed: load at night, one gate per release, app-only
+  # pushes skip Rust" (DDC-005): its 17 minutes set the Gate's. A manifest difference or
+  # a CLI failure still fails it. The S trees run inside `make gate`.
+  load-m:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+          key: load
+      - run: make load LOAD_SIZE=M LOAD_LIMITS=record LOAD_REPEAT=1
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: load-m
+          path: target/load
 
   # L-size load on its own runner, so a gate or coverage failure does not skip it and
   # their builds do not share its disk: story "Synthetic load trees: large, wide, deep

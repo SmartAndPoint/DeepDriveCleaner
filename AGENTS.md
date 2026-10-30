@@ -34,3 +34,9 @@
 - Never commit or push with `--no-verify`: fix what the gate names.
 - The pre-push gate takes about 2 minutes after a core change and longer cold:
   run `git commit` and `git push` with a 10-minute tool timeout.
+- A commit or push whose every path is on `.config/rust-free-paths` (the app's own
+  sources, `website/`, `docs/releases/`) skips the Rust tiers, locally and in CI; a
+  push that touches `app/Packages/` runs `make ddckit-test` instead. A green hook on
+  such a push says nothing about Rust. `make tag` and `make dist` need a Gate run that
+  ran the Rust jobs on the release commit itself: put the release notes in the commit
+  that bumps the version, or start one by hand with `gh workflow run gate.yml --ref main`.

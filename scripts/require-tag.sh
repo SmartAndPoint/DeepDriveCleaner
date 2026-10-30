@@ -1,7 +1,7 @@
 #!/bin/bash
 # Refuses unless origin holds the tag v<version> at HEAD (story "Build matrix: every
 # target built, tested and packaged from one tag", DDC-007). `make dist` runs it before
-# the gate, so the most likely mistake under the tag-first order costs seconds, and
+# ci-green, so the most likely mistake under the tag-first order costs seconds, and
 # scripts/build-dist.sh runs it again before building. Origin is asked, as
 # scripts/publish-release.sh does: local tags are not fetched in this clone. An
 # annotated tag is listed twice, the peeled commit second.

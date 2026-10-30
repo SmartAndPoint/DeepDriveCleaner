@@ -27,7 +27,7 @@ git fetch -q origin main
 HEAD_SHA="$(git rev-parse HEAD)"
 [ "$HEAD_SHA" = "$(git rev-parse origin/main)" ] || fail "HEAD is not origin/main: push first, or pull"
 # Here, not only in the Makefile, so running this script directly cannot skip it.
-"$ROOT/scripts/ci-green.sh"
+"$ROOT/scripts/ci-green.sh" --full
 
 VERSION="$("$CARGO" pkgid -p ddc-cli | sed 's/.*[#@]//')"
 TAG="v$VERSION"

@@ -1,8 +1,20 @@
 #!/bin/sh
-# The full gate (`make gate`) before every push. Installed once per clone by
-# `make hooks`. Git passes the refs on stdin; nothing below reads them.
+# The full gate (`make gate`) before every push. Installed once per clone by `make hooks`.
+# git passes the refs on stdin; scripts/gate-scope.sh reads them. A push of only
+# Rust-free paths (.config/rust-free-paths) skips the gate, and runs DDCKit's tests when
+# its package changed; a tag push skips it, as scripts/tag-release.sh has checked CI.
 set -eu
 # Homebrew's Rust may sit earlier in PATH; cargo finds rustc through PATH.
 export PATH="$HOME/.cargo/bin:$PATH"
 cd "$(git rev-parse --show-toplevel)"
+case "$(scripts/gate-scope.sh push)" in
+    skip)
+        echo "pre-push: only Rust-free paths or a tag pushed (.config/rust-free-paths): gate skipped"
+        exit 0
+        ;;
+    swift)
+        echo "pre-push: only Rust-free paths pushed, DDCKit among them: swift test instead of the gate"
+        exec make ddckit-test </dev/null
+        ;;
+esac
 exec make gate </dev/null
