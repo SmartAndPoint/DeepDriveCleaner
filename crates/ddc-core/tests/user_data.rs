@@ -129,7 +129,7 @@ impl Home {
             Ports {
                 commands: &FakeCommands::default(),
                 trash: &FakeTrash(self.trash()),
-                procs: &FakeProcs(procs),
+                procs: &FakeProcs::new(procs),
                 journal: &mut journal,
             },
             &ExecOptions { cancel: &AtomicBool::new(false), ..ExecOptions::default() },
@@ -141,7 +141,8 @@ impl Home {
 
     fn dry_run(&self, items: &[ListedItem], procs: Vec<ProcInfo>) -> Vec<Prediction> {
         let mut out = Vec::new();
-        let ports = PreflightPorts { commands: &FakeCommands::default(), procs: &FakeProcs(procs), reader: &StdReader };
+        let ports =
+            PreflightPorts { commands: &FakeCommands::default(), procs: &FakeProcs::new(procs), reader: &StdReader };
         preflight::preflight(&self.env(), &self.catalog(), &[], &self.excludes, items, &ports, &mut |line| {
             if let PreflightLine::Item(i) = line {
                 out.push(i.prediction.clone());
@@ -704,7 +705,7 @@ fn a_plan_never_holds_an_entry_and_yes_touches_none() {
         Ports {
             commands: &FakeCommands::default(),
             trash: &FakeTrash(h.trash()),
-            procs: &FakeProcs(vec![]),
+            procs: &FakeProcs::new(vec![]),
             journal: &mut journal,
         },
         &ExecOptions { cancel: &AtomicBool::new(false), ..ExecOptions::default() },
@@ -746,7 +747,7 @@ fn the_executor_derives_an_entrys_lock_again_right_before_the_trash() {
         Ports {
             commands: &FakeCommands::default(),
             trash: &FakeTrash(h.trash()),
-            procs: &FakeProcs(vec![]),
+            procs: &FakeProcs::new(vec![]),
             journal: &mut journal,
         },
         &ExecOptions { cancel: &AtomicBool::new(false), ..ExecOptions::default() },

@@ -542,7 +542,7 @@ fn orphans_of(names: &[&str]) -> ActionList {
 impl Area {
     /// The dry run of `list` by `commands`: the re-read, never the command.
     fn dry_run(&self, commands: &FakeCommands, list: &ActionList, skips: &[PathBuf]) -> ActionReport {
-        let (procs, cancel) = (FakeProcs(vec![]), AtomicBool::new(false));
+        let (procs, cancel) = (FakeProcs::new(vec![]), AtomicBool::new(false));
         let ctx = FreeContext::new(commands, &self.sources, &self.home, skips, &procs, &cancel);
         list.validate().unwrap();
         let mut reports = free::dry_run(&ctx, list).unwrap();
@@ -740,7 +740,7 @@ fn a_rereading_brew_cannot_make_is_failed_and_nothing_starts() {
 impl Area {
     /// `list` run by `commands` with a 5 s timeout and `floor`, journaled.
     fn run(&self, commands: &FakeCommands, list: &ActionList, floor: Duration) -> (ActionReport, MemoryAreaJournal) {
-        let (procs, cancel) = (FakeProcs(vec![]), AtomicBool::new(false));
+        let (procs, cancel) = (FakeProcs::new(vec![]), AtomicBool::new(false));
         let ctx = FreeContext {
             timeout: Duration::from_secs(5),
             floor,
@@ -930,7 +930,7 @@ fn a_stop_before_the_run_leaves_it_not_run() {
     }
     let a = Area::new();
     let commands = a.brew(&listing_fixture(), "[]");
-    let (procs, cancel) = (FakeProcs(vec![]), AtomicBool::new(true));
+    let (procs, cancel) = (FakeProcs::new(vec![]), AtomicBool::new(true));
     let ctx = FreeContext::new(&commands, &a.sources, &a.home, &[], &procs, &cancel);
     let mut journal = MemoryAreaJournal(Vec::new());
     let reports = free::run(&ctx, &uninstall_of("wget", &["1.25.0"]), &mut journal).unwrap();
@@ -1033,7 +1033,7 @@ fn an_empty_set_of_orphans_is_refused_and_never_a_nameless_uninstall() {
     let list = orphans_of(&[]);
     assert!(list.validate().is_err(), "the list is refused whole first");
     let commands = a.brew(&listing_fixture(), "[]").answer("brew", "uninstall --formula --force", true, "");
-    let (procs, cancel) = (FakeProcs(vec![]), AtomicBool::new(false));
+    let (procs, cancel) = (FakeProcs::new(vec![]), AtomicBool::new(false));
     let ctx = FreeContext::new(&commands, &a.sources, &a.home, &[], &procs, &cancel);
     let report = free::dry_run(&ctx, &list).unwrap().remove(0);
     assert_eq!(report.result, ActionResult::Refused { reason: Refusal::BrewNotInstalled });

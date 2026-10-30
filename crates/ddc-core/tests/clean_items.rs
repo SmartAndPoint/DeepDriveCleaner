@@ -86,7 +86,7 @@ impl Fx {
             &catalog,
             &listed.plan,
             &Consent::Listed,
-            Ports { commands, trash: &trash, procs: &FakeProcs(vec![]), journal },
+            Ports { commands, trash: &trash, procs: &FakeProcs::new(vec![]), journal },
             &ExecOptions { cancel, ..ExecOptions::default() },
         )
         .unwrap();
@@ -288,7 +288,7 @@ fn the_dry_run_predicts_and_changes_nothing() {
     assert_eq!(items[3].action, ActionKind::Native);
     let before = fx.snapshot();
     let commands = FakeCommands::default().with("uv", true, &format!("{}\n", uv.display()));
-    let procs = FakeProcs(vec![app_process(4242, "/Applications/Spotify.app/Contents/MacOS/Spotify")]);
+    let procs = FakeProcs::new(vec![app_process(4242, "/Applications/Spotify.app/Contents/MacOS/Spotify")]);
 
     let lines = fx.preflight(&items, &procs, &commands);
 
@@ -334,7 +334,7 @@ fn a_newly_kept_item_and_an_unknown_rule_get_the_same_reason_from_the_dry_run_an
     let expected = [SkipReason::Kept, SkipReason::Kept, SkipReason::RuleMismatch];
 
     let predicted: Vec<Prediction> = fx
-        .preflight(&items, &FakeProcs(vec![]), &commands)
+        .preflight(&items, &FakeProcs::new(vec![]), &commands)
         .into_iter()
         .filter_map(|l| match l {
             PreflightLine::Item(i) => Some(i.prediction),
@@ -384,7 +384,7 @@ fn the_dry_run_walks_only_the_listed_items_and_streams_a_line_per_item() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let reader = Counting { events: Arc::clone(&events) };
     let commands = FakeCommands::default();
-    let ports = PreflightPorts { commands: &commands, procs: &FakeProcs(vec![]), reader: &reader };
+    let ports = PreflightPorts { commands: &commands, procs: &FakeProcs::new(vec![]), reader: &reader };
 
     let mut kinds = Vec::new();
     preflight::preflight(&fx.env(), &fx.catalog(), &[], &[], &items, &ports, &mut |line| {

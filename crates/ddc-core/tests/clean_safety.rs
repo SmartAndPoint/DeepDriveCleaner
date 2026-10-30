@@ -18,7 +18,7 @@ use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
 use ddc_core::exec::{
     self, Consent, ExecError, ExecEvents, ExecOptions, ExecPhase, ExecProgress, ExecReport, ExecSnapshot, Journal,
-    JournalEntry, MemoryJournal, Outcome, Ports, ProcessTable, SkipReason, SystemProcesses,
+    JournalEntry, MemoryJournal, OpenVnode, Outcome, Ports, ProcStart, ProcessTable, SkipReason, SystemProcesses,
 };
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{Action, Plan, PlanItem, PlanOptions, build_plan};
@@ -123,7 +123,7 @@ impl Fx {
 
     fn run_yes(&self, plan: &Plan) -> (ExecReport, MemoryJournal) {
         let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
-        self.run(plan, consent, &FakeCommands::default(), &FakeProcs(vec![]))
+        self.run(plan, consent, &FakeCommands::default(), &FakeProcs::new(vec![]))
     }
 }
 
@@ -253,7 +253,7 @@ fn assume_yes_never_touches_review_and_rejects_review_class() {
         &plan,
         Consent::AssumeYes { classes: vec![RiskClass::Safe] },
         &FakeCommands::default(),
-        &FakeProcs(vec![]),
+        &FakeProcs::new(vec![]),
     );
 
     assert_eq!(outcome(&r, &orphan), &Outcome::Skipped(SkipReason::NeedsConfirmation), "review never under --yes");
@@ -273,7 +273,7 @@ fn assume_yes_never_touches_review_and_rejects_review_class() {
         Ports {
             commands: &FakeCommands::default(),
             trash: &FakeTrash(fx.t.path("T")),
-            procs: &FakeProcs(vec![]),
+            procs: &FakeProcs::new(vec![]),
             journal: &mut journal,
         },
         &ExecOptions::default(),
@@ -293,7 +293,7 @@ fn interactive_review_goes_to_the_trash() {
     let mut plan = fx.plan();
     select_all(&mut plan);
 
-    let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs(vec![]));
+    let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs::new(vec![]));
 
     assert_eq!(outcome(&r, &orphan), &Outcome::Trashed);
     assert!(!orphan.exists() && fx.data.path().join("FakeTrash/node_modules/a.js").exists());
@@ -311,11 +311,11 @@ fn native_only_rules_never_delete_or_trash() {
     let mut plan = fx.plan();
     select_all(&mut plan);
 
-    let (missing, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs(vec![]));
+    let (missing, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs::new(vec![]));
     assert!(matches!(outcome(&missing, &docker), Outcome::Skipped(SkipReason::NativeUnavailable { .. })));
 
     let failing = FakeCommands::default().with("docker", false, "").answer("docker", DOCKER_VERSION, true, "28.5.1\n");
-    let (r, _) = fx.run(&plan, Consent::Interactive, &failing, &FakeProcs(vec![]));
+    let (r, _) = fx.run(&plan, Consent::Interactive, &failing, &FakeProcs::new(vec![]));
     let Outcome::Native { commands } = outcome(&r, &docker) else { panic!("{:?}", outcome(&r, &docker)) };
     assert!(
         commands.iter().all(|c| !c.success
@@ -342,7 +342,7 @@ fn a_docker_desktop_that_does_not_answer_skips_its_item_and_runs_no_prune() {
     select_all(&mut plan);
     let commands = FakeCommands::default().with("docker", true, "").answer("docker", DOCKER_VERSION, false, "");
 
-    let (r, journal) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs(vec![]));
+    let (r, journal) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs::new(vec![]));
 
     let down = SkipReason::ToolNotReady {
         program: "docker".into(),
@@ -378,17 +378,17 @@ fn the_probe_names_a_missing_context_or_says_what_docker_said() {
         |detail: &str| Outcome::Skipped(SkipReason::ToolNotReady { program: "docker".into(), detail: detail.into() });
 
     let commands = said("context \"desktop-linux\" does not exist\n");
-    let (r, _) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs(vec![]));
+    let (r, _) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs::new(vec![]));
     assert_eq!(outcome(&r, &docker), &skipped("the desktop-linux context does not exist"));
     assert_eq!(commands.calls.borrow().len(), 1, "{:?}", commands.calls.borrow());
 
     let commands =
         said("Cannot connect to the Docker daemon at unix:///x/docker.sock. Is the docker daemon running?\n");
-    let (r, _) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs(vec![]));
+    let (r, _) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs::new(vec![]));
     assert_eq!(outcome(&r, &docker), &skipped("Docker Desktop is not running or not answering"));
 
     let commands = said("Client: Docker Engine\nerror during connect: the engine is updating\n\n");
-    let (r, _) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs(vec![]));
+    let (r, _) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs::new(vec![]));
     assert_eq!(outcome(&r, &docker), &skipped("error during connect: the engine is updating"), "its last line");
     assert_eq!(commands.calls.borrow().len(), 1);
 }
@@ -409,7 +409,7 @@ fn a_prune_that_fails_after_a_good_probe_carries_dockers_last_line() {
         .answer("docker", image, false, "")
         .stderr_on("docker", image, "Error response from daemon: a prune operation is already running\n");
 
-    let (r, _) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs(vec![]));
+    let (r, _) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs::new(vec![]));
 
     let Outcome::Native { commands: ran } = outcome(&r, &docker) else { panic!("{:?}", outcome(&r, &docker)) };
     assert_eq!(ran.len(), 2, "the probe answered: both prune commands ran");
@@ -434,7 +434,7 @@ fn a_probe_that_times_out_skips_and_a_cancel_during_it_runs_no_prune() {
         DOCKER_VERSION,
         std::io::ErrorKind::TimedOut,
     );
-    let (r, _) = fx.run(&plan, Consent::Interactive, &hung, &FakeProcs(vec![]));
+    let (r, _) = fx.run(&plan, Consent::Interactive, &hung, &FakeProcs::new(vec![]));
     let down = SkipReason::ToolNotReady {
         program: "docker".into(),
         detail: "Docker Desktop is not running or not answering".into(),
@@ -456,7 +456,7 @@ fn a_probe_that_times_out_skips_and_a_cancel_during_it_runs_no_prune() {
     };
     let opts = ExecOptions { cancel: &cancel, ..ExecOptions::default() };
     let mut journal = MemoryJournal::default();
-    let r = fx.run_with(&plan, Consent::Interactive, &commands, &FakeProcs(vec![]), &mut journal, &opts);
+    let r = fx.run_with(&plan, Consent::Interactive, &commands, &FakeProcs::new(vec![]), &mut journal, &opts);
     assert_eq!(outcome(&r, &docker), &Outcome::NotRun);
     assert!(r.cancelled);
     assert_eq!(commands.calls.borrow().len(), 1, "no prune command: {:?}", commands.calls.borrow());
@@ -589,7 +589,7 @@ fn running_owner_process_skips_its_cache() {
     let spotify = app_process(4242, "/Applications/Spotify.app/Contents/MacOS/Spotify");
 
     let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe] };
-    let (r, _) = fx.run(&plan, consent, &FakeCommands::default(), &FakeProcs(vec![spotify]));
+    let (r, _) = fx.run(&plan, consent, &FakeCommands::default(), &FakeProcs::new(vec![spotify]));
 
     assert_eq!(outcome(&r, &cache), &Outcome::Skipped(SkipReason::OwnerRunning { pid: 4242, name: "Spotify".into() }));
 }
@@ -607,7 +607,7 @@ fn an_owner_is_an_app_bundle_not_a_process_name() {
     let derived = fx.t.dir("Library/Developer/Xcode/DerivedData");
     fx.t.file("Library/Developer/Xcode/DerivedData/data", 1000);
     let plan = fx.plan();
-    let procs = FakeProcs(vec![
+    let procs = FakeProcs::new(vec![
         // macOS's text-cursor service is not Cursor, a tool inside Xcode is not Xcode,
         // a bundle that merely starts with "Cursor" is another app, and a bare name proves nothing.
         app_process(
@@ -643,7 +643,7 @@ fn a_running_editor_holds_back_only_its_own_caches() {
     let photoshop = fx.t.dir("Library/Caches/Adobe Camera Raw 2");
     fx.t.file("Library/Caches/Adobe Camera Raw 2/data", 1000);
     let plan = fx.plan();
-    let procs = FakeProcs(vec![
+    let procs = FakeProcs::new(vec![
         app_process(
             501,
             "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper (GPU).app/Contents/MacOS/Cursor Helper (GPU)",
@@ -714,7 +714,7 @@ fn a_renamed_bundle_is_recognised_by_its_executable() {
     let derived = fx.t.dir("Library/Developer/Xcode/DerivedData");
     fx.t.file("Library/Developer/Xcode/DerivedData/data", 1000);
     let plan = fx.plan();
-    let procs = FakeProcs(vec![
+    let procs = FakeProcs::new(vec![
         app_process(
             601,
             "/Applications/Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/141.0/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)",
@@ -741,12 +741,12 @@ fn native_command_runs_only_where_the_tool_reports_the_finding() {
     let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe] };
 
     let here = FakeCommands::default().with("uv", true, &format!("{}\n", uv.display()));
-    let (r, _) = fx.run(&plan, consent.clone(), &here, &FakeProcs(vec![]));
+    let (r, _) = fx.run(&plan, consent.clone(), &here, &FakeProcs::new(vec![]));
     assert!(matches!(outcome(&r, &uv), Outcome::Native { commands } if commands[0].success));
     assert_eq!(*here.calls.borrow(), vec!["uv cache dir".to_owned(), "uv cache clean".to_owned()]);
 
     let elsewhere = FakeCommands::default().with("uv", true, "/somewhere/else\n");
-    let (r, _) = fx.run(&plan, consent, &elsewhere, &FakeProcs(vec![]));
+    let (r, _) = fx.run(&plan, consent, &elsewhere, &FakeProcs::new(vec![]));
     assert_eq!(outcome(&r, &uv), &Outcome::Deleted, "another location: falls back to delete");
     assert_eq!(*elsewhere.calls.borrow(), vec!["uv cache dir".to_owned()], "uv cache clean is not run");
 }
@@ -773,7 +773,7 @@ fn review_items_default_to_the_trash_unless_permanent() {
 
     let mut plan = build_plan(&report, &catalog, &PlanOptions { permanent: true, ..PlanOptions::default() });
     select_all(&mut plan);
-    let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs(vec![]));
+    let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs::new(vec![]));
     assert_eq!(outcome(&r, &venv), &Outcome::Deleted);
     assert!(!venv.exists() && !fx.data.path().join("FakeTrash").exists(), "deleted, not trashed");
 }
@@ -822,12 +822,12 @@ fn the_executor_refuses_actions_the_rule_does_not_allow() {
         forged(&plan, &report, &docker, Action::Delete { make_writable: false }),
         forged(&plan, &report, &backups, Action::Delete { make_writable: false }),
     ];
-    let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs(vec![]));
+    let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs::new(vec![]));
     assert_eq!(outcome(&r, &docker), &Outcome::Skipped(SkipReason::ActionNotAllowed));
     assert_eq!(outcome(&r, &backups), &Outcome::Skipped(SkipReason::ActionNotAllowed));
 
     plan.items = vec![forged(&plan, &report, &docker, Action::Trash)];
-    let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs(vec![]));
+    let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs::new(vec![]));
     assert_eq!(outcome(&r, &docker), &Outcome::Skipped(SkipReason::ActionNotAllowed));
     assert!(fx.t.path("Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw").exists());
     assert!(backups.join("device/Manifest.db").exists());
@@ -882,7 +882,7 @@ fn a_relative_executable_with_unknown_cwd_blocks_same_named_findings() {
     };
 
     let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
-    let (r, _) = fx.run(&plan, consent, &FakeCommands::default(), &FakeProcs(vec![python]));
+    let (r, _) = fx.run(&plan, consent, &FakeCommands::default(), &FakeProcs::new(vec![python]));
 
     assert_eq!(outcome(&r, &venv), &Outcome::Skipped(SkipReason::InUseUnknownCwd { pid: 77, name: "python".into() }));
 }
@@ -929,7 +929,7 @@ fn a_directory_swapped_while_a_tool_runs_is_not_deleted() {
         ..FakeCommands::default().with("uv", true, "/somewhere/else\n")
     };
 
-    let (r, _) = fx.run(&plan, Consent::AssumeYes { classes: vec![RiskClass::Safe] }, &swap, &FakeProcs(vec![]));
+    let (r, _) = fx.run(&plan, Consent::AssumeYes { classes: vec![RiskClass::Safe] }, &swap, &FakeProcs::new(vec![]));
 
     assert_eq!(outcome(&r, &uv), &Outcome::Skipped(SkipReason::ChangedSinceScan));
     assert!(uv.join("thesis.tex").exists(), "the swapped-in directory survives");
@@ -975,7 +975,14 @@ fn progress_reaches_the_totals_with_native_only_bytes_left_out() {
     let opts = ExecOptions { progress: Some(&progress), ..ExecOptions::default() };
     let docker = FakeCommands::default().with("docker", true, "").answer("docker", DOCKER_VERSION, true, "28.5.1\n");
 
-    let r = fx.run_with(&plan, Consent::Interactive, &docker, &FakeProcs(vec![]), &mut MemoryJournal::default(), &opts);
+    let r = fx.run_with(
+        &plan,
+        Consent::Interactive,
+        &docker,
+        &FakeProcs::new(vec![]),
+        &mut MemoryJournal::default(),
+        &opts,
+    );
 
     let chosen: Vec<_> = plan.items.iter().filter(|i| i.selected).collect();
     let native_only = |a: &Action| matches!(a, Action::NativeOnly(_));
@@ -1019,7 +1026,7 @@ fn a_cancel_after_the_first_item_counts_only_that_one() {
     let progress = ExecProgress::default();
     let opts = ExecOptions { cancel: &flag, progress: Some(&progress), ..ExecOptions::default() };
 
-    let r = fx.run_with(&plan, yes(), &FakeCommands::default(), &FakeProcs(vec![]), &mut journal, &opts);
+    let r = fx.run_with(&plan, yes(), &FakeCommands::default(), &FakeProcs::new(vec![]), &mut journal, &opts);
 
     assert!(r.cancelled);
     let s = progress.snapshot();
@@ -1058,7 +1065,7 @@ fn a_cancel_at_the_kth_item_event_leaves_every_later_item_not_run() {
     let opts = ExecOptions { cancel: &flag, events: Some(&events), ..ExecOptions::default() };
     let mut journal = MemoryJournal::default();
 
-    let r = fx.run_with(&plan, yes(), &FakeCommands::default(), &FakeProcs(vec![]), &mut journal, &opts);
+    let r = fx.run_with(&plan, yes(), &FakeCommands::default(), &FakeProcs::new(vec![]), &mut journal, &opts);
 
     assert!(r.cancelled);
     assert_eq!(r.items.len(), 6, "{:#?}", r.items);
@@ -1089,6 +1096,12 @@ impl ProcessTable for SnapshotOnFirstCall<'_> {
         Vec::new()
     }
     fn open_files(&self, _: i32) -> Vec<PathBuf> {
+        Vec::new()
+    }
+    fn process_start(&self, _: i32) -> Option<ProcStart> {
+        None
+    }
+    fn open_vnodes(&self, _: i32) -> Vec<OpenVnode> {
         Vec::new()
     }
 }
@@ -1136,7 +1149,7 @@ fn the_running_tool_is_named_while_its_command_runs() {
     let opts = ExecOptions { progress: Some(&progress), ..ExecOptions::default() };
     let mut journal = ToolAtRecord { progress: &progress, seen: Vec::new(), inner: MemoryJournal::default() };
 
-    let r = fx.run_with(&plan, Consent::Interactive, &commands, &FakeProcs(vec![]), &mut journal, &opts);
+    let r = fx.run_with(&plan, Consent::Interactive, &commands, &FakeProcs::new(vec![]), &mut journal, &opts);
 
     assert!(matches!(outcome(&r, &uv), Outcome::Native { .. }), "{:?}", outcome(&r, &uv));
     assert_eq!(*commands.calls.borrow(), ["uv cache dir", "uv cache clean"]);
@@ -1171,14 +1184,20 @@ fn local_snapshots_counted_by_the_caller_run_no_tmutil() {
     let tmutil = || FakeCommands::default().with("tmutil", true, "com.apple.TimeMachine.2026-10-25-000000.local\n");
 
     let counted = tmutil();
-    let r =
-        fx.run_with(&plan, yes(), &counted, &FakeProcs(vec![]), &mut MemoryJournal::default(), &ExecOptions::default());
+    let r = fx.run_with(
+        &plan,
+        yes(),
+        &counted,
+        &FakeProcs::new(vec![]),
+        &mut MemoryJournal::default(),
+        &ExecOptions::default(),
+    );
     assert_eq!(r.local_snapshots, 1);
     assert_eq!(*counted.calls.borrow(), ["tmutil listlocalsnapshots /"]);
 
     let given = tmutil();
     let opts = ExecOptions { local_snapshots: Some(3), ..ExecOptions::default() };
-    let r = fx.run_with(&plan, yes(), &given, &FakeProcs(vec![]), &mut MemoryJournal::default(), &opts);
+    let r = fx.run_with(&plan, yes(), &given, &FakeProcs::new(vec![]), &mut MemoryJournal::default(), &opts);
     assert_eq!(r.local_snapshots, 3);
     assert!(given.calls.borrow().is_empty(), "{:?}", given.calls.borrow());
 }
@@ -1231,7 +1250,7 @@ fn the_hook_says_cleaning_before_the_first_action_and_each_item_after_its_record
     let opts = ExecOptions { progress: Some(&progress), events: Some(&recorder), ..ExecOptions::default() };
     let docker = FakeCommands::default().with("docker", true, "").answer("docker", DOCKER_VERSION, true, "28.5.1\n");
 
-    fx.run_with(&plan, Consent::Interactive, &docker, &FakeProcs(vec![]), &mut journal, &opts);
+    fx.run_with(&plan, Consent::Interactive, &docker, &FakeProcs::new(vec![]), &mut journal, &opts);
 
     let chosen: Vec<_> = plan.items.iter().filter(|i| i.selected).collect();
     let n = chosen.len();
@@ -1261,7 +1280,7 @@ fn the_hook_says_cleaning_with_no_items_and_nothing_when_execute_refuses() {
     plan.items.iter_mut().for_each(|i| i.selected = false);
     let recorder = Recorder::default();
     let opts = ExecOptions { events: Some(&recorder), ..ExecOptions::default() };
-    fx.run_with(&plan, yes(), &FakeCommands::default(), &FakeProcs(vec![]), &mut MemoryJournal::default(), &opts);
+    fx.run_with(&plan, yes(), &FakeCommands::default(), &FakeProcs::new(vec![]), &mut MemoryJournal::default(), &opts);
     assert_eq!(*recorder.log.lock().unwrap(), ["cleaning"]);
 
     let refused = Recorder::default();
@@ -1273,7 +1292,12 @@ fn the_hook_says_cleaning_with_no_items_and_nothing_when_execute_refuses() {
         &Catalog::builtin(fx.t.root()),
         &fx.plan(),
         &Consent::AssumeYes { classes: vec![RiskClass::Review] },
-        Ports { commands: &FakeCommands::default(), trash: &trash, procs: &FakeProcs(vec![]), journal: &mut journal },
+        Ports {
+            commands: &FakeCommands::default(),
+            trash: &trash,
+            procs: &FakeProcs::new(vec![]),
+            journal: &mut journal,
+        },
         &opts,
     );
     assert!(matches!(result, Err(ExecError::ReviewWithYes)));
@@ -1294,8 +1318,14 @@ fn a_cancelled_marker_walk_keeps_its_target() {
     progress.cancel_walk();
     let opts = ExecOptions { progress: Some(&progress), ..ExecOptions::default() };
 
-    let r =
-        fx.run_with(&plan, yes(), &FakeCommands::default(), &FakeProcs(vec![]), &mut MemoryJournal::default(), &opts);
+    let r = fx.run_with(
+        &plan,
+        yes(),
+        &FakeCommands::default(),
+        &FakeProcs::new(vec![]),
+        &mut MemoryJournal::default(),
+        &opts,
+    );
 
     assert_eq!(outcome(&r, &nm), &Outcome::Skipped(SkipReason::Kept));
     assert!(nm.exists());

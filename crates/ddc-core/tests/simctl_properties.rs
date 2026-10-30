@@ -129,7 +129,7 @@ impl Fx {
         let sources = Sources::under(&t.path("sys"));
         let home = t.path("home").canonicalize().unwrap();
         let sizes = (0..MAX_RUNTIMES).map(|k| reference_alloc(&t.path(&format!("{ASSETS}/r{k}.asset")))).collect();
-        Self { t, sources, home, cancel: AtomicBool::new(false), procs: FakeProcs(vec![]), sizes }
+        Self { t, sources, home, cancel: AtomicBool::new(false), procs: FakeProcs::new(vec![]), sizes }
     }
 
     fn ctx<'a>(&'a self, commands: &'a FakeCommands) -> FreeContext<'a> {

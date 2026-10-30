@@ -34,7 +34,7 @@ use crate::class::{CondaFolder, Fallback, Location, Removal, RiskClass};
 use crate::env::Env;
 use crate::plan::{Action, Plan, PlanItem};
 /// What a [`ProcessTable`] lists: a fake table names it here, not under `platform`.
-pub use crate::platform::procs::ProcInfo;
+pub use crate::platform::procs::{OpenVnode, ProcInfo, ProcStart};
 use crate::rules::entries::{ENTRY_RULES, EntryLock};
 use crate::rules::{Catalog, KEEP_MARKER};
 use crate::scan::{self, EntryMeta, OwnerKind, Progress, Tag, Visitor, WalkOptions};
@@ -177,6 +177,13 @@ pub trait ProcessTable {
     fn processes(&self) -> Vec<ProcInfo>;
     /// The files one process has open now, for the guard's confirming re-read.
     fn open_files(&self, pid: i32) -> Vec<PathBuf>;
+    /// When one process started and whose it is; `None` when it is gone or
+    /// cannot be read. A coding agent's session record names its process by
+    /// pid, and this tells a reused pid apart.
+    fn process_start(&self, pid: i32) -> Option<ProcStart>;
+    /// The kernel's `(dev, ino)` of each file one process has open now,
+    /// matched against a `stat` of a known file, never `stat`ed itself.
+    fn open_vnodes(&self, pid: i32) -> Vec<OpenVnode>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

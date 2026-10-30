@@ -46,8 +46,8 @@ use std::time::{Duration, SystemTime};
 use ddc_core::class::{Category, Removal, RiskClass};
 use ddc_core::env::Env;
 use ddc_core::exec::{
-    self, CmdOutput, CommandRunner, Consent, ExecOptions, MemoryJournal, Outcome, Ports, ProcInfo, ProcessTable,
-    SkipReason, Trasher,
+    self, CmdOutput, CommandRunner, Consent, ExecOptions, MemoryJournal, OpenVnode, Outcome, Ports, ProcInfo,
+    ProcStart, ProcessTable, SkipReason, Trasher,
 };
 use ddc_core::model::{Finding, RemovalKind, ScanReport};
 use ddc_core::plan::{
@@ -767,6 +767,12 @@ impl ProcessTable for NoProcesses {
         Vec::new()
     }
     fn open_files(&self, _: i32) -> Vec<PathBuf> {
+        Vec::new()
+    }
+    fn process_start(&self, _: i32) -> Option<ProcStart> {
+        None
+    }
+    fn open_vnodes(&self, _: i32) -> Vec<OpenVnode> {
         Vec::new()
     }
 }

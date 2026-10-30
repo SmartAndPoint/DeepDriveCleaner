@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use super::{CmdOutput, CommandRunner, ProcessTable, Trasher};
 use crate::env::Env;
-use crate::platform::procs::{self, ProcInfo};
+use crate::platform::procs::{self, OpenVnode, ProcInfo, ProcStart};
 use crate::platform::{meta, process, signals, trash};
 
 /// Finds tools in `Env::tool_dirs()` (plus `/usr/bin` for system tools).
@@ -102,6 +102,12 @@ impl ProcessTable for SystemProcesses {
     }
     fn open_files(&self, pid: i32) -> Vec<PathBuf> {
         procs::open_files(pid)
+    }
+    fn process_start(&self, pid: i32) -> Option<ProcStart> {
+        procs::process_start(pid)
+    }
+    fn open_vnodes(&self, pid: i32) -> Vec<OpenVnode> {
+        procs::open_vnodes(pid)
     }
 }
 

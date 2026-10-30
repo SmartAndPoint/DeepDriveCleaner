@@ -191,13 +191,13 @@ fn a_file_held_open_inside_a_deleted_finding_skips_it_and_the_dry_run_says_so() 
     let home = Home::new();
     let nm = home.node_modules();
     let item = home.listed(&nm, ActionKind::Delete, false);
-    let node = FakeProcs(vec![holder(701, "node", &[&nm.join("dep/index.js")])]);
+    let node = FakeProcs::new(vec![holder(701, "node", &[&nm.join("dep/index.js")])]);
 
     let outcomes = home.predict_and_clean(std::slice::from_ref(&item), &FakeCommands::default(), &node, &node);
     assert_eq!(outcomes, [in_use(701, "node")]);
     assert!(nm.exists());
 
-    let none = FakeProcs(vec![]);
+    let none = FakeProcs::new(vec![]);
     assert_eq!(home.predict_and_clean(&[item], &FakeCommands::default(), &none, &none), [Outcome::Deleted]);
     assert!(!nm.exists());
 }
@@ -230,7 +230,7 @@ fn a_tool_command_never_starts_while_a_process_holds_its_cache_open() {
 
     // Held from the start: the guard skips it, and the dry run predicts it.
     let commands = tool();
-    let running = FakeProcs(vec![holder(703, "uv", &[&lock])]);
+    let running = FakeProcs::new(vec![holder(703, "uv", &[&lock])]);
     assert_eq!(home.predict_and_clean(std::slice::from_ref(&item), &commands, &running, &running), [in_use(703, "uv")]);
     assert!(commands.calls.borrow().is_empty(), "neither the probe nor the clean ran: {:?}", commands.calls.borrow());
 
@@ -242,7 +242,7 @@ fn a_tool_command_never_starts_while_a_process_holds_its_cache_open() {
 
     // Nobody holds it: the tool runs, with the lock timeout for uv only.
     let commands = tool();
-    let outcomes = home.clean(&[item], &commands, &FakeProcs(vec![]));
+    let outcomes = home.clean(&[item], &commands, &FakeProcs::new(vec![]));
     assert!(matches!(&outcomes[..], [Outcome::Native { commands }] if commands[0].success), "{outcomes:?}");
     assert_eq!(*commands.calls.borrow(), ["uv cache dir", "uv cache clean"]);
     assert_eq!(*commands.envs.borrow(), [vec![], vec!["UV_LOCK_TIMEOUT=10".to_owned()]]);
@@ -262,7 +262,7 @@ fn a_move_to_the_trash_ignores_open_files_and_a_permanent_delete_does_not() {
     let review = home.listed(&venv, ActionKind::Trash, false);
     assert_eq!(review.class, RiskClass::Review);
     let picked = home.pick("Downloads/movie.mp4", "user.downloads");
-    let player = FakeProcs(vec![holder(705, "python", &[&venv.join("lib/x.py")]), holder(706, "IINA", &[&movie])]);
+    let player = FakeProcs::new(vec![holder(705, "python", &[&venv.join("lib/x.py")]), holder(706, "IINA", &[&movie])]);
 
     let permanent = ListedItem { action: ActionKind::Delete, permanent: true, ..review.clone() };
     assert_eq!(
@@ -272,8 +272,12 @@ fn a_move_to_the_trash_ignores_open_files_and_a_permanent_delete_does_not() {
     );
 
     // The path check still holds for a move to the Trash: a process working inside it.
-    let working =
-        FakeProcs(vec![ProcInfo { pid: 709, name: "python".into(), cwd: Some(venv.clone()), ..ProcInfo::default() }]);
+    let working = FakeProcs::new(vec![ProcInfo {
+        pid: 709,
+        name: "python".into(),
+        cwd: Some(venv.clone()),
+        ..ProcInfo::default()
+    }]);
     assert_eq!(
         home.predict_and_clean(std::slice::from_ref(&review), &FakeCommands::default(), &working, &working),
         [in_use(709, "python")],
@@ -295,7 +299,7 @@ fn a_runtime_prunes_while_its_daemon_works_inside_its_finding() {
     let docker = home.path("Library/Containers/com.docker.docker");
     home.tree.write(DOCKER_CONTEXT, "{}");
     let item = home.listed(&docker, ActionKind::NativeOnly, false);
-    let daemon = FakeProcs(vec![docker_backend(&docker)]);
+    let daemon = FakeProcs::new(vec![docker_backend(&docker)]);
     let commands = FakeCommands::default().with("docker", true, "").answer("docker", DOCKER_VERSION, true, "28.5.1\n");
 
     assert_eq!(home.dry_run(std::slice::from_ref(&item), &commands, &daemon), [Prediction::WouldRun]);
@@ -319,7 +323,7 @@ fn the_dry_run_predicts_a_docker_desktop_that_cannot_answer_without_running_anyt
 
     // No backend process: Docker Desktop is not running, and its probe fails as the clean runs it.
     let commands = FakeCommands::default().with("docker", true, "").answer("docker", DOCKER_VERSION, false, "");
-    let quit = FakeProcs(vec![]);
+    let quit = FakeProcs::new(vec![]);
     let down = not_ready("Docker Desktop is not running or not answering");
     assert_eq!(home.dry_run(std::slice::from_ref(&item), &commands, &quit), [Prediction::WouldSkip(down.clone())]);
     assert!(commands.calls.borrow().is_empty(), "the dry run runs nothing: {:?}", commands.calls.borrow());
@@ -331,7 +335,7 @@ fn the_dry_run_predicts_a_docker_desktop_that_cannot_answer_without_running_anyt
         .with("docker", true, "")
         .answer("docker", DOCKER_VERSION, false, "")
         .stderr_on("docker", DOCKER_VERSION, "context \"desktop-linux\" does not exist\n");
-    let running = FakeProcs(vec![docker_backend(&docker)]);
+    let running = FakeProcs::new(vec![docker_backend(&docker)]);
     let missing = not_ready("the desktop-linux context does not exist");
     assert_eq!(
         home.predict_and_clean(&[item], &commands, &running, &running),
@@ -355,7 +359,7 @@ fn the_reason_names_the_app_a_holder_belongs_to() {
             "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)",
         )
     };
-    let procs = FakeProcs(vec![helper]);
+    let procs = FakeProcs::new(vec![helper]);
 
     assert_eq!(
         home.predict_and_clean(&[item], &FakeCommands::default(), &procs, &procs),

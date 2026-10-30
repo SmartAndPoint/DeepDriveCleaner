@@ -52,7 +52,7 @@ impl Fx {
         t.file("home/Library/Caches/Homebrew/downloads/old.tar.gz", 128 * 1024);
         let sources = Sources::under(&t.path("sys"));
         let home = t.path("home").canonicalize().unwrap();
-        Self { t, sources, home, cancel: AtomicBool::new(false), procs: FakeProcs(vec![]) }
+        Self { t, sources, home, cancel: AtomicBool::new(false), procs: FakeProcs::new(vec![]) }
     }
 
     fn env(&self) -> Env {
@@ -1056,7 +1056,7 @@ fn every_environment_conda_must_not_remove_is_refused_before_conda_starts() {
     // A running process holds a file of it, spelled as the kernel spells it.
     let mut busy = Fx::new().with_conda();
     let held = busy.t.path(&format!("{MINICONDA}/envs/old/lib/own.dylib")).canonicalize().unwrap();
-    busy.procs = FakeProcs(vec![common::fakes::holder(77, "python", &[&held])]);
+    busy.procs = FakeProcs::new(vec![common::fakes::holder(77, "python", &[&held])]);
     let commands = busy.conda(&busy.conda_settings(|_| {}));
     let (reports, _) = run(&busy, &commands, &busy.conda_list(ActionId::CondaEnvRemove, &busy.opt_env()));
     assert_eq!(reports[0].result, ActionResult::Refused { reason: Refusal::CondaInUse });

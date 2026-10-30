@@ -8,7 +8,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use ddc_core::exec::{CmdOutput, CommandRunner, ProcInfo, ProcessTable, Trasher};
+use ddc_core::exec::{CmdOutput, CommandRunner, OpenVnode, ProcInfo, ProcStart, ProcessTable, Trasher};
 
 /// Told each call of [`FakeCommands`] before it answers.
 pub type CallHook = Box<dyn Fn(&str)>;
@@ -158,14 +158,45 @@ impl Trasher for FakeTrash {
     }
 }
 
-pub struct FakeProcs(pub Vec<ProcInfo>);
+/// A fixed process table. `starts` and `vnodes` answer by pid; a pid
+/// without an entry is gone (no start) or has nothing open.
+#[derive(Default)]
+pub struct FakeProcs {
+    pub procs: Vec<ProcInfo>,
+    pub starts: HashMap<i32, ProcStart>,
+    pub vnodes: HashMap<i32, Vec<OpenVnode>>,
+}
+
+impl FakeProcs {
+    pub fn new(procs: Vec<ProcInfo>) -> Self {
+        Self { procs, ..Self::default() }
+    }
+
+    /// The same table, where `pid` started as `start` says.
+    pub fn with_start(mut self, pid: i32, start: ProcStart) -> Self {
+        self.starts.insert(pid, start);
+        self
+    }
+
+    /// The same table, where `pid` holds `vnodes` open.
+    pub fn with_vnodes(mut self, pid: i32, vnodes: Vec<OpenVnode>) -> Self {
+        self.vnodes.insert(pid, vnodes);
+        self
+    }
+}
 
 impl ProcessTable for FakeProcs {
     fn processes(&self) -> Vec<ProcInfo> {
-        self.0.clone()
+        self.procs.clone()
     }
     fn open_files(&self, pid: i32) -> Vec<PathBuf> {
-        self.0.iter().find(|p| p.pid == pid).map(|p| p.open_files.clone()).unwrap_or_default()
+        self.procs.iter().find(|p| p.pid == pid).map(|p| p.open_files.clone()).unwrap_or_default()
+    }
+    fn process_start(&self, pid: i32) -> Option<ProcStart> {
+        self.starts.get(&pid).copied()
+    }
+    fn open_vnodes(&self, pid: i32) -> Vec<OpenVnode> {
+        self.vnodes.get(&pid).cloned().unwrap_or_default()
     }
 }
 
@@ -176,11 +207,14 @@ pub struct ChangingProcs {
     pub first: Vec<ProcInfo>,
     pub then: Vec<ProcInfo>,
     pub reads: Cell<usize>,
+    /// By pid, as of the re-reads: one process's facts are always read after the table.
+    pub starts: HashMap<i32, ProcStart>,
+    pub vnodes: HashMap<i32, Vec<OpenVnode>>,
 }
 
 impl ChangingProcs {
     pub fn new(first: Vec<ProcInfo>, then: Vec<ProcInfo>) -> Self {
-        Self { first, then, reads: Cell::new(0) }
+        Self { first, then, reads: Cell::new(0), starts: HashMap::new(), vnodes: HashMap::new() }
     }
 }
 
@@ -193,6 +227,14 @@ impl ProcessTable for ChangingProcs {
     fn open_files(&self, pid: i32) -> Vec<PathBuf> {
         self.reads.set(self.reads.get() + 1);
         self.then.iter().find(|p| p.pid == pid).map(|p| p.open_files.clone()).unwrap_or_default()
+    }
+    fn process_start(&self, pid: i32) -> Option<ProcStart> {
+        self.reads.set(self.reads.get() + 1);
+        self.starts.get(&pid).copied()
+    }
+    fn open_vnodes(&self, pid: i32) -> Vec<OpenVnode> {
+        self.reads.set(self.reads.get() + 1);
+        self.vnodes.get(&pid).cloned().unwrap_or_default()
     }
 }
 
