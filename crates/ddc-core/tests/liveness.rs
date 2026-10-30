@@ -53,7 +53,7 @@ fn records_starts_and_open_files_decide_each_session() {
         liveness::claude(Ok(outcomes), &sessions, &[4242, 4444], |pid| table.open_vnodes(pid), now)
     };
 
-    let read = liveness::claude_records(&records, &table).unwrap();
+    let read = liveness::claude_records(&records, |pid| table.process_start(pid)).unwrap();
     assert_eq!(
         decide(&read),
         [
@@ -65,10 +65,10 @@ fn records_starts_and_open_files_decide_each_session() {
 
     // One record that does not parse leaves every session unknown.
     t.write("home/.claude/sessions/4545.json", "{\"pid\": 45");
-    let read = liveness::claude_records(&records, &table).unwrap();
+    let read = liveness::claude_records(&records, |pid| table.process_start(pid)).unwrap();
     assert_eq!(decide(&read), [SessionLiveness::Unknown { cause: UnknownCause::UnparsableRecord }; 3]);
 
     // No records folder at all: an older Claude Code, every session unknown.
-    let missing = liveness::claude_records(&t.path("home/.claude/none"), &table);
+    let missing = liveness::claude_records(&t.path("home/.claude/none"), |pid| table.process_start(pid));
     assert_eq!(missing, Err(UnknownCause::RecordsMissing));
 }

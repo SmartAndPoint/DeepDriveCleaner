@@ -8,12 +8,25 @@ use crate::platform::procs::{ProcInfo, app_bundle};
 
 use super::{HarnessId, Running, RunningKind};
 
-/// The harness `proc` belongs to, and what it is of it. `codex_packages`
-/// is `~/.codex/packages`, where Codex's app-server daemon lives.
-pub(super) fn classify(proc: &ProcInfo, codex_packages: &Path) -> Option<(HarnessId, RunningKind)> {
+/// Where harnesses install their own binaries, under the home folder.
+#[derive(Debug, Clone, Copy)]
+pub struct Installs<'a> {
+    /// `~/.codex/packages`, where Codex's app-server daemon lives.
+    pub codex_packages: &'a Path,
+    /// `~/.local/share/cursor-agent`, where Cursor's agent CLI keeps its
+    /// versions. Its launcher `exec`s the bundled `node`, so the process is
+    /// named `node`; every binary there is the CLI's.
+    pub cursor_agent: &'a Path,
+}
+
+/// The harness `proc` belongs to, and what it is of it.
+pub(super) fn classify(proc: &ProcInfo, installs: Installs<'_>) -> Option<(HarnessId, RunningKind)> {
     if let Some(exe) = proc.exe.as_deref().filter(|e| e.is_absolute()) {
-        if exe.starts_with(codex_packages) {
+        if exe.starts_with(installs.codex_packages) {
             return Some((HarnessId::Codex, RunningKind::AppServer));
+        }
+        if exe.starts_with(installs.cursor_agent) {
+            return Some((HarnessId::Cursor, RunningKind::Cli));
         }
         if in_macos_of(exe, "Cursor") {
             return Some((HarnessId::Cursor, RunningKind::App));
@@ -29,7 +42,7 @@ pub(super) fn classify(proc: &ProcInfo, codex_packages: &Path) -> Option<(Harnes
         }
         "codex" => Some((HarnessId::Codex, kind(RunningKind::Cli))),
         "opencode" => Some((HarnessId::Opencode, kind(RunningKind::Cli))),
-        // Cursor's agent in a terminal, apart from the editor.
+        // Cursor's agent installed elsewhere, under its legacy name.
         "cursor-agent" => Some((HarnessId::Cursor, kind(RunningKind::Cli))),
         _ => None,
     }
@@ -48,10 +61,10 @@ fn in_macos_of(exe: &Path, app: &str) -> bool {
 }
 
 /// The running processes of `harness`, by pid.
-pub(super) fn of(harness: HarnessId, procs: &[ProcInfo], codex_packages: &Path) -> Vec<Running> {
+pub(super) fn of(harness: HarnessId, procs: &[ProcInfo], installs: Installs<'_>) -> Vec<Running> {
     let mut out: Vec<Running> = procs
         .iter()
-        .filter_map(|p| match classify(p, codex_packages) {
+        .filter_map(|p| match classify(p, installs) {
             Some((h, kind)) if h == harness => Some(Running { pid: p.pid, kind }),
             _ => None,
         })
@@ -78,9 +91,14 @@ mod tests {
     }
 
     const PACKAGES: &str = "/Users/example/.codex/packages";
+    const CURSOR_AGENT: &str = "/Users/example/.local/share/cursor-agent";
+
+    fn installs() -> Installs<'static> {
+        Installs { codex_packages: Path::new(PACKAGES), cursor_agent: Path::new(CURSOR_AGENT) }
+    }
 
     fn classify(p: &ProcInfo) -> Option<(HarnessId, RunningKind)> {
-        super::classify(p, Path::new(PACKAGES))
+        super::classify(p, installs())
     }
 
     #[test]
@@ -92,7 +110,7 @@ mod tests {
         assert_eq!(classify(&cli), Some((HarnessId::ClaudeCode, RunningKind::Cli)));
         assert_eq!(classify(&desktop), None);
         assert_eq!(classify(&lookalike), None);
-        assert_eq!(of(HarnessId::ClaudeCode, &procs, Path::new(PACKAGES)).len(), 1);
+        assert_eq!(of(HarnessId::ClaudeCode, &procs, installs()).len(), 1);
     }
 
     #[test]
@@ -132,12 +150,21 @@ mod tests {
     }
 
     #[test]
-    fn cursor_agent_is_cursors_cli() {
-        let exe = "/Users/example/.local/share/cursor-agent/versions/2026.10.28/cursor-agent";
-        let agent = proc("cursor-agent", exe, &["cursor-agent"]);
+    fn cursor_agent_is_cursors_cli_by_its_install_folder() {
+        // Its launcher `exec`s the bundled `node` under the command's name.
+        let version = format!("{CURSOR_AGENT}/versions/2026.10.28-0a1b2c3");
+        let agent = proc(
+            "node",
+            &format!("{version}/node"),
+            &["/Users/example/.local/bin/agent", &format!("{version}/index.js")],
+        );
         assert_eq!(classify(&agent), Some((HarnessId::Cursor, RunningKind::Cli)));
-        assert_eq!(of(HarnessId::Cursor, &[agent], Path::new(PACKAGES)), [Running { pid: 1, kind: RunningKind::Cli }]);
-        // The exact name only.
+        assert_eq!(of(HarnessId::Cursor, &[agent], installs()), [Running { pid: 1, kind: RunningKind::Cli }]);
+        let worker = proc("cursor-agent-worker-sea", &format!("{version}/cursor-agent-worker-sea"), &[]);
+        assert_eq!(classify(&worker), Some((HarnessId::Cursor, RunningKind::Cli)));
+        // Installed elsewhere, by its legacy name; a lookalike is nobody.
+        let legacy = proc("cursor-agent", "/opt/homebrew/bin/cursor-agent", &["cursor-agent"]);
+        assert_eq!(classify(&legacy), Some((HarnessId::Cursor, RunningKind::Cli)));
         assert_eq!(classify(&proc("cursor-agent-helper", "/usr/local/bin/cursor-agent-helper", &[])), None);
     }
 
@@ -147,7 +174,9 @@ mod tests {
             classify(&proc("opencode", "/opt/homebrew/bin/opencode", &[])),
             Some((HarnessId::Opencode, RunningKind::Cli))
         );
-        // An npm-installed Claude Code runs as `node`.
+        // An npm-installed Claude Code runs as `node`, and so does any other script.
         assert_eq!(classify(&proc("node", "/opt/homebrew/bin/node", &["node", "/x/claude"])), None);
+        let elsewhere = "/Users/example/.local/share/other-agent/versions/1/node";
+        assert_eq!(classify(&proc("node", elsewhere, &["/Users/example/.local/bin/agent"])), None);
     }
 }

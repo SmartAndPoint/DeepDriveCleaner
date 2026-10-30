@@ -21,8 +21,9 @@ pub(crate) fn threads(
     open: impl Fn(i32) -> Vec<OpenVnode>,
     rollouts: &HashMap<String, String>,
 ) -> (RecordsState, Option<UnknownReason>, Vec<Session>) {
-    let locks = match locks(dir) {
-        Ok(locks) => locks,
+    // Lenient: a lock that cannot be read is left out of the list.
+    let locks = match list(dir, lock_id) {
+        Ok((locks, _incomplete)) => locks,
         Err(reason) => return (RecordsState::Unknown, Some(reason), Vec::new()),
     };
     let held = held(&locks.iter().map(|(_, k)| *k).collect(), pids, open);
@@ -43,29 +44,65 @@ pub(crate) fn threads(
 }
 
 /// The thread locks of `dir` (`~/.codex/thread-writer-locks`) by thread id,
-/// sorted, each with its `(dev, ino)`; `Missing` or `Unreadable` when the
-/// folder cannot be listed.
+/// sorted, each with its `(dev, ino)`, for the liveness check. Strict: a
+/// listing entry or a lock that could not be read makes the whole folder
+/// `Unreadable`, since that lock may be held; a lock removed meanwhile is
+/// simply gone. `Missing` when the folder does not exist.
 pub(crate) fn locks(dir: &Path) -> CodexLocks {
+    strict(list(dir, lock_id))
+}
+
+/// The thread locks of a folder by id, sorted, with their `(dev, ino)`, and
+/// whether one could not be read; or why the folder could not be.
+type Listed = Result<(Vec<(String, (u64, u64))>, bool), UnknownReason>;
+
+fn strict(listed: Listed) -> CodexLocks {
+    match listed? {
+        (_, true) => Err(UnknownReason::Unreadable),
+        (locks, false) => Ok(locks),
+    }
+}
+
+/// A lock's `(dev, ino)`, its link not followed; `None` when it is not a
+/// plain file.
+fn lock_id(path: &Path) -> std::io::Result<Option<(u64, u64)>> {
+    let md = std::fs::symlink_metadata(path)?;
+    if !md.is_file() {
+        return Ok(None);
+    }
+    crate::platform::meta::file_id(&md).map(Some)
+}
+
+/// The thread locks of `dir`, sorted, and whether one could not be read.
+/// `id_of` gives a lock's identity.
+fn list(dir: &Path, id_of: impl Fn(&Path) -> std::io::Result<Option<(u64, u64)>>) -> Listed {
     let entries = match crate::stats::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(UnknownReason::Missing),
         Err(_) => return Err(UnknownReason::Unreadable),
     };
-    // Only `<thread-id>.lock`: `.coordination.lock` names no thread.
-    let mut locks: Vec<(String, (u64, u64))> = entries
-        .flatten()
-        .filter_map(|e| {
-            let name = e.file_name();
-            let id = name.to_str()?.strip_suffix(".lock")?;
-            if id.is_empty() || id.starts_with('.') {
-                return None;
-            }
-            let md = std::fs::symlink_metadata(e.path()).ok().filter(|m| m.is_file())?;
-            Some((id.to_owned(), crate::platform::meta::file_id(&md).ok()?))
-        })
-        .collect();
+    let mut locks = Vec::new();
+    let mut incomplete = false;
+    for entry in entries {
+        let Ok(entry) = entry else {
+            incomplete = true;
+            continue;
+        };
+        // Only `<thread-id>.lock`: `.coordination.lock` names no thread.
+        let name = entry.file_name();
+        let Some(id) = name.to_str().and_then(|n| n.strip_suffix(".lock")) else { continue };
+        if id.is_empty() || id.starts_with('.') {
+            continue;
+        }
+        match id_of(&entry.path()) {
+            Ok(Some(key)) => locks.push((id.to_owned(), key)),
+            Ok(None) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => incomplete = true,
+        }
+    }
     locks.sort();
-    Ok(locks)
+    Ok((locks, incomplete))
 }
 
 /// The locks some process of `pids` holds open, read pid by pid until all
@@ -148,6 +185,34 @@ mod tests {
         assert_eq!(rollout_name(&format!("rollout-{id}.jsonl")), None);
         assert_eq!(rollout_name("rollout-2026-10-28T09-41-07-notanid.jsonl"), None);
         assert_eq!(rollout_name(&format!("history-2026-{id}.jsonl")), None);
+    }
+
+    /// A lock that cannot be `stat`ed leaves the liveness check unknown,
+    /// while `disk agents` lists the others; a lock removed meanwhile is gone.
+    #[test]
+    fn an_unreadable_lock_makes_the_strict_listing_unreadable() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["t1.lock", "t2.lock", "t3.lock", ".coordination.lock", "notes.txt"] {
+            std::fs::write(dir.path().join(name), "").unwrap();
+        }
+        let fake = |kind: std::io::ErrorKind| {
+            move |path: &Path| match path.file_name().and_then(|n| n.to_str()) {
+                Some("t1.lock") => Ok(Some((9, 1))),
+                Some("t2.lock") => Err(std::io::Error::from(kind)),
+                _ => Ok(Some((9, 3))),
+            }
+        };
+        let listed = list(dir.path(), fake(std::io::ErrorKind::PermissionDenied));
+        let ids = |r: &Listed| r.as_ref().unwrap().0.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
+        assert_eq!((ids(&listed), listed.as_ref().unwrap().1), (vec!["t1".to_owned(), "t3".to_owned()], true));
+        assert_eq!(strict(listed), Err(UnknownReason::Unreadable));
+
+        let vanished = list(dir.path(), fake(std::io::ErrorKind::NotFound));
+        assert_eq!(strict(vanished), Ok(vec![("t1".to_owned(), (9, 1)), ("t3".to_owned(), (9, 3))]));
+
+        // The real reader, and a folder that is not there.
+        assert_eq!(locks(dir.path()).unwrap().len(), 3);
+        assert_eq!(locks(&dir.path().join("none")), Err(UnknownReason::Missing));
     }
 
     #[test]

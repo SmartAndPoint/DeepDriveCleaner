@@ -20,6 +20,10 @@ use std::time::Instant;
 
 pub use claude::utc_ctime;
 pub use model::*;
+pub use running::Installs;
+
+/// Where Cursor's agent CLI installs its versions, from the home folder.
+pub const CURSOR_AGENT: &str = ".local/share/cursor-agent";
 
 use crate::env::Env;
 use crate::platform::procs::{self, ProcInfo};
@@ -99,6 +103,8 @@ pub fn report(env: &Env, opts: &AgentsOptions, procs: &[ProcInfo], cancel: &Atom
     let skipped = |path: &Path| catalog.never_open(path, &opts.user_skips).is_some();
     let pids: Vec<i32> = procs.iter().map(|p| p.pid).collect();
     let packages = home.join(".codex/packages");
+    let cursor_agent = home.join(CURSOR_AGENT);
+    let installs = Installs { codex_packages: &packages, cursor_agent: &cursor_agent };
 
     let found: Vec<Vec<Found>> = HARNESSES
         .iter()
@@ -171,7 +177,7 @@ pub fn report(env: &Env, opts: &AgentsOptions, procs: &[ProcInfo], cancel: &Atom
         harnesses.push(Harness {
             id: def.id,
             name: def.name.to_owned(),
-            running: running::of(def.id, procs, &packages),
+            running: running::of(def.id, procs, installs),
             folders,
             bytes,
             sessions,
