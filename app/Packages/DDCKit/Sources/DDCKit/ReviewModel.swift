@@ -69,7 +69,8 @@ public final class ReviewModel: ReviewRouting {
     public var wholeDisk = false
     public var entry: ReviewItems.Entry?
     public var query = ""
-    public var sort: ReviewItems.Sort = .size
+    /// The rows' order in both views, from `AppPreferences`; `sortBy` changes it.
+    public internal(set) var sort: ReviewSort = .default
     /// Folded subgroups of the Groups view, while the window stays open.
     public var collapsed: Set<GroupLayout.Key> = []
     /// Non-nil while the confirmation sheet shows.
@@ -175,6 +176,7 @@ public final class ReviewModel: ReviewRouting {
         self.temporaryDirectory = temporaryDirectory
         self.clock = clock
         self.log = log
+        sort = preferences.reviewSort
     }
 
     // MARK: - The router
@@ -405,6 +407,14 @@ public final class ReviewModel: ReviewRouting {
     public func canProtect(_ id: Int) -> Bool {
         guard let items, let row = items.row(id), reportScope != .outside else { return false }
         return row.selectable && items.canProtect(row)
+    }
+
+    /// A column title of the sort header: sorts by it, or reverses it when
+    /// it is the sorted one; kept for the next launch. The selection, Select
+    /// all and what a group's Clean button cleans never change with it.
+    public func sortBy(_ column: ReviewSort.Column) {
+        sort = sort.clicking(column)
+        preferences.setReviewSort(sort)
     }
 
     /// A subgroup's heading: folds it or opens it again.

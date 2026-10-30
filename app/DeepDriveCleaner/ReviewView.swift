@@ -90,14 +90,6 @@ struct ReviewView: View {
             .labelsHidden()
             .frame(width: 180)
             Spacer()
-            if model.mode == .items {
-                Picker("Sort", selection: $model.sort) {
-                    Text("Biggest First").tag(ReviewItems.Sort.size)
-                    Text("By Path").tag(ReviewItems.Sort.path)
-                    Text("Most Idle First").tag(ReviewItems.Sort.idle)
-                }
-                .frame(width: 170)
-            }
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Filter by path or rule", text: $model.query)
@@ -312,16 +304,19 @@ private struct SidebarEntry: View {
 
 // MARK: - Items
 
-/// Every finding, filtered and sorted; user data stays in its own section.
+/// Every finding, filtered and sorted by the header above it; user data
+/// stays in its own section.
 private struct ItemsView: View {
     @Bindable var model: ReviewModel
     let items: ReviewItems
 
     var body: some View {
         let rows = items.items(matching: model.query, sort: model.sort)
+        let scanned = Wording.date(rfc3339: items.report.generatedAt)
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Largest items").font(.system(size: 17, weight: .semibold))
+                // "Items · oldest change first": the heading names the sort.
+                Text(CleanWording.itemsHeading(model.sort)).font(.system(size: 17, weight: .semibold))
                 Text("Every folder the scan found. Tick or untick single folders; right-click to show or protect one.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
@@ -335,8 +330,11 @@ private struct ItemsView: View {
                     ContentUnavailableView.search(text: model.query)
                 }
             } else {
+                // The Name title over the rows' paths, past their checkboxes.
+                SortHeader(model: model, leading: 16 + 26)
+                Divider()
                 List(rows) { row in
-                    ItemRow(model: model, row: row, home: items.report.home)
+                    ItemRow(model: model, row: row, home: items.report.home, scanned: scanned)
                 }
                 .listStyle(.inset)
             }
@@ -346,11 +344,14 @@ private struct ItemsView: View {
 
 /// A finding's row. The Items view shows its full line; the Groups view
 /// passes the path relative to its folder and the row's own facts, and a
-/// one-item rule its title above them.
+/// one-item rule its title above them. Its Size and Changed columns sit
+/// under the sort header's titles.
 struct ItemRow: View {
     @Bindable var model: ReviewModel
     let row: ReviewItems.Row
     let home: String
+    /// The scan's time: the Changed column's Today and Yesterday.
+    let scanned: Date?
     var heading: (title: String, subtitle: String)?
     var shown: String?
     var detail: String?
@@ -391,10 +392,12 @@ struct ItemRow: View {
                 }
             }
             Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 1) {
-                Text(ByteSize.human(row.finding.bytes)).font(.system(size: 13)).monospacedDigit()
-                if let frees = frees {
-                    Text("frees ~\(frees)").font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()
+            SortColumns(changed: CleanWording.changed(row.finding.modified, scanned: scanned), tooltip: CleanWording.changedHelp(row)) {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(ByteSize.human(row.finding.bytes)).font(.system(size: 13)).monospacedDigit()
+                    if let frees = frees {
+                        Text("frees ~\(frees)").font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
+                    }
                 }
             }
         }

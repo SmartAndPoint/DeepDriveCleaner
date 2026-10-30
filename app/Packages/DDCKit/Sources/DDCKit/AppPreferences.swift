@@ -27,6 +27,7 @@ public final class AppPreferences {
     public static let permissionAskedKey = "NotificationPermissionAsked"
     public static let oldScanOfferDismissedKey = "OldScanOfferDismissed"
     public static let foundUpdateKey = "FoundUpdate"
+    public static let reviewSortKey = "ReviewSort"
 
     private let defaults: UserDefaults
 
@@ -184,6 +185,18 @@ public final class AppPreferences {
         } else {
             defaults.removeObject(forKey: Self.foundUpdateKey)
         }
+    }
+
+    // MARK: The Review window ("Review window: sort a group's rows by name, size or last change")
+
+    /// The rows' order, kept across groups and launches; a missing or
+    /// unreadable value reads as the default, Size largest first.
+    public var reviewSort: ReviewSort {
+        defaults.data(forKey: Self.reviewSortKey).flatMap { try? JSONDecoder().decode(ReviewSort.self, from: $0) } ?? .default
+    }
+
+    public func setReviewSort(_ sort: ReviewSort) {
+        if let data = try? JSONEncoder().encode(sort) { defaults.set(data, forKey: Self.reviewSortKey) }
     }
 
     /// A notification was posted and the Review window has not opened since.

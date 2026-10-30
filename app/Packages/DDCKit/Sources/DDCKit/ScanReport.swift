@@ -157,13 +157,16 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         public let incomplete: Bool
         /// What one of the user's own folders holds, to pick from.
         public let contents: Contents?
+        /// The newest change inside it (RFC 3339, fixed-width UTC); nil when
+        /// the scan read none. A picked entry carries its own change.
+        public let modified: String?
 
         /// What deleting it frees, as the CLI's `Finding::reclaimable_bytes`.
         public var reclaimableBytes: UInt64 { privateBytes ?? bytes }
 
         private enum CodingKeys: String, CodingKey {
             case path, rule, `class`, ruleClass, removal, dev, ino, bytes, privateBytes, project, selected, notSelected, ignored
-            case notes, hint, incomplete, contents
+            case notes, hint, incomplete, contents, modified
         }
 
         public init(from decoder: any Decoder) throws {
@@ -185,6 +188,8 @@ public struct ScanReport: Decodable, Sendable, Equatable {
             hint = try c.decode(String.self, forKey: .hint)
             incomplete = try c.decode(Bool.self, forKey: .incomplete)
             contents = try c.decodeIfPresent(Contents.self, forKey: .contents)
+            // Absent before the CLI read it, and on what has no date: both nil.
+            modified = try c.decodeIfPresent(String.self, forKey: .modified)
         }
 
         /// A picked entry as `plan_listed` synthesizes it: its folder's rule,
@@ -207,6 +212,7 @@ public struct ScanReport: Decodable, Sendable, Equatable {
             hint = folder.hint
             incomplete = entry.incomplete
             contents = nil
+            modified = entry.modified
         }
     }
 

@@ -276,26 +276,13 @@ public struct ReviewItems: Sendable, Equatable {
 
     // MARK: - Search and sort
 
-    public enum Sort: String, CaseIterable, Sendable {
-        case size, path, idle
-    }
-
-    /// The Items view: every finding but user data, filtered and sorted.
-    public func items(matching query: String, sort: Sort) -> [Row] {
+    /// The Items view: every finding but user data, filtered, then sorted.
+    /// Its Name is the path as the row shows it, under `~`.
+    public func items(matching query: String, sort: ReviewSort) -> [Row] {
         let rows = self.rows.filter { $0.lock != .userData && $0.userEntry == nil && matches($0, query) }
-        switch sort {
-        case .size:
-            return rows.sorted { $0.finding.bytes != $1.finding.bytes ? $0.finding.bytes > $1.finding.bytes : $0.id < $1.id }
-        case .path:
-            return rows.sorted { $0.finding.path != $1.finding.path ? $0.finding.path < $1.finding.path : $0.id < $1.id }
-        case .idle:
-            // Most idle first; findings outside a project last, biggest first.
-            return rows.sorted { a, b in
-                let (x, y) = (a.finding.project?.idleDays, b.finding.project?.idleDays)
-                if x != y { return (x ?? 0, x != nil ? 1 : 0) > (y ?? 0, y != nil ? 1 : 0) }
-                return a.finding.bytes != b.finding.bytes ? a.finding.bytes > b.finding.bytes : a.id < b.id
-            }
-        }
+        return sort.sorted(rows, key: { row in
+            ReviewSort.Key(name: Wording.tilde(row.finding.path, home: report.home), bytes: row.finding.bytes, changed: row.finding.modified)
+        }, tie: { $0.id < $1.id })
     }
 
     /// The path, also as written under `~`, or the rule id; case-insensitive.

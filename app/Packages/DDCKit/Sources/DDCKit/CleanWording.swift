@@ -178,9 +178,9 @@ extension CleanWording {
         return "\(Wording.number(Int(clamping: count))) \(noun) (\(ByteSize.human(bytes))) \(count == 1 ? "is" : "are") not listed"
     }
 
-    /// An entry row's own facts: its lock, when it last changed, a backup's
-    /// device and date, the findings inside it, `.git`.
-    public static func entryDetail(_ row: ReviewItems.Row, scanned: Date?) -> String {
+    /// An entry row's own facts: its lock, a backup's device and date, the
+    /// findings inside it, `.git`. When it last changed is its Changed column.
+    public static func entryDetail(_ row: ReviewItems.Row) -> String {
         guard let entry = row.userEntry else { return "" }
         var parts: [String] = []
         if let lock = row.lock { parts.append(lock.text) }
@@ -189,9 +189,6 @@ extension CleanWording {
             if let date = backup.lastBackup.flatMap(Wording.date(rfc3339:)) {
                 parts.append("Last backup \(date.formatted(.dateTime.year().month().day()))")
             }
-        } else if row.lock != .entry(.recent), let scanned, let modified = entry.modified.flatMap(Wording.date(rfc3339:)) {
-            let days = max(0, Int(scanned.timeIntervalSince(modified) / 86_400))
-            parts.append(days == 0 ? "Last changed today" : "Last changed \(days) \(days == 1 ? "day" : "days") ago")
         }
         if entry.findings > 0 {
             parts.append("Holds \(Wording.items(Int(clamping: entry.findings), "finding")) of its own")
@@ -225,7 +222,7 @@ extension CleanWording {
         let finding = row.finding
         // Board 9 shows it on review rows too; an active project says "Active" instead.
         if let days = finding.project?.idleDays {
-            if case .activeProject? = finding.notSelected {} else { parts.append("Untouched \(days) \(days == 1 ? "day" : "days")") }
+            if case .activeProject? = finding.notSelected {} else { parts.append(projectUntouched(days)) }
         }
         if row.lock == nil || row.lock == .protected, let reason = finding.notSelected {
             switch reason {
@@ -264,5 +261,117 @@ extension CleanWording {
         if finding.incomplete { parts.append("Part of it could not be read; it may be skipped") }
         if finding.class == .review || Self.hintedThoughSafe.contains(finding.rule), let hint = Self.hint(finding.hint) { parts.append(hint) }
         return parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - The Changed column and the sort header
+
+/// Story "Review window: sort a group's rows by name, size or last change".
+/// Dates are read against the scan's time, the report's `generated_at`, as
+/// the second line measures days; the calendar, locale and time zone are
+/// passed in so tests fix them.
+extension CleanWording {
+    /// The project's activity on a row's second line: a signal of its own,
+    /// apart from the row's Changed column.
+    public static func projectUntouched(_ days: UInt64) -> String {
+        "Project untouched \(days) \(days == 1 ? "day" : "days")"
+    }
+
+    /// The Changed column of a row with no date.
+    public static let noDate = "—"
+
+    /// The Changed column: "Today" or "Yesterday" as of the scan, else an
+    /// abbreviated date ("Sep 25, 2026"); "—" with no date. A time after
+    /// the scan (a wrong clock) shows as it is.
+    public static func changed(
+        _ modified: String?,
+        scanned: Date?,
+        calendar: Calendar = .autoupdatingCurrent,
+        locale: Locale = .autoupdatingCurrent,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> String {
+        guard let date = modified.flatMap(Wording.date(rfc3339:)) else { return noDate }
+        var calendar = calendar
+        calendar.timeZone = timeZone
+        if let scanned {
+            if calendar.isDate(date, inSameDayAs: scanned) { return "Today" }
+            if let yesterday = calendar.date(byAdding: .day, value: -1, to: scanned), calendar.isDate(date, inSameDayAs: yesterday) {
+                return "Yesterday"
+            }
+        }
+        return date.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted, locale: locale, calendar: calendar, timeZone: timeZone))
+    }
+
+    /// A row's Changed tooltip; nil with no date. A finding's date is the
+    /// newest change anywhere inside it, a lower bound when part of it could
+    /// not be read; an entry of the user's own folders has its own change.
+    public static func changedHelp(
+        _ row: ReviewItems.Row,
+        calendar: Calendar = .autoupdatingCurrent,
+        locale: Locale = .autoupdatingCurrent,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> String? {
+        guard let text = dateAndTime(row.finding.modified, calendar: calendar, locale: locale, timeZone: timeZone) else { return nil }
+        if row.userEntry != nil { return "Changed: \(text)" }
+        return row.finding.incomplete
+            ? "Newest change inside: at least as recent as \(text) (part of it could not be read)"
+            : "Newest change inside: \(text)"
+    }
+
+    /// A subgroup heading's Changed tooltip; nil with no date.
+    public static func subgroupChangedHelp(
+        _ modified: String?,
+        calendar: Calendar = .autoupdatingCurrent,
+        locale: Locale = .autoupdatingCurrent,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> String? {
+        dateAndTime(modified, calendar: calendar, locale: locale, timeZone: timeZone).map { "Newest change among its folders: \($0)" }
+    }
+
+    private static func dateAndTime(_ modified: String?, calendar: Calendar, locale: Locale, timeZone: TimeZone) -> String? {
+        guard let date = modified.flatMap(Wording.date(rfc3339:)) else { return nil }
+        var calendar = calendar
+        calendar.timeZone = timeZone
+        return date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, locale: locale, calendar: calendar, timeZone: timeZone))
+    }
+
+    /// A column's title in the sort header.
+    public static func sortTitle(_ column: ReviewSort.Column) -> String {
+        switch column {
+        case .name: "Name"
+        case .size: "Size"
+        case .changed: "Changed"
+        }
+    }
+
+    /// Which way a column is sorted: "oldest first".
+    static func sortDirection(_ sort: ReviewSort) -> String {
+        switch sort.column {
+        case .name: sort.ascending ? "A to Z" : "Z to A"
+        case .size: sort.ascending ? "smallest first" : "largest first"
+        case .changed: sort.ascending ? "oldest first" : "newest first"
+        }
+    }
+
+    /// A column title's accessibility label: "Changed, sorted oldest first"
+    /// on the sorted column, its title alone on the others.
+    public static func sortLabel(_ column: ReviewSort.Column, sort: ReviewSort) -> String {
+        column == sort.column ? "\(sortTitle(column)), sorted \(sortDirection(sort))" : sortTitle(column)
+    }
+
+    /// What pressing a column title does.
+    public static func sortHint(_ column: ReviewSort.Column, sort: ReviewSort) -> String {
+        column == sort.column ? "Reverses the order" : "Sorts by \(sortTitle(column).lowercased())"
+    }
+
+    /// The Items view's heading, which names the sort: "Items · oldest change first".
+    public static func itemsHeading(_ sort: ReviewSort) -> String {
+        let order =
+            switch sort.column {
+            case .name: "by name, \(sortDirection(sort))"
+            case .size: sortDirection(sort)
+            case .changed: sort.ascending ? "oldest change first" : "newest change first"
+            }
+        return "Items · \(order)"
     }
 }
