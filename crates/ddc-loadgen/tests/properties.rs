@@ -821,6 +821,7 @@ fn injected(path: &Path, r: &'static Rule, class: RiskClass, action: Action) -> 
         parent_ino: up.map(|u| u.1),
         contents: None,
         protection: None,
+        modified: None,
     };
     PlanItem { finding, action, default_selected: false, selected: true }
 }

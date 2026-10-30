@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 use super::backups;
 use crate::model::{Backup, Contents, Finding, FolderEntry, FolderEntryKind};
@@ -222,7 +222,7 @@ fn listed(path: PathBuf, child: &EntryResult, e: IndexedEntry, rule: &str, other
         bytes: e.bytes,
         dev: e.dev,
         ino: e.ino,
-        modified: child.modified.and_then(rfc3339),
+        modified: child.modified.and_then(super::rfc3339_secs),
         lock: match e.state {
             EntryState::Locked(lock) => Some(lock),
             _ => None,
@@ -238,12 +238,10 @@ fn listed(path: PathBuf, child: &EntryResult, e: IndexedEntry, rule: &str, other
     }
 }
 
-fn rfc3339(secs: i64) -> Option<String> {
-    super::rfc3339(UNIX_EPOCH.checked_add(Duration::from_secs(u64::try_from(secs).ok()?))?)
-}
-
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, UNIX_EPOCH};
+
     use super::*;
 
     fn child(name: &str, kind: EntryKind) -> EntryResult {

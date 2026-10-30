@@ -49,6 +49,10 @@ pub struct Measure {
     pub files: u64,
     pub dirs: u64,
     pub incomplete: bool,
+    /// The newest modification time inside, Unix seconds, as the scan reads
+    /// it ([`scan::OwnerResult::modified`]); a file's own. The report's
+    /// RFC 3339 text is made where it is written into a finding.
+    pub modified: Option<i64>,
 }
 
 /// Measures `path` as the scan measures a finding of `rule`: the whole
@@ -70,6 +74,7 @@ pub fn remeasure(catalog: &Catalog, rule: &str, path: &Path, opts: &scan::WalkOp
             files: 1,
             dirs: 0,
             incomplete: false,
+            modified: Some(crate::platform::meta::mtime(&md)),
         });
     }
     let Some(tag) = catalog.by_id(rule).and_then(|r| catalog.tag_of(r)) else { return Remeasured::Unknown };
@@ -90,6 +95,7 @@ pub fn remeasure(catalog: &Catalog, rule: &str, path: &Path, opts: &scan::WalkOp
             files: o.files,
             dirs: o.dirs,
             incomplete: o.incomplete(),
+            modified: o.modified,
         }),
         None => Remeasured::Unknown,
     }
@@ -322,6 +328,8 @@ impl Edit<'_> {
                     files: new.files,
                     dirs: new.dirs,
                     incomplete: new.incomplete,
+                    // The finding is replaced whole below, its date included.
+                    modified: None,
                 };
                 self.resize(path, &m);
                 self.report.findings[i] = new;
@@ -357,6 +365,7 @@ impl Edit<'_> {
         f.files = m.files;
         f.dirs = m.dirs;
         f.incomplete = m.incomplete;
+        f.modified = m.modified.and_then(super::rfc3339_secs);
         self.resized(i);
     }
 

@@ -502,6 +502,13 @@
           "format": "uint64",
           "minimum": 0
         },
+        "modified": {
+          "description": "The newest modification time inside it, its own directory included,\nRFC 3339 in UTC to the second (story \"Review window: sort a group's\nrows by name, size or last change\"). A lower bound when `incomplete`.\nOnly inside a claim the walk read times for: none on a region, a\nuser-data finding, a protected one, an unlisted rule's, or one whose\nroot could not be opened.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "not_selected": {
           "description": "Why it is not selected by default. An ignored finding keeps the reason\nit would have had, so a type switched back on applies at once.",
           "anyOf": [
