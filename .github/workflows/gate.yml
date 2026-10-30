@@ -1,11 +1,17 @@
 # The mandatory gate on GitHub (story "Mandatory gate before every commit", DDC-005):
 # `make gate` on every push and pull request, with coverage, the app's tests and the
 # M-size load trees beside it. `make dist` refuses a commit whose run here is not
-# green in every job, the load job included (scripts/ci-green.sh).
+# green (scripts/ci-green.sh): every required job, the load job included. The
+# Linux and Windows `check` jobs run with continue-on-error, so they are not required
+# until they run the gate natively (story "Build matrix: every target built, tested
+# and packaged from one tag", DDC-007, stage 2).
 name: Gate
 
+# Branch pushes only: a tag push would start a second run of the same commit, and
+# scripts/ci-green.sh reads the newest. release.yml runs on the tag.
 on:
   push:
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
 
@@ -110,3 +116,48 @@ jobs:
           key: app
       - run: cargo build -p ddc-cli --locked
       - run: make app-test
+
+  # The workspace compiled for Linux and Windows on their own runners (story "Build
+  # matrix: every target built, tested and packaged from one tag", DDC-007, stage 1).
+  # Red is allowed until story "Move OS calls behind the platform module": the job
+  # shows how far the port is, and continue-on-error keeps it out of the run's
+  # result. cargo directly: there is no make on Windows.
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+          cache-on-failure: true
+          key: check-${{ matrix.target }}
+      - run: cargo check --workspace --locked --target ${{ matrix.target }}
+
+  # The release CLI as `make dist` builds and checks it before signing (story "Build
+  # matrix: every target built, tested and packaged from one tag", DDC-007): release-only
+  # breakage (LTO, codegen units, the path remap) shows on the push, not on the
+  # owner's Mac in the middle of a release.
+  release-build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+          key: release-build
+      - run: scripts/build-cli.sh aarch64-apple-darwin

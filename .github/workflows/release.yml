@@ -1,0 +1,170 @@
+# Release archives (story "Build matrix: every target built, tested and packaged from
+# one tag", DDC-007). On a v<version> tag (`make tag`) every enabled target is built on
+# its own runner from a commit whose Gate run is green, smoke-tested, packed, attested
+# and uploaded as a workflow artifact named as its archive. It never creates the
+# GitHub release: scripts/publish-release.sh downloads these archives and publishes
+# them with the owner's signed macOS tarball and the app zip.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run per tag, never cancelled: a cancelled run is a red one, and
+# scripts/publish-release.sh refuses a tag whose run is not green.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # The enabled targets, one {"target", "runner", "archive"} each, archive "tar.gz" or
+  # "zip": [{"target":"x86_64-unknown-linux-musl","runner":"ubuntu-24.04","archive":"tar.gz"}].
+  # A platform's catalog story adds its target in the commit that flips the
+  # platform's SUPPORTED switch. scripts/publish-release.sh reads this line: keep it
+  # on one line, in single quotes.
+  RELEASE_TARGETS: '[]'
+
+jobs:
+  # The matrix (story "Build matrix: every target built, tested and packaged from one
+  # tag"). An empty matrix fails a run while a skipped job does not, so `build` is
+  # gated on `any`.
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      targets: ${{ steps.plan.outputs.targets }}
+      any: ${{ steps.plan.outputs.any }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: plan
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)"
+          [ -n "$version" ] || { echo "::error::no workspace version in Cargo.toml"; exit 1; }
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME is not v$version, the version in Cargo.toml"
+            exit 1
+          fi
+          jq -e 'type == "array" and all(.[]; (.target | type) == "string" and (.runner | type) == "string"
+                 and (.archive == "tar.gz" or .archive == "zip"))' <<<"$RELEASE_TARGETS" >/dev/null \
+            || { echo "::error::RELEASE_TARGETS is not a list of {target, runner, archive}"; exit 1; }
+          {
+            echo "version=$version"
+            echo "targets=$(jq -c . <<<"$RELEASE_TARGETS")"
+            echo "any=$(jq 'length > 0' <<<"$RELEASE_TARGETS")"
+          } >> "$GITHUB_OUTPUT"
+
+  # One archive per enabled target, built natively on its runner (story "Build matrix:
+  # every target built, tested and packaged from one tag"). No cache: a release binary
+  # is built from the tagged commit and nothing else.
+  build:
+    needs: plan
+    if: needs.plan.outputs.any == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.targets) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read        # scripts/ci-green.sh reads the Gate run
+      id-token: write      # the provenance attestation
+      attestations: write
+    env:
+      TARGET: ${{ matrix.target }}
+      ARCHIVE: ${{ matrix.archive }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      ASSET: deepdrivecleaner-${{ needs.plan.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      # Every packaged binary passed the test suite: the Gate run of this commit (its
+      # push to main) is green, or this waits for it.
+      - name: Gate green for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: scripts/ci-green.sh
+      - name: Toolchain from rust-toolchain.toml
+        run: |
+          rustup toolchain install
+          rustup target add "$TARGET"
+      - name: Build and check
+        run: scripts/build-cli.sh "$TARGET"
+      # --version names the tag, and `scan --json` of a small tree is valid against the
+      # committed schema.
+      - name: Smoke test
+        run: |
+          exe=""; case "$TARGET" in *-windows-*) exe=.exe ;; esac
+          bin="target/$TARGET/release/deepdrivecleaner$exe"
+          expected="$VERSION"
+          [ "$GITHUB_REF_TYPE" != tag ] || expected="${GITHUB_REF_NAME#v}"
+          [ "$("$bin" --version)" = "deepdrivecleaner $expected" ] \
+            || { echo "::error::the binary reports '$("$bin" --version)', not $expected"; exit 1; }
+          tree="$(mktemp -d)"
+          mkdir -p "$tree/home/app/node_modules/left-pad" "$tree/data"
+          printf '{}\n' > "$tree/home/app/package.json"
+          printf 'x\n' > "$tree/home/app/node_modules/left-pad/index.js"
+          HOME="$tree/home" "$bin" scan --json --data-dir "$tree/data" "$tree/home" > "$tree/scan.json"
+          pipx run --spec check-jsonschema==0.38.2 check-jsonschema \
+            --schemafile docs/scan.schema.json "$tree/scan.json"
+      # Flat, as the macOS tarball: the binary and the three documents, nothing else.
+      - name: Pack
+        run: |
+          exe=""; case "$TARGET" in *-windows-*) exe=.exe ;; esac
+          stage="$(mktemp -d)"
+          cp "target/$TARGET/release/deepdrivecleaner$exe" LICENSE.md DISCLAIMER.md README.md "$stage/"
+          files=("deepdrivecleaner$exe" LICENSE.md DISCLAIMER.md README.md)
+          case "$ARCHIVE" in
+            tar.gz)
+              tar --owner=root:0 --group=root:0 -czf "$ASSET" -C "$stage" "${files[@]}"
+              listing="$(tar -tzf "$ASSET" | LC_ALL=C sort | tr '\n' ' ')"
+              ;;
+            zip)
+              # 7-Zip ships on the Windows runners and takes Windows paths; Python
+              # reads the listing back.
+              out="$(cygpath -w "$PWD/$ASSET")"
+              (cd "$stage" && 7z a -tzip -bd "$out" "${files[@]}" >/dev/null)
+              listing="$(python -I -c 'import sys, zipfile; print("\n".join(zipfile.ZipFile(sys.argv[1]).namelist()))' "$ASSET" \
+                | tr -d '\r' | LC_ALL=C sort | tr '\n' ' ')"
+              ;;
+          esac
+          [ "$listing" = "DISCLAIMER.md LICENSE.md README.md deepdrivecleaner$exe " ] \
+            || { echo "::error::unexpected $ASSET contents: $listing"; exit 1; }
+      # What ships holds no runner path and no home folder, in any spelling the runner
+      # has for it.
+      - name: No runner paths in the archive
+        run: |
+          unpacked="$(mktemp -d)"
+          case "$ARCHIVE" in
+            tar.gz) tar -xzf "$ASSET" -C "$unpacked" ;;
+            zip) 7z x -bd "-o$(cygpath -w "$unpacked")" "$ASSET" >/dev/null ;;
+          esac
+          needles=()
+          for path in "$HOME" "$GITHUB_WORKSPACE" "$RUNNER_TEMP" "$RUNNER_TOOL_CACHE" \
+              "${CARGO_HOME:-}" "${RUSTUP_HOME:-}"; do
+            [ -n "$path" ] || continue
+            needles+=(-e "$path")
+            if [ "$RUNNER_OS" = Windows ]; then
+              needles+=(-e "$(cygpath -u "$path")" -e "$(cygpath -w "$path")" -e "$(cygpath -m "$path")")
+            fi
+          done
+          status=0
+          LC_ALL=C grep -r -a -l -F "${needles[@]}" "$unpacked" || status=$?
+          [ "$status" != 0 ] || { echo "::error::the files above hold a runner path"; exit 1; }
+          [ "$status" = 1 ] || { echo "::error::grep could not read the unpacked $ASSET"; exit 1; }
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ${{ env.ASSET }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ASSET }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error

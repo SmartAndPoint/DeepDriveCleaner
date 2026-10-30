@@ -30,7 +30,7 @@ export PROPTEST_CASES
 # The declared minimum Rust version, read from Cargo.toml so it is set in one place.
 MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
-.PHONY: build fmt fmt-check clippy test check release install dist app app-test app-dist icons \
+.PHONY: build fmt fmt-check clippy test check release install tag require-tag dist app app-test app-dist icons \
 	gate-fast gate nextest doctest clippy-dhat doc deny machete msrv release-check \
 	tools require-tools hooks coverage coverage-ratchet ci-green golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test script-test leaks asan fuzz
 
@@ -293,7 +293,8 @@ coverage-ratchet:
 		--json databaseId --jq '.[0].databaseId')" --name coverage --dir target/coverage/ci
 	python3 -I bench/coverage_floor.py ratchet target/coverage/ci/summary.json bench/coverage-floor.tsv
 
-# Refuses unless the Gate workflow passed on GitHub for HEAD.
+# Refuses unless the Gate workflow passed on GitHub for HEAD (scripts/ci-green.sh
+# release.yml asks the same of the release workflow).
 ci-green:
 	./scripts/ci-green.sh
 
@@ -306,11 +307,28 @@ install:
 	$(CARGO) install --path crates/ddc-cli --locked
 	ln -sf "$(HOME)/.cargo/bin/deepdrivecleaner" "$(HOME)/.cargo/bin/ddc"
 
-# Both release assets in dist/, from one commit (needs .env with DDC_SIGN_IDENTITY and
-# NOTARY_PROFILE): the signed, notarized CLI tarball, then the notarized, stapled app
-# zip. Publish them with scripts/publish-release.sh. Only from a commit whose CI run is
-# green, and only after the full gate passes here too.
-dist: ci-green gate app-test
+# A release, in this order (story "Build matrix: every target built, tested and
+# packaged from one tag", DDC-007):
+#   1. make tag: the owner pushes the annotated tag v<version> at HEAD of origin/main,
+#      after a green Gate run for it. Nothing else creates the tag.
+#   2. release.yml runs on the tag: the enabled targets' archives, as workflow artifacts.
+#   3. make dist: the macOS assets from the tagged commit.
+#   4. scripts/publish-release.sh: one release with all of them and SHA256SUMS.
+# If release.yml fails, the tag has no release yet: fix on main, delete the tag on
+# origin (git push origin :refs/tags/v<version>) and run make tag again, or bump the
+# version. publish-release.sh refuses while the run is red.
+tag:
+	./scripts/tag-release.sh
+
+# Origin holds v<version> at HEAD: the first step of make dist, before the gate.
+require-tag:
+	./scripts/require-tag.sh
+
+# Both macOS release assets in dist/, from one commit (needs .env with DDC_SIGN_IDENTITY
+# and NOTARY_PROFILE): the signed, notarized CLI tarball, then the notarized, stapled
+# app zip. Only from the commit `make tag` tagged on origin, whose CI run is green, and
+# only after the full gate passes here too.
+dist: require-tag ci-green gate app-test
 	./scripts/build-dist.sh
 	./scripts/build-app.sh --dist
 
