@@ -54,7 +54,8 @@ test:
 # (.githooks/pre-commit), gate before every push (.githooks/pre-push) and in CI; the
 # hooks and CI skip them when only Rust-free paths changed (scripts/gate-scope.sh,
 # .config/rust-free-paths; story "Gate by what changed: load at night, one gate per
-# release, app-only pushes skip Rust", DDC-005).
+# release, app-only pushes skip Rust", DDC-005). CI's required Linux and Windows check
+# jobs run the tests natively beside it, against .config/native-skips (gate.yml).
 gate-fast: require-tools fmt-check clippy nextest doctest
 
 # deny, machete and fuzz-lock read only metadata and take seconds: they go first.

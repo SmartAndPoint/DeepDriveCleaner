@@ -8,8 +8,8 @@
 # Only push runs count. Waits while the run is still going, so a release right after a merge does not fail.
 # A green Gate run may have skipped its Rust jobs: the commit changed only Rust-free paths
 # since a fully green ancestor (scripts/gate-scope.sh). --full, for `make tag` and `make
-# dist`, also requires the gate, coverage and release-build jobs of HEAD's own run to have
-# passed, so a release never rests on that rule.
+# dist`, also requires the gate, coverage, release-build and the two native check jobs of
+# HEAD's own run to have passed, so a release never rests on that rule.
 set -euo pipefail
 
 fail() { printf '\033[0;31m❌ %s\033[0m\n' "$1" >&2; exit 1; }
@@ -50,9 +50,10 @@ if [ "$full" = yes ]; then
     for run in $(gh run list --commit "$sha" --workflow "$workflow" --status success --limit 20 \
         --json databaseId,event --jq '.[] | select(.event == "push" or .event == "workflow_dispatch") | .databaseId'); do
         passed="$(gh api "repos/{owner}/{repo}/actions/runs/$run/jobs?filter=latest&per_page=100" \
-            --jq '[.jobs[] | select(.name == "gate" or .name == "coverage" or .name == "release-build")
+            --jq '[.jobs[] | select(.name == "gate" or .name == "coverage" or .name == "release-build"
+                    or .name == "check-x86_64-unknown-linux-gnu" or .name == "check-x86_64-pc-windows-msvc")
                 | select(.conclusion == "success")] | length')" || fail "gh could not read the jobs of run $run"
-        if [ "$passed" = 3 ]; then
+        if [ "$passed" = 5 ]; then
             full_run="$run"
             break
         fi
