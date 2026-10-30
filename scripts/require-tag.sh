@@ -21,4 +21,4 @@ TAG_SHA="$(printf '%s\n' "$REFS" | awk -v peeled="refs/tags/$TAG^{}" \
     '$2 == peeled { p = $1 } $2 != peeled && $1 != "" { t = $1 } END { print (p != "" ? p : t) }')"
 [ -n "$TAG_SHA" ] || fail "origin has no tag $TAG: run 'make tag' first"
 [ "$TAG_SHA" = "$(git rev-parse HEAD)" ] \
-    || fail "tag $TAG on origin points at $TAG_SHA, not HEAD: check out that commit, bump the version, or, if the tag has no release, delete it on origin and run 'make tag'"
+    || fail "tag $TAG on origin points at $TAG_SHA, not HEAD: 'git pull' if this clone is behind; a checkout of the tag cannot be published (publish needs HEAD = origin/main). Otherwise bump the version, or, if 'gh release view $TAG' says release not found, delete the tag on origin and run 'make tag'"

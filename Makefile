@@ -314,9 +314,12 @@ install:
 #   2. release.yml runs on the tag: the enabled targets' archives, as workflow artifacts.
 #   3. make dist: the macOS assets from the tagged commit.
 #   4. scripts/publish-release.sh: one release with all of them and SHA256SUMS.
-# If release.yml fails, the tag has no release yet: fix on main, delete the tag on
-# origin (git push origin :refs/tags/v<version>) and run make tag again, or bump the
-# version. publish-release.sh refuses while the run is red.
+# The release is one commit: nothing is pushed to main between make tag and publish.
+# If release.yml fails, or a fix needs a commit, first check that the tag has no
+# release ('gh release view v<version>' says release not found), then fix on main,
+# delete the tag on origin (git push origin :refs/tags/v<version>) and locally, and
+# run make tag again; or bump the version. publish-release.sh refuses a red run only
+# while RELEASE_TARGETS is non-empty. Never delete the tag of a published release.
 tag:
 	./scripts/tag-release.sh
 

@@ -33,7 +33,7 @@ VERSION="$("$CARGO" pkgid -p ddc-cli | sed 's/.*[#@]//')"
 TAG="v$VERSION"
 # The app ships in the same release: scripts/build-dist.sh refuses this too, but only
 # after the tag would already be out.
-APP_VERSION="$(sed -n 's/^[[:space:]]*MARKETING_VERSION = \(.*\);$/\1/p' app/DeepDriveCleaner.xcodeproj/project.pbxproj | sort -u)"
+APP_VERSION="$(sed -n 's/^[[:space:]]*MARKETING_VERSION = "\{0,1\}\([^";]*\)"\{0,1\};$/\1/p' app/DeepDriveCleaner.xcodeproj/project.pbxproj | sort -u)"
 [ "$APP_VERSION" = "$VERSION" ] || fail "the app's MARKETING_VERSION ($APP_VERSION) is not the CLI's version ($VERSION): bump both"
 [ -f "docs/releases/$VERSION.md" ] || fail "docs/releases/$VERSION.md missing: write the release notes first"
 

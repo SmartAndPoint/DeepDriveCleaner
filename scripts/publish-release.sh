@@ -150,6 +150,11 @@ else
     fail "could not read release $TAG: $IS_DRAFT"
 fi
 if [ "$RELEASE_EXISTS" = 1 ]; then
+    # A draft is never resumed, even a complete one: gh leaves one when it is stopped
+    # after the uploads and before it publishes, and a cask pointing at a draft's
+    # assets gives everyone a 404.
+    [ "$IS_DRAFT" = true ] \
+        && fail "release $TAG is a draft: inspect it with 'gh release view $TAG --repo $REPO', remove it with 'gh release delete $TAG --repo $REPO --yes' (keep the tag), then rerun"
     NAMES="$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')" \
         || fail "could not read release $TAG"
     # A release cut before the appcast was an asset gets it on resume.
@@ -158,9 +163,6 @@ if [ "$RELEASE_EXISTS" = 1 ]; then
     for NAME in "${UPLOADS[@]}"; do
         PATTERNS+=(--pattern "$NAME")
         grep -qxF "$NAME" <<<"$NAMES" && continue
-        # gh deletes its own draft when an upload fails; this one was left by hand or by a failed cleanup.
-        [ "$IS_DRAFT" = true ] \
-            && fail "release $TAG is a draft without $NAME: inspect it with 'gh release view $TAG --repo $REPO', remove it with 'gh release delete $TAG --repo $REPO --yes' (keep the tag), then rerun"
         fail "release $TAG is published but holds no $NAME: inspect it with 'gh release view $TAG --repo $REPO' — a cask may already point at it, so do not delete it"
     done
     step "Release $TAG exists — resuming at the cask with its assets"

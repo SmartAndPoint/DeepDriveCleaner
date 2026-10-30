@@ -51,7 +51,7 @@ if [ -f .env ]; then set -a; . ./.env; set +a; fi
     || fail "DDC_SIGN_IDENTITY must be the certificate's SHA-1 (security find-identity -v -p codesigning)"
 
 VERSION="$("$CARGO" pkgid -p ddc-cli | sed 's/.*[#@]//')"
-APP_VERSION="$(sed -n 's/^[[:space:]]*MARKETING_VERSION = \(.*\);$/\1/p' app/DeepDriveCleaner.xcodeproj/project.pbxproj | sort -u)"
+APP_VERSION="$(sed -n 's/^[[:space:]]*MARKETING_VERSION = "\{0,1\}\([^";]*\)"\{0,1\};$/\1/p' app/DeepDriveCleaner.xcodeproj/project.pbxproj | sort -u)"
 if [ "$DIST" = 1 ]; then
     [ -n "${NOTARY_PROFILE:-}" ] || fail "NOTARY_PROFILE is not set (.env)"
     # A zip built from uncommitted code could not be rebuilt from its tag.
