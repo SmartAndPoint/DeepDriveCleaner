@@ -14,17 +14,19 @@
 //! A picked entry of the user's own folders gets the clean's entry checks
 //! instead (safety ADR, amendment of 2026-10-20), with its lock derived as
 //! the scan derives it. Without a scan the dry run cannot see that a child
-//! of Downloads became another rule's finding; the clean skips it then.
+//! of Downloads became another rule's finding; the clean skips it then. A
+//! coding agent's session entry gets the guard's own session check, its
+//! companions and its liveness read as the clean reads them (story
+//! "Harness data rules"), and a harness's folder the guard's `agent-live`.
 
 use std::cell::RefCell;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::guard::Guard;
+use super::guard::{Guard, Walked, walk_item};
 use super::{CommandRunner, ProcessTable, SkipReason};
 use crate::class::{Fallback, Location, ReadyProbe, RiskClass};
 use crate::conda;
@@ -34,10 +36,10 @@ use crate::plan::{Action, ActionKind, ListedItem, PlanItem, action_for};
 use crate::platform::PLATFORM;
 use crate::platform::fsops::DirFd;
 use crate::report::backups;
-use crate::rules::entries::{BACKUP_RULE, ENTRY_RULES, EntryFacts, lock_of};
+use crate::rules::entries::{self, BACKUP_RULE, EntryFacts, EntryShape, lock_of};
 use crate::rules::{Catalog, KEEP_MARKER, LockFiles, Rule, effective_class, protected_in_home};
+use crate::scan::DirReader;
 use crate::scan::reader::SF_DATALESS;
-use crate::scan::{self, DirCtx, DirReader, EntryMeta, OwnerKind, Progress, Tag, Visitor, WalkOptions};
 
 /// One line of the dry run's output (JSON Lines, one per item, then the summary).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -100,6 +102,23 @@ pub fn preflight(
     ports: &PreflightPorts<'_>,
     out: &mut dyn FnMut(&PreflightLine) -> io::Result<()>,
 ) -> io::Result<PreflightSummary> {
+    preflight_skipping(env, catalog, roots, excludes, &[], listed, ports, out)
+}
+
+/// [`preflight`] with the scan's skips (`ScanOptions::skip` and
+/// `user_skips`): Claude Code's records under one are never read, and a
+/// session's entry is then `liveness-unknown`, as the clean's rescan says.
+#[allow(clippy::too_many_arguments)]
+pub fn preflight_skipping(
+    env: &Env,
+    catalog: &Catalog,
+    roots: &[PathBuf],
+    excludes: &[PathBuf],
+    skips: &[PathBuf],
+    listed: &[ListedItem],
+    ports: &PreflightPorts<'_>,
+    out: &mut dyn FnMut(&PreflightLine) -> io::Result<()>,
+) -> io::Result<PreflightSummary> {
     // Its walk would refuse too, but only after the folders are opened and
     // the in-use checks run, and it folds walk errors away.
     crate::platform::require_supported().map_err(|u| io::Error::new(io::ErrorKind::Unsupported, u))?;
@@ -114,7 +133,8 @@ pub fn preflight(
         .collect::<io::Result<Vec<PathBuf>>>()?;
     // One process snapshot for the whole sheet; the guard's own keep check
     // covers `.ddc-keep` above an item, the walk below the one inside it.
-    let guard = Guard::new(env, catalog, &roots, Vec::new(), ports.procs);
+    let guard =
+        Guard::new(env, catalog, &roots, Vec::new(), ports.procs).with_skips(skips.to_vec()).with_reader(ports.reader);
     let root_refs: Vec<&Path> = roots.iter().map(PathBuf::as_path).collect();
     let sheet = Sheet {
         catalog,
@@ -198,6 +218,12 @@ fn check(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
         return skip(SkipReason::Kept);
     }
     let Some(rule) = catalog.by_id(&item.rule) else { return skip(SkipReason::RuleMismatch) };
+    // Inside a folder with entries, only the folder itself is a finding: an
+    // entry listed under another class than `user-data` is none, as the
+    // plan finds no finding there.
+    if entries::has_entries(rule.id) && !catalog.verify(rule, path) {
+        return skip(SkipReason::ChangedSinceScan);
+    }
     let class = effective_class(rule, path, roots, env.home(), &mut locks.borrow_mut());
     if class != item.class {
         return skip(SkipReason::ChangedSinceScan);
@@ -307,9 +333,9 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
     if parent.canonicalize().ok().as_deref() != Some(parent) {
         return skip(SkipReason::ParentChanged);
     }
-    if !ENTRY_RULES.contains(&rule.id) || !catalog.verify(rule, parent) {
+    let Some(policy) = entries::policy(rule.id).filter(|_| catalog.verify(rule, parent)) else {
         return skip(SkipReason::NotAnEntry);
-    }
+    };
     let Ok(parent_fd) = DirFd::open(parent) else { return skip(SkipReason::ParentChanged) };
     let st = match parent_fd.stat_child(name) {
         Ok(st) => st,
@@ -324,6 +350,16 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
     }
     if (st.dev, st.ino) != (item.dev, item.ino) {
         return skip(SkipReason::ChangedSinceScan);
+    }
+    // A session's entry: the guard's own check finds its companions, walks
+    // them with it and reads its liveness, as the clean does.
+    if policy.shape != EntryShape::Child {
+        let verified = guard
+            .check(&planned(item, rule, RiskClass::UserData, Action::TrashEntry))
+            .map_err(|reason| (None, reason))?;
+        let parts = verified.session.unwrap_or_default();
+        let bytes = parts.key_bytes + parts.companions.iter().map(|c| c.bytes).sum::<u64>();
+        return Ok((bytes, Prediction::WouldTrash));
     }
     // A volume mounted at the entry itself: locked, and never walked.
     let mounted = parent_fd.identity().is_ok_and(|(dev, _)| dev != st.dev);
@@ -353,7 +389,7 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
             || (st.is_dir && std::fs::symlink_metadata(path.join(KEEP_MARKER)).is_ok()),
         protected: protected_in_home(PLATFORM).iter().any(|rel| home.join(rel).starts_with(path)),
         other_volume: walked.other_fs,
-        // The user's own folders only, until the session entries' clean.
+        // A session's entry took the guard's check above.
         session: None,
         finished: rule.id == BACKUP_RULE && st.is_dir && backups::finished(path),
     };
@@ -397,46 +433,6 @@ fn planned(item: &ListedItem, rule: &Rule, class: RiskClass, action: Action) -> 
         origin: rule.origin,
     };
     PlanItem { finding, action, default_selected: true, selected: true }
-}
-
-struct Walked {
-    bytes: u64,
-    kept: bool,
-    incomplete: bool,
-    /// Another filesystem is mounted inside.
-    other_fs: bool,
-}
-
-/// Walks one listed item alone: its size, a `.ddc-keep` inside, unreadable parts.
-fn walk_item(path: &Path, reader: &dyn DirReader) -> Option<Walked> {
-    struct Markers(Mutex<bool>);
-    impl Visitor for Markers {
-        fn wants_private(&self, _: &DirCtx<'_>, _: Tag) -> bool {
-            false
-        }
-        fn on_file(&self, _: &Path, _: (u64, u64), entry: &EntryMeta, _: Option<(OwnerKind, Tag)>) {
-            if entry.name == KEEP_MARKER {
-                *self.0.lock().unwrap_or_else(|p| p.into_inner()) = true;
-            }
-        }
-    }
-    let markers = Markers(Mutex::new(false));
-    let opts = WalkOptions { threads: Some(2), ..WalkOptions::default() };
-    let out = scan::walk_with_reader(
-        std::slice::from_ref(&path.to_path_buf()),
-        &markers,
-        &opts,
-        &Progress::default(),
-        reader,
-    )
-    .ok()?;
-    let kept = markers.0.into_inner().unwrap_or_else(|p| p.into_inner());
-    Some(Walked {
-        bytes: out.total_bytes,
-        kept,
-        incomplete: out.errors_total > 0 || out.skipped_total > 0 || out.vanished > 0,
-        other_fs: out.skipped.iter().any(|s| matches!(s.reason, scan::SkipReason::OtherFilesystem)),
-    })
 }
 
 /// The scan's roots: the home directory by default, canonical, nested ones dropped.

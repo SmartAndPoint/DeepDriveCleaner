@@ -103,7 +103,7 @@
         "reason": "review"
       },
       "notes": [],
-      "hint": "Claude Code's transcripts of this project's sessions, for --resume. DeepDriveCleaner only reports them for now.",
+      "hint": "This session's transcript. --resume of it fails until it is put back from the Trash, before it is resumed.",
       "dev": 16777232,
       "ino": 339569810,
       "parent_dev": 16777232,

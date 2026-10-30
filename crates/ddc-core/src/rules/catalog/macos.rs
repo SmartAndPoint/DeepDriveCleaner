@@ -253,11 +253,9 @@ pub(super) static RULES: [Rule; COUNT] = [
         )
     },
     // Sessions are the entries of these two (story "Harness data rules"); the
-    // folders themselves have no method. Until the entries land, each hint
-    // speaks of the folder row. The ADR's text for a session's entry:
-    // "Checkpoints of this session. /rewind cannot use them once moved."
+    // folders themselves have no method, and each hint speaks of one session.
     Rule {
-        hint: "Claude Code's checkpoints of past sessions, for /rewind. DeepDriveCleaner only reports them for now.",
+        hint: "Checkpoints of this session. /rewind cannot use them once moved.",
         ..agent(
             "agent.claude-code-file-history",
             Review,
@@ -268,11 +266,9 @@ pub(super) static RULES: [Rule; COUNT] = [
         )
     },
     // One finding per project folder: no rule runs inside it, so its
-    // `memory/` (auto memory) is never another rule's finding. The ADR's text
-    // for a session's entry: "This session's transcript. --resume of it fails
-    // until it is put back from the Trash, before it is resumed."
+    // `memory/` (auto memory) is never another rule's finding.
     Rule {
-        hint: "Claude Code's transcripts of this project's sessions, for --resume. DeepDriveCleaner only reports them for now.",
+        hint: "This session's transcript. --resume of it fails until it is put back from the Trash, before it is resumed.",
         ..agent(
             "agent.claude-code-transcripts",
             Review,
@@ -293,31 +289,26 @@ pub(super) static RULES: [Rule; COUNT] = [
             OriginKind::SessionData,
         )
     },
-    // Codex, opencode and Cursor are report only until a liveness check
-    // refuses a running harness; then they go to the Trash. Their hints say
-    // so until then; the ADR's texts come back with the Trash, in the story's
-    // step 4, and are kept in the comment above each rule.
-    // ADR: "Codex's past threads; Codex cannot reopen them once moved. Quit
-    // Codex, and its app-server, to move them."
+    // Codex, opencode and Cursor go to the Trash only while their harness is
+    // not live: the guard refuses a running one, or a held Codex lock, as
+    // `agent-live` (story "Harness data rules").
     Rule {
-        hint: "Codex's past threads and its logs. DeepDriveCleaner only reports them for now.",
+        hint: "Codex's past threads; Codex cannot reopen them once moved. Quit Codex, and its app-server, to move them.",
         ..agent(
             "agent.codex-sessions",
             Review,
-            Removal::None,
+            Removal::Trash,
             Matcher::KnownPaths(&[".codex/sessions", ".codex/log"]),
             OriginHarness::Codex,
             OriginKind::SessionData,
         )
     },
-    // ADR: "Downloaded runtimes; Codex fetches them again on demand. Quit
-    // Codex to move them."
     Rule {
-        hint: "Runtimes Codex downloaded; it fetches them again on demand. DeepDriveCleaner only reports them for now.",
+        hint: "Downloaded runtimes; Codex fetches them again on demand. Quit Codex to move them.",
         ..agent(
             "agent.codex-runtimes",
             Review,
-            Removal::None,
+            Removal::Trash,
             Matcher::KnownPaths(&[".cache/codex-runtimes"]),
             OriginHarness::Codex,
             OriginKind::RuntimeCache,
@@ -325,14 +316,12 @@ pub(super) static RULES: [Rule; COUNT] = [
     },
     // By subfolder, never whole: `.local/share/opencode` also holds
     // `auth.json` (provider credentials) and `opencode.db`, its live index.
-    // ADR: "opencode's stored sessions, snapshots and logs; opencode cannot
-    // show those sessions once moved. Quit opencode to move them."
     Rule {
-        hint: "opencode's stored sessions, snapshots and logs. DeepDriveCleaner only reports them for now.",
+        hint: "opencode's stored sessions, snapshots and logs; opencode cannot show those sessions once moved. Quit opencode to move them.",
         ..agent(
             "agent.opencode-data",
             Review,
-            Removal::None,
+            Removal::Trash,
             Matcher::KnownPaths(&[
                 ".local/share/opencode/storage",
                 ".local/share/opencode/snapshot",
@@ -343,14 +332,12 @@ pub(super) static RULES: [Rule; COUNT] = [
             OriginKind::SessionData,
         )
     },
-    // ADR: "Cursor's agent transcripts per project, and its AI-code
-    // tracking; Cursor cannot show them once moved. Quit Cursor to move them."
     Rule {
-        hint: "Cursor's agent transcripts per project, and its AI-code tracking. DeepDriveCleaner only reports them for now.",
+        hint: "Cursor's agent transcripts per project, and its AI-code tracking; Cursor cannot show them once moved. Quit Cursor to move them.",
         ..agent(
             "agent.cursor-agent-data",
             Review,
-            Removal::None,
+            Removal::Trash,
             Matcher::KnownPaths(&[".cursor/projects", ".cursor/ai-tracking"]),
             OriginHarness::Cursor,
             OriginKind::SessionData,

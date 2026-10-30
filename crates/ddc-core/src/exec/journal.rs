@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use super::Outcome;
+use super::{MovedCompanion, Outcome};
 use crate::class::RiskClass;
 use crate::disk::ActionId;
 use crate::env::Env;
@@ -74,6 +74,26 @@ impl JournalEntry {
             private_bytes: f.private_bytes,
             entry: None,
             outcome: outcome.clone(),
+        }
+    }
+
+    /// A companion of `item`, a session's entry, moved to the Trash with it.
+    pub fn companion(item: &PlanItem, moved: &MovedCompanion) -> Self {
+        let f = &item.finding;
+        Self {
+            schema_version: JOURNAL_SCHEMA_VERSION,
+            kind: JournalKind::Item,
+            ts: now(),
+            path: moved.path.clone(),
+            dev: moved.id.0,
+            ino: moved.id.1,
+            rule: f.rule.clone(),
+            class: f.class,
+            method: item.action.name(),
+            bytes: moved.bytes,
+            private_bytes: None,
+            entry: Some(f.path.clone()),
+            outcome: Outcome::Trashed,
         }
     }
 }

@@ -82,6 +82,7 @@ mod tests {
             name: name.into(),
             id: crate::platform::meta::file_id(&md).unwrap(),
             is_dir: true,
+            session: None,
         }
     }
 

@@ -222,6 +222,22 @@ fn named(records: Result<&[RecordOutcome], UnknownCause>) -> Result<(HashSet<&st
     }
 }
 
+/// The rules whose folders go to the Trash only while their harness is not
+/// live ([`harness`]), and that harness. Claude Code's are decided per
+/// session instead, and its other rules (`paste-cache`, `usage-data`, the
+/// scratch folders) by no harness: a live session does not hold them.
+const HARNESS_RULES: &[(&str, HarnessId)] = &[
+    ("agent.codex-sessions", HarnessId::Codex),
+    ("agent.codex-runtimes", HarnessId::Codex),
+    ("agent.opencode-data", HarnessId::Opencode),
+    ("agent.cursor-agent-data", HarnessId::Cursor),
+];
+
+/// The harness whose liveness holds back `rule`'s findings, if any.
+pub fn rule_harness(rule: &str) -> Option<HarnessId> {
+    HARNESS_RULES.iter().find(|(id, _)| *id == rule).map(|(_, h)| *h)
+}
+
 /// Codex's thread locks as `thread-writer-locks` lists them: each thread
 /// id with its lock's `(dev, ino)`, or why the folder could not be listed.
 pub type CodexLocks = Result<Vec<(String, (u64, u64))>, UnknownReason>;

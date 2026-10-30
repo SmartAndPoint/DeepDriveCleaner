@@ -1,17 +1,22 @@
 //! Cleanup plan: which findings may be cleaned and how (ADR "Cleanup safety
 //! model", §1 and §5). Building a plan touches nothing.
 
-use std::collections::HashSet;
+use std::cell::OnceCell;
+use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::agents::HarnessId;
+use crate::agents::liveness::{self, HarnessLiveness};
 use crate::class::{Category, Fallback, NativeCommand, Removal, RiskClass};
-use crate::exec::SkipReason;
+use crate::exec::guard::{agent_live, harness_state};
+use crate::exec::{ProcessTable, SkipReason, SystemProcesses};
 use crate::model::{Finding, NotSelected, RemovalKind, ScanReport};
+use crate::platform::procs::ProcInfo;
 use crate::report::contents::{EntryIndex, EntryState, NotAnEntry};
-use crate::rules::entries::ENTRY_RULES;
+use crate::rules::entries;
 use crate::rules::{Catalog, KEPT, Rule};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -256,7 +261,32 @@ pub struct ListedPlan {
 /// A `user-data` item is an entry the user picked; `entry` matches it
 /// against the fresh scan's full list of entries. Entries come first in the
 /// plan, so one runs before a finding inside it.
+///
+/// A coding agent's folder whose harness is live is `agent-live` (story
+/// "Harness data rules"): the system's process table, read once.
 pub fn plan_listed(report: &ScanReport, entries: &EntryIndex, catalog: &Catalog, listed: &[ListedItem]) -> ListedPlan {
+    plan_listed_with(report, entries, catalog, listed, &SystemProcesses, &[])
+}
+
+/// [`plan_listed`] with the process table to read, and the scan's skips
+/// (`ScanOptions::skip` and `user_skips`), under which no Codex lock is
+/// read. The table is read once, and only when an item of a harness's
+/// folder reaches the check; each harness is decided once per plan.
+pub fn plan_listed_with(
+    report: &ScanReport,
+    entries: &EntryIndex,
+    catalog: &Catalog,
+    listed: &[ListedItem],
+    procs: &dyn ProcessTable,
+    skips: &[PathBuf],
+) -> ListedPlan {
+    let table: OnceCell<Vec<ProcInfo>> = OnceCell::new();
+    let mut harnesses: HashMap<HarnessId, HarnessLiveness> = HashMap::new();
+    let mut harness_of = |h: HarnessId| {
+        *harnesses
+            .entry(h)
+            .or_insert_with(|| harness_state(&report.home, h, table.get_or_init(|| procs.processes()), procs, skips))
+    };
     let mut items = Vec::new();
     let mut refused = Vec::new();
     for item in listed.iter().filter(|i| i.class == RiskClass::UserData) {
@@ -288,6 +318,10 @@ pub fn plan_listed(report: &ScanReport, entries: &EntryIndex, catalog: &Catalog,
         };
         if action.kind() != item.action {
             refused.push(Refused { item: item.clone(), reason: SkipReason::ChangedSinceScan });
+            continue;
+        }
+        if let Some(reason) = liveness::rule_harness(&f.rule).and_then(|h| agent_live(h, harness_of(h))) {
+            refused.push(Refused { item: item.clone(), reason });
             continue;
         }
         items.push(PlanItem { finding: f.clone(), action, default_selected: f.selected, selected: true });
@@ -333,7 +367,7 @@ fn entry(
         return Err(SkipReason::ParentChanged);
     }
     let Some((folder, found)) = index.entry(parent, name) else { return Err(SkipReason::NotAnEntry) };
-    if folder.rule != item.rule || !ENTRY_RULES.contains(&rule.id) {
+    if folder.rule != item.rule || !entries::has_entries(rule.id) {
         return Err(SkipReason::NotAnEntry);
     }
     let Some(found) = found else { return Err(SkipReason::NotAnEntry) };
