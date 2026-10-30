@@ -3,14 +3,24 @@
 //! in `ddc-core/tests/common/fixtures.rs` but stays a copy: the core's tests
 //! cannot depend on this crate, which depends on the core. A rule with no
 //! way to build it panics here, so a new rule fails the generator's tests.
+//!
+//! The trees are macOS homes on every OS: the fixtures, the manifest and so
+//! the pinned hashes and `bench/golden/` come from the macOS catalog, not
+//! from the catalog of the platform the generator runs on.
 
-use ddc_core::rules::{Matcher, RULES, Rule};
+use ddc_core::platform::Platform;
+use ddc_core::rules::{Matcher, Rule, rules_of};
 
 use crate::desc::{Desc, join};
 use crate::rng::Rng;
 
 /// A valid `CACHEDIR.TAG`.
 pub const TAG: &str = "Signature: 8a477f597d28d172789f06886806bc55\n# cache\n";
+
+/// The catalog the trees are built from and described with: macOS's.
+pub fn catalog() -> &'static [Rule] {
+    rules_of(Platform::Macos)
+}
 
 /// Where a profile builds a rule's fixture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,12 +61,12 @@ pub fn place(rule: &Rule) -> Place {
 
 /// The project profiles plant these.
 pub fn project_rules() -> Vec<&'static Rule> {
-    RULES.iter().filter(|r| place(r) == Place::Project).collect()
+    catalog().iter().filter(|r| place(r) == Place::Project).collect()
 }
 
 /// The profiles with a home plant these.
 pub fn home_rules() -> Vec<&'static Rule> {
-    RULES.iter().filter(|r| place(r) == Place::Home).collect()
+    catalog().iter().filter(|r| place(r) == Place::Home).collect()
 }
 
 /// Builds `rule`'s artifact in the project folder `base` and returns its
@@ -180,7 +190,7 @@ mod tests {
 
     #[test]
     fn every_listed_rule_has_a_fixture() {
-        for rule in RULES.iter().filter(|r| r.listed) {
+        for rule in catalog().iter().filter(|r| r.listed) {
             let placed = place(rule);
             assert!(
                 matches!(placed, Place::Project | Place::Home) || rule.id == KEPT,
