@@ -44,6 +44,9 @@ private struct ConfirmView: View {
                 if let notCounted = CleanWording.notCounted(confirmation) {
                     Text(notCounted).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
+                if let sessions = CleanWording.sessions(confirmation) {
+                    Text(sessions).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             VStack(spacing: 0) {
@@ -150,7 +153,7 @@ private struct ConfirmView: View {
     }
 
     private func explain(_ riskClass: ScanReport.RiskClass, _ confirmation: DDCKit.Confirmation) -> String {
-        let items = confirmation.items.filter { $0.finding.class == riskClass }
+        let items = confirmation.items.filter { $0.riskClass == riskClass }
         let tools = items.filter { $0.effectiveAction == .native || $0.effectiveAction == .nativeOnly }.count
         let toolNote = tools == 0 ? "" : " \(Wording.items(tools)) \(tools == 1 ? "is" : "are") cleaned by \(tools == 1 ? "its" : "their") own tool."
         switch riskClass {

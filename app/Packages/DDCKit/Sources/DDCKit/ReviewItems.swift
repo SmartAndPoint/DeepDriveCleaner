@@ -25,6 +25,10 @@ public struct ReviewItems: Sendable, Equatable {
         case scanRoot
         /// ddc has no command for it (`native-only` with no commands, or `none`).
         case noAction
+        /// A coding agent's session folder: never cleaned whole, its sessions
+        /// are picked one by one (story "Review window: pick a coding agent's
+        /// sessions one by one").
+        case sessions
         /// "Protect this folder" put a `.ddc-keep` in it since the scan.
         case protected
         /// The last clean deleted it or moved it to the Trash; the next scan drops it.
@@ -39,6 +43,7 @@ public struct ReviewItems: Sendable, Equatable {
             case .underMinimumSize: "Under the minimum size in Settings"
             case .scanRoot: "A scanned folder itself"
             case .noAction: "Manual only: ddc has no command for it"
+            case .sessions: "Not cleaned whole · pick its sessions one by one"
             case .protected: "Protected by .ddc-keep"
             case .cleaned: "Cleaned just now"
             case .entry(let lock): CleanWording.entryLock(lock)
@@ -47,17 +52,26 @@ public struct ReviewItems: Sendable, Equatable {
     }
 
     /// A file or folder of one of the user's own folders (story "User data:
-    /// pick your own files for the Trash"), picked one by one.
+    /// pick your own files for the Trash"), or a coding agent's session
+    /// (story "Review window: pick a coding agent's sessions one by one"),
+    /// picked one by one.
     public struct UserEntry: Sendable, Equatable {
         public let kind: ScanReport.FolderEntry.Kind
         /// The row of its folder.
         public let folder: Int
+        /// Its folder's class: `user-data` for the user's own folders, the
+        /// session folder's own (`review`) for a session. The entry's
+        /// finding is `user-data` either way, as `clean --items` lists it.
+        public let folderClass: ScanReport.RiskClass
         /// Its bytes without the findings inside it, which have rows of their own.
         public let ownBytes: UInt64
         public let modified: String?
         public let findings: UInt64
         public let git: Bool
         public let backup: ScanReport.Backup?
+
+        /// A coding agent's session, not a file of the user's own.
+        public var isSession: Bool { folderClass != .userData }
     }
 
     public struct Row: Identifiable, Sendable, Equatable {
@@ -76,7 +90,9 @@ public struct ReviewItems: Sendable, Equatable {
         public let userEntry: UserEntry?
 
         public var selectable: Bool { lock == nil }
-        public var riskClass: ScanReport.RiskClass { finding.class }
+        /// Its class in the sidebar and the sheet: an entry's is its folder's,
+        /// so a session stays under Review with its folder.
+        public var riskClass: ScanReport.RiskClass { userEntry?.folderClass ?? finding.class }
 
         /// A `review` item the Trash would take: the sheet offers Delete permanently.
         public var canBePermanent: Bool { finding.class == .review && action == .trash }
@@ -100,6 +116,8 @@ public struct ReviewItems: Sendable, Equatable {
                     ignoredLock(finding, settings: settings)
                 } else if report.scanRoots.contains(finding.path) {
                     .scanRoot
+                } else if action == nil, sessionFolder(finding, switchable: switchable[finding.rule]) {
+                    .sessions
                 } else if action == nil {
                     .noAction
                 } else {
@@ -132,11 +150,25 @@ public struct ReviewItems: Sendable, Equatable {
         "agent.claude-code-sealed", "agent.cursor-sealed",
     ]
 
-    /// The listed entries of each folder that shows, ids after the findings'.
+    /// A coding agent's session folder (`SESSION_ENTRY_RULES` in
+    /// `crates/ddc-core/src/rules/entries.rs`): not user data, with no action
+    /// of its own (`removal: none`), and either it lists its sessions (the
+    /// report has `contents` only on a rule with an entry policy) or
+    /// `rules --json` makes its rule switchable, which the core does for a
+    /// rule with no action only because its entries go to the Trash
+    /// (`listing::switchable`). Read from the report and the rules, never
+    /// from a list of ids.
+    static func sessionFolder(_ finding: ScanReport.Finding, switchable: Bool?) -> Bool {
+        finding.class != .userData && finding.ruleClass != .userData && finding.removal == .none
+            && (finding.contents != nil || switchable == true)
+    }
+
+    /// The listed entries of each folder that shows, ids after the findings':
+    /// a user-data folder's files and folders, a session folder's sessions.
     /// Each is to the Trash, never selected by default, locked by its own lock.
     private static func entryRows(of rows: [Row], report: ScanReport) -> [Row] {
         var out: [Row] = []
-        for folder in rows where folder.lock == .userData {
+        for folder in rows where folder.lock == .userData || folder.lock == .sessions {
             guard let contents = folder.finding.contents else { continue }
             for entry in contents.entries {
                 // Findings inside it have rows of their own: its own bytes leave them out.
@@ -154,6 +186,7 @@ public struct ReviewItems: Sendable, Equatable {
                     userEntry: UserEntry(
                         kind: entry.kind,
                         folder: folder.id,
+                        folderClass: folder.finding.class,
                         ownBytes: entry.bytes - min(entry.bytes, nested),
                         modified: entry.modified,
                         findings: entry.findings,
@@ -258,14 +291,15 @@ public struct ReviewItems: Sendable, Equatable {
     }
 
     /// "Protect this folder": a folder finding, or a folder entry outside a
-    /// device backup (a stray file there is not known to be harmless).
+    /// device backup (a stray file there is not known to be harmless). Never
+    /// a session: a `.ddc-keep` would be written into the agent's own data.
     public func canProtect(_ row: Row) -> Bool {
         guard let entry = row.userEntry else { return true }
-        return entry.kind == .folder && row.finding.rule != "user.ios-backups"
+        return entry.kind == .folder && row.finding.rule != "user.ios-backups" && !entry.isSession
     }
 
     /// The rows of an entry, ignored findings left out (the Items view shows
-    /// them); a user-data folder's entries included.
+    /// them); a user-data folder's entries and a session folder's sessions included.
     public func rows(in entry: Entry) -> [Row] {
         rows.filter { $0.riskClass == entry.riskClass && $0.group == entry.group && $0.lock != .typeOff && $0.lock != .underMinimumSize }
     }

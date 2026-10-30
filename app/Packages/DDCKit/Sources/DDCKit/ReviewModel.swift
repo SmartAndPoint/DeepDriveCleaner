@@ -501,10 +501,11 @@ public final class ReviewModel: ReviewRouting {
     }
 
     /// A User data folder's picked row: "2 picked · 3.1 GiB", counted as the
-    /// sheet counts them.
+    /// sheet counts them; a coding agent's sessions say "sessions".
     public func pickedSummary(_ scope: [Int]) -> String {
         let rows = selectedRows(in: scope)
-        return Wording.picked(count: rows.count, bytes: rows.reduce(0) { $0 + $1.finding.bytes })
+        let sessions = !scope.isEmpty && scope.allSatisfy { items?.row($0)?.userEntry?.isSession == true }
+        return Wording.picked(count: rows.count, bytes: rows.reduce(0) { $0 + $1.finding.bytes }, what: sessions ? "sessions" : "files")
     }
 
     /// "frees about": `native-only` items left out, as `Confirmation.reclaimable` does.

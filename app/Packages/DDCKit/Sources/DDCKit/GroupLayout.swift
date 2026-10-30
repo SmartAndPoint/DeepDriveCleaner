@@ -16,7 +16,8 @@ public struct GroupLayout: Sendable, Equatable {
     public enum Shape: Sendable, Equatable {
         /// One rule: subgroups by folder.
         case folders
-        /// Several rules: a subgroup per rule.
+        /// Several rules: a subgroup per rule; and a subgroup per coding
+        /// agent's session folder, listing its sessions.
         case rules
         /// One of the user's own folders: its entries, picked one by one, then the rest.
         case entries
@@ -57,7 +58,8 @@ public struct GroupLayout: Sendable, Equatable {
         public let subtitle: String
         /// The rule's way back (rules shape).
         public let hint: String?
-        /// Whether its heading has a checkbox: never for user data.
+        /// Whether its heading has a checkbox: never for user data, nor over
+        /// a session folder's sessions, which are picked one by one.
         public let checkable: Bool
         /// In the sort's order (`ReviewSort`).
         public let items: [Item]
@@ -169,7 +171,10 @@ public struct GroupLayout: Sendable, Equatable {
     /// The entries shown that can be picked, which the folder's Move button
     /// acts on (story "User data: move a folder's picked files to the Trash
     /// from that folder"). Empty for every shape but the entries one, so a
-    /// group never has both this and Select all.
+    /// user-data group never has both this and Select all; a group with a
+    /// coding agent's session folders has both: Select all over its other
+    /// rows, this over the sessions (story "Review window: pick a coding
+    /// agent's sessions one by one").
     public internal(set) var pickScope: [Int] = []
 
     /// The lines with folded subgroups showing their heading only.
@@ -207,14 +212,18 @@ extension ReviewItems {
                 count: 0, bytes: 0, blocks: [], rest: nil, notScanned: cloudSkipped.map { Wording.tilde($0, home: report.home) }
             )
         }
-        // Only a user-data folder's entries are picked one by one; a coding agent's
-        // session folder lists its sessions too, but stays a row of its group.
+        // A user-data folder's entries are picked one by one, and fill the group.
         let folders = all.filter { $0.userEntry == nil && $0.finding.contents != nil && $0.lock == .userData }
         if !folders.isEmpty {
             return entriesLayout(entry, all.filter { $0.userEntry != nil && matches($0, query) }, folders: folders, sort: sort)
         }
-        let shown = all.filter { matches($0, query) }
-        let rules = Dictionary(grouping: all, by: { $0.finding.rule })
+        // A coding agent's session folder is a subgroup of its sessions, each
+        // picked one by one; the folder itself is never a row to select.
+        let sessionFolders = all.filter { $0.userEntry == nil && $0.lock == .sessions }
+        let sessions = all.filter { $0.userEntry?.isSession == true && matches($0, query) }
+        let plain = all.filter { $0.userEntry == nil && $0.lock != .sessions }
+        let shown = plain.filter { matches($0, query) }
+        let rules = Dictionary(grouping: plain, by: { $0.finding.rule })
         // By the rule, not the label: an entry that holds the Trash only.
         let trash = !all.isEmpty && all.allSatisfy { $0.finding.rule == ReviewItems.trashRule }
         // Protected by you says what a protection is, and how one goes.
@@ -224,7 +233,7 @@ extension ReviewItems {
         let facts: String?
         let hint: String?
         let shape: GroupLayout.Shape
-        if rules.count <= 1 {
+        if rules.count <= 1 && sessionFolders.isEmpty {
             shape = .folders
             // What every row of the group shares: said once. App-owned rows
             // have a subgroup that says so.
@@ -240,6 +249,7 @@ extension ReviewItems {
             facts = nil
             hint = nil
             blocks = ruleBlocks(entry, shown, rules: rules, checkable: checkable, sort: sort)
+                + sessionBlocks(entry, sessionFolders, sessions, filtered: !query.trimmingCharacters(in: .whitespaces).isEmpty, sort: sort)
         }
         return GroupLayout(
             entry: entry,
@@ -247,14 +257,52 @@ extension ReviewItems {
             blurb: trash ? CleanWording.trashBlurb : kept ? CleanWording.keptBlurb : CleanWording.classBlurb(entry.riskClass),
             facts: facts,
             hint: hint,
-            selectAll: checkable ? shown.map(\.id) : nil,
-            count: shown.count,
-            bytes: shown.reduce(0) { $0 + $1.finding.bytes },
+            // Sessions are picked one by one: never under Select all.
+            selectAll: checkable && !(plain.isEmpty && !sessionFolders.isEmpty) ? shown.map(\.id) : nil,
+            count: shown.count + sessions.count,
+            bytes: (shown + sessions).reduce(0) { $0 + $1.finding.bytes },
             blocks: Self.ordered(blocks, sort),
             rest: nil,
             notScanned: [],
-            opensTrash: trash
+            opensTrash: trash,
+            pickScope: sessions.filter(\.selectable).map(\.id)
         )
+    }
+
+    /// A coding agent's session folders, a subgroup each: its path, its
+    /// rule, how many sessions it lists and what it does not list, its way
+    /// back; its sessions as rows, picked one by one, with no checkbox on the
+    /// heading. A folder whose sessions the filter hides all is left out.
+    private func sessionBlocks(_ entry: Entry, _ folders: [Row], _ sessions: [Row], filtered: Bool, sort: ReviewSort) -> [GroupLayout.Block] {
+        let byFolder = Dictionary(grouping: sessions, by: { $0.userEntry?.folder ?? -1 })
+        return folders.compactMap { folder in
+            let members = byFolder[folder.id] ?? []
+            if filtered && members.isEmpty { return nil }
+            let contents = folder.finding.contents
+            var subtitle = [folder.finding.rule, CleanWording.sessionCount(contents.map { $0.entries.count })]
+            if let contents, contents.restCount > 0 {
+                subtitle.append(CleanWording.sessionsRest(count: contents.restCount, bytes: contents.restBytes))
+            }
+            return .subgroup(GroupLayout.Subgroup(
+                key: GroupLayout.Key(entry: entry, tag: Array("s".utf8) + Array(folder.finding.path.utf8)),
+                kind: .folder,
+                title: Wording.tilde(folder.finding.path, home: report.home),
+                subtitle: subtitle.joined(separator: " · "),
+                hint: CleanWording.hint(folder.finding.hint),
+                checkable: false,
+                items: Self.ordered(members.map { row in
+                    GroupLayout.Item(row: row, shown: Self.sessionName(row.finding.path), detail: CleanWording.entryDetail(row))
+                }, sort)
+            ))
+        }
+    }
+
+    /// A session's name as its row shows it: its id, the entry's name up to
+    /// its first dot (`<session>.jsonl`, `<session>`). Split on bytes.
+    static func sessionName(_ path: String) -> String {
+        let name = Array(path.utf8).split(separator: UInt8(ascii: "/")).last.map(Array.init) ?? Array(path.utf8)
+        let id = name.prefix { $0 != UInt8(ascii: ".") }
+        return Wording.escaped(String(decoding: id.isEmpty ? name[...] : id, as: UTF8.self))
     }
 
     /// A user-data folder's entries, each picked by itself: no Select all,

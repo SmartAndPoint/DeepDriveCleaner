@@ -327,6 +327,40 @@ struct ContractTests {
         #expect(Set(try values(disk, "HeldKind")) == Set(DiskReport.HeldKind.allCases.map(\.rawValue)))
     }
 
+    /// Story "Review window: pick a coding agent's sessions one by one": the
+    /// app tells a session folder from the report and `rules --json`, never
+    /// from a list of ids. A finding of every rule that is not user data, with
+    /// no `contents`, must lock as a session folder exactly for the core's
+    /// `SESSION_ENTRY_RULES`.
+    @Test("the session folders the app derives from the rules are the core's SESSION_ENTRY_RULES")
+    func sessionFolders() throws {
+        let source = try rustSource("crates/ddc-core/src/rules/entries.rs")
+        let list = try #require(source.firstMatch(of: /pub const SESSION_ENTRY_RULES: &\[&str\] = &\[(.*?)\];/))
+        let core = Set(String(list.1).matches(of: /"([^"]+)"/).map { String($0.1) })
+        #expect(core == ["agent.claude-code-file-history", "agent.claude-code-transcripts"])
+
+        let raw = try #require(try JSONSerialization.jsonObject(with: Fixture.data("rules")) as? [String: Any])
+        let rules = try #require(raw["rules"] as? [[String: Any]]).filter { $0["class"] as? String != "user-data" }
+        let report = try Fixture.editedFindings("scan-report-origin") { findings in
+            let base = findings[0]
+            findings = rules.enumerated().map { index, rule in
+                var finding = base
+                let id = rule["id"] as? String ?? ""
+                finding["path"] = "/Users/example/rules/\(index)"
+                finding["rule"] = id
+                finding["class"] = rule["class"]
+                finding["rule_class"] = rule["class"]
+                finding["removal"] = rule["removal"]
+                finding["ino"] = 1_000 + index
+                finding["selected"] = false
+                finding.removeValue(forKey: "contents")
+                return finding
+            }
+        }
+        let items = ReviewItems.make(report: try ScanReport.read(report), settings: nil, rules: try Fixture.rules())
+        #expect(Set(items.rows.filter { $0.lock == .sessions }.map(\.finding.rule)) == core)
+    }
+
     @Test("every user-data rule of the catalog has a sidebar name")
     func userDataNames() throws {
         let userData = try Fixture.rules().rules.filter { $0.class == .userData }.map(\.id)

@@ -11,6 +11,12 @@ public struct Confirmation: Sendable, Equatable {
         /// The action when not deleted permanently.
         public let action: ListedAction
         public internal(set) var permanent: Bool
+        /// Its row's class: a coding agent's session counts under Review
+        /// with its folder, though it is listed as `user-data`.
+        public let riskClass: ScanReport.RiskClass
+        /// A coding agent's session (story "Review window: pick a coding
+        /// agent's sessions one by one").
+        public let isSession: Bool
 
         /// A `review` item the Trash would take.
         public var canBePermanent: Bool { finding.class == .review && action == .trash }
@@ -50,7 +56,10 @@ public struct Confirmation: Sendable, Equatable {
             }
             .compactMap { row in
                 guard let action = row.action else { return nil }
-                return Item(id: row.id, finding: row.finding, action: action, permanent: deletePermanently && row.canBePermanent)
+                return Item(
+                    id: row.id, finding: row.finding, action: action, permanent: deletePermanently && row.canBePermanent,
+                    riskClass: row.riskClass, isSession: row.userEntry?.isSession == true
+                )
             }
         home = snapshot.report.home
     }
@@ -95,10 +104,11 @@ public struct Confirmation: Sendable, Equatable {
     /// the sheet says "Move", not "Clean".
     public var movesOnlyToTrash: Bool { !items.isEmpty && trashCount == items.count }
 
-    /// "Safe · 1,919 items · 76.5 GiB", for every class that has items.
+    /// "Safe · 1,919 items · 76.5 GiB", for every class that has items, by
+    /// the row's class: a session counts under Review.
     public var classRows: [ClassRow] {
         Self.order.compactMap { riskClass in
-            let of = items.filter { $0.finding.class == riskClass }
+            let of = items.filter { $0.riskClass == riskClass }
             return of.isEmpty ? nil : ClassRow(riskClass: riskClass, count: of.count, bytes: of.reduce(0) { $0 + $1.finding.bytes })
         }
     }
