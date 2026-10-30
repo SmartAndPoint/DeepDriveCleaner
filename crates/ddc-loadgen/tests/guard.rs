@@ -1,7 +1,9 @@
 //! The generator builds only in a marked temporary folder or on its own
 //! disk image, whatever `$HOME` says.
 
-// Unix only: it sets Unix permission bits on the folders it refuses.
+// Unix only: it sets Unix permission bits on the folders it refuses. The tests
+// that reach the real home or a device skip where the generator is not ported
+// (it builds macOS trees, catalog split).
 #![cfg(unix)]
 
 use std::fs;
@@ -59,12 +61,18 @@ fn decision_table() {
 
 #[test]
 fn a_marked_folder_is_accepted() {
+    if ddc_loadgen::unsupported("a_marked_folder_is_accepted") {
+        return;
+    }
     let dir = target::marked().unwrap();
     assert_eq!(decide(&target::facts(dir.path(), None, S).unwrap()), Ok(()));
 }
 
 #[test]
 fn a_temporary_folder_without_the_marker_is_refused() {
+    if ddc_loadgen::unsupported("a_temporary_folder_without_the_marker_is_refused") {
+        return;
+    }
     let dir = tempfile::Builder::new().prefix(target::PREFIX).tempdir().unwrap();
     assert_eq!(decide(&target::facts(dir.path(), None, S).unwrap()), Err(Refusal::Unmarked));
     fs::write(dir.path().join(MARKER), "another-nonce").unwrap();
@@ -73,6 +81,9 @@ fn a_temporary_folder_without_the_marker_is_refused() {
 
 #[test]
 fn a_marked_folder_inside_another_folder_is_refused() {
+    if ddc_loadgen::unsupported("a_marked_folder_inside_another_folder_is_refused") {
+        return;
+    }
     let outer = target::marked().unwrap();
     let inner = outer.path().join(format!("{}abc", target::PREFIX));
     fs::create_dir(&inner).unwrap();
@@ -82,6 +93,9 @@ fn a_marked_folder_inside_another_folder_is_refused() {
 
 #[test]
 fn the_real_home_and_the_boot_volume_are_refused() {
+    if ddc_loadgen::unsupported("the_real_home_and_the_boot_volume_are_refused") {
+        return;
+    }
     let home = procs::real_home().expect("a home");
     // Only facts are read here: nothing is written to either folder.
     assert_eq!(decide(&target::facts(&home, None, S).unwrap()), Err(Refusal::Unmarked));
@@ -90,6 +104,9 @@ fn the_real_home_and_the_boot_volume_are_refused() {
 
 #[test]
 fn a_mount_that_is_not_the_attached_image_is_refused() {
+    if ddc_loadgen::unsupported("a_mount_that_is_not_the_attached_image_is_refused") {
+        return;
+    }
     let dir = target::marked().unwrap();
     let f = target::facts(dir.path(), Some("/dev/disk-not-attached"), S).unwrap();
     assert!(matches!(decide(&f), Err(Refusal::WrongDevice { .. })), "{f:?}");
@@ -99,6 +116,9 @@ fn a_mount_that_is_not_the_attached_image_is_refused() {
 /// its root (the Data volume) holds no marker.
 #[test]
 fn an_unmarked_volume_is_not_an_image() {
+    if ddc_loadgen::unsupported("an_unmarked_volume_is_not_an_image") {
+        return;
+    }
     let dir = target::marked().unwrap();
     let mounted = ddc_core::platform::statfs::statfs(dir.path()).unwrap().mounted_from;
     let f = target::facts(dir.path(), Some(&mounted), S).unwrap();
@@ -113,6 +133,9 @@ fn an_unmarked_volume_is_not_an_image() {
 /// and leaves an unmarked or mismatched `ddc-load-*` folder alone.
 #[test]
 fn clean_removes_only_marked_folders() {
+    if ddc_loadgen::unsupported("clean_removes_only_marked_folders") {
+        return;
+    }
     use std::os::unix::fs::PermissionsExt as _;
 
     let tmp = tempfile::tempdir().unwrap();

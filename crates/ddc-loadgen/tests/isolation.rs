@@ -1,6 +1,8 @@
 //! The harness's isolation rules (story "Memory and CPU under load: peak
 //! memory, leaks and CPU time"): every unsafe setup is refused before a
-//! spawn, one fact at a time.
+//! spawn, one fact at a time. The facts are macOS paths and the generator
+//! builds macOS trees (catalog split), so the tests skip where the platform is
+//! not ported: on Windows `/private/var/...` is not even absolute.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -38,6 +40,9 @@ fn safe<'a>(args: &'a [OsString], layout: &'a Layout) -> Facts<'a> {
 
 #[test]
 fn a_safe_run_is_allowed() {
+    if ddc_loadgen::unsupported("a_safe_run_is_allowed") {
+        return;
+    }
     let l = layout();
     let a = args(&["scan", "--json", "--data-dir", l.data.to_str().unwrap()]);
     assert_eq!(decide(&safe(&a, &l)), Ok(()));
@@ -48,6 +53,9 @@ fn a_safe_run_is_allowed() {
 
 #[test]
 fn the_real_home_is_refused_by_path_and_by_identity() {
+    if ddc_loadgen::unsupported("the_real_home_is_refused_by_path_and_by_identity") {
+        return;
+    }
     let l = layout();
     let a = args(&["scan", "--data-dir", l.data.to_str().unwrap()]);
     let real = l.home.clone();
@@ -65,6 +73,9 @@ fn the_real_home_is_refused_by_path_and_by_identity() {
 
 #[test]
 fn a_missing_or_outside_data_dir_is_refused() {
+    if ddc_loadgen::unsupported("a_missing_or_outside_data_dir_is_refused") {
+        return;
+    }
     let l = layout();
     let none = args(&["scan", "--json"]);
     assert_eq!(decide(&safe(&none, &l)), Err(Refusal::NoDataDir));
@@ -79,6 +90,9 @@ fn a_missing_or_outside_data_dir_is_refused() {
 
 #[test]
 fn background_without_no_notify_is_refused() {
+    if ddc_loadgen::unsupported("background_without_no_notify_is_refused") {
+        return;
+    }
     let l = layout();
     let a = args(&["scan", "--background", "--data-dir", l.data.to_str().unwrap()]);
     assert_eq!(decide(&safe(&a, &l)), Err(Refusal::BackgroundWithoutNoNotify));
@@ -86,6 +100,9 @@ fn background_without_no_notify_is_refused() {
 
 #[test]
 fn a_target_the_guard_refuses_is_refused() {
+    if ddc_loadgen::unsupported("a_target_the_guard_refuses_is_refused") {
+        return;
+    }
     let l = layout();
     let a = args(&["scan", "--data-dir", l.data.to_str().unwrap()]);
     let f = Facts { target: Err(target::Refusal::Unmarked), image: false, ..safe(&a, &l) };
@@ -94,6 +111,9 @@ fn a_target_the_guard_refuses_is_refused() {
 
 #[test]
 fn a_trash_clean_on_a_temporary_target_is_refused() {
+    if ddc_loadgen::unsupported("a_trash_clean_on_a_temporary_target_is_refused") {
+        return;
+    }
     let l = layout();
     let a = args(&["clean", "--items", "x.json", "--data-dir", l.data.to_str().unwrap()]);
     assert_eq!(decide(&Facts { trashes: true, image: false, ..safe(&a, &l) }), Err(Refusal::TrashOffImage));
@@ -113,6 +133,9 @@ fn a_clean_whose_dry_run_predicts_a_tool_is_refused() {
 /// target is never an image.
 #[test]
 fn facts_of_a_built_tree() {
+    if ddc_loadgen::unsupported("facts_of_a_built_tree") {
+        return;
+    }
     let dir = target::Scratch::new().unwrap();
     let Some(g) = skip_unported("facts_of_a_built_tree", generate(Profile::Projects, 10_000, 1, dir.path(), None))
     else {
@@ -132,6 +155,9 @@ fn facts_of_a_built_tree() {
 /// none of them.
 #[test]
 fn the_users_list_holds_no_tool_item() {
+    if ddc_loadgen::unsupported("the_users_list_holds_no_tool_item") {
+        return;
+    }
     let dir = target::Scratch::new().unwrap();
     let Some(g) =
         skip_unported("the_users_list_holds_no_tool_item", generate(Profile::Users, 10_000, 1, dir.path(), None))

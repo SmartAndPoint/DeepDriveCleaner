@@ -185,6 +185,11 @@ mod tests {
 
     #[test]
     fn a_prepared_run_is_isolated() {
+        // The generator builds macOS trees and reads the real home from macOS
+        // (catalog split): not ported elsewhere yet.
+        if crate::unsupported("a_prepared_run_is_isolated") {
+            return;
+        }
         let dir = target::Scratch::new().unwrap();
         let real = isolate::real_home().unwrap();
         let (g, args) = prepare(Profile::Projects, dir.path(), Path::new("/c/deepdrivecleaner"), &real).unwrap();
