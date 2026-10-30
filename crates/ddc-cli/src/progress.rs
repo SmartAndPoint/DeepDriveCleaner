@@ -598,9 +598,14 @@ mod tests {
 
     /// The CPU the ticker's own thread uses over a 2 s step during which
     /// nothing changes, as a share of the wall time: the thread's clock, so
-    /// other tests in the process do not count.
-    fn idle_share(tick: impl Fn() + Sync) -> f64 {
+    /// other tests in the process do not count. `None` where the platform
+    /// has no thread clock yet.
+    fn idle_share(test: &str, tick: impl Fn() + Sync) -> Option<f64> {
         use ddc_core::platform::usage::thread_cpu_time;
+        if let Err(why) = thread_cpu_time() {
+            eprintln!("skipped {test}: {why}");
+            return None;
+        }
         let first = Mutex::new(None);
         let span = Mutex::new(None);
         ticker(
@@ -617,7 +622,7 @@ mod tests {
         );
         let (cpu, wall) = span.into_inner().unwrap().expect("ended");
         assert!(wall >= Duration::from_millis(1500), "{wall:?}");
-        cpu.as_secs_f64() / wall.as_secs_f64()
+        Some(cpu.as_secs_f64() / wall.as_secs_f64())
     }
 
     fn json_reporter() -> Reporter {
@@ -626,7 +631,7 @@ mod tests {
 
     #[test]
     fn the_ticker_does_not_spin_between_ticks() {
-        let share = idle_share(|| {});
+        let Some(share) = idle_share("the_ticker_does_not_spin_between_ticks", || {}) else { return };
         assert!(share < 0.01, "{:.2}% CPU", share * 100.0);
     }
 
@@ -634,7 +639,11 @@ mod tests {
     fn json_walk_ticks_do_not_spin_while_the_count_stands() {
         let reporter = json_reporter();
         let progress = Progress::default();
-        let share = idle_share(|| reporter.walk_tick(&progress, WalkStep::Scan, None));
+        let Some(share) = idle_share("json_walk_ticks_do_not_spin_while_the_count_stands", || {
+            reporter.walk_tick(&progress, WalkStep::Scan, None)
+        }) else {
+            return;
+        };
         assert!(share < 0.01, "{:.2}% CPU", share * 100.0);
     }
 
@@ -642,7 +651,11 @@ mod tests {
     fn json_clean_ticks_do_not_spin_while_the_clean_waits() {
         let reporter = json_reporter();
         let (progress, cancel) = (ExecProgress::default(), AtomicBool::new(false));
-        let share = idle_share(|| reporter.clean_tick(&progress, &cancel));
+        let Some(share) = idle_share("json_clean_ticks_do_not_spin_while_the_clean_waits", || {
+            reporter.clean_tick(&progress, &cancel)
+        }) else {
+            return;
+        };
         assert!(share < 0.01, "{:.2}% CPU", share * 100.0);
     }
 }
