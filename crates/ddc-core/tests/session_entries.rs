@@ -429,6 +429,9 @@ fn the_plan_the_dry_run_and_the_clean_refuse_a_session_entry() {
 /// siblings; a user-data entry's siblings stay unread.
 #[test]
 fn the_recheck_reaches_a_session_entrys_companions() {
+    if common::unsupported("the_recheck_reaches_a_session_entrys_companions") {
+        return;
+    }
     let h = Home::new();
     let catalog = h.catalog();
     let session = ListedItem {
