@@ -8,7 +8,7 @@ mod areas;
 mod conda;
 mod home;
 mod model;
-mod plist;
+pub mod plist;
 pub(crate) mod simulators;
 pub(crate) mod visitor;
 

@@ -90,18 +90,21 @@ pub fn read_last_disk(env: &Env) -> io::Result<Option<DiskReport>> {
 /// The saved report, or `None` when absent or written by another schema version.
 pub fn read_last_scan(env: &Env) -> io::Result<Option<ScanReport>> {
     match fs::read(env.data_dir().join(LAST_SCAN)) {
-        Ok(bytes) => {
-            let version = serde_json::from_slice::<serde_json::Value>(&bytes)
-                .ok()
-                .and_then(|v| v.get("schema_version")?.as_u64());
-            if version != Some(u64::from(crate::model::SCHEMA_VERSION)) {
-                return Ok(None);
-            }
-            serde_json::from_slice(&bytes).map(Some).map_err(io::Error::other)
-        }
+        Ok(bytes) => decode_last_scan(&bytes),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e),
     }
+}
+
+/// The report in the bytes of `last-scan.json`, or `None` when they are not
+/// JSON or carry another schema version.
+pub fn decode_last_scan(bytes: &[u8]) -> io::Result<Option<ScanReport>> {
+    let version =
+        serde_json::from_slice::<serde_json::Value>(bytes).ok().and_then(|v| v.get("schema_version")?.as_u64());
+    if version != Some(u64::from(crate::model::SCHEMA_VERSION)) {
+        return Ok(None);
+    }
+    serde_json::from_slice(bytes).map(Some).map_err(io::Error::other)
 }
 
 /// The saved report's file count, read without the rest of it: the

@@ -125,7 +125,9 @@ pub fn load(env: &Env) -> Result<Settings, SettingsError> {
     parse(&bytes).map_err(|reason| SettingsError::Malformed { path, reason })
 }
 
-fn parse(bytes: &[u8]) -> Result<Settings, String> {
+/// Reads `settings.json` from its bytes: the version, the fields, absolute
+/// paths and the age limit. The error is the reason, without the path.
+pub fn parse(bytes: &[u8]) -> Result<Settings, String> {
     // The version first: a newer file reads as newer, not as unknown fields.
     let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
     match value.get("schema_version").and_then(serde_json::Value::as_u64) {

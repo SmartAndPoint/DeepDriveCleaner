@@ -1,0 +1,6 @@
+# Written by `make fuzz`: the corpus grows with every run, and a crash is kept in
+# regressions/ once minimized.
+/target/
+/corpus/
+/artifacts/
+/coverage/

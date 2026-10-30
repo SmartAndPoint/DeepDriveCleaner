@@ -1,0 +1,1 @@
+{"schema_version": 3, "actions": [{"action": "brew-cleanup"}, {"action": "simctl-runtime-delete", "identifier": "A1B2"}, {"action": "brew-uninstall", "identifier": "wget", "kegs": ["1.24.5"]}, {"action": "brew-uninstall-orphans", "names": ["libidn2", "gettext"]}]}

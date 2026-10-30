@@ -32,7 +32,7 @@ MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
 .PHONY: build fmt fmt-check clippy test check release install dist app app-test app-dist icons \
 	gate-fast gate nextest doctest clippy-dhat doc deny machete msrv release-check \
-	tools require-tools hooks coverage coverage-ratchet ci-green golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test leaks asan
+	tools require-tools hooks coverage coverage-ratchet ci-green golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test leaks asan fuzz
 
 build:
 	$(CARGO) build --workspace
@@ -225,6 +225,24 @@ asan:
 	RUSTFLAGS=-Zsanitizer=address ASAN_OPTIONS=detect_leaks=0 CARGO_TARGET_DIR=target/asan \
 	  $(CARGO) +$(ASAN_TOOLCHAIN) test --locked --target aarch64-apple-darwin -p ddc-loadgen --test profiles --test hostile
 
+# libFuzzer on the parsers of outside input, FUZZ_SECONDS per target, on the nightly
+# of `asan` (story "Coverage floor and property tests for the safety invariants",
+# DDC-005). fuzz/ is a workspace of its own; cargo fuzz takes no --locked, so its lock
+# is checked first. fuzz/regressions seeds the corpus (fuzz/corpus, not committed); a
+# crash found is kept there, minimized, and ddc-core/tests/fuzz_regressions.rs runs it.
+# Every target runs even after one crashes; the nightly workflow runs it longer.
+FUZZ_SECONDS ?= 60
+FUZZ_TARGETS := disk_plist listed_items action_list settings last_scan
+fuzz:
+	$(call install-tool,fuzz,$(FUZZ_VERSION))
+	rustup toolchain install $(ASAN_TOOLCHAIN) --profile minimal
+	$(CARGO) +$(ASAN_TOOLCHAIN) metadata --locked --format-version 1 --manifest-path fuzz/Cargo.toml >/dev/null
+	@status=0; for t in $(FUZZ_TARGETS); do \
+		mkdir -p fuzz/corpus/$$t; \
+		$(CARGO) +$(ASAN_TOOLCHAIN) fuzz run $$t fuzz/corpus/$$t fuzz/regressions/$$t -- \
+		  -max_total_time=$(FUZZ_SECONDS) -timeout=10 || status=1; \
+	done; exit $$status
+
 # Removes the load trees `ddc-loadgen mktemp` left in $$TMPDIR (only marked ones).
 loadgen-clean:
 	$(CARGO) run -q -p ddc-loadgen --locked -- clean
@@ -237,6 +255,7 @@ tools:
 	$(call install-tool,deny,$(DENY_VERSION))
 	$(call install-tool,machete,$(MACHETE_VERSION))
 	$(call install-tool,llvm-cov,$(LLVM_COV_VERSION))
+	$(call install-tool,fuzz,$(FUZZ_VERSION))
 	rustup component add llvm-tools-preview
 	rustup toolchain install $(MSRV) --profile minimal
 

@@ -1,0 +1,1 @@
+{"schema_version": 1, "items": [{"path": "/a/../b", "dev": 18446744073709551615, "ino": 0, "rule": "", "class": "safe", "action": "trash"}]}

@@ -1,0 +1,1 @@
+﻿{"schema_version": 1, "items": [{"path": "/Users/a/p/node_modules", "dev": 16777234, "ino": 4242, "rule": "node.node_modules", "class": "rebuildable", "action": "delete"}, {"path": "/Users/a/Library/Caches/x", "dev": 16777234, "ino": 99, "rule": "mac.user_caches", "class": "review", "action": "delete", "permanent": true}]}

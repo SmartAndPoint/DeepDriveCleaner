@@ -1,0 +1,103 @@
+﻿{
+  "cancelled": false,
+  "ddc_version": "0.7.0",
+  "duration_ms": 12,
+  "errors_total": 0,
+  "findings": [
+    {
+      "bytes": 8192,
+      "category": "project-artifact",
+      "class": "rebuildable",
+      "dev": 16777234,
+      "dirs": 1,
+      "files": 2,
+      "hint": "recreate: npm ci / pnpm install / yarn install",
+      "incomplete": false,
+      "ino": 4242,
+      "notes": [],
+      "parent_dev": 16777234,
+      "parent_ino": 4241,
+      "path": "/Users/a/p/node_modules",
+      "project": {
+        "has_lockfile": true,
+        "idle_days": 40,
+        "last_activity": "2024-01-01T00:00:00Z",
+        "root": "/Users/a/p"
+      },
+      "removal": "delete",
+      "rule": "node.node_modules",
+      "rule_class": "rebuildable",
+      "selected": true,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 8192,
+      "category": "project-artifact",
+      "class": "rebuildable",
+      "dev": 16777234,
+      "dirs": 1,
+      "files": 2,
+      "hint": "recreate: npm ci / pnpm install / yarn install",
+      "incomplete": false,
+      "ino": 4242,
+      "notes": [],
+      "parent_dev": null,
+      "parent_ino": 4241,
+      "path": "/Users/a/q/node_modules",
+      "project": {
+        "has_lockfile": true,
+        "idle_days": 40,
+        "last_activity": "2024-01-01T00:00:00Z",
+        "root": "/Users/a/p"
+      },
+      "removal": "delete",
+      "rule": "node.node_modules",
+      "rule_class": "rebuildable",
+      "selected": false,
+      "shared_bytes": 0,
+      "not_selected": {
+        "reason": "active-project",
+        "idle_days": 3
+      }
+    }
+  ],
+  "full_disk_access": true,
+  "generated_at": "2026-10-29T12:00:00Z",
+  "home": "/Users/a",
+  "inaccessible": [],
+  "large_files": [],
+  "min_age_days": 14,
+  "scan_roots": [
+    "/Users/a"
+  ],
+  "schema_version": 1,
+  "skipped": [],
+  "skipped_total": 0,
+  "totals": {
+    "classes": [
+      {
+        "bytes": 8192,
+        "class": "rebuildable",
+        "count": 1,
+        "selected_bytes": 8192,
+        "selected_count": 1
+      }
+    ],
+    "dirs": 12,
+    "files": 9992,
+    "scanned_bytes": 5169152,
+    "selected_bytes": 8192,
+    "selected_reclaimable_bytes": 8192,
+    "unowned_bytes": 5156864
+  },
+  "volumes": [
+    {
+      "mount_point": "/System/Volumes/Data",
+      "roots": [
+        "/Users/a"
+      ],
+      "free_bytes": 1000,
+      "total_bytes": 5000
+    }
+  ]
+}

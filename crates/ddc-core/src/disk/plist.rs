@@ -47,9 +47,12 @@ impl Value {
 #[error("not a property list: {0}")]
 pub struct PlistError(String);
 
+/// Far deeper than any `diskutil` output: a deeper list is refused, not a stack overflow.
+const MAX_DEPTH: usize = 64;
+
 /// The top-level value of an XML property list.
 pub fn parse(text: &str) -> Result<Value, PlistError> {
-    let mut p = Parser { s: text, at: 0 };
+    let mut p = Parser { s: text, at: 0, depth: 0 };
     loop {
         p.skip_space();
         let rest = p.rest();
@@ -68,6 +71,8 @@ pub fn parse(text: &str) -> Result<Value, PlistError> {
 struct Parser<'a> {
     s: &'a str,
     at: usize,
+    /// Dicts and arrays open around the current value.
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -130,6 +135,11 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn descend(&mut self) -> Result<(), PlistError> {
+        self.depth += 1;
+        if self.depth > MAX_DEPTH { Err(self.error("nested too deep")) } else { Ok(()) }
+    }
+
     fn value(&mut self) -> Result<Value, PlistError> {
         let (name, empty) = self.open_tag()?;
         Ok(match (name, empty) {
@@ -139,6 +149,7 @@ impl<'a> Parser<'a> {
             ("true", _) => Value::Bool(true),
             ("false", _) => Value::Bool(false),
             ("dict", false) => {
+                self.descend()?;
                 let mut entries = Vec::new();
                 while !self.closes("dict") {
                     let (key, _) = self.open_tag()?;
@@ -148,13 +159,16 @@ impl<'a> Parser<'a> {
                     let key = self.text("key")?;
                     entries.push((key, self.value()?));
                 }
+                self.depth -= 1;
                 Value::Dict(entries)
             }
             ("array", false) => {
+                self.descend()?;
                 let mut items = Vec::new();
                 while !self.closes("array") {
                     items.push(self.value()?);
                 }
+                self.depth -= 1;
                 Value::Array(items)
             }
             ("string", false) => Value::String(self.text("string")?),
@@ -247,5 +261,16 @@ mod tests {
     fn refuses_what_is_not_a_plist() {
         assert!(parse("Error: diskutil failed").is_err());
         assert!(parse("<plist><dict><key>A</key>").is_err());
+    }
+
+    #[test]
+    fn reads_nesting_up_to_the_limit_and_refuses_deeper() {
+        let arrays = |n: usize| format!("<plist>{}{}</plist>", "<array>".repeat(n), "</array>".repeat(n));
+        let dicts =
+            |n: usize| format!("<plist>{}<true/>{}</plist>", "<dict><key>k</key>".repeat(n), "</dict>".repeat(n));
+        for nested in [arrays as fn(usize) -> String, dicts] {
+            assert!(parse(&nested(MAX_DEPTH)).is_ok());
+            assert!(parse(&nested(MAX_DEPTH + 1)).is_err());
+        }
     }
 }

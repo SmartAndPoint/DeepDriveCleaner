@@ -1,0 +1,1 @@
+{"schema_version": 1, "items": [{"path": "/a\u0000b", "dev": 1, "ino": 2, "rule": "r", "class": "safe", "action": "trash"}]}

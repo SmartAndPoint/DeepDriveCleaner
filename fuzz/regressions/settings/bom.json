@@ -1,0 +1,1 @@
+﻿{"schema_version": 1, "roots": ["/Users/a"], "excludes": ["/Users/a/Keep"], "skips": ["/Volumes/Backup"], "disabled_rules": ["python.pycache"], "min_age_days": 30, "min_size": 1048576, "notify_threshold": 1073741824, "notify_low_disk": false, "scheduler": {"by": "app", "app": "/Applications/DeepDriveCleaner.app"}}

@@ -32,6 +32,7 @@ jobs:
             ~/.cargo/bin/cargo-deny
             ~/.cargo/bin/cargo-machete
             ~/.cargo/bin/cargo-llvm-cov
+            ~/.cargo/bin/cargo-fuzz
           key: tools-${{ runner.os }}-${{ hashFiles('.config/tools.mk') }}
       - uses: Swatinem/rust-cache@v2
         with:
@@ -39,7 +40,6 @@ jobs:
       - run: make tools
       - run: make gate
       - run: make coverage
-      # Fuzzing: story "Coverage floor and property tests for the safety invariants".
 
   # AddressSanitizer on a dated nightly (story "Memory and CPU under load: peak memory,
   # leaks and CPU time"), on its own runner so a gate failure does not skip it.
@@ -57,6 +57,36 @@ jobs:
           cache-bin: false
           key: asan
       - run: make asan
+
+  # libFuzzer on the parsers of outside input, ten minutes per target, on the nightly
+  # of `asan` (story "Coverage floor and property tests for the safety invariants").
+  # cargo-fuzz has a cache of its own: a gate tools cache saved from here would lack
+  # the gate's tools. A crash's input is uploaded, to be kept in fuzz/regressions.
+  fuzz:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - name: Cache cargo-fuzz
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-fuzz
+          key: fuzz-tool-${{ runner.os }}-${{ hashFiles('.config/tools.mk') }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+          key: fuzz
+          workspaces: fuzz
+      - run: make fuzz FUZZ_SECONDS=600
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts
 
   # L-size load on its own runner, so a gate or coverage failure does not skip it and
   # their builds do not share its disk: story "Synthetic load trees: large, wide, deep

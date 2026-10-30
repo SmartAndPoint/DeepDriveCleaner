@@ -1,0 +1,56 @@
+# The parsers of outside input under libFuzzer (story "Coverage floor and property
+# tests for the safety invariants", DDC-005): `make fuzz`, on the dated nightly. Its
+# own workspace and lock file, so the main workspace's metadata, deny, machete and
+# MSRV checks never see it.
+[package]
+name = "ddc-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "PolyForm-Noncommercial-1.0.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+ddc-core = { path = "../crates/ddc-core" }
+libfuzzer-sys = "0.4.13"
+serde_json = "1.0"
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "disk_plist"
+path = "fuzz_targets/disk_plist.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "listed_items"
+path = "fuzz_targets/listed_items.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "action_list"
+path = "fuzz_targets/action_list.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "settings"
+path = "fuzz_targets/settings.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "last_scan"
+path = "fuzz_targets/last_scan.rs"
+test = false
+doc = false
+bench = false

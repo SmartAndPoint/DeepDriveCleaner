@@ -1,0 +1,1 @@
+{"schema_version": 3, "actions": [{"action": "brew-cleanup"}, {"action": "simctl-runtime-delete", "identifier": "A1B2"}, {"action": 
