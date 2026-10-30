@@ -22,8 +22,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub use journal::{
-    AreaActionEntry, AreaJournal, FileJournal, JOURNAL_SCHEMA_VERSION, Journal, JournalEntry, JournalKind,
-    MemoryAreaJournal, MemoryJournal,
+    AreaActionEntry, AreaJournal, FileJournal, JOURNAL_SCHEMA_VERSION, Journal, JournalEntry, JournalKind, KeepJournal,
+    KeepRemoveEntry, MemoryAreaJournal, MemoryJournal, MemoryKeepJournal,
 };
 pub use native::CommandResult;
 pub(crate) use native::tail;

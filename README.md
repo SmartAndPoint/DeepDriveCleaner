@@ -311,6 +311,23 @@ ddc disk free                                      # asks for each action
 ddc disk free --dry-run                            # what each tool would remove
 ```
 
+### `ddc keep`: remove a folder's protection
+
+A `.ddc-keep` file keeps its folder, and everything in it, out of every plan: the scan lists it under "Protected by you". `ddc keep remove <folder>` removes that file from one folder and nothing else; the folder and what lies in it stay. The next scan lists the folder in its own group, where it can be cleaned with that group's checks, and may be selected for cleanup by default. To keep it again, put the file back (the app's Protect This Folder).
+
+- Give the folder that holds the file as an absolute path, as the scan report names it. At a terminal, `ddc keep remove` asks first, default No. Without a terminal it needs `--folder-dev` and `--folder-ino`, the folder's device and inode as the scan report recorded them; the app passes them from its Remove Protection… confirmation.
+- It takes the lock a clean takes, so it waits for no scan or clean: it exits 75 while one runs.
+- It refuses a folder outside the folders ddc scans (`roots` in the settings, or your home folder), a folder that is no longer the one the report saw (another device or inode, or now a symlink), a folder that is not there, and a `.ddc-keep` that is a symlink or a folder rather than a file: remove that one in Finder. A folder with no `.ddc-keep` any more is reported as such.
+- Every decision is logged to `actions.jsonl`, refusals included.
+- An exclusion or a skip is removed in the settings (`excludes`, `skips`), not here.
+
+```
+ddc keep remove FOLDER [--folder-dev DEV --folder-ino INO] [--json] [--data-dir DIR]
+ddc keep remove ~/Projects/app/node_modules         # asks first
+```
+
+`--json` prints the report ([`docs/keep.schema.json`](docs/keep.schema.json)): the folder, its device and inode, the rule the file kept when the last scan says it, and the result: `removed`, `absent`, `refused` with a `reason` (`outside-scan-roots`, `changed-since-scan`, `no-folder`, `not-a-file`) or `failed` with an `error`.
+
 ### `ddc schedule`: scan in the background
 
 ```
@@ -335,8 +352,8 @@ ddc schedule status
 
 | Code | Meaning |
 |---|---|
-| 0 | Done. `clean --items --json` and `disk free --json` exit 0 even when an item or action failed: the report says which. |
-| 1 | An error; in text mode, `clean` also exits 1 when an item failed, and `disk free` when an action failed. |
+| 0 | Done. `clean --items --json`, `disk free --json` and `keep remove --json` exit 0 even when an item or action failed or was refused: the report says which. |
+| 1 | An error; in text mode, `clean` also exits 1 when an item failed, `disk free` when an action failed, and `keep remove` when the file was not removed for a reason other than being gone already. |
 | 2 | Refused before anything was touched: run as root, a malformed list, a forbidden option, or a confirmation that cannot be asked without a terminal. |
 | 69 | Unavailable: ddc does not support this platform yet, where only `--version`, `--help` and `rules` run, or the command needs something this platform lacks. Nothing was scanned or changed. |
 | 75 | Busy: a clean is running, or a clean was asked for while another scan or clean runs. Try again when it ends. |
@@ -363,7 +380,7 @@ The install script (under [Install](#on-an-older-macos-or-the-command-line-only)
 | `~/Library/Application Support/DeepDriveCleaner/settings.json` | Settings shared by the app and the terminal (below). |
 | `~/Library/Application Support/DeepDriveCleaner/notify-state.json` | When the background scan last notified, so it does not repeat itself. |
 | `~/Library/Application Support/DeepDriveCleaner/lock` | Scans share it; a clean takes it alone. |
-| `~/Library/Logs/DeepDriveCleaner/actions.jsonl` | The journal: every deletion, move to the Trash and tool run, one JSON line each. |
+| `~/Library/Logs/DeepDriveCleaner/actions.jsonl` | The journal: every deletion, move to the Trash, tool run and `keep remove` decision, one JSON line each. |
 | `~/Library/Logs/DeepDriveCleaner/background.log` | What the scheduled scans found; `background.out.log` and `background.err.log` hold their raw output. |
 | `~/Library/Logs/DeepDriveCleaner/app.log` | What the menu bar app did: each run of the command-line tool and its outcome. |
 | `~/Library/LaunchAgents/com.smartandpoint.deepdrivecleaner.plist` | The background agent of `ddc schedule install`. |
@@ -401,7 +418,7 @@ The install script (under [Install](#on-an-older-macos-or-the-command-line-only)
 - Deletion first renames the folder to a tombstone through a verified parent folder, then removes it. An interrupted run leaves `*.ddc-deleting-*`, which the next scan finds as `safe`.
 - Every action is logged to `~/Library/Logs/DeepDriveCleaner/actions.jsonl`.
 - It never runs as root, never deletes your home, `~/Documents`, `~/Projects` or any other protected folder, and never follows a symlink out of a finding.
-- To keep a folder out of every plan for good, put an empty `.ddc-keep` file in it (the app's Protect This Folder does that), or add it to `excludes`.
+- To keep a folder out of every plan for good, put an empty `.ddc-keep` file in it (the app's Protect This Folder does that), or add it to `excludes`. `ddc keep remove` removes that file again, and only that file.
 - APFS frees space asynchronously, and local Time Machine snapshots keep deleted blocks until macOS thins them. `ddc clean` says so when snapshots exist.
 
 These checks lower the risk; they do not remove it. See the [Disclaimer](#disclaimer).

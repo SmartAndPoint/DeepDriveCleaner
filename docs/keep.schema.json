@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeepReport",
+  "description": "What `ddc keep remove --json` prints.",
+  "type": "object",
+  "properties": {
+    "dev": {
+      "description": "The folder's device: the one given with `--folder-dev`, else the one\nthe open found; `null` when neither is known.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
+    "ino": {
+      "description": "The folder's inode, as `dev`.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
+    "path": {
+      "description": "The folder that held the marker, as it was given.",
+      "type": "string"
+    },
+    "rule": {
+      "description": "The rule the marker kept, from the saved scan report; `null` when it\ndoes not say.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "oneOf": [
+    {
+      "description": "The `.ddc-keep` was unlinked.",
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string",
+          "const": "removed"
+        }
+      },
+      "required": [
+        "result"
+      ]
+    },
+    {
+      "description": "The folder is there with no `.ddc-keep` in it.",
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string",
+          "const": "absent"
+        }
+      },
+      "required": [
+        "result"
+      ]
+    },
+    {
+      "description": "A check refused it: nothing was removed.",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/KeepRefusal"
+        },
+        "result": {
+          "type": "string",
+          "const": "refused"
+        }
+      },
+      "required": [
+        "result",
+        "reason"
+      ]
+    },
+    {
+      "description": "The open, the stat or the unlink failed.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "result": {
+          "type": "string",
+          "const": "failed"
+        }
+      },
+      "required": [
+        "result",
+        "error"
+      ]
+    }
+  ],
+  "required": [
+    "schema_version",
+    "path"
+  ],
+  "$defs": {
+    "KeepRefusal": {
+      "description": "Why a removal was refused. A strict enum: a new reason bumps\n[`KEEP_SCHEMA_VERSION`].",
+      "oneOf": [
+        {
+          "description": "The folder lies outside the Settings roots.",
+          "type": "string",
+          "const": "outside-scan-roots"
+        },
+        {
+          "description": "The folder's identity differs from the one given, or it is now a symlink.",
+          "type": "string",
+          "const": "changed-since-scan"
+        },
+        {
+          "description": "The folder is not there.",
+          "type": "string",
+          "const": "no-folder"
+        },
+        {
+          "description": "The `.ddc-keep` is a symlink, a folder or anything but a regular\nfile: it is removed in Finder.",
+          "type": "string",
+          "const": "not-a-file"
+        }
+      ]
+    }
+  }
+}

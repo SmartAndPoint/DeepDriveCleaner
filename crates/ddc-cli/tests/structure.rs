@@ -390,6 +390,48 @@ fn the_platform_switches_are_literals() {
     }
 }
 
+/// `ddc keep remove` removes one `.ddc-keep` and nothing else (safety ADR,
+/// amendment of 2026-10-30): its code names no removal, trash, program or
+/// executor, and `DirFd::unlink_child`, the only removal outside the
+/// executor, has one caller in every crate's sources, with `KEEP_MARKER`.
+#[test]
+fn keep_remove_unlinks_only_its_marker() {
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    for file in ["ddc-cli/src/cmd/keep.rs", "ddc-core/src/keep.rs"] {
+        let text = code(&crates.join(file));
+        for forbidden in [
+            "remove_dir",
+            "remove_file",
+            "trash",
+            "Trash",
+            "Command::new",
+            "process::Command",
+            "Executor",
+            "execute",
+            "exec::delete",
+            "build_plan",
+            "plan::",
+            "Consent",
+            "rename_child",
+        ] {
+            assert!(!text.contains(forbidden), "{file} mentions {forbidden}");
+        }
+    }
+    let mut calls = Vec::new();
+    for name in ["ddc-cli", "ddc-core", "ddc-loadgen"] {
+        let src = crates.join(name).join("src");
+        let platform = src.join("platform");
+        for path in rust_files(&src).into_iter().filter(|p| !p.starts_with(&platform)) {
+            let text = code(&path);
+            for args in arguments(&text, "unlink_child(") {
+                let rel = path.strip_prefix(&crates).unwrap().to_string_lossy().replace('\\', "/");
+                calls.push((rel, args.to_owned()));
+            }
+        }
+    }
+    assert_eq!(calls, [("ddc-core/src/keep.rs".to_owned(), "KEEP_MARKER.as_ref()".to_owned())]);
+}
+
 /// Every `.rs` file under `dir`, at any depth, sorted.
 fn rust_files(dir: &Path) -> Vec<std::path::PathBuf> {
     let (mut files, mut dirs) = (Vec::new(), vec![dir.to_path_buf()]);

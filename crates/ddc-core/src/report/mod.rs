@@ -229,7 +229,7 @@ pub(crate) fn scan_inner(
 }
 
 /// The roots a scan walks: the home when none are given.
-fn roots_of(env: &Env, opts: &ScanOptions) -> Vec<PathBuf> {
+pub(crate) fn roots_of(env: &Env, opts: &ScanOptions) -> Vec<PathBuf> {
     if opts.roots.is_empty() { vec![env.home().to_path_buf()] } else { opts.roots.clone() }
 }
 

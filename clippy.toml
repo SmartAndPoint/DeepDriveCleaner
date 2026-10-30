@@ -6,6 +6,6 @@ disallowed-methods = [
   { path = "std::env::var_os", reason = "read the environment only through ddc_core::env::Env" },
   { path = "std::fs::remove_dir_all", reason = "deletion goes through the executor (exec::delete)" },
   { path = "std::fs::remove_dir", reason = "deletion goes through the executor (exec::delete)" },
-  { path = "std::fs::remove_file", reason = "deletion goes through the executor (exec::delete)" },
+  { path = "std::fs::remove_file", reason = "deletion goes through the executor (exec::delete); a .ddc-keep marker only through DirFd::unlink_child (ddc keep remove)" },
   { path = "std::process::Command::env_clear", reason = "clear through ddc_loadgen::isolate::ClearEnv, which keeps the coverage profile" },
 ]

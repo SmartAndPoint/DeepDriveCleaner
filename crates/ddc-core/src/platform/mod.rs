@@ -86,6 +86,7 @@ mod pins {
     const _: fn(&DirFd, &OsStr) -> io::Result<EntryStat> = DirFd::stat_child;
     const _: fn(&DirFd, &OsStr) -> io::Result<ChildTimes> = DirFd::child_times;
     const _: fn(&DirFd, &OsStr, &OsStr) -> io::Result<()> = DirFd::rename_child;
+    const _: fn(&DirFd, &OsStr) -> io::Result<()> = DirFd::unlink_child;
 
     const _: fn() -> Option<PathBuf> = imp::folders::home;
     const _: fn(&Path) -> (PathBuf, PathBuf) = imp::folders::default_data_and_log;
