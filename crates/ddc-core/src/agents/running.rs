@@ -161,6 +161,10 @@ mod tests {
 
     #[test]
     fn cursor_agent_is_cursors_cli_by_its_install_folder() {
+        // Its inputs are macOS paths, which Windows does not read as absolute.
+        if crate::platform::skipped("cursor_agent_is_cursors_cli_by_its_install_folder") {
+            return;
+        }
         // Its launcher `exec`s the bundled `node` under the command's name.
         let version = format!("{CURSOR_AGENT}/versions/2026.10.28-0a1b2c3");
         let agent = proc(

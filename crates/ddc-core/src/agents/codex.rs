@@ -210,7 +210,11 @@ mod tests {
         let vanished = list(dir.path(), fake(std::io::ErrorKind::NotFound));
         assert_eq!(strict(vanished), Ok(vec![("t1".to_owned(), (9, 1)), ("t3".to_owned(), (9, 3))]));
 
-        // The real reader, and a folder that is not there.
+        // The real reader, and a folder that is not there. A lock's identity is
+        // read through platform::meta, ported to macOS only.
+        if crate::platform::skipped("an_unreadable_lock_makes_the_strict_listing_unreadable") {
+            return;
+        }
         assert_eq!(locks(dir.path()).unwrap().len(), 3);
         assert_eq!(locks(&dir.path().join("none")), Err(UnknownReason::Missing));
     }
