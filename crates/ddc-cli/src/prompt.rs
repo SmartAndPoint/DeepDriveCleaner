@@ -4,9 +4,11 @@ use std::collections::BTreeMap;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
+use ddc_core::agents::HarnessId;
+use ddc_core::agents::liveness::{LiveBy, UnknownCause};
 use ddc_core::class::Fallback;
 use ddc_core::class::RiskClass;
-use ddc_core::exec::{ExecReport, Outcome, SkipReason};
+use ddc_core::exec::{AgentLiveBy, ExecReport, Outcome, SkipReason};
 use ddc_core::plan::{Action, Plan, PlanItem};
 use ddc_core::rules::DOCKER_DOWN;
 use ddc_core::rules::entries::EntryLock;
@@ -270,6 +272,20 @@ pub fn reason(r: &SkipReason) -> String {
         SkipReason::NotAnEntry => "no longer a file or folder you can pick in its folder".to_owned(),
         SkipReason::EntryLocked { lock } => format!("locked: {}", lock_text(lock)),
         SkipReason::InsideAnotherItem => "inside a folder that went to the Trash".to_owned(),
+        SkipReason::AgentLive { harness, by } => match by {
+            AgentLiveBy::Running => format!("{} is running; quit it and run again", harness_name(*harness)),
+            AgentLiveBy::LockHeld => format!("{} holds a lock on it", harness_name(*harness)),
+            AgentLiveBy::Unknown => format!("could not tell whether {} is using it", harness_name(*harness)),
+        },
+    }
+}
+
+fn harness_name(h: HarnessId) -> &'static str {
+    match h {
+        HarnessId::ClaudeCode => "Claude Code",
+        HarnessId::Codex => "Codex",
+        HarnessId::Cursor => "Cursor",
+        HarnessId::Opencode => "OpenCode",
     }
 }
 
@@ -282,6 +298,28 @@ fn lock_text(lock: &EntryLock) -> String {
         EntryLock::Recent => "added or changed in the last 10 minutes".to_owned(),
         EntryLock::PartialDownload => "a download still arriving".to_owned(),
         EntryLock::UnfinishedBackup => "the backup did not finish".to_owned(),
+        EntryLock::LiveSession { by, .. } => match by {
+            LiveBy::Record => "a running Claude Code has this session open".to_owned(),
+            LiveBy::Recent => "the session changed in the last 10 minutes".to_owned(),
+            LiveBy::OpenFile => "a running process holds a file of this session open".to_owned(),
+        },
+        EntryLock::LivenessUnknown { cause } => {
+            format!("could not tell whether the session is in use ({})", cause_text(*cause))
+        }
+    }
+}
+
+fn cause_text(cause: UnknownCause) -> &'static str {
+    match cause {
+        UnknownCause::RecordsMissing => "Claude Code keeps no session records here",
+        UnknownCause::RecordsUnreadable => "its session records could not be read",
+        UnknownCause::RecordsSkipped => "its session records lie in a skipped folder",
+        UnknownCause::UnparsableRecord => "a session record could not be read",
+        UnknownCause::UndecidableRecord | UnknownCause::UndecidableSessionRecord => {
+            "a session record could not be checked"
+        }
+        UnknownCause::LiveRecordWithoutSession => "a running Claude Code names no session",
+        UnknownCause::SessionWithoutFiles => "the session has no file to check",
     }
 }
 

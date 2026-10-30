@@ -16,6 +16,7 @@ use super::{ScanError, ScanOptions};
 use crate::env::Env;
 use crate::model::ScanReport;
 use crate::plan::ListedItem;
+use crate::rules::entries::{self, EntryShape};
 use crate::rules::{Catalog, Scope};
 use crate::scan::{
     DirCtx, DirListing, DirReader, EntryMeta, OwnerKind, Post, Pre, Progress, ReadErrorKind, Tag, Visitor,
@@ -89,6 +90,15 @@ impl Reach {
                 }
                 // A list with a `Tree` item never takes the pruned walk.
                 Scope::Item | Scope::Tree => {}
+            }
+            // A session's entry of a coding agent's session folder: its
+            // companions are its siblings, which its bytes and its lock hold.
+            // The user's own folders' entries have none.
+            if entries::policy(rule.id).is_some_and(|p| p.shape != EntryShape::Child)
+                && item.path.file_name().and_then(|n| entries::session_of(n.as_encoded_bytes())).is_some()
+                && let Some(parent) = item.path.parent()
+            {
+                reach.families.insert(parent.to_path_buf());
             }
             reach.ancestors.extend(item.path.ancestors().skip(1).map(Path::to_path_buf));
             reach.items.insert(item.path.clone());

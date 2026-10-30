@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::entries::ENTRY_RULES;
+use super::entries::has_entries;
 use super::matcher::glob_match;
 use super::{KEPT, Rule, RuleVisitor, toolchain};
 use crate::class::{Category, RiskClass};
@@ -86,10 +86,11 @@ pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> 
             displaced = Some(Some(rule));
             rule = kept;
             notes.push(Note::Excluded);
-        } else if owner.kind == OwnerKind::Claim && !ENTRY_RULES.contains(&rule.id) && marked.contains(&owner.path) {
-            // In the user's own folders a marker locks the entry that holds it
-            // instead (safety ADR, amendment of 2026-10-20); one at the folder's
-            // top made it `user.kept` before it was read.
+        } else if owner.kind == OwnerKind::Claim && !has_entries(rule.id) && marked.contains(&owner.path) {
+            // In a folder with entries, the user's own or a coding agent's
+            // session folder, a marker locks the entry that holds it instead
+            // (safety ADR, amendment of 2026-10-20; ADR "Agent footprint", §3);
+            // one at the folder's top made it `user.kept` before it was read.
             displaced = Some(Some(rule));
             rule = kept;
             notes.push(Note::KeptByMarker);

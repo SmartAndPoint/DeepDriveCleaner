@@ -16,8 +16,11 @@ use crate::scan::SkipReason;
 
 /// 2: `platform` and `capabilities`, against which the other fields read
 /// (ADR "Platform seam: one platform module per OS with declared
-/// capabilities", §4).
-pub const SCHEMA_VERSION: u32 = 2;
+/// capabilities", §4). 3: the entry locks `live-session` and
+/// `liveness-unknown`, on the entries of the coding agents' session folders
+/// (ADR "Agent footprint: worktrees, harness data and bounded consent for
+/// agents", §3).
+pub const SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ScanReport {
@@ -179,8 +182,10 @@ pub struct Finding {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_ino: Option<u64>,
     /// What one of the user's own folders holds, to pick from (story "User
-    /// data: pick your own files for the Trash"). Only on findings of
-    /// `rules::entries::ENTRY_RULES` the scan could read.
+    /// data: pick your own files for the Trash"), or the sessions of a
+    /// coding agent's session folder (story "Harness data rules"). Only on
+    /// findings of a rule with an entry policy (`rules::entries::policy`)
+    /// the scan could read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contents: Option<Contents>,
     /// What keeps a `user.kept` finding (story "Protected by you: say what it
@@ -287,26 +292,33 @@ pub enum ExclusionOrigin {
     Flag,
 }
 
-/// The direct children of a user-data folder: the largest listed, the rest summed.
+/// The direct children of a folder with entries: the largest listed, the
+/// rest summed. A session folder's entry is a session: its transcript (or
+/// its folder in `file-history`) with the siblings named after it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Contents {
-    /// Largest first (ties by path bytes); at most 100, each at least 10 MiB.
+    /// Largest first (ties by path bytes); at most 100. A user-data folder's
+    /// are each at least 10 MiB; a session folder's have no floor.
     pub entries: Vec<FolderEntry>,
     /// The other children, findings of their own left out.
     pub rest_count: u64,
     pub rest_bytes: u64,
 }
 
-/// One direct child of a user-data folder: a regular file or a directory.
+/// One direct child of a folder with entries: a regular file or a
+/// directory. A session's entry is its key (`<session>.jsonl`, or
+/// `<session>/` in `file-history`), with its companions' bytes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct FolderEntry {
     pub path: PathBuf,
     pub kind: FolderEntryKind,
-    /// Allocated bytes, findings inside it included.
+    /// Allocated bytes, findings inside it included; a session's, its
+    /// companions' too.
     pub bytes: u64,
     pub dev: u64,
     pub ino: u64,
-    /// Last modification, RFC 3339.
+    /// Last modification, RFC 3339; a session's, the newest of its files'
+    /// own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modified: Option<String>,
     /// Why it cannot be picked.

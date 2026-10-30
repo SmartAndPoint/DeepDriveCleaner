@@ -113,7 +113,7 @@ struct UserDataTests {
     @Test("every entry lock decodes and reads as text; an unknown one does not decode")
     func locks() throws {
         for tag in EntryLock.tags {
-            let lock = try JSONDecoder().decode(EntryLock.self, from: Data(#"{"reason":"\#(tag)","app":"Photos"}"#.utf8))
+            let lock = try JSONDecoder().decode(EntryLock.self, from: Data(#"{"reason":"\#(tag)","app":"Photos","session":"0a1b2c3d-0000-4000-8000-00000000000a","by":"record","cause":"records-missing"}"#.utf8))
             #expect(!CleanWording.entryLock(lock).isEmpty)
             #expect(ReviewItems.Lock.entry(lock).text == CleanWording.entryLock(lock))
         }
@@ -283,7 +283,7 @@ struct UserDataTests {
 
             """.utf8))
         try fake.put("clean-report.json", Data("""
-            {"schema_version": 4, "ddc_version": "0.2.0", "platform": "macos", "capabilities": ["private-size", "in-use-check", "dataless-files", "full-disk-access", "local-snapshots", "whole-disk", "coding-agents", "homebrew", "schedule", "notifications"], "cancelled": false, "failed": 0, "local_snapshots": 0,
+            {"schema_version": 5, "ddc_version": "0.2.0", "platform": "macos", "capabilities": ["private-size", "in-use-check", "dataless-files", "full-disk-access", "local-snapshots", "whole-disk", "coding-agents", "homebrew", "schedule", "notifications"], "cancelled": false, "failed": 0, "local_snapshots": 0,
              "journal": "/Users/example/Library/Logs/DeepDriveCleaner/actions.jsonl", "volumes": [],
              "items": [{"path": "\(home)/Downloads/Project", "dev": 1, "ino": 102, "rule": "user.downloads",
                         "class": "user-data", "action": "trash", "bytes": 30000000, "outcome": "trashed"}]}

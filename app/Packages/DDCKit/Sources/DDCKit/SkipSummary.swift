@@ -34,6 +34,9 @@ public struct SkipSummary: Sendable, Equatable {
     public var apps: [String] {
         var apps: [String] = []
         for case .ownerRunning(_, let name) in reasons where !apps.contains(name) { apps.append(name) }
+        for case .agentLive(let harness, _) in reasons where !apps.contains(CleanWording.harnessName(harness)) {
+            apps.append(CleanWording.harnessName(harness))
+        }
         return apps
     }
 
@@ -112,6 +115,7 @@ extension CleanWording {
         var sentences: [String] = []
         var apps: [String] = []
         for case .ownerRunning(_, let name) in reasons where !apps.contains(name) { apps.append(name) }
+        for case .agentLive(let harness, _) in reasons where !apps.contains(harnessName(harness)) { apps.append(harnessName(harness)) }
         if !apps.isEmpty { sentences.append("Quit \(Wording.list(apps)), then \(again).") }
         // The processes known to hold a folder first, then the possible ones.
         var certain: [String] = []

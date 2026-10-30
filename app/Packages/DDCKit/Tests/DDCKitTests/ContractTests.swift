@@ -266,14 +266,18 @@ struct ContractTests {
     func schemaEnums() throws {
         let clean = try schema("clean")
         #expect(Set(try values(clean, "SkipReason", key: "reason")) == Set(SkipReason.tags))
-        #expect(SkipReason.tags.count == 22)
+        #expect(SkipReason.tags.count == 23)
         #expect(Set(try values(clean, "EntryLock", key: "reason")) == Set(EntryLock.tags))
+        #expect(Set(try values(clean, "AgentLiveBy")) == Set(SkipReason.AgentLiveBy.allCases.map(\.rawValue)))
+        #expect(Set(try values(clean, "HarnessId")) == Set(AgentsReport.HarnessID.allCases.map(\.rawValue)))
         #expect(Set(try values(clean, "ActionKind")) == Set(ListedAction.allCases.map(\.rawValue)))
         let scan = try schema("scan")
         #expect(Set(try values(scan, "RemovalKind")) == Set(ScanReport.Removal.allCases.map(\.rawValue)))
         #expect(Set(try values(scan, "Note")) == Set(ScanReport.Note.allCases.map(\.rawValue)))
         #expect(Set(try values(scan, "RiskClass")) == Set(ScanReport.RiskClass.allCases.map(\.rawValue)))
         #expect(Set(try values(scan, "EntryLock", key: "reason")) == Set(EntryLock.tags))
+        #expect(Set(try values(scan, "LiveBy")) == Set(EntryLock.LiveBy.allCases.map(\.rawValue)))
+        #expect(Set(try values(scan, "UnknownCause")) == Set(EntryLock.LivenessCause.allCases.map(\.rawValue)))
         #expect(Set(try values(scan, "SkipReason")) == Set(ScanReport.SkipArea.allCases.map(\.rawValue)))
         #expect(Set(try values(scan, "FolderEntryKind")) == ["file", "folder"])
         #expect(Set(try values(scan, "ExclusionKind")) == Set(ScanReport.ExclusionKind.allCases.map(\.rawValue)))
@@ -334,7 +338,7 @@ struct ContractTests {
     @Test("every skip reason decodes and reads as text")
     func skipReasonsHaveText() throws {
         for tag in SkipReason.tags {
-            let line = #"{"type":"item","path":"/Users/example/x","rule":"cache.npm","class":"safe","action":"delete","prediction":"would-skip","reason":"\#(tag)","pid":7,"name":"node","program":"go","detail":"Docker Desktop is not running or not answering","lock":{"reason":"recent"}}"#
+            let line = #"{"type":"item","path":"/Users/example/x","rule":"cache.npm","class":"safe","action":"delete","prediction":"would-skip","reason":"\#(tag)","pid":7,"name":"node","harness":"claude-code","by":"running","program":"go","detail":"Docker Desktop is not running or not answering","lock":{"reason":"recent"}}"#
             guard case .item(let item) = try PreflightLine.read(line), case .wouldSkip(let reason) = item.prediction else {
                 Issue.record("\(tag) did not decode as a skip")
                 continue

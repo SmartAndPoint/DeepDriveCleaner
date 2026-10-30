@@ -21,9 +21,9 @@ struct PopoverModelTests {
         let runner = FakeRunner(scan: report, blocks: true)
         await runner.reply(scanLines: [
             "ddc: warning: a folder could not be read",
-            #"{"schema_version":2,"event":"walk","step":"scan","files":45600,"dirs":900,"bytes":8192}"#,
-            #"{"schema_version":2,"event":"walk","step":"scan","files":1200,"dirs":80,"bytes":4096}"#,
-            #"{"schema_version":3,"event":"walk","step":"scan","files":99999,"dirs":1,"bytes":1}"#,
+            #"{"schema_version":3,"event":"walk","step":"scan","files":45600,"dirs":900,"bytes":8192}"#,
+            #"{"schema_version":3,"event":"walk","step":"scan","files":1200,"dirs":80,"bytes":4096}"#,
+            #"{"schema_version":4,"event":"walk","step":"scan","files":99999,"dirs":1,"bytes":1}"#,
         ])
         let model = try makeModel(runner: runner, data: data, defaults: defaults)
         await model.start()

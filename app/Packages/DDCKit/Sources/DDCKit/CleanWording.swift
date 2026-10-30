@@ -29,6 +29,19 @@ public enum CleanWording {
         case .notAnEntry: "No longer a file or folder you can pick in its folder"
         case .entryLocked(let lock): entryLock(lock)
         case .insideAnotherItem: "Went to the Trash with the folder it is in"
+        case .agentLive(let harness, .running): "\(harnessName(harness)) is running"
+        case .agentLive(let harness, .lockHeld): "\(harnessName(harness)) holds a lock on it"
+        case .agentLive(let harness, .unknown): "Could not tell whether \(harnessName(harness)) is using it"
+        }
+    }
+
+    /// A coding agent's name, as the CLI's `prompt.rs` says it.
+    public static func harnessName(_ harness: AgentsReport.HarnessID) -> String {
+        switch harness {
+        case .claudeCode: "Claude Code"
+        case .codex: "Codex"
+        case .cursor: "Cursor"
+        case .opencode: "OpenCode"
         }
     }
 
@@ -42,6 +55,23 @@ public enum CleanWording {
         case .recent: "Added or changed in the last 10 minutes"
         case .partialDownload: "Still downloading"
         case .unfinishedBackup: "This backup did not finish"
+        case .liveSession(_, .record): "A running Claude Code has this session open"
+        case .liveSession(_, .recent): "The session changed in the last 10 minutes"
+        case .liveSession(_, .openFile): "A running process holds a file of this session open"
+        case .livenessUnknown(let cause): "Could not tell whether the session is in use · \(livenessCause(cause))"
+        }
+    }
+
+    /// Why a session's liveness could not be told, as a phrase.
+    static func livenessCause(_ cause: EntryLock.LivenessCause) -> String {
+        switch cause {
+        case .recordsMissing: "Claude Code keeps no session records here"
+        case .recordsUnreadable: "its session records could not be read"
+        case .recordsSkipped: "its session records are in a skipped folder"
+        case .unparsableRecord: "a session record could not be read"
+        case .undecidableRecord, .undecidableSessionRecord: "a session record could not be checked"
+        case .liveRecordWithoutSession: "a running Claude Code names no session"
+        case .sessionWithoutFiles: "the session has no file to check"
         }
     }
 

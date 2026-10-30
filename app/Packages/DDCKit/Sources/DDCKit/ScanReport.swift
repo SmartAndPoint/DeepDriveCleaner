@@ -9,7 +9,7 @@ import Foundation
 /// their defaults, so a report of this version without them still reads.
 public struct ScanReport: Decodable, Sendable, Equatable {
     /// `SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 2
+    public static let schemaVersion = 3
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)
@@ -267,7 +267,9 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         case flag
     }
 
-    /// The direct children of a user-data folder: the largest listed, the rest summed.
+    /// The direct children of a folder with entries: the largest listed, the
+    /// rest summed. A coding agent's session folder lists its sessions, with
+    /// no size floor.
     public struct Contents: Decodable, Sendable, Equatable {
         /// Largest first.
         public let entries: [FolderEntry]
@@ -283,7 +285,8 @@ public struct ScanReport: Decodable, Sendable, Equatable {
 
         public let path: String
         public let kind: Kind
-        /// Allocated bytes, findings inside it included.
+        /// Allocated bytes, findings inside it included; a session's, its
+        /// companions' too.
         public let bytes: UInt64
         public let dev: UInt64
         public let ino: UInt64
@@ -387,9 +390,10 @@ public struct ScanReport: Decodable, Sendable, Equatable {
     }
 }
 
-/// Why an entry of the user's own folders cannot be picked (`EntryLock` in
-/// `crates/ddc-core/src/rules/entries.rs`), in the scan report and the clean
-/// report alike. Tagged by `reason`; an unknown one is a decoding error.
+/// Why an entry of the user's own folders, or a coding agent's session,
+/// cannot be picked (`EntryLock` in `crates/ddc-core/src/rules/entries.rs`),
+/// in the scan report and the clean report alike. Tagged by `reason`; an
+/// unknown one, or an unknown `by` or `cause`, is a decoding error.
 public enum EntryLock: Decodable, Sendable, Equatable, Hashable {
     case appManaged(app: String)
     case kept
@@ -398,12 +402,43 @@ public enum EntryLock: Decodable, Sendable, Equatable, Hashable {
     case recent
     case partialDownload
     case unfinishedBackup
+    /// A coding agent's session that is live; in place of `recent` for the
+    /// session folders.
+    case liveSession(session: String, by: LiveBy)
+    /// Whether the session is live could not be told.
+    case livenessUnknown(cause: LivenessCause)
+
+    /// What shows a session live (`LiveBy` in `crates/ddc-core/src/agents/liveness.rs`).
+    public enum LiveBy: String, Decodable, Sendable, Hashable, CaseIterable {
+        /// A running Claude Code's record names it.
+        case record
+        /// A file of it changed in the last 10 minutes.
+        case recent
+        /// A process holds a file of it open.
+        case openFile = "open-file"
+    }
+
+    /// Why a session's liveness could not be told (`UnknownCause` in
+    /// `crates/ddc-core/src/agents/liveness.rs`).
+    public enum LivenessCause: String, Decodable, Sendable, Hashable, CaseIterable {
+        case recordsMissing = "records-missing"
+        case recordsUnreadable = "records-unreadable"
+        case recordsSkipped = "records-skipped"
+        case unparsableRecord = "unparsable-record"
+        case undecidableRecord = "undecidable-record"
+        case liveRecordWithoutSession = "live-record-without-session"
+        case undecidableSessionRecord = "undecidable-session-record"
+        case sessionWithoutFiles = "session-without-files"
+    }
 
     /// Every `reason` value, as the schemas list them.
-    public static let tags = ["app-managed", "kept", "protected", "other-volume", "recent", "partial-download", "unfinished-backup"]
+    public static let tags = [
+        "app-managed", "kept", "protected", "other-volume", "recent", "partial-download", "unfinished-backup", "live-session",
+        "liveness-unknown",
+    ]
 
     private enum CodingKeys: String, CodingKey {
-        case reason, app
+        case reason, app, session, by, cause
     }
 
     public init(from decoder: any Decoder) throws {
@@ -416,6 +451,9 @@ public enum EntryLock: Decodable, Sendable, Equatable, Hashable {
         case "recent": self = .recent
         case "partial-download": self = .partialDownload
         case "unfinished-backup": self = .unfinishedBackup
+        case "live-session":
+            self = .liveSession(session: try c.decode(String.self, forKey: .session), by: try c.decode(LiveBy.self, forKey: .by))
+        case "liveness-unknown": self = .livenessUnknown(cause: try c.decode(LivenessCause.self, forKey: .cause))
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .reason, in: c, debugDescription: "unknown lock \(other)")
         }

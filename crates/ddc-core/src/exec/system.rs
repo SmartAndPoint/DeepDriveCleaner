@@ -109,6 +109,9 @@ impl ProcessTable for SystemProcesses {
     fn open_vnodes(&self, pid: i32) -> Vec<OpenVnode> {
         procs::open_vnodes(pid)
     }
+    fn pids(&self) -> Vec<i32> {
+        procs::current_user_processes_unopened().iter().map(|p| p.pid).collect()
+    }
 }
 
 #[cfg(test)]

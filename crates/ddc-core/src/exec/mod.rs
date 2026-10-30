@@ -30,6 +30,7 @@ pub(crate) use native::tail;
 pub use progress::{CurrentItem, ExecPhase, ExecProgress, ExecSnapshot};
 pub use system::{SystemCommands, SystemProcesses, SystemTrash};
 
+use crate::agents::HarnessId;
 use crate::class::{CondaFolder, Fallback, Location, Removal, RiskClass};
 use crate::env::Env;
 use crate::plan::{Action, Plan, PlanItem};
@@ -95,6 +96,26 @@ pub enum SkipReason {
     },
     /// Inside an entry of the same list that went to the Trash.
     InsideAnotherItem,
+    /// A coding agent's harness uses its data: the whole folder is refused
+    /// while it runs (ADR "Agent footprint: worktrees, harness data and
+    /// bounded consent for agents", §3).
+    AgentLive {
+        harness: HarnessId,
+        by: AgentLiveBy,
+    },
+}
+
+/// What shows a harness in use, for [`SkipReason::AgentLive`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum AgentLiveBy {
+    /// A process of the harness runs.
+    Running,
+    /// A process of the user holds a Codex thread lock open.
+    LockHeld,
+    /// It could not be told: a process of the harness ddc cannot name, or
+    /// Codex's locks could not be read.
+    Unknown,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -184,6 +205,11 @@ pub trait ProcessTable {
     /// The kernel's `(dev, ino)` of each file one process has open now,
     /// matched against a `stat` of a known file, never `stat`ed itself.
     fn open_vnodes(&self, pid: i32) -> Vec<OpenVnode>;
+    /// The user's pids alone, for a sweep of their open files that needs
+    /// nothing else of them: the system's table reads no other detail.
+    fn pids(&self) -> Vec<i32> {
+        self.processes().iter().map(|p| p.pid).collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

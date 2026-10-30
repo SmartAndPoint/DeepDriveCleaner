@@ -353,6 +353,8 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
             || (st.is_dir && std::fs::symlink_metadata(path.join(KEEP_MARKER)).is_ok()),
         protected: protected_in_home(PLATFORM).iter().any(|rel| home.join(rel).starts_with(path)),
         other_volume: walked.other_fs,
+        // The user's own folders only, until the session entries' clean.
+        session: None,
         finished: rule.id == BACKUP_RULE && st.is_dir && backups::finished(path),
     };
     if let Some(lock) = lock_of(&facts) {

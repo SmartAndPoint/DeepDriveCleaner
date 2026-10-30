@@ -2,8 +2,8 @@
 //! agents' rules of ADR "Agent footprint: worktrees, harness data and
 //! bounded consent for agents", §3. Fake harness folders in a temporary
 //! home, never the real ones; the Trash and the process table are fakes.
-//! Sessions as entries come with the story's next step: here a project
-//! folder and `file-history` are report only.
+//! A session folder's sessions are its entries (`tests/session_entries.rs`);
+//! the folder itself stays report only.
 
 mod common;
 
@@ -13,6 +13,7 @@ use std::time::{Duration, SystemTime};
 use common::TreeBuilder;
 use common::fakes::{FakeCommands, FakeProcs, FakeTrash};
 use common::fixtures::rule_fixture;
+use ddc_core::agents::liveness::UnknownCause;
 use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
 use ddc_core::exec::{self, Consent, ExecError, ExecOptions, ExecReport, MemoryJournal, Outcome, Ports, SkipReason};
@@ -20,7 +21,8 @@ use ddc_core::model::{Finding, Origin, OriginHarness, OriginKind, RemovalKind, S
 use ddc_core::plan::{Action, ActionKind, ListedItem, Plan, PlanItem, PlanOptions, build_plan, plan_listed};
 use ddc_core::report::contents::EntryIndex;
 use ddc_core::report::volumes::SystemStatFs;
-use ddc_core::report::{self, ScanOptions};
+use ddc_core::report::{self, Processes, ScanOptions};
+use ddc_core::rules::entries::EntryLock;
 use ddc_core::rules::{Catalog, RULES};
 use ddc_core::scan::{Progress, WalkOptions};
 
@@ -52,7 +54,11 @@ impl Home {
     }
 
     fn scan(&self) -> (ScanReport, EntryIndex) {
-        let opts = ScanOptions { walk: WalkOptions { threads: Some(4), ..Default::default() }, ..Default::default() };
+        let opts = ScanOptions {
+            walk: WalkOptions { threads: Some(4), ..Default::default() },
+            processes: Processes::fixed(FakeProcs::new(vec![])),
+            ..Default::default()
+        };
         report::scan_with_entries(&self.env(), &opts, &Progress::default(), &SystemStatFs).unwrap()
     }
 
@@ -169,8 +175,14 @@ fn each_path_of_the_eight_rules_is_found_with_its_rule_and_origin() {
     }
     let agents: Vec<_> = r.findings.iter().filter(|f| f.rule.starts_with("agent.")).collect();
     assert_eq!(agents.len(), table.len(), "{:?}", h.summary(&r));
-    // The session folder is the finding; its entries come with the next step.
-    assert!(h.finding(&r, PROJECT).unwrap().contents.is_none());
+    // The session folder is the finding, its session its one entry; with no
+    // records folder, whether it is live cannot be told.
+    let contents = h.finding(&r, PROJECT).unwrap().contents.as_ref().unwrap();
+    let entry = &contents.entries[..];
+    assert_eq!(entry.len(), 1, "{entry:?}");
+    assert_eq!(entry[0].path, h.t.path(&format!("{PROJECT}/{SESSION}.jsonl")));
+    assert_eq!(entry[0].lock, Some(EntryLock::LivenessUnknown { cause: UnknownCause::RecordsMissing }));
+    assert_eq!(contents.rest_count, 2, "`payload` and `memory/`");
     for name in secrets {
         let file = h.t.path(&format!(".local/share/opencode/{name}"));
         let holder: Vec<_> = r.findings.iter().filter(|f| file.starts_with(&f.path)).map(|f| &f.path).collect();

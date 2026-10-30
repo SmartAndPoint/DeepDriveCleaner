@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use super::entries::ENTRY_RULES;
+use super::entries::has_entries;
 use super::matcher::{self, ListingView};
 use super::{Catalog, Clones, NeverOpen};
 use crate::class::RiskClass;
@@ -283,9 +283,11 @@ impl Visitor for RuleVisitor<'_> {
     }
 
     /// The user's own folders list their entries (story "User data: pick
-    /// your own files for the Trash").
+    /// your own files for the Trash"), and so do the coding agents' session
+    /// folders, whose sessions are entries (story "Harness data rules"):
+    /// any rule with an entry policy.
     fn lists_entries(&self, _dir: &DirCtx<'_>, tag: Tag) -> bool {
-        ENTRY_RULES.contains(&self.catalog.rule(tag).id)
+        has_entries(self.catalog.rule(tag).id)
     }
 
     fn on_file(&self, dir: &Path, dir_id: (u64, u64), entry: &EntryMeta, owner: Option<(OwnerKind, Tag)>) {

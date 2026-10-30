@@ -311,6 +311,8 @@ impl<'a> Guard<'a> {
                 || fs::symlink_metadata(path.join(KEEP_MARKER)).is_ok(),
             protected: protected_in_home(PLATFORM).iter().any(|rel| self.home.join(rel).starts_with(path)),
             other_volume: st.dev != parent_id.0,
+            // The user's own folders only, until the session entries' clean.
+            session: None,
             finished: rule == BACKUP_RULE && st.is_dir && backups::finished(path),
         };
         if let Some(lock) = lock_of(&facts) {

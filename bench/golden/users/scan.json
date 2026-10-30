@@ -11095,6 +11095,11 @@
       "bytes": 20480,
       "category": "app-cache",
       "class": "review",
+      "contents": {
+        "entries": [],
+        "rest_bytes": 20480,
+        "rest_count": 3
+      },
       "dev": "<tree-dev>",
       "dirs": 3,
       "files": 4,
@@ -11147,6 +11152,11 @@
       "bytes": 16384,
       "category": "app-cache",
       "class": "review",
+      "contents": {
+        "entries": [],
+        "rest_bytes": 16384,
+        "rest_count": 4
+      },
       "dev": "<tree-dev>",
       "dirs": 1,
       "files": 4,
@@ -11507,6 +11517,11 @@
       "bytes": 8192,
       "category": "app-cache",
       "class": "review",
+      "contents": {
+        "entries": [],
+        "rest_bytes": 8192,
+        "rest_count": 4
+      },
       "dev": "<tree-dev>",
       "dirs": 1,
       "files": 4,
@@ -13247,7 +13262,7 @@
   "scan_roots": [
     "<run>/tree"
   ],
-  "schema_version": 2,
+  "schema_version": 3,
   "skipped": [
     {
       "path": "<run>/tree/Users/load/Library/CloudStorage",

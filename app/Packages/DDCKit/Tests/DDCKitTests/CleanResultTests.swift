@@ -5,7 +5,7 @@ import Testing
 @Suite("Review window: the result")
 struct CleanResultTests {
     /// A report with every outcome, in the clean schema's shape.
-    private func report(_ items: [String], version: Int = 4) throws -> CleanReport {
+    private func report(_ items: [String], version: Int = 5) throws -> CleanReport {
         let json = """
             {"schema_version": \(version), "ddc_version": "0.2.0", "platform": "macos", "capabilities": ["private-size", "in-use-check", "dataless-files", "full-disk-access", "local-snapshots", "whole-disk", "coding-agents", "homebrew", "schedule", "notifications"], "cancelled": true, "failed": 2, "local_snapshots": 1,
              "journal": "/Users/example/Library/Logs/DeepDriveCleaner/actions.jsonl",

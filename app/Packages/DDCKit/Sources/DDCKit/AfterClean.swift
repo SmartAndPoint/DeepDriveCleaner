@@ -17,7 +17,8 @@ extension SkipReason {
     /// No `default:`: a new reason cannot be added without choosing.
     public var afterClean: AfterClean {
         switch self {
-        case .ownerRunning, .inUse, .inUseUnknownCwd, .toolNotReady:
+        // `agentLive`: quitting the agent clears it.
+        case .ownerRunning, .inUse, .inUseUnknownCwd, .toolNotReady, .agentLive:
             .keep
         // `incomplete`: the walk was partial; nothing in it says a permission would fix it.
         case .changedSinceScan, .parentChanged, .missing, .ruleMismatch, .notAnEntry, .entryLocked, .symlink, .notADirectory,
