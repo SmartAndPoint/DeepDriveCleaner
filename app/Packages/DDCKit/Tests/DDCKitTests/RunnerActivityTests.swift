@@ -114,7 +114,7 @@ struct RunnerActivityTests {
     }
 
     @Test("the dry runs before a clean or a free give the clean's reason",
-          arguments: [CLIRunner.Kind.dryRun, .diskFree, .diskFreeDryRun])
+          arguments: [CLIRunner.Kind.dryRun, .diskFree, .diskFreeDryRun, .keepRemove])
     func cleanKinds(kind: CLIRunner.Kind) async throws {
         let activity = RunnerActivity(inner)
         let run = Task { await activity.run(kind, []) }

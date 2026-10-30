@@ -94,7 +94,17 @@ public enum CleanWording {
         case .noLockfile: "No lock file"
         case .appOwned: "Inside an app's own folder"
         case .keptByMarker: "Protected by .ddc-keep"
-        case .excluded: "Excluded in Settings"
+        case .excluded: excluded(nil)
+        }
+    }
+
+    /// A folder excluded itself, or under an exclusion, by its origin; a
+    /// report that does not say names both.
+    public static func excluded(_ origin: ScanReport.ExclusionOrigin?) -> String {
+        switch origin {
+        case .settings: "Excluded in Settings"
+        case .flag: "Excluded by a command-line flag"
+        case nil: "Excluded in Settings or by a command-line flag"
         }
     }
 
@@ -216,7 +226,8 @@ extension CleanWording {
 
     /// A row's own facts in the Groups view: its rule, action, class and way
     /// back are said once on its heading, and so are the notes in `shared`.
-    public static func ownDetail(_ row: ReviewItems.Row, omitting shared: Set<ScanReport.Note>) -> String {
+    /// `home` shortens the paths a protection names; without it they show in full.
+    public static func ownDetail(_ row: ReviewItems.Row, omitting shared: Set<ScanReport.Note>, home: String? = nil) -> String {
         var parts: [String] = []
         if let lock = ownLock(row) { parts.append(lock.text) }
         let finding = row.finding
@@ -230,7 +241,8 @@ extension CleanWording {
             case .review, .userData: break
             }
         }
-        parts += finding.notes.filter { !shared.contains($0) }.map(note)
+        parts += statedNotes(finding).filter { !shared.contains($0) }.map(note)
+        parts += protection(finding, home: home)
         if finding.incomplete { parts.append("Part of it could not be read; it may be skipped") }
         return parts.joined(separator: " · ")
     }
@@ -243,8 +255,9 @@ extension CleanWording {
     }
 
     /// A row's second line in the Review window: why it is, or is not,
-    /// selected, and what the user should know before cleaning it.
-    public static func detail(_ row: ReviewItems.Row) -> String {
+    /// selected, and what the user should know before cleaning it. `home`
+    /// shortens the paths a protection names; without it they show in full.
+    public static func detail(_ row: ReviewItems.Row, home: String? = nil) -> String {
         var parts: [String] = []
         if let lock = row.lock { parts.append(lock.text) }
         let finding = row.finding
@@ -257,10 +270,68 @@ extension CleanWording {
         if row.lock == nil || row.lock == .protected, let reason = finding.notSelected, reason != .userData {
             parts.append(notSelected(reason))
         }
-        parts += finding.notes.map(note)
+        parts += statedNotes(finding).map(note)
+        parts += protection(finding, home: home)
         if finding.incomplete { parts.append("Part of it could not be read; it may be skipped") }
         if finding.class == .review || Self.hintedThoughSafe.contains(finding.rule), let hint = Self.hint(finding.hint) { parts.append(hint) }
         return parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - Protected by you
+
+/// Story "Protected by you: say what it is, and Remove Protection": what a
+/// kept finding is protected by, in the row's second line, and what the
+/// group says at its top.
+extension CleanWording {
+    /// The Protected by you group's blurb.
+    public static let keptBlurb = "Folders you protected with a .ddc-keep file, an exclusion or a skip. DeepDriveCleaner never removes them. Remove the protection to clean one."
+
+    /// The User data section's blurb in the sidebar: only a folder that
+    /// lists its files has any to pick.
+    public static let userDataSectionBlurb = "Your own files. Nothing is selected for you. Where a folder lists its files, pick them one by one and they go to the Trash."
+
+    /// A row whose only protections are command-line flags.
+    public static let flagOnly = "The next scan without the flag lists this folder"
+
+    /// A row with several protections: Remove Protection… is not offered.
+    public static let severalProtections = "Remove them in Finder or in Settings → Folders"
+
+    /// The notes a row says as notes. A finding that says what protects it
+    /// says it in its own words (`protection`), never as `.keptByMarker` or
+    /// `.excluded`, which cannot tell a flag from Settings.
+    public static func statedNotes(_ finding: ScanReport.Finding) -> [ScanReport.Note] {
+        guard finding.protection != nil else { return finding.notes }
+        return finding.notes.filter { $0 != .keptByMarker && $0 != .excluded }
+    }
+
+    /// What protects a kept finding, one part per protection, then the rule
+    /// that would claim it ("otherwise: node_modules"), then how to remove
+    /// them when Remove Protection… cannot. Empty without `protection`.
+    public static func protection(_ finding: ScanReport.Finding, home: String?) -> [String] {
+        guard let protection = finding.protection else { return [] }
+        let shown = { (path: String) in Wording.tilde(path, home: home ?? "") }
+        var parts = protection.markers.map { "Protected by .ddc-keep in \(shown($0.folder))" }
+        parts += protection.exclusions.map { exclusion in
+            guard exclusion.inside else { return excluded(exclusion.origin) }
+            return switch (exclusion.kind, exclusion.origin) {
+            case (.skip, .settings): "Holds a folder skipped in Settings: \(shown(exclusion.path))"
+            case (.skip, .flag): "Holds a folder skipped by a command-line flag: \(shown(exclusion.path))"
+            case (.exclude, _): "Holds an excluded folder: \(shown(exclusion.path))"
+            }
+        }
+        if let rule = protection.rule { parts.append("otherwise: \(ruleName(rule))") }
+        if protection.markers.isEmpty, !protection.exclusions.isEmpty, protection.exclusions.allSatisfy({ $0.origin == .flag }) {
+            parts.append(flagOnly)
+        } else if protection.markers.count + protection.exclusions.count > 1 {
+            parts.append(severalProtections)
+        }
+        return parts
+    }
+
+    /// A rule as a row names it: its last part (`node.node_modules` is "node_modules").
+    public static func ruleName(_ rule: String) -> String {
+        Wording.escaped(rule.split(separator: ".").last.map(String.init) ?? rule)
     }
 }
 

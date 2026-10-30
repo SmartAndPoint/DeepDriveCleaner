@@ -157,6 +157,9 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         public let incomplete: Bool
         /// What one of the user's own folders holds, to pick from.
         public let contents: Contents?
+        /// What keeps a `user.kept` finding; nil on any other, and on one
+        /// from a CLI older than the field.
+        public let protection: Protection?
         /// The newest change inside it (RFC 3339, fixed-width UTC); nil when
         /// the scan read none. A picked entry carries its own change.
         public let modified: String?
@@ -166,7 +169,7 @@ public struct ScanReport: Decodable, Sendable, Equatable {
 
         private enum CodingKeys: String, CodingKey {
             case path, rule, `class`, ruleClass, removal, dev, ino, bytes, privateBytes, project, selected, notSelected, ignored
-            case notes, hint, incomplete, contents, modified
+            case notes, hint, incomplete, contents, protection, modified
         }
 
         public init(from decoder: any Decoder) throws {
@@ -188,6 +191,7 @@ public struct ScanReport: Decodable, Sendable, Equatable {
             hint = try c.decode(String.self, forKey: .hint)
             incomplete = try c.decode(Bool.self, forKey: .incomplete)
             contents = try c.decodeIfPresent(Contents.self, forKey: .contents)
+            protection = try c.decodeIfPresent(Protection.self, forKey: .protection)
             // Absent before the CLI read it, and on what has no date: both nil.
             modified = try c.decodeIfPresent(String.self, forKey: .modified)
         }
@@ -212,8 +216,55 @@ public struct ScanReport: Decodable, Sendable, Equatable {
             hint = folder.hint
             incomplete = entry.incomplete
             contents = nil
+            protection = nil
             modified = entry.modified
         }
+    }
+
+    /// What protects a `user.kept` finding (story "Protected by you: say what
+    /// it is, and Remove Protection"): its keep markers, the exclusions and
+    /// skips at or above it or inside it, and the rule it displaced.
+    public struct Protection: Decodable, Sendable, Equatable {
+        /// Each folder holding a `.ddc-keep`, the finding's own or one inside it.
+        public let markers: [MarkerFolder]
+        public let exclusions: [Exclusion]
+        /// The rule that would have claimed the folder, when the walk knows it.
+        public let rule: String?
+    }
+
+    /// A folder holding a `.ddc-keep`, with its identity at scan time:
+    /// `keep remove` checks it again.
+    public struct MarkerFolder: Decodable, Sendable, Equatable, Hashable {
+        public let folder: String
+        public let dev: UInt64
+        public let ino: UInt64
+    }
+
+    /// An exclusion or a skip that protects a finding; its path is canonical.
+    public struct Exclusion: Decodable, Sendable, Equatable, Hashable {
+        public let path: String
+        public let kind: ExclusionKind
+        public let origin: ExclusionOrigin
+        /// The path lies inside the finding; otherwise it is the finding's
+        /// own folder or above it.
+        public let inside: Bool
+    }
+
+    /// The CLI's `ExclusionKind`. An unknown value is a decoding error: a new
+    /// kind comes with a new schema version.
+    public enum ExclusionKind: String, Decodable, Sendable, CaseIterable {
+        /// `excludes`, `--exclude`: read and sized, never touched.
+        case exclude
+        /// `skips`, `--skip`: never read.
+        case skip
+    }
+
+    /// The CLI's `ExclusionOrigin`. An unknown value is a decoding error.
+    public enum ExclusionOrigin: String, Decodable, Sendable, CaseIterable {
+        /// `settings.json`.
+        case settings
+        /// A command-line flag.
+        case flag
     }
 
     /// The direct children of a user-data folder: the largest listed, the rest summed.
