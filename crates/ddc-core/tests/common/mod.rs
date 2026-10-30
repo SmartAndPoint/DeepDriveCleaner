@@ -87,6 +87,15 @@ impl TreeBuilder {
         p
     }
 
+    /// [`Self::symlink`], or `Unsupported` where the harness makes none
+    /// ([`try_symlink`]): for a test that does not skip otherwise.
+    pub fn try_symlink(&self, target: impl AsRef<Path>, rel: &str) -> std::io::Result<PathBuf> {
+        let p = self.path(rel);
+        fs::create_dir_all(p.parent().unwrap())?;
+        try_symlink(target, &p)?;
+        Ok(p)
+    }
+
     pub fn hardlink(&self, existing: impl AsRef<Path>, rel: &str) -> PathBuf {
         let p = self.path(rel);
         fs::create_dir_all(p.parent().unwrap()).unwrap();
@@ -172,6 +181,21 @@ pub fn lacks(test: &str, capability: ddc_core::platform::Capability) -> bool {
     }
 }
 
+/// The value of a harness tool (a [`try_symlink`]), or `None` after
+/// printing why when the tool is missing here (`io::ErrorKind::Unsupported`),
+/// and the test skips (ADR "Platform seam", §9, amended). Any other error
+/// fails the test. Never `None` on macOS, where every tool is there.
+pub fn skipped_without<T>(test: &str, made: std::io::Result<T>) -> Option<T> {
+    match made {
+        Ok(value) => Some(value),
+        Err(why) if why.kind() == std::io::ErrorKind::Unsupported => {
+            eprintln!("skipped {test}: {why}");
+            None
+        }
+        Err(why) => panic!("{test}: {why}"),
+    }
+}
+
 /// Allocated bytes of one path, without following symlinks.
 pub fn alloc(path: &Path) -> u64 {
     meta::alloc_bytes(&fs::symlink_metadata(path).unwrap())
@@ -201,15 +225,21 @@ fn try_set_mode(_path: &Path, _mode: u32) -> std::io::Result<()> {
 }
 
 /// A symlink at `link` to `target`; Unix only, as [`set_mode`].
-#[cfg(unix)]
 pub fn symlink(target: impl AsRef<Path>, link: impl AsRef<Path>) {
     let link = link.as_ref();
-    std::os::unix::fs::symlink(target, link).unwrap_or_else(|e| panic!("symlink {}: {e}", link.display()));
+    try_symlink(target, link).unwrap_or_else(|e| panic!("symlink {}: {e}", link.display()));
+}
+
+/// A symlink at `link` to `target`, or `Unsupported` off Unix: the twin a
+/// test that does not skip otherwise calls, through [`skipped_without`].
+#[cfg(unix)]
+pub fn try_symlink(target: impl AsRef<Path>, link: impl AsRef<Path>) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
 }
 
 #[cfg(not(unix))]
-pub fn symlink(_target: impl AsRef<Path>, link: impl AsRef<Path>) {
-    panic!("symlink {}: Unix only", link.as_ref().display());
+pub fn try_symlink(_target: impl AsRef<Path>, _link: impl AsRef<Path>) -> std::io::Result<()> {
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "the test harness makes symlinks on Unix only"))
 }
 
 /// Reference size: sum of `blocks * 512` of every non-directory under `root`,

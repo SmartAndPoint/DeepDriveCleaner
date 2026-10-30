@@ -365,6 +365,10 @@ fn private_size_is_unknown_when_not_returned() {
 
 #[test]
 fn bulk_reader_matches_lstat_per_entry_across_batches() {
+    // The bulk reader (getattrlistbulk) is not ported off macOS yet.
+    if common::unsupported("bulk_reader_matches_lstat_per_entry_across_batches") {
+        return;
+    }
     use std::collections::HashMap;
 
     use ddc_core::scan::SystemReader as BulkReader;

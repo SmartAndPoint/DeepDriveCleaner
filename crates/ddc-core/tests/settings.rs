@@ -110,7 +110,14 @@ fn an_exclude_flag_names_only_the_protected_folders_it_drops() {
     for d in ["r/a/b", "r/c", "elsewhere/x"] {
         fx.t.dir(d);
     }
-    fx.t.symlink(fx.t.path("r/c"), "link-to-c");
+    if common::skipped_without(
+        "an_exclude_flag_names_only_the_protected_folders_it_drops",
+        fx.t.try_symlink(fx.t.path("r/c"), "link-to-c"),
+    )
+    .is_none()
+    {
+        return;
+    }
     let s = fx.settings(&["r"], &["r/a/b", "r/c", "elsewhere/x"]);
     let drop = |flag: &[PathBuf]| -> Vec<PathBuf> {
         s.resolve(&fx.env(), &ScanFlags { excludes: flag.to_vec(), ..ScanFlags::default() }).unwrap().dropped_excludes
@@ -134,7 +141,14 @@ fn skips_add_up_protect_and_must_be_folders() {
         fx.t.dir(d);
     }
     fx.t.file("r/notes.txt", 1);
-    fx.t.symlink(fx.t.path("r/flag"), "link-to-flag");
+    if common::skipped_without(
+        "skips_add_up_protect_and_must_be_folders",
+        fx.t.try_symlink(fx.t.path("r/flag"), "link-to-flag"),
+    )
+    .is_none()
+    {
+        return;
+    }
     let canonical = |rel: &str| fx.t.path(rel).canonicalize().unwrap();
     let s = Settings {
         roots: vec![fx.t.path("r")],
