@@ -34,4 +34,14 @@ mod tests {
         assert_eq!(read_error_kind(libc::ENOTDIR), ReadErrorKind::Changed);
         assert_eq!(read_error_kind(EIO), ReadErrorKind::Other);
     }
+
+    /// std gives `ENOSYS` the kind `Unsupported`, and a bare kind is no
+    /// refusal of the seam (ADR "Platform seam: one platform module per OS
+    /// with declared capabilities", §5).
+    #[test]
+    fn enosys_is_unsupported_and_no_refusal() {
+        let raw = std::io::Error::from_raw_os_error(libc::ENOSYS);
+        assert_eq!(raw.kind(), std::io::ErrorKind::Unsupported);
+        assert_eq!(crate::platform::refusal_in(&raw), None);
+    }
 }

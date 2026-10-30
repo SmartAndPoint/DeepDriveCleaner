@@ -131,6 +131,9 @@ fn sigterm_before_the_scan_finishes_leaves_the_saved_scan_untouched() {
 
     use ddc_core::platform::signals::kill_group;
 
+    if common::unsupported("sigterm_before_the_scan_finishes_leaves_the_saved_scan_untouched") {
+        return;
+    }
     let (tmp, home) = fixture();
     let data = tmp.path().join("data");
     fs::create_dir_all(&data).unwrap();

@@ -112,8 +112,8 @@ unported-check:
 
 # Clippy, so `check` plus the unused imports a cfg move leaves, for each target the
 # platform seam builds besides this Mac (story "Move OS calls behind the platform
-# module", DDC-007). `make tools` adds the targets. Not a gate step yet: the gate.yml
-# native jobs build these targets.
+# module", DDC-007). `make tools` adds the targets, and `make gate` runs it: about
+# 24 s warm.
 CROSS_TARGETS := x86_64-unknown-linux-gnu x86_64-unknown-linux-musl x86_64-pc-windows-msvc
 cross-check:
 	@for t in $(CROSS_TARGETS); do \

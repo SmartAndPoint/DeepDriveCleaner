@@ -13,7 +13,6 @@
 
 // Unix only: it stops, signals and resumes process groups.
 #![cfg(unix)]
-#![cfg(unix)]
 
 use std::collections::BTreeSet;
 use std::fs::{self, File};

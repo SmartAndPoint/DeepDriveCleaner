@@ -37,9 +37,11 @@ pub mod bulk {
 }
 
 pub mod errno {
-    //! Through `io::ErrorKind`, never a raw number: these are the numbers
-    //! that mean "not found", "denied" and "I/O error" on Linux, and the
-    //! port to each OS gives its own.
+    //! Placeholders until each OS is ported: the constants are Linux's
+    //! numbers for "not found", "denied" and "I/O error", and the mapping goes
+    //! through `io::ErrorKind`. Unreachable while `SUPPORTED` is false. They
+    //! are wrong on Windows (raw 5 is `ERROR_ACCESS_DENIED` there), so the
+    //! port to each OS gives its own module with raw matches.
     use std::io;
 
     use crate::platform::types::ReadErrorKind;

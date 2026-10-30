@@ -328,6 +328,8 @@ fn nested_roots_are_merged() {
     assert_eq!(out.total_bytes, reference_alloc(&t.path("a")));
 }
 
+// macOS only: dataless (evicted cloud) files exist only there.
+#[cfg(target_os = "macos")]
 #[test]
 fn dataless_materialization_can_be_disabled() {
     ddc_core::platform::iopolicy::disable_dataless_materialization().unwrap();

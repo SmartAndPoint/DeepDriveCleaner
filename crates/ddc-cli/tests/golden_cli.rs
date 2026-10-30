@@ -74,8 +74,10 @@ fn outputs(run: &Run, p: Profile) -> Vec<(String, Value)> {
     if p == Profile::SystemRoot {
         out.push(("disk".to_owned(), ddc(home, &["disk", "--json", "--data-dir", &data, "--system-root", &tree])));
     }
-    let at =
-        Where { base: run.g.layout.tree.parent().unwrap().to_str().unwrap().to_owned(), dev: dev(&run.g.layout.tree) };
+    let at = Where {
+        base: run.g.layout.tree.parent().unwrap().to_str().unwrap().to_owned(),
+        dev: Some(dev(&run.g.layout.tree)),
+    };
     for (_, v) in &mut out {
         normalise(v, &at);
     }
@@ -83,10 +85,11 @@ fn outputs(run: &Run, p: Profile) -> Vec<(String, Value)> {
 }
 
 /// What a run's output names that another run names differently: its
-/// folder, and the device the tree is on.
+/// folder, and the device the tree is on (`None` when the output names no
+/// device).
 struct Where {
     base: String,
-    dev: u64,
+    dev: Option<u64>,
 }
 
 /// Keys whose value depends on when, where or by which build the run
@@ -123,7 +126,7 @@ fn normalise(v: &mut Value, at: &Where) {
                     // crosses to another device does not.
                     "dev" | "parent_dev" => {
                         if let Some(d) = item.as_u64() {
-                            *item = if d == at.dev { "<tree-dev>" } else { "<other-dev>" }.into();
+                            *item = if Some(d) == at.dev { "<tree-dev>" } else { "<other-dev>" }.into();
                         }
                     }
                     // What the volume holds besides the tree.
@@ -261,7 +264,8 @@ fn golden_rules() {
     let home = dir.path().join("home");
     fs::create_dir(&home).unwrap();
     let mut got = ddc(&home, &["rules", "--json"]);
-    let at = Where { base: dir.path().to_str().unwrap().to_owned(), dev: dev(&home) };
+    // The catalog names no device, so this test runs where `file_id` does not.
+    let at = Where { base: dir.path().to_str().unwrap().to_owned(), dev: None };
     normalise(&mut got, &at);
     let d = against(&golden_dir().join("rules.json"), &got);
     assert_golden(&d.into_iter().map(|d| format!("rules: {d}")).collect::<Vec<_>>());

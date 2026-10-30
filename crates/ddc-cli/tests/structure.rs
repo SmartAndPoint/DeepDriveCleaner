@@ -434,11 +434,6 @@ fn no_file_outside_the_platform_folders_names_an_os() {
             let text = code(&path);
             let words = os_words(&text);
             assert!(words.is_empty(), "{rel} names an OS outside its platform folder: {words:?}");
-            if name != "ddc-core" {
-                for core_os in ["ddc_core::sys::", "ddc_core::platform::macos::"] {
-                    assert!(!text.contains(core_os), "{rel} names the core's macOS module: {core_os}");
-                }
-            }
             checked += 1;
         }
         names.push(name);
@@ -446,6 +441,22 @@ fn no_file_outside_the_platform_folders_names_an_os() {
     names.sort();
     assert_eq!(names, ["ddc-cli", "ddc-core", "ddc-loadgen"]);
     assert!(checked > 50, "only {checked} files read");
+    // The core's macOS module, in every file of the CLI outside its folder
+    // (its tests too) and in every file of the load generator. This file
+    // names the paths it looks for.
+    for (name, own) in [("ddc-cli", Some("src/platform")), ("ddc-loadgen", None)] {
+        let krate = crates.join(name);
+        let own = own.map(|o| krate.join(o));
+        for path in rust_files(&krate) {
+            if own.as_ref().is_some_and(|o| path.starts_with(o)) || path.ends_with("tests/structure.rs") {
+                continue;
+            }
+            let text = code(&path);
+            for core_os in ["ddc_core::sys::", "ddc_core::platform::macos::"] {
+                assert!(!text.contains(core_os), "{} names the core's macOS module: {core_os}", path.display());
+            }
+        }
+    }
 }
 
 /// What of `text` names an OS: a crate or module of one, or a `cfg` on one.
