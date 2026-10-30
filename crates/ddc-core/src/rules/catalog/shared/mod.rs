@@ -22,6 +22,24 @@ pub(crate) use self::{caches::*, projects::*, tools::*, user::*};
 use crate::platform::Platform;
 use crate::rules::Rule;
 
+/// Folders in the home that every platform protects (safety ADR "Cleanup
+/// safety model", §6, amended 2026-10-30): never a finding, never removed
+/// themselves. `""` is the home itself.
+pub(crate) const PROTECTED_IN_HOME: [&str; 12] = [
+    "",
+    "Documents",
+    "Desktop",
+    "Pictures",
+    "Music",
+    "Downloads",
+    "Projects",
+    ".config",
+    ".ssh",
+    ".gnupg",
+    ".local",
+    ".cache",
+];
+
 /// A rule's home-relative paths on each platform.
 struct PerOs {
     macos: &'static [&'static str],

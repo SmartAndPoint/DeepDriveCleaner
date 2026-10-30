@@ -31,10 +31,11 @@ use crate::conda;
 use crate::env::Env;
 use crate::model::{Finding, RemovalKind};
 use crate::plan::{Action, ActionKind, ListedItem, PlanItem, action_for};
+use crate::platform::PLATFORM;
 use crate::platform::fsops::DirFd;
 use crate::report::backups;
 use crate::rules::entries::{BACKUP_RULE, ENTRY_RULES, EntryFacts, lock_of};
-use crate::rules::{Catalog, KEEP_MARKER, LockFiles, PROTECTED_IN_HOME, Rule, effective_class};
+use crate::rules::{Catalog, KEEP_MARKER, LockFiles, Rule, effective_class, protected_in_home};
 use crate::scan::reader::SF_DATALESS;
 use crate::scan::{self, DirCtx, DirReader, EntryMeta, OwnerKind, Progress, Tag, Visitor, WalkOptions};
 
@@ -350,7 +351,7 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
         kept: walked.kept
             || excludes.iter().any(|e| e.starts_with(path))
             || (st.is_dir && std::fs::symlink_metadata(path.join(KEEP_MARKER)).is_ok()),
-        protected: PROTECTED_IN_HOME.iter().any(|rel| home.join(rel).starts_with(path)),
+        protected: protected_in_home(PLATFORM).iter().any(|rel| home.join(rel).starts_with(path)),
         other_volume: walked.other_fs,
         finished: rule.id == BACKUP_RULE && st.is_dir && backups::finished(path),
     };

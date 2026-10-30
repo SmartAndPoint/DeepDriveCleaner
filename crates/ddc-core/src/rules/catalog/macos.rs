@@ -10,6 +10,27 @@ use crate::class::RiskClass::*;
 use crate::platform::Platform;
 use crate::rules::{Matcher, Rule, Scope};
 
+/// The folders in the home only macOS protects: `~/Movies`, `~/Library`
+/// and its protected subfolders, the cloud folders among them (safety ADR
+/// "Cleanup safety model", §6).
+pub(super) const OWN_PROTECTED_IN_HOME: [&str; 8] = [
+    "Movies",
+    "Library",
+    "Library/Caches",
+    "Library/Application Support",
+    "Library/Containers",
+    "Library/Group Containers",
+    "Library/Mobile Documents",
+    "Library/CloudStorage",
+];
+
+/// The shared protected folders and macOS's own: §6's list in the home.
+pub(super) static PROTECTED_IN_HOME: [&str; 20] = super::concat(&shared::PROTECTED_IN_HOME, &OWN_PROTECTED_IN_HOME);
+
+/// System folders that are never removed (§6).
+pub(super) static PROTECTED_SYSTEM: [&str; 8] =
+    ["/", "/System", "/Applications", "/Library", "/usr", "/opt", "/opt/homebrew", "/Users"];
+
 /// How many rules macOS has.
 const COUNT: usize = 77;
 
