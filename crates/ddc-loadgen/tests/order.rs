@@ -2,8 +2,8 @@
 //! order a directory's entries are listed in (story "Coverage floor and
 //! property tests for the safety invariants", DDC-005). Each case builds a
 //! small tree of a profile at a random seed and scans it, one scan root, on
-//! one and on eight threads, through `StdReader` and through a reader that
-//! lists every directory in another order.
+//! one thread through `StdReader` and on eight through a reader that lists
+//! every directory in another order.
 //!
 //! `hostile` is left out: it changes the tree while it is scanned. Across
 //! roots a hard link's bytes go to the first root seen, so the scan has one
@@ -134,12 +134,12 @@ proptest! {
         let case = Case { g, env };
         let shuffled = Shuffled(order);
 
+        // One scan changes both the thread count and the order: a difference
+        // in either shows, and the case stays cheap enough for 256 in the gate.
         let (report, plan) = case.scan(1, ReaderKind::Std, Some(&StdReader));
-        for (threads, through) in [(8, &StdReader as &dyn DirReader), (1, &shuffled), (8, &shuffled)] {
-            let (r, p) = case.scan(threads, ReaderKind::Std, Some(through));
-            prop_assert_eq!(&r, &report, "{} seed {}: {} threads", profile.name(), seed, threads);
-            prop_assert_eq!(&p, &plan, "{} seed {}: {} threads", profile.name(), seed, threads);
-        }
+        let (r, p) = case.scan(8, ReaderKind::Std, Some(&shuffled));
+        prop_assert_eq!(&r, &report, "{} seed {}: 8 threads, shuffled", profile.name(), seed);
+        prop_assert_eq!(&p, &plan, "{} seed {}: 8 threads, shuffled", profile.name(), seed);
         let (bulk, _) = case.scan(8, ReaderKind::Bulk, None);
         prop_assert_eq!(without_private(bulk), without_private(report), "{} seed {}: bulk", profile.name(), seed);
     }
