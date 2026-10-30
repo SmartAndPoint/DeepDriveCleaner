@@ -130,12 +130,17 @@ jobs:
       - run: cargo build -p ddc-cli --locked
       - run: make app-test
 
-  # The workspace compiled for Linux and Windows on their own runners (story "Build
-  # matrix: every target built, tested and packaged from one tag", DDC-007, stage 1).
-  # Story "Move OS calls behind the platform module" made it compile there; the
-  # tests of what is not ported yet skip. continue-on-error stays until stage 2
-  # of the build matrix story. cargo directly: there is no make on Windows.
+  # The workspace built and tested on Linux and Windows, on their own runners (story
+  # "Build matrix: every target built, tested and packaged from one tag", DDC-007).
+  # Story "Move OS calls behind the platform module" made it compile there. A test of
+  # what is not ported yet skips with a printed "skipped <test>: <reason>" (ADR
+  # "Platform seam", §9, amended), and the last step compares those lines with
+  # .config/native-skips/<os>.txt, so a new skip is a reviewed diff (stage 2). The
+  # names do not carry the runner label, so a label bump renames no check.
+  # continue-on-error stays until the lists are committed. cargo directly: there is
+  # no make on Windows.
   check:
+    name: check-${{ matrix.target }}
     needs: scope
     if: ${{ !cancelled() && needs.scope.outputs.scope != 'skip' }}
     strategy:
@@ -144,7 +149,7 @@ jobs:
         include:
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-          - os: windows-latest
+          - os: windows-2025
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -158,11 +163,28 @@ jobs:
           cache-bin: false
           cache-on-failure: true
           key: check-${{ matrix.target }}
+      - name: The nextest version .config/tools.mk pins
+        id: tools
+        shell: bash
+        run: echo "nextest=$(sed -n 's/^NEXTEST_VERSION := //p' .config/tools.mk)" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@${{ steps.tools.outputs.nextest }}
       - run: cargo clippy --workspace --all-targets --locked --target ${{ matrix.target }} -- -D warnings
-      # The pass and skip counts are the port's evidence: a gated test prints
-      # "skipped" and returns while the platform is not supported. --no-fail-fast
-      # runs every test binary, so one failure does not hide the rest.
-      - run: cargo test --workspace --locked --no-fail-fast --target ${{ matrix.target }}
+      # Profile ci (NEXTEST_PROFILE above): every test binary runs, a hang is killed,
+      # and a passing test's output is shown, so its skip line reaches the log.
+      - name: Tests
+        id: tests
+        shell: bash
+        run: cargo nextest run --workspace --locked --target ${{ matrix.target }} 2>&1 | tee "$RUNNER_TEMP/native-tests.log"
+      # nextest runs no doc tests.
+      - name: Doc tests
+        if: ${{ !cancelled() && steps.tests.outcome != 'skipped' }}
+        run: cargo test --workspace --doc --locked --target ${{ matrix.target }}
+      - name: Skips as .config/native-skips lists them
+        if: ${{ !cancelled() && steps.tests.outcome != 'skipped' }}
+        shell: bash
+        run: scripts/native-skips.sh "${RUNNER_OS,,}" "$RUNNER_TEMP/native-tests.log"
 
   # The release CLI as `make dist` builds and checks it before signing (story "Build
   # matrix: every target built, tested and packaged from one tag", DDC-007): release-only

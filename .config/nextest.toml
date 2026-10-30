@@ -6,6 +6,9 @@ slow-timeout = { period = "30s", terminate-after = 4 }
 [profile.ci]
 retries = 0
 fail-fast = false
+# A passing test's output too: the native Linux and Windows jobs read each
+# "skipped <test>: <reason>" line from it (scripts/native-skips.sh).
+success-output = "immediate"
 
 # Load trees write 10⁴ entries each: at most 4 at a time, beside the other tests.
 # The golden check builds one per profile too, the interruption tests one each. A
