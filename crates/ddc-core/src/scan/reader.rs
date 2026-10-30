@@ -6,7 +6,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::platform::meta;
-pub use crate::platform::types::{DirListing, EntryKind, EntryMeta, ReadError, ReadErrorKind};
+pub use crate::platform::types::{DirListing, EntryKind, EntryMeta, ReadError, ReadErrorKind, Times};
 
 /// `SF_DATALESS` from `<sys/stat.h>`: the item's content lives in the cloud.
 pub const SF_DATALESS: u32 = 0x4000_0000;
@@ -14,22 +14,18 @@ pub const SF_DATALESS: u32 = 0x4000_0000;
 pub trait DirReader: Sync {
     /// Lists `dir` without following symlinks. `expect` is the `(dev, ino)` the
     /// parent listing reported; if the opened directory differs, nothing is read.
-    /// `want_private` asks for [`EntryMeta::private`].
-    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError>;
-
-    /// [`read`](Self::read) with each entry's [`EntryMeta::modified`] and
-    /// [`EntryMeta::added`]. Asked only for a user-data folder's own listing
-    /// (story "User data: pick your own files for the Trash"): every other
-    /// directory of a walk would pay for them. A reader that cannot tell
+    /// `want_private` asks for [`EntryMeta::private`], `times` for
+    /// [`EntryMeta::modified`] and [`EntryMeta::added`]: a walk asks for them
+    /// only inside a claim that shows a date and in a user-data folder's own
+    /// listing, since every record pays for them. A reader that cannot tell
     /// leaves them `None`.
-    fn read_with_times(
+    fn read(
         &self,
         dir: &Path,
         expect: Option<(u64, u64)>,
         want_private: bool,
-    ) -> Result<DirListing, ReadError> {
-        self.read(dir, expect, want_private)
-    }
+        times: Times,
+    ) -> Result<DirListing, ReadError>;
 }
 
 /// The platform's own listing (`platform::bulk::list`): on macOS
@@ -39,37 +35,31 @@ pub trait DirReader: Sync {
 pub struct SystemReader;
 
 impl DirReader for SystemReader {
-    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
-        crate::platform::bulk::list(dir, expect, want_private, false)
-    }
-
-    fn read_with_times(
+    fn read(
         &self,
         dir: &Path,
         expect: Option<(u64, u64)>,
         want_private: bool,
+        times: Times,
     ) -> Result<DirListing, ReadError> {
-        crate::platform::bulk::list(dir, expect, want_private, true)
+        crate::platform::bulk::list(dir, expect, want_private, times)
     }
 }
 
-/// Reference reader on `std::fs` (`readdir` + `lstat` per entry). No private size.
+/// Reference reader on `std::fs` (`readdir` + `lstat` per entry). No private
+/// size, and no date added: `std` has none.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct StdReader;
 
 impl DirReader for StdReader {
-    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, _want_private: bool) -> Result<DirListing, ReadError> {
-        list(dir, expect, false)
-    }
-
-    /// The modification time only: `std` has no date added.
-    fn read_with_times(
+    fn read(
         &self,
         dir: &Path,
         expect: Option<(u64, u64)>,
         _want_private: bool,
+        times: Times,
     ) -> Result<DirListing, ReadError> {
-        list(dir, expect, true)
+        list(dir, expect, times != Times::None)
     }
 }
 
@@ -79,6 +69,7 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
         return Err(ReadError::new(ReadErrorKind::Changed, None));
     }
     let (dev, ino) = meta::file_id(&md).map_err(|e| ReadError::from_io(&e))?;
+    let modified = Some(meta::mtime(&md));
     if let Some((want_dev, want_ino)) = expect {
         if dev != want_dev {
             return Err(ReadError::new(ReadErrorKind::OtherFilesystem, None));
@@ -134,5 +125,5 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
             added: None,
         });
     }
-    Ok(DirListing { dev, ino, entries })
+    Ok(DirListing { dev, ino, modified, entries })
 }

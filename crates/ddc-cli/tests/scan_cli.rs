@@ -76,6 +76,35 @@ fn json_report_and_saved_scan() {
     assert!(!home.join("Library").exists(), "nothing written into HOME");
 }
 
+/// The hidden `--no-times` (story "Review window: sort a group's rows by
+/// name, size or last change") is only for measuring their cost: it changes
+/// no finding, and a user-data folder's entries keep their own times.
+#[test]
+fn a_scan_without_times_reports_the_same_findings() {
+    if common::unsupported("a_scan_without_times_reports_the_same_findings") {
+        return;
+    }
+    let (tmp, home) = fixture();
+    let big = home.join("Pictures/big.mov");
+    fs::write(&big, vec![4u8; 10 << 20]).unwrap();
+    let data = tmp.path().join("data");
+    let scan = |extra: &[&str]| {
+        let out = ddc(&home, &[&["scan", "--json", "--data-dir", data.to_str().unwrap()], extra].concat());
+        assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+        serde_json::to_value(contract::holds::<ScanReport>("scan", &out.stdout)).unwrap()
+    };
+
+    let (with, without) = (scan(&[]), scan(&["--no-times"]));
+
+    assert_eq!(with["findings"], without["findings"]);
+    let pictures = without["findings"].as_array().unwrap().iter().find(|f| f["rule"] == "user.pictures").unwrap();
+    let entry = &pictures["contents"]["entries"][0];
+    assert_eq!(entry["path"], big.to_str().unwrap());
+    assert!(entry["modified"].is_string(), "{entry}");
+    let help = ddc(&home, &["scan", "--help"]);
+    assert!(!String::from_utf8_lossy(&help.stdout).contains("--no-times"), "hidden");
+}
+
 #[test]
 fn human_report_lists_classes_in_order_with_totals() {
     if common::unsupported("human_report_lists_classes_in_order_with_totals") {

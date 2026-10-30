@@ -128,6 +128,10 @@ impl<V: Visitor> Visitor for Pruned<'_, V> {
         self.inner.wants_private(dir, tag)
     }
 
+    fn wants_times(&self, dir: &DirCtx<'_>, tag: Tag) -> bool {
+        self.inner.wants_times(dir, tag)
+    }
+
     fn lists_entries(&self, dir: &DirCtx<'_>, tag: Tag) -> bool {
         self.inner.lists_entries(dir, tag)
     }

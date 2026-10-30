@@ -2,11 +2,11 @@ mod common;
 
 use std::path::PathBuf;
 
-use common::TreeBuilder;
 use common::fixtures::{TAG, rule_fixture};
+use common::{OLD, TreeBuilder};
 use ddc_core::class::{Removal, RiskClass};
 use ddc_core::rules::{Catalog, Classified, Note, RULES, RuleVisitor, classify};
-use ddc_core::scan::{self, Progress, SkipReason, WalkOptions, WalkOutput};
+use ddc_core::scan::{self, Progress, ReaderKind, SkipReason, WalkOptions, WalkOutput};
 
 struct Scan {
     found: Vec<Classified>,
@@ -724,4 +724,72 @@ fn known_paths_do_not_match_outside_home() {
 
     let known: Vec<_> = s.found.iter().filter(|f| matches!(f.rule.matcher, Matcher::KnownPaths(_))).collect();
     assert!(known.is_empty(), "{:?}", known.iter().map(|f| f.rule.id).collect::<Vec<_>>());
+}
+
+/// Story "Review window: sort a group's rows by name, size or last change": a
+/// finding holds the newest change inside it, wherever it lies; a user-data
+/// folder, a region, a protected or unlisted claim and a root that cannot be
+/// opened hold none. With the times off, no finding has one, and a user-data
+/// folder's entries keep theirs.
+#[test]
+fn a_finding_holds_the_newest_change_inside_it() {
+    if common::unsupported("a_finding_holds_the_newest_change_inside_it") {
+        return;
+    }
+    let t = TreeBuilder::new();
+    t.write("proj/.venv/pyvenv.cfg", "home = /usr/bin\n");
+    t.file("proj/.venv/bin/python", 100);
+    t.file("proj/.venv/lib/python3.12/site-packages/old.py", 100);
+    t.file("proj/.venv/lib/python3.12/site-packages/new.py", 100);
+    t.write("web/package.json", "{}");
+    t.write("web/node_modules/.package-lock.json", "{}");
+    t.file("web/node_modules/left-pad/index.js", 100);
+    t.write("linked/package.json", "{}");
+    let stored = t.file("store/index.js", 100);
+    t.hardlink(&stored, "linked/node_modules/dep/index.js");
+    t.file("linked/node_modules/dep/README", 100);
+    t.write("kept/.ddc-keep", "");
+    t.file("kept/a", 100);
+    t.file("Tool.app/Contents/MacOS/tool", 100);
+    t.file("Downloads/a.zip", 100);
+    t.file("Downloads/sub/b", 100);
+    t.file("Pictures/one.jpg", 100);
+    t.file("Library/Caches/Homebrew/x.tar.gz", 100);
+    t.age("", OLD);
+    // Three levels down; a direct child of a root claimed after its listing; a hard link.
+    t.touch("proj/.venv/lib/python3.12/site-packages/new.py", OLD + 10);
+    t.touch("web/node_modules/.package-lock.json", OLD + 20);
+    t.touch("store/index.js", OLD + 30);
+    for rel in ["kept/a", "Tool.app/Contents/MacOS/tool", "Downloads/a.zip", "Downloads/sub", "Pictures/one.jpg"] {
+        t.touch(rel, OLD + 40);
+    }
+    let brew = t.lock("Library/Caches/Homebrew");
+    let enforced = std::fs::read_dir(&brew).is_err();
+    let catalog = Catalog::builtin(t.root());
+    let visitor = RuleVisitor::new(&catalog, Vec::new());
+
+    for reader in [ReaderKind::Bulk, ReaderKind::Std] {
+        for claim_times in [true, false] {
+            let opts = WalkOptions { threads: Some(4), reader, claim_times, ..WalkOptions::default() };
+            let out = scan::walk(&[t.root().to_path_buf()], &visitor, &opts, &Progress::default()).expect("walk");
+            let modified = |rel: &str| {
+                let o = out.owners.iter().find(|o| o.path == t.path(rel));
+                o.unwrap_or_else(|| panic!("no owner {rel} in {:#?}", out.owners)).modified
+            };
+            let on = |secs| claim_times.then_some(secs);
+            let case = format!("{reader:?}, times {claim_times}");
+            assert_eq!(modified("proj/.venv"), on(OLD + 10), "{case}");
+            assert_eq!(modified("web/node_modules"), on(OLD + 20), "{case}");
+            assert_eq!(modified("linked/node_modules"), on(OLD + 30), "{case}");
+            for none in ["kept", "Tool.app", "Downloads", "Pictures"] {
+                assert_eq!(modified(none), None, "{none}, {case}");
+            }
+            if enforced {
+                assert_eq!(modified("Library/Caches/Homebrew"), None, "{case}");
+            }
+            let downloads = out.entries.iter().find(|e| e.owner == t.path("Downloads")).expect("Downloads listed");
+            let times: Vec<_> = downloads.entries.iter().map(|e| e.modified).collect();
+            assert_eq!(times, [Some(OLD + 40); 2], "{case}");
+        }
+    }
 }

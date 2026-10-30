@@ -61,7 +61,7 @@ use ddc_core::rules::entries::{ENTRY_RULES, EntryLock};
 use ddc_core::rules::{
     Catalog, KEEP_MARKER, KEPT, Matcher, RULES, Rule, RuleVisitor, protected_in_home, protected_system,
 };
-use ddc_core::scan::{self, DirListing, DirReader, Progress, ReadError, ReaderKind, StdReader, WalkOptions};
+use ddc_core::scan::{self, DirListing, DirReader, Progress, ReadError, ReaderKind, StdReader, Times, WalkOptions};
 use ddc_loadgen::desc::{BLOCK, Desc, join, parent};
 use ddc_loadgen::fixtures::{self, TAG};
 use ddc_loadgen::manifest::manifest;
@@ -576,19 +576,15 @@ struct Counting {
 }
 
 impl DirReader for Counting {
-    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
-        self.read.lock().unwrap().push(dir.to_path_buf());
-        StdReader.read(dir, expect, want_private)
-    }
-
-    fn read_with_times(
+    fn read(
         &self,
         dir: &Path,
         expect: Option<(u64, u64)>,
         want_private: bool,
+        times: Times,
     ) -> Result<DirListing, ReadError> {
         self.read.lock().unwrap().push(dir.to_path_buf());
-        StdReader.read_with_times(dir, expect, want_private)
+        StdReader.read(dir, expect, want_private, times)
     }
 }
 

@@ -110,6 +110,11 @@ pub struct ScanArgs {
     /// settings.json, else 10G).
     #[arg(long, hide = true, value_name = "SIZE", value_parser = parse_size)]
     pub threshold: Option<u64>,
+    /// Read no modification times inside findings, so a load test can measure
+    /// what they cost (story "Review window: sort a group's rows by name, size
+    /// or last change"). A user-data folder's own entries keep theirs.
+    #[arg(long, hide = true, conflicts_with = "background")]
+    pub no_times: bool,
 }
 
 #[derive(Debug, Args)]

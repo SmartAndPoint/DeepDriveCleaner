@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 
 use ddc_core::rules::{Catalog, RuleVisitor};
-use ddc_core::scan::reader::{DirListing, DirReader, ReadError, StdReader};
+use ddc_core::scan::reader::{DirListing, DirReader, ReadError, StdReader, Times};
 use ddc_core::scan::{self, OwnerResult, Progress, ReaderKind, SkipReason, WalkOptions, WalkOutput};
 use ddc_loadgen::profiles::{Profile, hostile};
 use ddc_loadgen::{generate, target, verify};
@@ -61,7 +61,13 @@ struct Vanishing {
 
 impl DirReader for Vanishing {
     #[allow(clippy::disallowed_methods)] // deletes a folder of its own test tree
-    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
+    fn read(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: Times,
+    ) -> Result<DirListing, ReadError> {
         if dir == self.gone {
             std::fs::remove_dir_all(dir).unwrap();
         }
@@ -70,7 +76,7 @@ impl DirReader for Vanishing {
             std::fs::rename(dir, dir.with_extension("old")).unwrap();
             std::fs::create_dir(dir).unwrap();
         }
-        let mut listing = StdReader.read(dir, expect, want_private)?;
+        let mut listing = StdReader.read(dir, expect, want_private, times)?;
         if dir == self.flaky {
             for e in listing.entries.iter_mut().filter(|e| e.name == "x") {
                 e.error = Some(libc::ENOENT);

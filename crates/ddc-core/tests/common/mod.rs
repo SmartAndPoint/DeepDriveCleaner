@@ -13,6 +13,10 @@ use std::process::Command;
 
 use ddc_core::platform::meta;
 
+/// 2024-01-01, Unix seconds: the time `ddc-loadgen` gives its trees, and
+/// [`TreeBuilder::age`]'s usual "long ago".
+pub const OLD: i64 = 1_704_067_200;
+
 pub struct TreeBuilder {
     _tmp: tempfile::TempDir,
     root: PathBuf,
@@ -97,6 +101,24 @@ impl TreeBuilder {
         let ok = Command::new("/bin/cp").arg("-c").arg(src.as_ref()).arg(&p).status().expect("cp -c").success();
         assert!(ok, "cp -c failed");
         p
+    }
+
+    /// Sets the modification time (and the date added) of `rel` alone to
+    /// `secs`, Unix seconds, without following a symlink.
+    pub fn touch(&self, rel: &str, secs: i64) {
+        let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64);
+        ddc_core::platform::fsops::set_times(&self.path(rel), at, at).expect("set times");
+    }
+
+    /// [`Self::touch`] on `rel` and on everything under it.
+    pub fn age(&self, rel: &str, secs: i64) {
+        let mut stack = vec![self.path(rel)];
+        while let Some(p) = stack.pop() {
+            if fs::symlink_metadata(&p).unwrap().is_dir() {
+                stack.extend(fs::read_dir(&p).unwrap().map(|e| e.unwrap().path()));
+            }
+            self.touch(p.strip_prefix(&self.root).unwrap().to_str().unwrap(), secs);
+        }
     }
 
     /// Removes all permissions from a directory; restored on drop.

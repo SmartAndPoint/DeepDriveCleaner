@@ -2,10 +2,10 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use common::{TreeBuilder, alloc, reference_alloc};
+use common::{OLD, TreeBuilder, alloc, reference_alloc};
 use ddc_core::scan::{
     self, DirCtx, DirListing, DirReader, EntryKind, EntryResult, NullVisitor, OwnerKind, OwnerResult, Post, Pre,
-    Progress, ReadError, ReadErrorKind, ReaderKind, StdReader, Tag, Visitor, WalkOptions, WalkOutput,
+    Progress, ReadError, ReadErrorKind, ReaderKind, StdReader, Tag, Times, Visitor, WalkOptions, WalkOutput,
 };
 
 const CLAIM_BY_NAME: Tag = 1;
@@ -368,7 +368,7 @@ fn bulk_reader_matches_lstat_per_entry_across_batches() {
     use std::collections::HashMap;
 
     use ddc_core::scan::SystemReader as BulkReader;
-    use ddc_core::scan::{DirReader, EntryKind, StdReader};
+    use ddc_core::scan::{DirReader, EntryKind, StdReader, Times};
 
     let t = TreeBuilder::new();
     let dir = t.dir("big");
@@ -388,10 +388,10 @@ fn bulk_reader_matches_lstat_per_entry_across_batches() {
     let fifo = std::process::Command::new("/usr/bin/mkfifo").arg(t.path("big/fifo")).status().unwrap();
     assert!(fifo.success());
 
-    let reference = StdReader.read(&dir, None, false).unwrap();
+    let reference = StdReader.read(&dir, None, false, Times::None).unwrap();
     let by_name: HashMap<_, _> = reference.entries.iter().map(|e| (e.name.clone(), e)).collect();
     for want_private in [false, true] {
-        let bulk = BulkReader.read(&dir, None, want_private).unwrap();
+        let bulk = BulkReader.read(&dir, None, want_private, Times::None).unwrap();
         assert_eq!((bulk.dev, bulk.ino), (reference.dev, reference.ino));
         assert_eq!(bulk.entries.len(), reference.entries.len());
         for b in &bulk.entries {
@@ -417,31 +417,36 @@ fn bulk_reader_matches_lstat_per_entry_across_batches() {
     let fork = reference.entries.iter().find(|e| e.name == "f0002").unwrap();
     assert!(fork.alloc >= 300_000, "resource fork is part of the allocated size: {}", fork.alloc);
 
-    // Times only when asked for, and the rest of each record still in place.
-    let plain = BulkReader.read(&dir, None, false).unwrap();
+    // Times only when asked for, the added time only with it, and the rest of
+    // each record still in place: the modification time sits between the
+    // object type and the flags, the added time after the file id.
+    let plain = BulkReader.read(&dir, None, false, Times::None).unwrap();
     assert!(plain.entries.iter().all(|e| e.modified.is_none() && e.added.is_none()));
-    let lstat_times: HashMap<_, _> = StdReader
-        .read_with_times(&dir, None, false)
-        .unwrap()
-        .entries
-        .into_iter()
-        .map(|e| (e.name, e.modified))
-        .collect();
-    for want_private in [false, true] {
-        let timed = BulkReader.read_with_times(&dir, None, want_private).unwrap();
-        assert_eq!(timed.entries.len(), reference.entries.len());
-        for b in &timed.entries {
-            let r = by_name[&b.name];
-            assert_eq!(
-                (b.kind, b.dev, b.ino, b.flags, b.alloc),
-                (r.kind, r.dev, r.ino, r.flags, r.alloc),
-                "{:?}",
-                b.name
-            );
-            assert!(b.modified.is_some() && b.modified == lstat_times[&b.name], "{:?}: {:?}", b.name, b.modified);
-            assert!(b.added.is_some(), "{:?}: no date added", b.name);
-            if want_private && b.kind == EntryKind::File {
-                assert!(b.private.is_some(), "{:?}", b.name);
+    let lstat = StdReader.read(&dir, None, false, Times::Modified).unwrap();
+    let lstat_times: HashMap<_, _> = lstat.entries.into_iter().map(|e| (e.name, e.modified)).collect();
+    let own = ddc_core::platform::meta::mtime(&std::fs::symlink_metadata(&dir).unwrap());
+    assert_eq!((plain.modified, lstat.modified), (Some(own), Some(own)), "the directory's own time, always");
+    for times in [Times::Modified, Times::ModifiedAndAdded] {
+        for want_private in [false, true] {
+            let timed = BulkReader.read(&dir, None, want_private, times).unwrap();
+            assert_eq!(timed.entries.len(), reference.entries.len());
+            assert_eq!(timed.modified, Some(own));
+            for b in &timed.entries {
+                let r = by_name[&b.name];
+                assert_eq!(
+                    (b.kind, b.dev, b.ino, b.flags, b.alloc),
+                    (r.kind, r.dev, r.ino, r.flags, r.alloc),
+                    "{:?} with {times:?}",
+                    b.name
+                );
+                if b.kind != EntryKind::Dir {
+                    assert_eq!(b.nlink, r.nlink, "{:?} with {times:?}", b.name);
+                }
+                assert!(b.modified.is_some() && b.modified == lstat_times[&b.name], "{:?}: {:?}", b.name, b.modified);
+                assert_eq!(b.added.is_some(), times == Times::ModifiedAndAdded, "{:?}: {:?}", b.name, b.added);
+                if want_private && b.kind == EntryKind::File {
+                    assert!(b.private.is_some(), "{:?}", b.name);
+                }
             }
         }
     }
@@ -552,16 +557,14 @@ impl Altered {
 }
 
 impl DirReader for Altered {
-    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
-        StdReader.read(dir, expect, want_private).map(|l| self.alter(dir, l))
-    }
-    fn read_with_times(
+    fn read(
         &self,
         dir: &Path,
         expect: Option<(u64, u64)>,
         want_private: bool,
+        times: Times,
     ) -> Result<DirListing, ReadError> {
-        StdReader.read_with_times(dir, expect, want_private).map(|l| self.alter(dir, l))
+        StdReader.read(dir, expect, want_private, times).map(|l| self.alter(dir, l))
     }
 }
 
@@ -627,9 +630,15 @@ impl Visitor for PruningVisitor {
 struct Opened(std::sync::Mutex<Vec<PathBuf>>);
 
 impl DirReader for Opened {
-    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
+    fn read(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: Times,
+    ) -> Result<DirListing, ReadError> {
         self.0.lock().unwrap().push(dir.to_path_buf());
-        StdReader.read(dir, expect, want_private)
+        StdReader.read(dir, expect, want_private, times)
     }
 }
 
@@ -670,10 +679,16 @@ fn a_pruned_directory_inside_a_claim_is_never_opened_and_counts_nowhere() {
 struct ThreadNames(std::sync::Mutex<std::collections::BTreeSet<String>>);
 
 impl DirReader for ThreadNames {
-    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
+    fn read(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: Times,
+    ) -> Result<DirListing, ReadError> {
         let name = std::thread::current().name().unwrap_or("unnamed").to_owned();
         self.0.lock().unwrap().insert(name);
-        StdReader.read(dir, expect, want_private)
+        StdReader.read(dir, expect, want_private, times)
     }
 }
 
@@ -695,4 +710,151 @@ fn a_walk_asked_for_three_threads_reads_on_at_most_three() {
     let names = reader.0.into_inner().unwrap();
     assert!(!names.is_empty() && names.len() <= 3, "{names:?}");
     assert!(names.iter().all(|n| n.starts_with("ddc-walk-")), "{names:?}");
+}
+
+// ---- story "Review window: sort a group's rows by name, size or last change" ----
+
+/// [`TestVisitor`] whose claims ask for times, and not for private sizes:
+/// a `.venv` or `node_modules` claimed after its listing.
+struct Timed(TestVisitor);
+
+impl Visitor for Timed {
+    fn before_read(&self, dir: &DirCtx<'_>) -> Pre {
+        self.0.before_read(dir)
+    }
+
+    fn after_read(&self, dir: &DirCtx<'_>, listing: &DirListing) -> Post {
+        self.0.after_read(dir, listing)
+    }
+
+    fn wants_private(&self, _dir: &DirCtx<'_>, _tag: Tag) -> bool {
+        false
+    }
+
+    fn wants_times(&self, _dir: &DirCtx<'_>, _tag: Tag) -> bool {
+        true
+    }
+}
+
+#[test]
+fn a_claim_holds_the_newest_time_inside_and_a_region_none() {
+    if common::unsupported("a_claim_holds_the_newest_time_inside_and_a_region_none") {
+        return;
+    }
+    let t = TreeBuilder::new();
+    t.file("proj/claimme/a", 1_000);
+    t.file("proj/claimme/deep/er/b", 1_000);
+    let outside = t.file("store/linked", 1_000);
+    t.hardlink(&outside, "proj/claimme/deep/linked");
+    t.file("known/top", 1_000);
+    t.file("known/sub/c", 1_000);
+    t.file("area/d", 1_000);
+    let visitor = Timed(TestVisitor {
+        claim_paths: vec![t.path("known")],
+        region_paths: vec![t.path("area")],
+        ..TestVisitor::default()
+    });
+
+    for reader in [ReaderKind::Bulk, ReaderKind::Std] {
+        t.age("", OLD);
+        // Three levels down in a claim made after its listing.
+        t.age("proj/claimme/deep/er/b", OLD + 10);
+        // A direct child of a claim made before its listing.
+        t.age("known/top", OLD + 20);
+        let out = walk_with(t.root(), &visitor, reader);
+        assert_eq!(owner(&out, &t.path("proj/claimme")).modified, Some(OLD + 10), "{reader:?}");
+        assert_eq!(owner(&out, &t.path("known")).modified, Some(OLD + 20), "{reader:?}");
+        assert_eq!(owner(&out, &t.path("area")).modified, None, "a region has no date ({reader:?})");
+
+        // A hard-linked file's bytes go to the inode table; its time still counts.
+        t.age("store/linked", OLD + 30);
+        let out = walk_with(t.root(), &visitor, reader);
+        assert_eq!(owner(&out, &t.path("proj/claimme")).modified, Some(OLD + 30), "{reader:?}");
+        // The directory's own time counts too.
+        t.touch("proj/claimme", OLD + 40);
+        let out = walk_with(t.root(), &visitor, reader);
+        assert_eq!(owner(&out, &t.path("proj/claimme")).modified, Some(OLD + 40), "{reader:?}");
+    }
+
+    // Off, or not asked for: no claim reads a time.
+    let off = WalkOptions { claim_times: false, ..opts(ReaderKind::Bulk) };
+    let out = scan::walk(&[t.root().to_path_buf()], &visitor, &off, &Progress::default()).unwrap();
+    assert!(out.owners.iter().all(|o| o.modified.is_none()), "{:#?}", out.owners);
+    let out = walk(t.root(), &visitor.0);
+    assert!(out.owners.iter().all(|o| o.modified.is_none()), "{:#?}", out.owners);
+}
+
+#[test]
+fn a_claim_whose_root_cannot_be_opened_has_no_time_and_an_unreadable_folder_inside_keeps_its_own() {
+    if common::unsupported(
+        "a_claim_whose_root_cannot_be_opened_has_no_time_and_an_unreadable_folder_inside_keeps_its_own",
+    ) {
+        return;
+    }
+    let t = TreeBuilder::new();
+    t.file("shut/a", 1_000);
+    t.file("known/a", 1_000);
+    t.file("known/locked/b", 1_000);
+    t.age("", OLD);
+    t.age("known/locked", OLD + 50);
+    let shut = t.lock("shut");
+    t.lock("known/locked");
+    if std::fs::read_dir(&shut).is_ok() {
+        eprintln!("SKIPPED: running as root, permissions are not enforced");
+        return;
+    }
+    let visitor = Timed(TestVisitor { claim_paths: vec![shut.clone(), t.path("known")], ..TestVisitor::default() });
+
+    for reader in [ReaderKind::Bulk, ReaderKind::Std] {
+        let out = walk_with(t.root(), &visitor, reader);
+        assert_eq!(owner(&out, &shut).modified, None, "{reader:?}");
+        let known = owner(&out, &t.path("known"));
+        assert!(known.incomplete(), "{reader:?}");
+        assert_eq!(known.modified, Some(OLD + 50), "the parent's listing has its time ({reader:?})");
+    }
+}
+
+/// [`StdReader`] that cannot list `dir` with times.
+struct NoTimesAt(PathBuf);
+
+impl DirReader for NoTimesAt {
+    fn read(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: Times,
+    ) -> Result<DirListing, ReadError> {
+        if dir == self.0 && times != Times::None {
+            return Err(ReadError::new(ReadErrorKind::PermissionDenied, Some(ddc_core::platform::errno::EACCES)));
+        }
+        StdReader.read(dir, expect, want_private, times)
+    }
+}
+
+#[test]
+fn a_failed_re_read_for_the_times_alone_leaves_a_lower_bound_and_no_error() {
+    if common::unsupported("a_failed_re_read_for_the_times_alone_leaves_a_lower_bound_and_no_error") {
+        return;
+    }
+    let t = TreeBuilder::new();
+    t.file("claimme/new", 1_000);
+    t.file("claimme/sub/old", 1_000);
+    t.age("", OLD);
+    t.age("claimme/new", OLD + 60);
+    let visitor = Timed(TestVisitor::default());
+    let claim = t.path("claimme");
+    let walk_through = |reader: &dyn DirReader| {
+        let roots = [t.root().to_path_buf()];
+        scan::walk_with_reader(&roots, &visitor, &opts(ReaderKind::Std), &Progress::default(), reader).unwrap()
+    };
+
+    let out = walk_through(&StdReader);
+    assert_eq!(owner(&out, &claim).modified, Some(OLD + 60), "listed again with times");
+
+    let out = walk_through(&NoTimesAt(claim.clone()));
+    let c = owner(&out, &claim);
+    assert_eq!(c.modified, Some(OLD), "the root's own files are missing, never the subtree");
+    assert!(!c.incomplete(), "{c:#?}");
+    assert_eq!((out.errors_total, c.bytes), (0, reference_alloc(&claim)));
 }

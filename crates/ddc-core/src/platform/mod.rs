@@ -63,15 +63,15 @@ mod pins {
 
     use super::imp;
     use super::types::{
-        DirListing, EntryStat, OpenVnode, ProcInfo, ProcStart, ReadError, ReadErrorKind, Usage, VolumeStats,
+        DirListing, EntryStat, OpenVnode, ProcInfo, ProcStart, ReadError, ReadErrorKind, Times, Usage, VolumeStats,
     };
 
     type DirFd = imp::fsops::DirFd;
     type Identity = Option<(u64, u64)>;
-    type Times = (Option<i64>, Option<i64>);
+    type ChildTimes = (Option<i64>, Option<i64>);
     type Waited = Option<(ExitStatus, Usage)>;
 
-    const _: fn(&Path, Identity, bool, bool) -> Result<DirListing, ReadError> = imp::bulk::list;
+    const _: fn(&Path, Identity, bool, Times) -> Result<DirListing, ReadError> = imp::bulk::list;
 
     const _: fn(i32) -> ReadErrorKind = imp::errno::read_error_kind;
     const _: i32 = imp::errno::ENOENT;
@@ -84,7 +84,7 @@ mod pins {
     const _: fn(&Path) -> io::Result<DirFd> = DirFd::open;
     const _: fn(&DirFd) -> io::Result<(u64, u64)> = DirFd::identity;
     const _: fn(&DirFd, &OsStr) -> io::Result<EntryStat> = DirFd::stat_child;
-    const _: fn(&DirFd, &OsStr) -> io::Result<Times> = DirFd::child_times;
+    const _: fn(&DirFd, &OsStr) -> io::Result<ChildTimes> = DirFd::child_times;
     const _: fn(&DirFd, &OsStr, &OsStr) -> io::Result<()> = DirFd::rename_child;
 
     const _: fn() -> Option<PathBuf> = imp::folders::home;

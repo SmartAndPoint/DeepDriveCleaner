@@ -24,7 +24,7 @@ use ddc_core::report::recheck::{self, Full, RecheckError, Walk, walk_for};
 use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::{Catalog, RULES, Rule, Scope};
-use ddc_core::scan::{DirListing, DirReader, Progress, ReadError, StdReader, WalkOptions};
+use ddc_core::scan::{DirListing, DirReader, Progress, ReadError, StdReader, Times, WalkOptions};
 
 const HOUR: Duration = Duration::from_secs(3_600);
 
@@ -413,19 +413,15 @@ struct Counting {
 }
 
 impl DirReader for Counting {
-    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
-        self.opened.lock().unwrap().insert(dir.to_path_buf());
-        StdReader.read(dir, expect, want_private)
-    }
-
-    fn read_with_times(
+    fn read(
         &self,
         dir: &Path,
         expect: Option<(u64, u64)>,
         want_private: bool,
+        times: Times,
     ) -> Result<DirListing, ReadError> {
         self.opened.lock().unwrap().insert(dir.to_path_buf());
-        StdReader.read_with_times(dir, expect, want_private)
+        StdReader.read(dir, expect, want_private, times)
     }
 }
 

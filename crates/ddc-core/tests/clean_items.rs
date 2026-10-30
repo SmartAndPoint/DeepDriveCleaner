@@ -25,7 +25,7 @@ use ddc_core::model::{RemovalKind, ScanReport};
 use ddc_core::plan::{ActionKind, ListError, ListedItem, ListedItems, plan_listed};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
-use ddc_core::scan::{DirListing, DirReader, Progress, ReadError, StdReader, WalkOptions};
+use ddc_core::scan::{DirListing, DirReader, Progress, ReadError, StdReader, Times, WalkOptions};
 
 struct Fx {
     t: TreeBuilder,
@@ -355,9 +355,15 @@ struct Counting {
 }
 
 impl DirReader for Counting {
-    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
+    fn read(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: Times,
+    ) -> Result<DirListing, ReadError> {
         self.events.lock().unwrap().push(format!("open {}", dir.display()));
-        StdReader.read(dir, expect, want_private)
+        StdReader.read(dir, expect, want_private, times)
     }
 }
 

@@ -21,7 +21,7 @@ use ddc_core::plan::{Plan, PlanOptions, build_plan};
 use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
-use ddc_core::scan::{DirListing, DirReader, Progress, ReadError, ReaderKind, StdReader, WalkOptions};
+use ddc_core::scan::{DirListing, DirReader, Progress, ReadError, ReaderKind, StdReader, Times, WalkOptions};
 use ddc_loadgen::profiles::Profile;
 use ddc_loadgen::{Generated, generate, skip_unported, target};
 use proptest::prelude::*;
@@ -47,17 +47,14 @@ impl Shuffled {
 }
 
 impl DirReader for Shuffled {
-    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
-        StdReader.read(dir, expect, want_private).map(|l| self.shuffle(dir, l))
-    }
-
-    fn read_with_times(
+    fn read(
         &self,
         dir: &Path,
         expect: Option<(u64, u64)>,
         want_private: bool,
+        times: Times,
     ) -> Result<DirListing, ReadError> {
-        StdReader.read_with_times(dir, expect, want_private).map(|l| self.shuffle(dir, l))
+        StdReader.read(dir, expect, want_private, times).map(|l| self.shuffle(dir, l))
     }
 }
 

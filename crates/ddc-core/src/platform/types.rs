@@ -37,12 +37,29 @@ pub struct EntryMeta {
     pub private: Option<u64>,
     /// Per-entry errno reported by the filesystem; other fields may be unset.
     pub error: Option<i32>,
-    /// Modification time, Unix seconds. Only from `DirReader::read_with_times`.
+    /// Modification time, Unix seconds. Only from a listing that asks for
+    /// [`Times::Modified`] or [`Times::ModifiedAndAdded`].
     pub modified: Option<i64>,
     /// When the entry was added to this directory (`ATTR_CMN_ADDEDTIME`),
-    /// Unix seconds. Only from `DirReader::read_with_times`, where the
+    /// Unix seconds. Only for [`Times::ModifiedAndAdded`], where the
     /// filesystem keeps it.
     pub added: Option<i64>,
+}
+
+/// The times a listing reads for each entry. Each one adds bytes to every
+/// record, so a listing asks only for what it uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Times {
+    #[default]
+    None,
+    /// [`EntryMeta::modified`]: a directory inside a claim, for the newest
+    /// change in it (story "Review window: sort a group's rows by name,
+    /// size or last change").
+    Modified,
+    /// [`EntryMeta::modified`] and [`EntryMeta::added`]: a user-data
+    /// folder's own listing (story "User data: pick your own files for the
+    /// Trash").
+    ModifiedAndAdded,
 }
 
 /// Entries of one directory plus the identity of the directory itself.
@@ -50,6 +67,10 @@ pub struct EntryMeta {
 pub struct DirListing {
     pub dev: u64,
     pub ino: u64,
+    /// The directory's own modification time, Unix seconds, from the stat
+    /// the open makes anyway, whatever [`Times`] asked. `None` from a
+    /// reader that cannot tell.
+    pub modified: Option<i64>,
     pub entries: Vec<EntryMeta>,
 }
 
