@@ -387,6 +387,14 @@ check_live_feed() {
 
 # ── Release notes and cask ────────────────────────────────────────────────
 NOTES="$WORK/release-notes.md"
+# The one-line install (story "One-line install on macOS and Linux: ddc.sh/install.sh
+# and cargo", DDC-007): ddc.sh once its site serves the script, the tag's own copy until then.
+INSTALL_URL="https://raw.githubusercontent.com/$REPO/v$VERSION/packaging/install/install.sh"
+if [ "$(curl -fsSL --max-time 20 https://ddc.sh/install.sh 2>/dev/null | head -n 1 || true)" = "#!/bin/sh" ]; then
+    INSTALL_URL=https://ddc.sh/install.sh
+fi
+INSTALL_ARGS=""
+[ "$PRERELEASE" = 0 ] || INSTALL_ARGS=" -s -- --version $VERSION"
 {
     cat "$ROOT/docs/releases/$VERSION.md"
     echo
@@ -403,6 +411,12 @@ NOTES="$WORK/release-notes.md"
         echo
         echo "\`$ZIP_NAME\` is the app the cask installs; the app updates itself from \`appcast.xml\`. \`$TARBALL_NAME\` is the command-line tool alone, for a manual install."
     fi
+    echo
+    echo "The command-line tool alone, into \`~/.local/bin\`, with no app and no Homebrew:"
+    echo
+    echo '```'
+    echo "curl -fsSL $INSTALL_URL | sh$INSTALL_ARGS"
+    echo '```'
     echo
     echo "## Build"
     echo

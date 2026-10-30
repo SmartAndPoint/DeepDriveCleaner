@@ -113,9 +113,14 @@ retry() {
 
 step "Building the CLI $VERSION for $TARGET"
 # The remap keeps the maintainer's home directory out of the public binary.
-RUSTFLAGS="--remap-path-prefix=$HOME=~" "$CARGO" build --release --locked --target "$TARGET" -p ddc-cli
+# The CLI's minimum macOS, as scripts/build-cli.sh sets it, and the app's own.
+RUSTFLAGS="--remap-path-prefix=$HOME=~" MACOSX_DEPLOYMENT_TARGET=26.0 \
+    "$CARGO" build --release --locked --target "$TARGET" -p ddc-cli
 CLI="$ROOT/target/$TARGET/release/deepdrivecleaner"
 [ "$(lipo -archs "$CLI")" = "arm64" ] || fail "not an arm64-only CLI: $(lipo -archs "$CLI")"
+# The minimum macOS the linker wrote (LC_BUILD_VERSION) is the one set above.
+MINOS="$(vtool -show-build "$CLI" | awk '$1 == "minos" { print $2 }')"
+[ "$MINOS" = 26.0 ] || fail "the CLI's minimum macOS is '$MINOS', not 26.0"
 # The cost counters of the complexity guard never ship (ddc-core feature op-stats).
 SYMBOLS="$(nm "$CLI")"
 grep ' _main$' <<<"$SYMBOLS" >/dev/null || fail "nm sees no symbol table, so it cannot see the counters"

@@ -9,9 +9,25 @@ repository.workspace = true
 publish.workspace = true
 
 [[bin]]
-# Full name in Full Disk Access, Activity Monitor and Login Items; `ddc` is a symlink (make install).
+# Full name in Full Disk Access, Activity Monitor and Login Items; `ddc` is a symlink
+# (make install, packaging/install/install.sh, the cask; after cargo install, by hand).
 name = "deepdrivecleaner"
 path = "src/main.rs"
+
+# `cargo binstall --git https://github.com/SmartAndPoint/DeepDriveCleaner ddc-cli`
+# downloads the release archive of this version instead of compiling (story "One-line
+# install on macOS and Linux: ddc.sh/install.sh and cargo", DDC-007). The archive name
+# is spelled out: binstall's { archive-suffix } for tgz is .tgz, not .tar.gz. With
+# --git it reads the version from main, so between a version bump and its release it
+# falls back to compiling.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/deepdrivecleaner-{ version }-{ target }.tar.gz"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-url = "{ repo }/releases/download/v{ version }/deepdrivecleaner-{ version }-{ target }.zip"
+pkg-fmt = "zip"
 
 [dependencies]
 anyhow.workspace = true

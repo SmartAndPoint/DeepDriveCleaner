@@ -27,6 +27,11 @@ step() { printf '\033[0;34m→ %s\033[0m\n' "$1"; }
 EXE=""
 WINDOWS=0
 case "$TARGET" in *-windows-*) EXE=.exe; WINDOWS=1 ;; esac
+# The oldest macOS the CLI was run on, not the linker's default (11.0 for
+# aarch64-apple-darwin): packaging/install/install.sh (MIN_MACOS) and the cask refuse
+# anything older. Lower it only after a run on the older macOS (story "One-line
+# install on macOS and Linux: ddc.sh/install.sh and cargo", DDC-007).
+case "$TARGET" in *-apple-darwin) export MACOSX_DEPLOYMENT_TARGET=26.0 ;; esac
 
 VERSION="$("$CARGO" pkgid -p ddc-cli | sed 's/.*[#@]//')"
 
@@ -55,6 +60,13 @@ BIN="${CARGO_TARGET_DIR:-$ROOT/target}/$TARGET/release/deepdrivecleaner$EXE"
 case "$TARGET" in
     aarch64-apple-darwin) [ "$(lipo -archs "$BIN")" = "arm64" ] || fail "not an arm64-only binary: $(lipo -archs "$BIN")" ;;
     x86_64-apple-darwin) [ "$(lipo -archs "$BIN")" = "x86_64" ] || fail "not an x86_64-only binary: $(lipo -archs "$BIN")" ;;
+esac
+# The minimum macOS the linker wrote (LC_BUILD_VERSION) is the one set above.
+case "$TARGET" in
+    *-apple-darwin)
+        MINOS="$(vtool -show-build "$BIN" | awk '$1 == "minos" { print $2 }')"
+        [ "$MINOS" = "$MACOSX_DEPLOYMENT_TARGET" ] || fail "the binary's minimum macOS is '$MINOS', not $MACOSX_DEPLOYMENT_TARGET"
+        ;;
 esac
 [ "$("$BIN" --version)" = "deepdrivecleaner $VERSION" ] || fail "the binary reports '$("$BIN" --version)'"
 

@@ -41,9 +41,65 @@ To go back to an older version: download its zip from the [releases](https://git
 
 To remove: `brew uninstall --zap --cask deepdrivecleaner` removes the app, the commands, the background agent, the saved scan, the settings, the logs and the update cache. Without `--zap` they stay, and the app's entry in Login Items can stay until macOS drops it. If you use the background scan and uninstall without `--zap`, run `ddc schedule uninstall` first.
 
+If you installed the command line with the script below, remove it before you install the cask (`curl -fsSL https://raw.githubusercontent.com/SmartAndPoint/DeepDriveCleaner/main/packaging/install/install.sh | sh -s -- --uninstall`). The cask cannot check for it, and two `ddc`s would land on your `PATH`.
+
 ### On an older macOS, or the command line only
 
-The 0.2.0 cask needs macOS 26. On an older macOS, `brew` keeps 0.1.0 (the command line only). The command-line tool of each release is also attached to the [release](https://github.com/SmartAndPoint/DeepDriveCleaner/releases) as `deepdrivecleaner-<version>-aarch64-apple-darwin.tar.gz`, signed and notarized. Unpack it, put `deepdrivecleaner` somewhere on your `PATH`, and link `ddc` to it.
+The cask needs macOS 26. On an older macOS, `brew` keeps 0.1.0 (the command line only).
+
+On macOS 26 or later on Apple Silicon, the command-line tool alone, without the app and without Homebrew:
+
+```
+curl -fsSL https://raw.githubusercontent.com/SmartAndPoint/DeepDriveCleaner/main/packaging/install/install.sh | sh
+```
+
+The script installs `deepdrivecleaner` into `~/.local/bin`, with `ddc` as a symlink to it. It downloads the latest release's `deepdrivecleaner-<version>-aarch64-apple-darwin.tar.gz` and checks it before it installs anything: against the release's `SHA256SUMS`, then that the binary is signed by the SmartAndPoint Developer ID, then that it runs and reports that version. It never uses `sudo` and never asks anything. If the folder is not on your `PATH`, it prints the line to add. The script is `packaging/install/install.sh` in this repository, and each release's tag holds its own copy; `https://ddc.sh/install.sh` will serve the same script. Options go after `sh -s --`:
+
+```
+curl -fsSL https://raw.githubusercontent.com/SmartAndPoint/DeepDriveCleaner/main/packaging/install/install.sh | sh -s -- --prefix "$HOME/bin"
+```
+
+| Option | What it does |
+|---|---|
+| `--version <v>` | Install release `v<v>` instead of the latest. A pre-release is installed only this way. |
+| `--prefix <dir>` | Install into `<dir>` instead of `~/.local/bin`. |
+| `--force` | Install even when another copy is found, or reinstall the current version. |
+| `--uninstall` | Remove the two files from the folder. If `ddc schedule install` runs that binary, it stops and asks you to run `ddc schedule uninstall` first. |
+| `--modify-path` | Add the folder to `PATH` in your shell's profile (one line, added once). |
+
+- **To update,** run it again. It replaces the binary at the same path in one step, so a Full Disk Access grant and a `ddc schedule` agent keep working. Moving the binary loses the grant.
+- **Another copy:** if `deepdrivecleaner` or `ddc` already resolves on your `PATH` to another folder (the cask, `cargo install`, `make install`), or `DeepDriveCleaner.app` is in `/Applications` or `~/Applications`, it installs nothing, names that copy and how to update or remove it, and exits 4. Two copies would mean two `ddc`s and two schedulers.
+- **Releases:** it installs releases from 0.8.0 on; earlier ones carry no `SHA256SUMS` to check against. It refuses an Intel Mac and a macOS older than 26.
+- **Linux:** the script runs on x86_64 and aarch64 Linux and says "not released for Linux yet" until a release carries the Linux archives. On Linux it checks the checksum only: a checksum proves the download is intact, not who published it. To check that a Linux archive was built by this repository's release workflow, use the manual route below with `gh attestation verify`.
+
+**By hand.** Download the archive and `SHA256SUMS` from the [release](https://github.com/SmartAndPoint/DeepDriveCleaner/releases), then:
+
+```
+shasum -a 256 -c --ignore-missing SHA256SUMS       # Linux: sha256sum -c --ignore-missing SHA256SUMS
+tar -xzf deepdrivecleaner-<version>-aarch64-apple-darwin.tar.gz deepdrivecleaner
+mkdir -p ~/.local/bin && mv deepdrivecleaner ~/.local/bin/
+ln -s ~/.local/bin/deepdrivecleaner ~/.local/bin/ddc
+```
+
+A file a browser downloads is quarantined. The bare binary is notarized but cannot carry a stapled ticket, so its first run asks Apple's servers online; `curl` sets no quarantine. On Linux, `gh attestation verify <archive> --repo SmartAndPoint/DeepDriveCleaner` checks the archive's provenance.
+
+### With cargo
+
+From source, the current `main`:
+
+```
+cargo install --git https://github.com/SmartAndPoint/DeepDriveCleaner --locked ddc-cli
+ln -s ~/.cargo/bin/deepdrivecleaner ~/.cargo/bin/ddc
+```
+
+With [cargo-binstall](https://github.com/cargo-bins/cargo-binstall), the release archive of `main`'s version instead of a build:
+
+```
+cargo binstall --git https://github.com/SmartAndPoint/DeepDriveCleaner ddc-cli
+ln -s ~/.cargo/bin/deepdrivecleaner ~/.cargo/bin/ddc
+```
+
+binstall reads the version from `main`. Between a version bump and its release there is no archive yet, and it compiles instead; maintainers bump, tag and release in one sitting to keep that window short.
 
 ### From source
 
@@ -283,6 +339,17 @@ ddc schedule status
 | 2 | Refused before anything was touched: run as root, a malformed list, a forbidden option, or a confirmation that cannot be asked without a terminal. |
 | 75 | Busy: a clean is running, or a clean was asked for while another scan or clean runs. Try again when it ends. |
 
+The install script (under [Install](#on-an-older-macos-or-the-command-line-only)) has its own:
+
+| Code | Meaning |
+|---|---|
+| 0 | Installed, already current, or uninstalled. |
+| 1 | Any other error, such as a folder it cannot write. |
+| 2 | Unsupported platform, not released for it yet, or a bad option. |
+| 3 | Verification failed (checksum, archive contents, signature or `--version`), or the release carries no `SHA256SUMS`. Nothing was installed. |
+| 4 | Another install was found, and named; `--force` installs anyway. With `--uninstall`: the background agent still runs that binary, or the folder holds a `ddc` the script did not create. |
+| 5 | Download failed, or there is no such release. |
+
 ### Where things live
 
 | Path | What |
@@ -343,6 +410,7 @@ Without Full Disk Access some of `~/Library` cannot be read; the report lists th
 - The app's own scheduled scans (Settings → Schedule) use the app's grant; they replace the agent of `ddc schedule install`, which refuses while the app schedules.
 - The background agent of `ddc schedule install` runs the binary inside the app. To let it scan everything, add `/Applications/DeepDriveCleaner.app/Contents/Helpers/deepdrivecleaner` to Full Disk Access (press ⇧⌘G in the file picker to type the path). Since 0.2.0 that path stays the same across upgrades. If you upgraded from 0.1.0, remove the old `Caskroom/deepdrivecleaner/0.1.0` entry.
 - A local `make install` build is not signed with the Developer ID and has to be granted again after every build.
+- The install script keeps the binary at one path, `~/.local/bin/deepdrivecleaner` by default, and it is signed with the Developer ID: a grant to it survives updates by the script, and moving it loses the grant.
 
 ## Network
 

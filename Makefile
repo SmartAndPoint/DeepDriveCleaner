@@ -58,6 +58,9 @@ gate-fast: require-tools fmt-check clippy nextest doctest
 # deny and machete read only metadata and take seconds: they go first.
 gate: require-tools deny machete gate-fast clippy-dhat doc msrv release-check bench-test script-test leaks
 
+# The install script's tests join the gate on a line of their own.
+gate: install-test
+
 # Kept for everything that already calls it.
 check: gate-fast
 
@@ -210,6 +213,18 @@ bench-test:
 # signs, so it runs in app-test only.
 script-test:
 	python3 -I -m unittest discover -s scripts/tests -p 'test_*.py'
+
+# packaging/install/install.sh, the one-line install (story "One-line install on macOS
+# and Linux: ddc.sh/install.sh and cargo", DDC-007): install-test runs it against fake
+# releases on 127.0.0.1 (part of `make gate`); install-lint checks it as POSIX sh (CI's
+# Install workflow).
+.PHONY: install-test install-lint
+install-test:
+	python3 -I -m unittest discover -s packaging/install -p 'test_*.py'
+
+install-lint:
+	@command -v shellcheck >/dev/null || { echo "install-lint: shellcheck is missing: brew install shellcheck" >&2; exit 1; }
+	shellcheck -s sh packaging/install/install.sh
 
 # `scan --json` of every profile's S tree under `leaks -atExit`, on the cargo release
 # build (the notarized app's hardened runtime keeps `leaks` out): fails on any leak.

@@ -1,0 +1,171 @@
+# The one-line install (story "One-line install on macOS and Linux: ddc.sh/install.sh
+# and cargo", DDC-007).
+# - On every push and pull request: packaging/install/install.sh against fake releases
+#   on 127.0.0.1 (make install-test), on macOS and Ubuntu, and shellcheck on Ubuntu.
+#   The macOS job also runs the case that creates a real LaunchAgent with
+#   `ddc schedule install` and upgrades under it.
+# - On a published release, weekly and on demand: the real latest release through
+#   `curl … | sh` on macOS and Ubuntu, and the cargo routes on macOS.
+name: Install
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  release:
+    types: [published]
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-${{ github.event_name == 'pull_request' && github.ref || github.sha }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  REPO_URL: https://github.com/SmartAndPoint/DeepDriveCleaner
+
+jobs:
+  fake-macos:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - run: make install-test
+        env:
+          DDC_INSTALL_REAL_AGENT: "1"
+
+  fake-ubuntu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: shellcheck and dash
+        run: |
+          if ! command -v shellcheck >/dev/null || ! command -v dash >/dev/null; then
+            sudo apt-get update && sudo apt-get install -y shellcheck dash
+          fi
+      - run: make install-lint install-test
+
+  # The real latest release, as a user runs it, with the script of this commit. A
+  # release made before SHA256SUMS (up to 0.7.0) has nothing to verify against: the
+  # job says so and stops there.
+  real-macos:
+    if: github.event_name == 'release' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - name: The latest release carries SHA256SUMS
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qx SHA256SUMS; then
+            echo "sums=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::$tag carries no SHA256SUMS: the script refuses it (exit 3); nothing to install yet"
+            echo "sums=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: No other copy on PATH
+        if: steps.latest.outputs.sums == 'true'
+        run: |
+          if command -v deepdrivecleaner || command -v ddc || [ -e /Applications/DeepDriveCleaner.app ]; then
+            echo "::error::the runner already has DeepDriveCleaner"; exit 1
+          fi
+      - name: curl | sh
+        if: steps.latest.outputs.sums == 'true'
+        # bash -eo pipefail: a failed download or install fails the step, not only tee.
+        shell: bash
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/packaging/install/install.sh" \
+            | sh | tee "$RUNNER_TEMP/install.out"
+      - name: --version after the PATH line
+        if: steps.latest.outputs.sums == 'true'
+        env:
+          VERSION: ${{ steps.latest.outputs.version }}
+        run: |
+          # No line when the runner's PATH already holds ~/.local/bin.
+          line="$(grep '^  export PATH=' "$RUNNER_TEMP/install.out" || true)"
+          [ -z "$line" ] || eval "$line"
+          [ "$(deepdrivecleaner --version)" = "deepdrivecleaner $VERSION" ]
+          [ "$(ddc --version)" = "deepdrivecleaner $VERSION" ]
+          [ "$(command -v ddc)" = "$HOME/.local/bin/ddc" ]
+
+  # Before the Linux archives exist the script refuses with exit 2; after, it installs
+  # the musl archive. Which one is expected follows the release's SHA256SUMS.
+  real-ubuntu:
+    if: github.event_name == 'release' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Linux in the latest release
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          linux=false
+          if gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --output "$RUNNER_TEMP/SHA256SUMS" 2>/dev/null \
+              && grep -q "  deepdrivecleaner-${tag#v}-x86_64-unknown-linux-musl.tar.gz$" "$RUNNER_TEMP/SHA256SUMS"; then
+            linux=true
+          fi
+          echo "linux=$linux" >> "$GITHUB_OUTPUT"
+      - name: curl | sh
+        env:
+          LINUX: ${{ steps.latest.outputs.linux }}
+          VERSION: ${{ steps.latest.outputs.version }}
+        # bash -eo pipefail: a failed download is its own exit status, not sh's 0.
+        shell: bash
+        run: |
+          status=0
+          curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/packaging/install/install.sh" \
+            | sh > "$RUNNER_TEMP/install.out" 2> "$RUNNER_TEMP/install.err" || status=$?
+          cat "$RUNNER_TEMP/install.out" "$RUNNER_TEMP/install.err"
+          if [ "$LINUX" = true ]; then
+            [ "$status" = 0 ] || { echo "::error::exit $status, not 0"; exit 1; }
+            line="$(grep '^  export PATH=' "$RUNNER_TEMP/install.out" || true)"
+            [ -z "$line" ] || eval "$line"
+            [ "$(deepdrivecleaner --version)" = "deepdrivecleaner $VERSION" ]
+            [ "$(ddc --version)" = "deepdrivecleaner $VERSION" ]
+          else
+            [ "$status" = 2 ] || { echo "::error::exit $status, not 2"; exit 1; }
+            grep -q 'not released for Linux yet' "$RUNNER_TEMP/install.err"
+          fi
+
+  # From source, as the README gives it: main, compiled.
+  cargo-macos:
+    if: github.event_name == 'release' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - run: cargo install --git "$REPO_URL" --locked ddc-cli
+      - run: deepdrivecleaner --version
+
+  # The release archive of main's version, never compiled. Between a version bump and
+  # its release this fails: the README asks for one sitting from bump to release.
+  binstall-macos:
+    if: github.event_name == 'release' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      BINSTALL_VERSION: 1.25.3
+      BINSTALL_SHA256: b027e09e54431e56a75ce63858a798e1bfd9cd5fa62894186d46808d50b31335
+    steps:
+      - name: cargo-binstall, pinned
+        run: |
+          zip="$RUNNER_TEMP/cargo-binstall.zip"
+          curl -fsSL -o "$zip" \
+            "https://github.com/cargo-bins/cargo-binstall/releases/download/v$BINSTALL_VERSION/cargo-binstall-aarch64-apple-darwin.zip"
+          echo "$BINSTALL_SHA256  $zip" | shasum -a 256 -c
+          mkdir -p "$RUNNER_TEMP/binstall"
+          unzip -q "$zip" -d "$RUNNER_TEMP/binstall"
+          echo "$RUNNER_TEMP/binstall" >> "$GITHUB_PATH"
+      - run: cargo binstall --git "$REPO_URL" ddc-cli --no-confirm --disable-strategies quick-install,compile
+      - run: deepdrivecleaner --version
