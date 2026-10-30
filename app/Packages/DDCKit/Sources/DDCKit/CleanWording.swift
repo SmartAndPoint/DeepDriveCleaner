@@ -250,7 +250,7 @@ extension CleanWording {
         let finding = row.finding
         if let project = finding.project {
             if let days = project.idleDays, finding.notSelected == nil {
-                parts.append("Idle \(days) \(days == 1 ? "day" : "days")")
+                parts.append(projectUntouched(days))
             }
             if project.hasLockfile == true { parts.append("lock file") }
         }
@@ -325,7 +325,7 @@ extension CleanWording {
         locale: Locale = .autoupdatingCurrent,
         timeZone: TimeZone = .autoupdatingCurrent
     ) -> String? {
-        dateAndTime(modified, calendar: calendar, locale: locale, timeZone: timeZone).map { "Newest change among its folders: \($0)" }
+        dateAndTime(modified, calendar: calendar, locale: locale, timeZone: timeZone).map { "Newest change among them: \($0)" }
     }
 
     private static func dateAndTime(_ modified: String?, calendar: Calendar, locale: Locale, timeZone: TimeZone) -> String? {
