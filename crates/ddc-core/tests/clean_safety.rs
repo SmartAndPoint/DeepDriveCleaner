@@ -667,6 +667,10 @@ fn a_running_editor_holds_back_only_its_own_caches() {
 
 #[test]
 fn no_system_process_owns_a_cache() {
+    // The process table is not ported off macOS yet.
+    if common::unsupported("no_system_process_owns_a_cache") {
+        return;
+    }
     // On the live process table: nothing Apple ships may hold back a cache, the way
     // CursorUIViewService once held back every editor's.
     let system: Vec<ProcInfo> = SystemProcesses

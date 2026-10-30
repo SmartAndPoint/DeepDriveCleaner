@@ -22,6 +22,7 @@ use ddc_core::exec::MemoryAreaJournal;
 use ddc_core::free::{
     self, ActionList, ActionReport, ActionResult, FREE_SCHEMA_VERSION, FreeContext, ListedAction, Refusal,
 };
+use ddc_core::platform::Capability;
 use serde_json::{Value, json};
 
 /// A formula of `brew info --json=v2 --installed`: each keg's version and
@@ -447,6 +448,9 @@ fn the_listing_measures_each_keg_and_offers_what_nothing_needs() {
 
 #[test]
 fn without_brews_services_command_none_runs_and_the_state_is_not_known() {
+    if common::lacks("without_brews_services_command_none_runs_and_the_state_is_not_known", Capability::Homebrew) {
+        return;
+    }
     let a = Area::new();
     let commands = a.brew(&listing_fixture(), "[]");
     let listed = a.list(&commands, &[]).unwrap();
@@ -458,6 +462,9 @@ fn without_brews_services_command_none_runs_and_the_state_is_not_known() {
 
 #[test]
 fn a_service_job_keeps_its_formula_from_being_offered() {
+    if common::lacks("a_service_job_keeps_its_formula_from_being_offered", Capability::Homebrew) {
+        return;
+    }
     let a = Area::new();
     a.with_services();
     let missing = a.home.join("Library/LaunchAgents/homebrew.mxcl.wget.plist");
@@ -475,6 +482,9 @@ fn a_service_job_keeps_its_formula_from_being_offered() {
 
 #[test]
 fn services_that_cannot_be_read_offer_nothing() {
+    if common::lacks("services_that_cannot_be_read_offer_nothing", Capability::Homebrew) {
+        return;
+    }
     let a = Area::new();
     a.with_services();
     let listed = a.list(&a.brew(&listing_fixture(), "Error: not JSON"), &[]).unwrap();
@@ -485,6 +495,9 @@ fn services_that_cannot_be_read_offer_nothing() {
 
 #[test]
 fn a_keg_under_a_skip_is_not_measured() {
+    if common::lacks("a_keg_under_a_skip_is_not_measured", Capability::Homebrew) {
+        return;
+    }
     let a = Area::new();
     let wget = a.keg("wget", "1.25.0", 16 * 1024);
     let listed = a.list(&a.brew(&listing_fixture(), "[]"), &[wget]).unwrap();
@@ -495,6 +508,9 @@ fn a_keg_under_a_skip_is_not_measured() {
 
 #[test]
 fn a_formula_missing_a_field_offers_nothing() {
+    if common::lacks("a_formula_missing_a_field_offers_nothing", Capability::Homebrew) {
+        return;
+    }
     let a = Area::new();
     let mut doc: Value = serde_json::from_str(&listing_fixture()).unwrap();
     doc["formulae"][0].as_object_mut().unwrap().remove("pinned");
@@ -517,6 +533,9 @@ fn committed_brew_packages_schema_is_current() {
 
 #[test]
 fn nothing_is_listed_when_brew_fails_or_is_not_the_areas() {
+    if common::lacks("nothing_is_listed_when_brew_fails_or_is_not_the_areas", Capability::Homebrew) {
+        return;
+    }
     let a = Area::new();
     let failing = a.brew("", "[]").answer("brew", "info --json=v2 --installed", false, "Error: offline");
     assert!(matches!(a.list(&failing, &[]), Err(ListError::Info(_))));
@@ -611,6 +630,9 @@ fn the_dry_run_rereads_brew_and_lists_every_keg_it_would_remove() {
 
 #[test]
 fn the_rereading_refuses_what_changed_since_it_was_confirmed() {
+    if common::lacks("the_rereading_refuses_what_changed_since_it_was_confirmed", Capability::Homebrew) {
+        return;
+    }
     let a = Area::new();
     a.with_services();
     let refused = |commands: &FakeCommands, list: &ActionList| {
@@ -717,6 +739,9 @@ fn the_rereading_refuses_what_changed_since_it_was_confirmed() {
 
 #[test]
 fn a_rereading_brew_cannot_make_is_failed_and_nothing_starts() {
+    if common::lacks("a_rereading_brew_cannot_make_is_failed_and_nothing_starts", Capability::Homebrew) {
+        return;
+    }
     let a = Area::new();
     a.with_services();
     let not_started = |commands: &FakeCommands| {
@@ -941,6 +966,9 @@ fn a_stop_before_the_run_leaves_it_not_run() {
 
 #[test]
 fn a_service_entry_of_the_kegs_own_plist_and_no_user_is_not_a_refusal() {
+    if common::lacks("a_service_entry_of_the_kegs_own_plist_and_no_user_is_not_a_refusal", Capability::Homebrew) {
+        return;
+    }
     let a = Area::new();
     a.with_services();
     let keg = a.keg("wget", "1.25.0", 16 * 1024);

@@ -15,7 +15,7 @@ use ddc_core::agents::{
     self, AgentsOptions, AgentsReport, Harness, HarnessId, RecordsState, SessionState, UnknownReason, utc_ctime,
 };
 use ddc_core::env::Env;
-use ddc_core::platform::procs;
+use ddc_core::platform::{Capability, procs};
 
 const A: &str = "0a1b2c3d-0000-4000-8000-00000000000a";
 const B: &str = "0a1b2c3d-0000-4000-8000-00000000000b";
@@ -82,6 +82,9 @@ fn dead_pid() -> u32 {
 
 #[test]
 fn claude_sessions_are_live_stale_or_unknown() {
+    if common::lacks("claude_sessions_are_live_stale_or_unknown", Capability::CodingAgents) {
+        return;
+    }
     let fx = Fixture::new();
     let me = std::process::id();
     let start = procs::process_start(me as i32).unwrap();
@@ -330,6 +333,9 @@ fn an_unreadable_folder_is_unreadable_and_an_unreadable_file_is_still_sized() {
 
 #[test]
 fn a_skipped_harness_folder_is_never_opened() {
+    if common::lacks("a_skipped_harness_folder_is_never_opened", Capability::CodingAgents) {
+        return;
+    }
     let fx = Fixture::new();
     let me = std::process::id();
     fx.write(".claude/sessions/1.json", &format!(r#"{{"pid":{me},"sessionId":"{A}","startedAt":{}}}"#, now_ms()));

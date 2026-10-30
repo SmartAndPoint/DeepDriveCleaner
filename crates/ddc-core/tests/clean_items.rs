@@ -420,6 +420,11 @@ fn the_dry_run_walks_only_the_listed_items_and_streams_a_line_per_item() {
 
 #[test]
 fn a_malformed_list_is_refused_before_anything_runs() {
+    // macOS paths, which are not absolute on Windows: until story "Windows scanner
+    // and rule catalog" adds Windows-shaped inputs.
+    if common::unsupported("a_malformed_list_is_refused_before_anything_runs") {
+        return;
+    }
     let ok = r#"{"schema_version":1,"items":[{"path":"/Users/a/p/node_modules","dev":1,"ino":2,"rule":"node.node_modules","class":"rebuildable","action":"delete"}]}"#;
     assert!(ListedItems::parse(ok.as_bytes()).is_ok());
     let item = |path: &str, class: &str, action: &str, extra: &str| {

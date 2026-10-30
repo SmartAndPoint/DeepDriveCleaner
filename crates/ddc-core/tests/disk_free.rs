@@ -41,6 +41,11 @@ struct Fx {
 
 impl Fx {
     fn new() -> Self {
+        Self::try_new().unwrap()
+    }
+
+    /// The fixture, or `Unsupported` where the harness makes no symlink.
+    fn try_new() -> io::Result<Self> {
         let t = TreeBuilder::new();
         t.dir("home");
         t.dir("data");
@@ -48,11 +53,11 @@ impl Fx {
         // `/opt` is the firmlink of `/System/Volumes/Data/opt`.
         t.file(&format!("{DATA}/opt/homebrew/Cellar/wget/1.0/bin/wget"), 64 * 1024);
         t.file(&format!("{DATA}/opt/homebrew/Cellar/wget/1.1/bin/wget"), 64 * 1024);
-        t.symlink("System/Volumes/Data/opt", "sys/opt");
+        t.try_symlink("System/Volumes/Data/opt", "sys/opt")?;
         t.file("home/Library/Caches/Homebrew/downloads/old.tar.gz", 128 * 1024);
         let sources = Sources::under(&t.path("sys"));
         let home = t.path("home").canonicalize().unwrap();
-        Self { t, sources, home, cancel: AtomicBool::new(false), procs: FakeProcs::new(vec![]) }
+        Ok(Self { t, sources, home, cancel: AtomicBool::new(false), procs: FakeProcs::new(vec![]) })
     }
 
     fn env(&self) -> Env {
@@ -442,6 +447,11 @@ fn brew_cleanup_runs_alone_from_the_areas_brew_with_no_autoremove() {
 
 #[test]
 fn the_dry_run_runs_each_tools_own_dry_run_and_changes_nothing() {
+    if common::lacks("the_dry_run_runs_each_tools_own_dry_run_and_changes_nothing", Capability::WholeDisk)
+        || common::lacks("the_dry_run_runs_each_tools_own_dry_run_and_changes_nothing", Capability::Homebrew)
+    {
+        return;
+    }
     let fx = Fx::new();
     let commands = fx.brew(simctl(&fx, &[fx.runtime(|_| {})])).answer(
         "simctl",
@@ -676,6 +686,11 @@ fn every_malformed_list_is_refused_whole() {
 
 #[test]
 fn available_offers_the_runtimes_the_probe_passes_and_homebrew() {
+    if common::lacks("available_offers_the_runtimes_the_probe_passes_and_homebrew", Capability::WholeDisk)
+        || common::lacks("available_offers_the_runtimes_the_probe_passes_and_homebrew", Capability::Homebrew)
+    {
+        return;
+    }
     let fx = Fx::new();
     let refused = fx.runtime(|r| {
         r["identifier"] = json!("B");
@@ -789,7 +804,12 @@ fn report_of(action: ActionId, identifier: Option<&str>, result: ActionResult) -
 
 #[test]
 fn last_disk_marks_the_areas_that_ran_stale_and_drops_a_runtime_that_left() {
-    let fx = Fx::new();
+    let Some(fx) = common::skipped_without(
+        "last_disk_marks_the_areas_that_ran_stale_and_drops_a_runtime_that_left",
+        Fx::try_new(),
+    ) else {
+        return;
+    };
     let env = fx.env();
     let dir = env.data_dir().to_path_buf();
     fs::create_dir_all(&dir).unwrap();
@@ -1234,6 +1254,9 @@ fn the_conda_dry_runs_ask_the_probe_and_estimate_without_removing() {
 
 #[test]
 fn available_offers_each_opt_installs_package_cache_and_environments() {
+    if common::lacks("available_offers_each_opt_installs_package_cache_and_environments", Capability::WholeDisk) {
+        return;
+    }
     let fx = Fx::new().with_conda();
     fx.t.write(&format!("{MINICONDA}/envs/ml/conda-meta/history"), "");
     fx.t.dir(&format!("{MINICONDA}/envs/not-one"));
@@ -1310,7 +1333,12 @@ fn a_stop_while_conda_runs_reports_it_stopped_with_its_command() {
 
 #[test]
 fn last_disk_drops_an_environment_conda_removed_and_keeps_one_still_there() {
-    let fx = Fx::new();
+    let Some(fx) = common::skipped_without(
+        "last_disk_drops_an_environment_conda_removed_and_keeps_one_still_there",
+        Fx::try_new(),
+    ) else {
+        return;
+    };
     let env = fx.env();
     let dir = env.data_dir().to_path_buf();
     fs::create_dir_all(&dir).unwrap();

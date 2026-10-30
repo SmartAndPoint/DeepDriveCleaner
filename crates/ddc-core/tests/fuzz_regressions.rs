@@ -13,6 +13,8 @@ use ddc_core::free::ActionList;
 use ddc_core::plan::ListedItems;
 use ddc_core::{settings, store};
 
+mod common;
+
 /// The files of one target, sorted.
 fn inputs(target: &str) -> Vec<(PathBuf, Vec<u8>)> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/regressions").join(target);
@@ -59,6 +61,12 @@ fn the_item_list_returns_on_every_kept_input_and_reads_back_what_it_accepts() {
         assert_eq!(ListedItems::parse(&serde_json::to_vec(&list).unwrap()), Ok(list));
         true
     });
+    // Every kept input ran without a panic. They name macOS paths, which are not
+    // absolute on Windows: until story "Windows scanner and rule catalog" adds
+    // Windows-shaped ones, none need be accepted.
+    if common::unsupported("the_item_list_returns_on_every_kept_input_and_reads_back_what_it_accepts") {
+        return;
+    }
     assert!(accepted >= 1, "no input reads as an item list");
 }
 
@@ -79,6 +87,10 @@ fn settings_return_on_every_kept_input_and_read_back_what_they_accept() {
         assert_eq!(settings::parse(&serde_json::to_vec(&s).unwrap()), Ok(s));
         true
     });
+    // As for the item list: the no-panic half ran; the acceptance needs macOS paths.
+    if common::unsupported("settings_return_on_every_kept_input_and_read_back_what_they_accept") {
+        return;
+    }
     assert!(accepted >= 1, "no input reads as settings");
 }
 
