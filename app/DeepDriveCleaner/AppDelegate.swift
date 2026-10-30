@@ -18,6 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let presence = DockPresenceController()
     /// Made once the popover model exists: Settings shares its state.
     private var settings: SettingsWindowController?
+    /// The app's one writer of `settings.json`: Settings and the Review
+    /// window's Remove Protection… both edit through it.
+    private var settingsStore: SettingsStore?
     private lazy var reviewWindow = ReviewWindowController(presence: presence)
     private var review: ReviewModel?
     private var model: PopoverModel?
@@ -90,7 +93,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             paused: { [weak self] in self?.model?.paused ?? false },
             // The popover's flag is the one an update's install sets.
             updateWaiting: { [weak self] in self?.model?.updateWaiting ?? false },
-            log: { AppLog.write($0) }
+            log: { AppLog.write($0) },
+            // Remove Protection… on a Settings entry: the same store as
+            // Settings → Folders, so it stays the only writer.
+            editSettings: { [weak self] edit in self?.settingsStore?.update(edit) ?? false },
+            // A marker's git check: four fixed paths, never /usr/bin/git or xcrun.
+            gitTracking: GitTracking()
         )
         self.review = review
         // In every launch mode, so a promoted scheduled instance shows its running scan.
@@ -120,6 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 changed: { [weak model] in Task { await model?.refresh() } },
                 log: { AppLog.write($0) }
             )
+            settingsStore = store
             let agent = SchedulerAgent(
                 service: SystemAgentService(),
                 store: store,

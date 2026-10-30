@@ -37,7 +37,9 @@ struct ReviewView: View {
             if let rescan = model.rescanning, model.sheet == nil {
                 Banner(
                     systemImage: nil,
-                    text: rescan == .afterClean ? "Scanning again after the clean… The list updates when the scan ends." : "Scanning… The list updates when the scan ends."
+                    text: rescan == .afterClean ? "Scanning again after the clean… The list updates when the scan ends."
+                        : rescan == .afterRemovingProtection ? "Protection removed. Scanning… The list updates when the scan ends."
+                        : "Scanning… The list updates when the scan ends."
                 )
             }
             if let items = model.items {
@@ -202,7 +204,8 @@ private struct Sidebar: View {
                             SidebarEntry(model: model, entry: entry)
                         }
                         if section.riskClass == .userData {
-                            Text("Your own files. Nothing is selected for you; pick files one by one and they go to the Trash.")
+                            // It promises picking only where a folder lists its files.
+                            Text(CleanWording.userDataSectionBlurb)
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -356,6 +359,8 @@ struct ItemRow: View {
     var shown: String?
     var detail: String?
     @State private var confirmProtect = false
+    /// Remove Protection…'s confirmation, once its words and git's answer are in.
+    @State private var removal: RemoveProtection.Confirmation?
 
     var body: some View {
         let path = Wording.tilde(row.finding.path, home: home)
@@ -383,7 +388,14 @@ struct ItemRow: View {
                     }
                 }
                 Text(shown ?? path).font(.system(size: 13)).lineLimit(1).truncationMode(.middle)
-                if !second.isEmpty {
+                if let progress = model.removingProtection, progress.id == row.id {
+                    // "Protection removed. Scanning…" until the scan after it ends.
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text(progress.text).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    .accessibilityElement(children: .combine)
+                } else if !second.isEmpty {
                     Text(second).font(.system(size: 11)).foregroundStyle(warns ? ReportClassStyle.ink(.review) : .secondary).lineLimit(1)
                 }
                 // Its tool ran in the last clean: said until the next scan.
@@ -392,6 +404,9 @@ struct ItemRow: View {
                 }
             }
             Spacer(minLength: 8)
+            if RemoveProtectionButton.offered(row), model.removingProtection?.id != row.id {
+                RemoveProtectionButton(model: model, row: row, path: path) { askRemoval() }
+            }
             SortColumns(changed: CleanWording.changed(row.finding.modified, scanned: scanned), tooltip: CleanWording.changedHelp(row)) {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(ByteSize.human(row.finding.bytes)).font(.system(size: 13)).monospacedDigit()
@@ -412,7 +427,13 @@ struct ItemRow: View {
                 Button("Protect This Folder…") { confirmProtect = true }
                     .disabled(!model.canProtect(row.id))
             }
+            // A kept row with one protection the app can take away.
+            if RemoveProtectionButton.offered(row) {
+                Button("Remove Protection…") { askRemoval() }
+                    .disabled(!model.canRemoveProtection(row.id))
+            }
         }
+        .modifier(RemoveProtectionDialog(model: model, confirmation: $removal))
         .confirmationDialog("Protect \(path)?", isPresented: $confirmProtect) {
             Button("Protect") { model.protect(row.id) }
             Button("Cancel", role: .cancel) {}
@@ -421,8 +442,14 @@ struct ItemRow: View {
         }
     }
 
+    /// Asks the model for the confirmation's words: for a marker, git is
+    /// asked first whether it tracks it (at most about 2 s).
+    private func askRemoval() {
+        Task { removal = await model.removalConfirmation(row.id) }
+    }
+
     private var secondLine: String {
-        let detail = CleanWording.detail(row)
+        let detail = CleanWording.detail(row, home: home)
         let parts = [row.finding.rule, row.action.map(CleanWording.action), detail.isEmpty ? nil : detail].compactMap { $0 }
         return parts.joined(separator: " · ")
     }

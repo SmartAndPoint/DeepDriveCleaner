@@ -576,11 +576,15 @@ struct ContractTests {
         #expect(owner.matches(of: /\.run\(\.keepRemove\b/).count == 1, "one run of keep remove")
         #expect(owner.matches(of: /removeMarker\(/).count == 2, "declared once, called once: from removeProtection")
         #expect(files(/func removeProtection\(/) == ["RemoveProtection.swift"])
-        // The confirmation's confirm button is the one caller; it comes with the
-        // window's UI, so for now there is none.
-        let callers = sources.filter { $0.value.contains(/\.removeProtection\(/) }
-        #expect(callers.count <= 1)
-        #expect(callers.values.allSatisfy { $0.matches(of: /\.removeProtection\(/).count == 1 })
+        // The confirmation's confirm button is the one caller.
+        #expect(files(/\.removeProtection\(/) == ["RemoveProtectionDialog.swift"], "the confirmation's confirm button is the one caller")
+        let dialog = try #require(sources["RemoveProtectionDialog.swift"])
+        #expect(dialog.matches(of: /\.removeProtection\(/).count == 1)
+        let confirm = try #require(dialog.firstMatch(of: /Button\(confirmed\.confirmTitle, role: \.destructive\) \{[\s\S]*?\n            \}\n/))
+        #expect(confirm.output.contains(/\.removeProtection\(confirmed\)/), "inside the confirm button")
+        // The row's button and its context menu only ask for the confirmation.
+        #expect(files(/\.removalConfirmation\(/) == ["ReviewView.swift"])
+        #expect(files(/RemoveProtectionDialog\(/) == ["ReviewView.swift"])
         for file in ["ScheduledWork.swift", "PopoverModel.swift", "AppDelegate.swift", "SchedulerAgent.swift", "ScanDue.swift"] {
             #expect(!(try #require(sources[file])).contains(/keepRemove|removeProtection|removalConfirmation|"keep"/), "\(file) never removes a protection")
         }
