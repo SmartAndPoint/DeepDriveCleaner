@@ -22,6 +22,18 @@ struct ScanReportTests {
         #expect(report.totals.selectedBytes == report.findings.filter(\.selected).reduce(0) { $0 + $1.bytes })
     }
 
+    /// Story "Protected by you: say what it is, and Remove Protection": the
+    /// kept findings' `protection` is a new optional field of schema 2, so
+    /// this app, which does not read it yet, still reads the report.
+    @Test("a report whose kept findings say what protects them reads as before")
+    func decodesReportWithProtection() throws {
+        let report = try ScanReport.read(try Data(contentsOf: try Self.fixture("scan-report-protection")))
+        #expect(report.schemaVersion == ScanReport.schemaVersion)
+        #expect(report.findings.map(\.rule) == ["user.kept", "user.kept", "user.kept"])
+        #expect(report.findings.map(\.notes) == [[.keptByMarker], [.excluded], [.excluded]])
+        #expect(report.findings.allSatisfy { $0.class == .userData && !$0.selected })
+    }
+
     @Test("a report of another schema version is unreadable")
     func otherSchemaIsUnreadable() throws {
         let data = try Data(contentsOf: try Self.fixture("scan-report-v1"))

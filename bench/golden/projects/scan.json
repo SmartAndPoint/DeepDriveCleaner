@@ -6251,6 +6251,17 @@
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
       "path": "<run>/tree/projects/g02/p00234/Pods",
+      "protection": {
+        "exclusions": [],
+        "markers": [
+          {
+            "dev": "<tree-dev>",
+            "folder": "<run>/tree/projects/g02/p00234/Pods",
+            "ino": null
+          }
+        ],
+        "rule": "cocoapods.pods"
+      },
       "removal": "none",
       "rule": "user.kept",
       "rule_class": "user-data",
@@ -6276,6 +6287,17 @@
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
       "path": "<run>/tree/projects/g01/p00132/build",
+      "protection": {
+        "exclusions": [],
+        "markers": [
+          {
+            "dev": "<tree-dev>",
+            "folder": "<run>/tree/projects/g01/p00132/build",
+            "ino": null
+          }
+        ],
+        "rule": "gradle.build"
+      },
       "removal": "none",
       "rule": "user.kept",
       "rule_class": "user-data",
@@ -6301,6 +6323,17 @@
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
       "path": "<run>/tree/projects/g00/p00015/cmake-build-debug",
+      "protection": {
+        "exclusions": [],
+        "markers": [
+          {
+            "dev": "<tree-dev>",
+            "folder": "<run>/tree/projects/g00/p00015/cmake-build-debug",
+            "ino": null
+          }
+        ],
+        "rule": "cmake.build"
+      },
       "removal": "none",
       "rule": "user.kept",
       "rule_class": "user-data",
@@ -6326,6 +6359,17 @@
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
       "path": "<run>/tree/projects/g00/p00045/target",
+      "protection": {
+        "exclusions": [],
+        "markers": [
+          {
+            "dev": "<tree-dev>",
+            "folder": "<run>/tree/projects/g00/p00045/target",
+            "ino": null
+          }
+        ],
+        "rule": "rust.target"
+      },
       "removal": "none",
       "rule": "user.kept",
       "rule_class": "user-data",
@@ -6351,6 +6395,17 @@
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
       "path": "<run>/tree/projects/g01/p00197/target",
+      "protection": {
+        "exclusions": [],
+        "markers": [
+          {
+            "dev": "<tree-dev>",
+            "folder": "<run>/tree/projects/g01/p00197/target",
+            "ino": null
+          }
+        ],
+        "rule": "maven.target"
+      },
       "removal": "none",
       "rule": "user.kept",
       "rule_class": "user-data",
@@ -6376,6 +6431,17 @@
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
       "path": "<run>/tree/projects/g02/p00219/Pods",
+      "protection": {
+        "exclusions": [],
+        "markers": [
+          {
+            "dev": "<tree-dev>",
+            "folder": "<run>/tree/projects/g02/p00219/Pods",
+            "ino": null
+          }
+        ],
+        "rule": "cocoapods.pods"
+      },
       "removal": "none",
       "rule": "user.kept",
       "rule_class": "user-data",
@@ -6401,6 +6467,17 @@
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
       "path": "<run>/tree/projects/g02/p00217/node_modules",
+      "protection": {
+        "exclusions": [],
+        "markers": [
+          {
+            "dev": "<tree-dev>",
+            "folder": "<run>/tree/projects/g02/p00217/node_modules",
+            "ino": null
+          }
+        ],
+        "rule": "node.node_modules"
+      },
       "removal": "none",
       "rule": "user.kept",
       "rule_class": "user-data",
@@ -6426,6 +6503,17 @@
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
       "path": "<run>/tree/projects/g01/p00118/build",
+      "protection": {
+        "exclusions": [],
+        "markers": [
+          {
+            "dev": "<tree-dev>",
+            "folder": "<run>/tree/projects/g01/p00118/build",
+            "ino": null
+          }
+        ],
+        "rule": "gradle.build"
+      },
       "removal": "none",
       "rule": "user.kept",
       "rule_class": "user-data",

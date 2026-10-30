@@ -1,0 +1,185 @@
+{
+  "schema_version": 2,
+  "ddc_version": "0.9.0",
+  "platform": "macos",
+  "capabilities": [
+    "private-size",
+    "in-use-check",
+    "dataless-files",
+    "full-disk-access",
+    "local-snapshots",
+    "whole-disk",
+    "coding-agents",
+    "homebrew",
+    "schedule",
+    "notifications"
+  ],
+  "generated_at": "2026-10-30T15:20:41Z",
+  "duration_ms": 6,
+  "home": "/Users/example",
+  "scan_roots": [
+    "/Users/example"
+  ],
+  "full_disk_access": false,
+  "min_age_days": 14,
+  "totals": {
+    "scanned_bytes": 65536,
+    "files": 9,
+    "dirs": 12,
+    "unowned_bytes": 8192,
+    "classes": [
+      {
+        "class": "safe",
+        "count": 0,
+        "bytes": 0,
+        "selected_count": 0,
+        "selected_bytes": 0
+      },
+      {
+        "class": "rebuildable",
+        "count": 0,
+        "bytes": 0,
+        "selected_count": 0,
+        "selected_bytes": 0
+      },
+      {
+        "class": "review",
+        "count": 0,
+        "bytes": 0,
+        "selected_count": 0,
+        "selected_bytes": 0
+      },
+      {
+        "class": "user-data",
+        "count": 3,
+        "bytes": 57344,
+        "selected_count": 0,
+        "selected_bytes": 0
+      }
+    ],
+    "selected_bytes": 0,
+    "selected_reclaimable_bytes": 0
+  },
+  "findings": [
+    {
+      "path": "/Users/example/p/node_modules",
+      "rule": "user.kept",
+      "category": "personal",
+      "class": "user-data",
+      "rule_class": "user-data",
+      "removal": "none",
+      "bytes": 32768,
+      "shared_bytes": 0,
+      "files": 4,
+      "dirs": 4,
+      "incomplete": false,
+      "selected": false,
+      "not_selected": {
+        "reason": "user-data"
+      },
+      "notes": [
+        "kept-by-marker"
+      ],
+      "hint": "protected by --exclude or a .ddc-keep marker",
+      "dev": 16777232,
+      "ino": 339569697,
+      "parent_dev": 16777232,
+      "parent_ino": 339569694,
+      "protection": {
+        "markers": [
+          {
+            "folder": "/Users/example/p/node_modules",
+            "dev": 16777232,
+            "ino": 339569697
+          },
+          {
+            "folder": "/Users/example/p/node_modules/patched",
+            "dev": 16777232,
+            "ino": 339569712
+          }
+        ],
+        "exclusions": [],
+        "rule": "node.node_modules"
+      }
+    },
+    {
+      "path": "/Users/example/q/node_modules",
+      "rule": "user.kept",
+      "category": "personal",
+      "class": "user-data",
+      "rule_class": "user-data",
+      "removal": "none",
+      "bytes": 16384,
+      "shared_bytes": 0,
+      "files": 2,
+      "dirs": 3,
+      "incomplete": false,
+      "selected": false,
+      "not_selected": {
+        "reason": "user-data"
+      },
+      "notes": [
+        "excluded"
+      ],
+      "hint": "protected by --exclude or a .ddc-keep marker",
+      "dev": 16777232,
+      "ino": 339569720,
+      "parent_dev": 16777232,
+      "parent_ino": 339569718,
+      "protection": {
+        "markers": [],
+        "exclusions": [
+          {
+            "path": "/Users/example/q/node_modules/raw",
+            "kind": "skip",
+            "origin": "settings",
+            "inside": true
+          }
+        ],
+        "rule": "node.node_modules"
+      }
+    },
+    {
+      "path": "/Users/example/r/node_modules",
+      "rule": "user.kept",
+      "category": "personal",
+      "class": "user-data",
+      "rule_class": "user-data",
+      "removal": "none",
+      "bytes": 8192,
+      "shared_bytes": 0,
+      "files": 1,
+      "dirs": 2,
+      "incomplete": false,
+      "selected": false,
+      "not_selected": {
+        "reason": "user-data"
+      },
+      "notes": [
+        "excluded"
+      ],
+      "hint": "protected by --exclude or a .ddc-keep marker",
+      "dev": 16777232,
+      "ino": 339569730,
+      "parent_dev": 16777232,
+      "parent_ino": 339569728,
+      "protection": {
+        "markers": [],
+        "exclusions": [
+          {
+            "path": "/Users/example/r/node_modules",
+            "kind": "exclude",
+            "origin": "flag",
+            "inside": false
+          }
+        ]
+      }
+    }
+  ],
+  "large_files": [],
+  "inaccessible": [],
+  "errors_total": 0,
+  "skipped": [],
+  "skipped_total": 0,
+  "cancelled": false
+}

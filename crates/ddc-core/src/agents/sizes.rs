@@ -72,7 +72,7 @@ impl Visitor for AgentsVisitor<'_> {
         self.inner.wants_private(dir, tag)
     }
 
-    fn on_file(&self, dir: &Path, entry: &EntryMeta, _owner: Option<(OwnerKind, Tag)>) {
+    fn on_file(&self, dir: &Path, _dir_id: (u64, u64), entry: &EntryMeta, _owner: Option<(OwnerKind, Tag)>) {
         for t in self.transcripts {
             t.count(dir, &entry.name, entry.alloc);
         }

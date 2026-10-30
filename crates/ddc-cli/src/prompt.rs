@@ -368,6 +368,7 @@ mod tests {
                 parent_dev: None,
                 parent_ino: None,
                 contents: None,
+                protection: None,
             },
             action,
             default_selected: selected,

@@ -553,7 +553,7 @@ fn keep_markers(targets: Vec<PathBuf>, opts: &ExecOptions<'_>, walked: &Progress
         fn wants_private(&self, _: &scan::DirCtx<'_>, _: Tag) -> bool {
             false
         }
-        fn on_file(&self, dir: &Path, entry: &EntryMeta, _: Option<(OwnerKind, Tag)>) {
+        fn on_file(&self, dir: &Path, _: (u64, u64), entry: &EntryMeta, _: Option<(OwnerKind, Tag)>) {
             if entry.name == KEEP_MARKER {
                 self.0.lock().unwrap_or_else(|p| p.into_inner()).push(dir.to_path_buf());
             }

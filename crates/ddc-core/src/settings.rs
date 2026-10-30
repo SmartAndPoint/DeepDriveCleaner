@@ -12,6 +12,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::env::Env;
+use crate::model::ExclusionOrigin;
 use crate::report::{DEFAULT_MIN_AGE, ScanOptions};
 
 pub const SETTINGS: &str = "settings.json";
@@ -203,10 +204,12 @@ impl Settings {
         missing.extend(gone);
         let origin = path(env).display().to_string();
         let mut user_skips = Vec::new();
-        for (skip, origin) in found
+        // The skips only `--skip` gives: one the file also holds is the file's.
+        let mut flag_skips = Vec::new();
+        for (skip, origin, flag) in found
             .iter()
-            .map(|s| (s, format!("skips in {origin}")))
-            .chain(flags.skips.iter().map(|s| (s, "--skip".to_owned())))
+            .map(|s| (s, format!("skips in {origin}"), false))
+            .chain(flags.skips.iter().map(|s| (s, "--skip".to_owned(), true)))
         {
             let canonical = skip.canonicalize().map_err(|e| SettingsError::Skip {
                 skip: skip.clone(),
@@ -217,6 +220,9 @@ impl Settings {
                 return Err(SettingsError::Skip { skip: skip.clone(), origin, reason: "not a folder".to_owned() });
             }
             if !user_skips.contains(&canonical) {
+                if flag {
+                    flag_skips.push(canonical.clone());
+                }
                 user_skips.push(canonical);
             }
         }
@@ -233,6 +239,12 @@ impl Settings {
                 roots,
                 excludes,
                 user_skips,
+                flag_skips,
+                excludes_origin: if flags.excludes.is_empty() {
+                    ExclusionOrigin::Settings
+                } else {
+                    ExclusionOrigin::Flag
+                },
                 min_age: min_age_days.map_or(DEFAULT_MIN_AGE, |d| Duration::from_secs(d * 86_400)),
                 disabled_rules: self.disabled_rules.clone(),
                 min_size: self.min_size.unwrap_or(0),

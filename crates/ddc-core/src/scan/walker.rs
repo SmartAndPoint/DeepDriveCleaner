@@ -345,7 +345,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             }
             _ => {
                 files += 1;
-                sh.visitor.on_file(&dir, meta, ctx_owner);
+                sh.visitor.on_file(&dir, here, meta, ctx_owner);
                 if meta.nlink > 1 && meta.kind == EntryKind::File {
                     let holder = Holder { root, owner: owner_id, entry: within.map(|e| e.id) };
                     sh.inodes.record(meta.dev, meta.ino, meta.alloc, meta.private, meta.nlink, holder);

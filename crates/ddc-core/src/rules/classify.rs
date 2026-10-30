@@ -9,6 +9,7 @@ use super::entries::ENTRY_RULES;
 use super::matcher::glob_match;
 use super::{KEPT, Rule, RuleVisitor, toolchain};
 use crate::class::{Category, RiskClass};
+use crate::model::{Exclusion, ExclusionKind, ExclusionOrigin, MarkerFolder, Protection};
 use crate::scan::{OwnerKind, OwnerResult, WalkOutput};
 use crate::stats::{self, Counter};
 
@@ -39,14 +40,17 @@ pub struct Classified {
     pub project_root: Option<PathBuf>,
     /// Lock-gated rules: whether a lock file was found.
     pub has_lockfile: Option<bool>,
+    /// What keeps a `user.kept` finding; `None` on every other.
+    pub protection: Option<Protection>,
 }
 
 pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> {
     let catalog = visitor.catalog();
     let home = catalog.home();
     let kept = catalog.by_id(KEPT).expect("catalog defines user.kept");
-    let markers = visitor.keep_markers();
-    let marked = AtOrAbove::new(markers.iter().map(PathBuf::as_path));
+    let markers = visitor.marker_folders();
+    let marked = AtOrAbove::new(markers.iter().map(|m| m.folder.as_path()));
+    let claims = visitor.kept_claims();
     let mut locks = LockFiles::default();
     let dropped = toolchain::dropped(&out.owners, catalog, &visitor.pins());
 
@@ -59,7 +63,12 @@ pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> 
         let mut notes = Vec::new();
         let excluded_inside =
             visitor.excludes().iter().any(|e| stats::counted(Counter::AncestorChecks, || e.starts_with(&owner.path)));
+        // The rule a `user.kept` finding displaced, when known; `None` while
+        // the finding is not kept.
+        let mut displaced = None;
+        let claim = claims.get(&owner.path);
         if rule.id == KEPT {
+            displaced = Some(claim.and_then(|k| k.rule).map(|tag| catalog.rule(tag)));
             notes.push(
                 if excluded_inside
                     || visitor
@@ -74,19 +83,68 @@ pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> 
             );
         } else if owner.kind == OwnerKind::Claim && excluded_inside {
             // `--exclude` below a finding protects the whole finding.
+            displaced = Some(Some(rule));
             rule = kept;
             notes.push(Note::Excluded);
         } else if owner.kind == OwnerKind::Claim && !ENTRY_RULES.contains(&rule.id) && marked.contains(&owner.path) {
             // In the user's own folders a marker locks the entry that holds it
             // instead (safety ADR, amendment of 2026-10-20); one at the folder's
             // top made it `user.kept` before it was read.
+            displaced = Some(Some(rule));
             rule = kept;
             notes.push(Note::KeptByMarker);
         }
+        let protection = displaced.map(|displaced| Protection {
+            markers: markers_in(&markers, owner, claim.is_some_and(|k| k.marker)),
+            exclusions: exclusions_of(&owner.path, visitor),
+            // An unlisted rule is no group the folder could return to.
+            rule: displaced.filter(|r| r.listed).map(|r| r.id.to_owned()),
+        });
         let roots: Vec<&Path> = out.roots.iter().map(|r| r.path.as_path()).collect();
         let (class, project_root, has_lockfile) = downgraded(rule, &owner.path, &roots, home, &mut locks, &mut notes);
-        found.push(Classified { rule, owner: owner.clone(), class, notes, project_root, has_lockfile });
+        found.push(Classified { rule, owner: owner.clone(), class, notes, project_root, has_lockfile, protection });
     }
+    found
+}
+
+/// The marker folders at or under a finding, from all of them sorted by
+/// folder: a finding's own lie together, found by a binary search. A marker
+/// at the top that the walk saw before the read (a folder named `.ddc-keep`)
+/// has the finding's own identity.
+fn markers_in(sorted: &[MarkerFolder], owner: &OwnerResult, top: bool) -> Vec<MarkerFolder> {
+    let start = sorted.partition_point(|m| m.folder < owner.path);
+    let mut found: Vec<MarkerFolder> =
+        sorted[start..].iter().take_while(|m| m.folder.starts_with(&owner.path)).cloned().collect();
+    found.dedup_by(|a, b| a.folder == b.folder);
+    if top && found.first().is_none_or(|m| m.folder != owner.path) {
+        found.insert(0, MarkerFolder { folder: owner.path.clone(), dev: owner.dev, ino: owner.ino });
+    }
+    found
+}
+
+/// The exclusions and skips at or above `path` or inside it, sorted by path,
+/// each once, with their origin.
+fn exclusions_of(path: &Path, visitor: &RuleVisitor<'_>) -> Vec<Exclusion> {
+    let mut found: Vec<Exclusion> = visitor
+        .excludes()
+        .iter()
+        .filter(|e| stats::counted(Counter::AncestorChecks, || path.starts_with(e) || e.starts_with(path)))
+        .map(|e| {
+            let skip = visitor.user_skips().contains(e);
+            Exclusion {
+                path: e.clone(),
+                kind: if skip { ExclusionKind::Skip } else { ExclusionKind::Exclude },
+                origin: match skip {
+                    true if visitor.flag_skips().contains(e) => ExclusionOrigin::Flag,
+                    true => ExclusionOrigin::Settings,
+                    false => visitor.excludes_origin(),
+                },
+                inside: e.as_path() != path && e.starts_with(path),
+            }
+        })
+        .collect();
+    found.sort_by(|a, b| a.path.cmp(&b.path));
+    found.dedup_by(|a, b| a.path == b.path);
     found
 }
 

@@ -371,6 +371,7 @@ fn entry(
         parent_dev: Some(folder.dev),
         parent_ino: Some(folder.ino),
         contents: None,
+        protection: None,
     };
     Ok(PlanItem { finding, action: Action::TrashEntry, default_selected: false, selected: true })
 }

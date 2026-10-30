@@ -2,6 +2,7 @@
 //! exclusions and keep markers → exact known paths (before reading) →
 //! ancestors of known paths only descend → specialized rules → CACHEDIR.TAG.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -10,6 +11,7 @@ use super::entries::ENTRY_RULES;
 use super::matcher::{self, ListingView};
 use super::{Catalog, Clones, NeverOpen};
 use crate::class::RiskClass;
+use crate::model::{ExclusionOrigin, MarkerFolder};
 use crate::scan::{DirCtx, DirListing, EntryKind, EntryMeta, OwnerKind, Post, Pre, SkipReason, Tag, Visitor};
 
 /// A file with this name protects its directory and everything below.
@@ -28,11 +30,24 @@ pub struct Pins {
     pub rust: Vec<String>,
 }
 
+/// What the walk knew of a folder it claimed as `user.kept`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeptClaim {
+    /// The rule the claim displaced, when the walk knows it.
+    pub rule: Option<Tag>,
+    /// A keep marker at its top kept it.
+    pub marker: bool,
+}
+
 pub struct RuleVisitor<'c> {
     catalog: &'c Catalog,
     excludes: Vec<PathBuf>,
-    /// Directories inside claimed findings that contain a keep marker.
-    markers: Mutex<Vec<PathBuf>>,
+    /// Where the excludes that are not user skips came from.
+    excludes_origin: ExclusionOrigin,
+    /// Directories inside claimed findings that contain a keep marker, with
+    /// the identity the walk held when it listed each.
+    markers: Mutex<Vec<(PathBuf, (u64, u64))>>,
+    kept: Mutex<HashMap<PathBuf, KeptClaim>>,
     pins: Mutex<Pins>,
     large: Mutex<Vec<(u64, PathBuf)>>,
     large_threshold: u64,
@@ -40,6 +55,8 @@ pub struct RuleVisitor<'c> {
     skips: Vec<PathBuf>,
     /// The user's skips: never opened, and recorded when the walk stops at one.
     user_skips: Vec<PathBuf>,
+    /// The user skips only a flag gave.
+    flag_skips: Vec<PathBuf>,
     not_scanned: Mutex<Vec<PathBuf>>,
 }
 
@@ -49,14 +66,26 @@ impl<'c> RuleVisitor<'c> {
         Self {
             catalog,
             excludes,
+            excludes_origin: ExclusionOrigin::Settings,
             markers: Mutex::new(Vec::new()),
+            kept: Mutex::new(HashMap::new()),
             pins: Mutex::new(Pins::default()),
             large: Mutex::new(Vec::new()),
             large_threshold: LARGE_FILE_BYTES,
             skips: Vec::new(),
             user_skips: Vec::new(),
+            flag_skips: Vec::new(),
             not_scanned: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Where the excludes came from, and the user skips only a flag gave
+    /// (canonical): what a kept finding's `protection` names. By default
+    /// everything is the settings'.
+    pub fn with_origins(mut self, excludes: ExclusionOrigin, flag_skips: Vec<PathBuf>) -> Self {
+        self.excludes_origin = excludes;
+        self.flag_skips = flag_skips;
+        self
     }
 
     /// Directories that are skipped without being opened.
@@ -86,10 +115,41 @@ impl<'c> RuleVisitor<'c> {
         &self.excludes
     }
 
+    pub fn excludes_origin(&self) -> ExclusionOrigin {
+        self.excludes_origin
+    }
+
+    pub fn user_skips(&self) -> &[PathBuf] {
+        &self.user_skips
+    }
+
+    pub fn flag_skips(&self) -> &[PathBuf] {
+        &self.flag_skips
+    }
+
     pub fn keep_markers(&self) -> Vec<PathBuf> {
-        let mut m = self.markers.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        let mut m: Vec<PathBuf> =
+            self.markers.lock().unwrap_or_else(|p| p.into_inner()).iter().map(|(dir, _)| dir.clone()).collect();
         m.sort();
         m
+    }
+
+    /// [`Self::keep_markers`] with each folder's identity, sorted by folder.
+    pub fn marker_folders(&self) -> Vec<MarkerFolder> {
+        let mut m: Vec<MarkerFolder> = self
+            .markers
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .map(|(folder, (dev, ino))| MarkerFolder { folder: folder.clone(), dev: *dev, ino: *ino })
+            .collect();
+        m.sort_by(|a, b| a.folder.cmp(&b.folder));
+        m
+    }
+
+    /// The folders the walk claimed as `user.kept`, with what it knew of each.
+    pub fn kept_claims(&self) -> HashMap<PathBuf, KeptClaim> {
+        self.kept.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     /// The user's skips the walk stopped at, sorted, each once.
@@ -113,7 +173,29 @@ impl<'c> RuleVisitor<'c> {
     }
 
     fn claim_unless_kept(&self, dir: &Path, tag: Tag) -> Tag {
-        if fs::symlink_metadata(dir.join(KEEP_MARKER)).is_ok() { self.catalog.kept } else { tag }
+        if fs::symlink_metadata(dir.join(KEEP_MARKER)).is_err() {
+            return tag;
+        }
+        self.kept(dir, Some(tag), true)
+    }
+
+    /// Records a `user.kept` claim of `dir` and returns its tag.
+    fn kept(&self, dir: &Path, rule: Option<Tag>, marker: bool) -> Tag {
+        self.kept.lock().unwrap_or_else(|p| p.into_inner()).insert(dir.to_path_buf(), KeptClaim { rule, marker });
+        self.catalog.kept
+    }
+
+    /// The specialized or generic rule that claims `dir` from its listing.
+    fn matched(&self, dir: &DirCtx<'_>, view: &ListingView<'_>) -> Option<Tag> {
+        let c = self.catalog;
+        let has = |n: &str| matcher::DirView::has_child(view, n);
+        if c.ancestors.contains(dir.path) || !c.claimable(dir.path, dir.depth, has) {
+            return None;
+        }
+        c.specialized.iter().chain((c.cachedir != Tag::MAX).then_some(&c.cachedir)).copied().find(|&tag| {
+            let m = &c.rule(tag).matcher;
+            Catalog::content_matcher_allowed(m, has) && matcher::matches(m, view, &c.home)
+        })
     }
 }
 
@@ -133,7 +215,15 @@ impl Visitor for RuleVisitor<'_> {
         }
         // An exclude equal to this directory or above it (above a scan root).
         if self.excludes.iter().any(|e| dir.path.starts_with(e)) {
-            return Pre::Claim(c.kept);
+            // Nothing below is listed: only a table rule is known here, never
+            // one that matches a listing (`node_modules`).
+            let rule = c
+                .known
+                .get(dir.path)
+                .or_else(|| c.regions.get(dir.path))
+                .or_else(|| dir.path.parent().and_then(|p| c.children_of.get(p)))
+                .copied();
+            return Pre::Claim(self.kept(dir.path, rule, false));
         }
         if let Some(&tag) = c.known.get(dir.path) {
             return Pre::Claim(self.claim_unless_kept(dir.path, tag));
@@ -149,24 +239,14 @@ impl Visitor for RuleVisitor<'_> {
     }
 
     fn after_read(&self, dir: &DirCtx<'_>, listing: &DirListing) -> Post {
-        let c = self.catalog;
         let view = ListingView { path: dir.path, listing };
+        let matched = self.matched(dir, &view);
+        // A marker always keeps the folder; the matchers ran first so that
+        // the report names the rule it displaced.
         if matcher::DirView::has_child(&view, KEEP_MARKER) {
-            return Post::Claim(c.kept);
+            return Post::Claim(self.kept(dir.path, matched, true));
         }
-        if c.ancestors.contains(dir.path)
-            || !c.claimable(dir.path, dir.depth, |n| matcher::DirView::has_child(&view, n))
-        {
-            return Post::Descend;
-        }
-        let has = |n: &str| matcher::DirView::has_child(&view, n);
-        for &tag in c.specialized.iter().chain((c.cachedir != Tag::MAX).then_some(&c.cachedir)) {
-            let m = &c.rule(tag).matcher;
-            if Catalog::content_matcher_allowed(m, has) && matcher::matches(m, &view, &c.home) {
-                return Post::Claim(tag);
-            }
-        }
-        Post::Descend
+        matched.map_or(Post::Descend, Post::Claim)
     }
 
     fn wants_private(&self, dir: &DirCtx<'_>, tag: Tag) -> bool {
@@ -195,11 +275,11 @@ impl Visitor for RuleVisitor<'_> {
         ENTRY_RULES.contains(&self.catalog.rule(tag).id)
     }
 
-    fn on_file(&self, dir: &Path, entry: &EntryMeta, owner: Option<(OwnerKind, Tag)>) {
+    fn on_file(&self, dir: &Path, dir_id: (u64, u64), entry: &EntryMeta, owner: Option<(OwnerKind, Tag)>) {
         let in_claim = matches!(owner, Some((OwnerKind::Claim, _)));
         // A keep marker of any kind (file, symlink) inside a finding protects it.
         if in_claim && entry.name == KEEP_MARKER {
-            self.markers.lock().unwrap_or_else(|p| p.into_inner()).push(dir.to_path_buf());
+            self.markers.lock().unwrap_or_else(|p| p.into_inner()).push((dir.to_path_buf(), dir_id));
             return;
         }
         if entry.kind != EntryKind::File {
