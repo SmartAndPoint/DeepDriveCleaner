@@ -605,7 +605,8 @@ fn code(path: &Path) -> String {
 /// `stringify!` of a macro's test name, or the `test` parameter of a helper
 /// in the same file whose own callers this checks the same way. A file's
 /// own closure, parameter or fn of the same name that takes no `test` is
-/// not a skip.
+/// not a skip. A skip line is printed only by such a helper, as
+/// `skipped {test}: `, never by hand.
 #[test]
 fn every_skip_names_its_own_test() {
     const SKIPS: [&str; 6] = ["unsupported", "lacks", "skipped", "skipped_without", "skip_unported", "idle_share"];
@@ -636,6 +637,15 @@ fn every_skip_names_its_own_test() {
                 names.extend(forwarders);
                 names.sort();
                 names.dedup();
+            }
+            // A skip line printed by hand escapes both this check and the native
+            // jobs' list: only a helper taking `test` prints one.
+            for (at, _) in text.match_indices("eprintln!(\"skipped") {
+                let helper =
+                    text[at..].starts_with("eprintln!(\"skipped {test}: ") && enclosing(at).is_some_and(|f| f.2);
+                if !helper {
+                    wrong.push(format!("{}: a skip line printed outside a helper", path.display()));
+                }
             }
             for (at, arg) in calls(&text, &names) {
                 let Some(&(_, test, takes_test)) = enclosing(at) else {

@@ -684,10 +684,10 @@ fn no_system_process_owns_a_cache() {
             })
         })
         .collect();
-    if system.is_empty() {
-        eprintln!("skipped: no system process with a readable executable path");
-        return;
-    }
+    // With nothing to check the test proves nothing: it fails rather than pass in
+    // silence (ADR "Platform seam", §9, amended: a skip names its test, or it is
+    // a failure).
+    assert!(!system.is_empty(), "no system process with a readable executable path");
     let mut bundled = 0;
     for p in &system {
         let Some(app) = p.app_bundle() else { continue };
@@ -702,9 +702,7 @@ fn no_system_process_owns_a_cache() {
             );
         }
     }
-    if bundled == 0 {
-        eprintln!("skipped: no system process runs from an app bundle");
-    }
+    assert!(bundled > 0, "no system process runs from an app bundle");
 }
 
 #[test]
