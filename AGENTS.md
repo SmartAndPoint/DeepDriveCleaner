@@ -44,12 +44,13 @@
   `git pull --rebase --autostash` in it. Commit on `main`, push to a topic branch, open
   and merge its PR, then move local `main` onto the merged commits with `update-ref`: the
   steps are in the vault's own `AGENTS.md`.
-- A step is done when its PR is merged, not when auto-merge is on: a red check or a
-  conflict with a newer `main` cancels auto-merge with no more than an email. Check
+- A step is done when its PR is merged, not when auto-merge is on: a red check leaves it
+  waiting, and a conflict with a newer `main` can stop it, with no more than an email.
+  Wait with `gh pr checks <n> --watch --fail-fast`, then check that
   `gh pr view <n> --json state` says `MERGED`. On a conflict, `git fetch && git rebase
   origin/main && git push --force-with-lease`.
-- Never pass `--delete-branch` to `gh pr merge`: on a PR that merges at once it deletes
-  the local branch, and a worktree with it. GitHub deletes the remote branch.
+- Never pass `--delete-branch` to `gh pr merge`: on a PR that merges at once it also
+  deletes the local branch, which a session may still be standing in. GitHub deletes the remote branch.
 - A rebase merge gives the commits new SHAs: the branch's green run never counts for a
   release, `main`'s own run after the merge does. To release, merge the bump's PR, then
   `git switch main && git pull --ff-only`, then `make tag`.

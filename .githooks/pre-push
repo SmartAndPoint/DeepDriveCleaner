@@ -7,7 +7,14 @@ set -eu
 # Homebrew's Rust may sit earlier in PATH; cargo finds rustc through PATH.
 export PATH="$HOME/.cargo/bin:$PATH"
 cd "$(git rev-parse --show-toplevel)"
-case "$(scripts/gate-scope.sh push)" in
+refs=$(cat)
+# main takes changes only through pull requests: refuse here, before minutes of gate,
+# what GitHub's ruleset would refuse anyway.
+if printf '%s\n' "$refs" | awk '$3 == "refs/heads/main" { found = 1 } END { exit !found }'; then
+    echo "pre-push: main takes changes only through a pull request; push a branch and run gh pr create" >&2
+    exit 1
+fi
+case "$(printf '%s\n' "$refs" | scripts/gate-scope.sh push)" in
     skip)
         echo "pre-push: only Rust-free paths or a tag pushed (.config/rust-free-paths): gate skipped"
         exit 0
