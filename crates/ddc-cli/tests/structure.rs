@@ -406,3 +406,138 @@ fn rust_files(dir: &Path) -> Vec<std::path::PathBuf> {
     files.sort();
     files
 }
+
+/// No OS outside the platform folders (story "Move OS calls behind the
+/// platform module", AC3; ADR "Platform seam: one platform module per OS
+/// with declared capabilities", §1, §2): no file under a crate's `src/`
+/// outside `ddc-core/src/platform/`, `ddc-cli/src/platform/` and
+/// `ddc-loadgen/src/platform/` names `libc`, `rustix`, `windows_sys`,
+/// `windows::` or `std::os` (any submodule), or puts a `cfg`, `cfg!` or
+/// `cfg_attr` on `target_os`, `target_family`, `unix` or `windows`. Neither
+/// the CLI outside its folder nor the load generator names the core's macOS
+/// module, by its old path or its new one.
+#[test]
+fn no_file_outside_the_platform_folders_names_an_os() {
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut names = Vec::new();
+    let mut checked = 0;
+    for entry in std::fs::read_dir(&crates).unwrap() {
+        let krate = entry.unwrap().path();
+        let src = krate.join("src");
+        if !src.is_dir() {
+            continue;
+        }
+        let name = krate.file_name().unwrap().to_string_lossy().into_owned();
+        let platform = src.join("platform");
+        for path in rust_files(&src).into_iter().filter(|p| !p.starts_with(&platform)) {
+            let rel = format!("{name}/src/{}", path.strip_prefix(&src).unwrap().display());
+            let text = code(&path);
+            let words = os_words(&text);
+            assert!(words.is_empty(), "{rel} names an OS outside its platform folder: {words:?}");
+            if name != "ddc-core" {
+                for core_os in ["ddc_core::sys::", "ddc_core::platform::macos::"] {
+                    assert!(!text.contains(core_os), "{rel} names the core's macOS module: {core_os}");
+                }
+            }
+            checked += 1;
+        }
+        names.push(name);
+    }
+    names.sort();
+    assert_eq!(names, ["ddc-cli", "ddc-core", "ddc-loadgen"]);
+    assert!(checked > 50, "only {checked} files read");
+}
+
+/// What of `text` names an OS: a crate or module of one, or a `cfg` on one.
+fn os_words(text: &str) -> Vec<String> {
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    let after_boundary = |i: usize| !text[..i].ends_with(ident);
+    let mut found = Vec::new();
+    for word in ["libc", "rustix", "windows_sys"] {
+        for (i, _) in text.match_indices(word) {
+            if after_boundary(i) && !text[i + word.len()..].starts_with(ident) {
+                found.push(word.to_owned());
+            }
+        }
+    }
+    for path in
+        ["windows::", "std::os", "os::unix", "os::macos", "os::linux", "os::windows", "os::fd", "os::raw", "os::darwin"]
+    {
+        if text.match_indices(path).any(|(i, _)| after_boundary(i)) {
+            found.push(path.to_owned());
+        }
+    }
+    for open in ["cfg(", "cfg!(", "cfg_attr("] {
+        for predicate in arguments(text, open) {
+            if words(predicate).any(|w| ["target_os", "target_family", "unix", "windows"].contains(&w)) {
+                found.push(format!("{open}{predicate})"));
+            }
+        }
+    }
+    found
+}
+
+/// What follows each `open` (a name and its `(`, not the end of a longer
+/// name) up to its matching `)`.
+fn arguments<'a>(text: &'a str, open: &str) -> Vec<&'a str> {
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    let mut found = Vec::new();
+    for (i, _) in text.match_indices(open).filter(|&(i, _)| !text[..i].ends_with(ident)) {
+        let start = i + open.len();
+        let mut depth = 1;
+        let end = text[start..]
+            .char_indices()
+            .find(|&(_, c)| {
+                depth += match c {
+                    '(' => 1,
+                    ')' => -1,
+                    _ => 0,
+                };
+                depth == 0
+            })
+            .map_or(text.len(), |(j, _)| start + j);
+        found.push(&text[start..end]);
+    }
+    found
+}
+
+/// The identifiers of `text`.
+fn words(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|w| !w.is_empty())
+}
+
+/// `unsafe_code` is denied everywhere (story "Move OS calls behind the
+/// platform module", AC4): the workspace lints deny it, every crate inherits
+/// them, and only `ddc-core/src/platform/macos/mod.rs` and
+/// `ddc-core/src/platform/op_stats.rs` allow it, so no test does.
+#[test]
+fn only_the_macos_module_and_the_counters_allow_unsafe_code() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lint = ["unsafe", "_code"].concat();
+    let workspace = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+    let rust_lints = &workspace[workspace.find("[workspace.lints.rust]").expect("no [workspace.lints.rust]")..];
+    let rust_lints = &rust_lints[..rust_lints[1..].find("\n[").map_or(rust_lints.len(), |i| i + 1)];
+    assert!(rust_lints.lines().any(|l| l.trim() == format!("{lint} = \"deny\"")), "{rust_lints}");
+    let crates = root.join("crates");
+    let mut allowed = Vec::new();
+    for entry in std::fs::read_dir(&crates).unwrap() {
+        let krate = entry.unwrap().path();
+        let Ok(manifest) = std::fs::read_to_string(krate.join("Cargo.toml")) else { continue };
+        assert!(manifest.contains("\n[lints]\nworkspace = true\n"), "{}: does not inherit the lints", krate.display());
+        for path in rust_files(&krate).into_iter().filter(|p| !p.components().any(|c| c.as_os_str() == "target")) {
+            let text = code(&path);
+            let mut levels = ["allow(", "expect(", "warn("].into_iter().flat_map(|open| arguments(&text, open));
+            if levels.any(|args| words(args).any(|w| w == lint)) {
+                allowed.push(path.strip_prefix(&crates).unwrap().to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    allowed.sort();
+    assert_eq!(allowed, ["ddc-core/src/platform/macos/mod.rs", "ddc-core/src/platform/op_stats.rs"]);
+}
+
+/// The code of a Rust file: every line but `//` comments.
+fn code(path: &Path) -> String {
+    let text = std::fs::read_to_string(path).unwrap();
+    text.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n")
+}
