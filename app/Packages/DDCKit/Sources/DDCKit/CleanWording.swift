@@ -294,6 +294,9 @@ extension CleanWording {
     /// A row whose only protections are command-line flags.
     public static let flagOnly = "The next scan without the flag lists this folder"
 
+    /// A row protected by a .ddc-keep and by a flag: neither alone frees it.
+    public static let markerAndFlag = "Remove the .ddc-keep in Finder and scan without the flag"
+
     /// A row with several protections: Remove Protection… is not offered.
     public static let severalProtections = "Remove them in Finder or in Settings → Folders"
 
@@ -322,7 +325,10 @@ extension CleanWording {
         }
         if let rule = protection.rule { parts.append("otherwise: \(ruleName(rule))") }
         // A flag is not in Settings: a row it protects is never sent there.
-        if protection.exclusions.contains(where: { $0.origin == .flag }) {
+        let flagged = protection.exclusions.contains(where: { $0.origin == .flag })
+        if flagged, !protection.markers.isEmpty {
+            parts.append(markerAndFlag)
+        } else if flagged {
             parts.append(flagOnly)
         } else if protection.markers.count + protection.exclusions.count > 1 {
             parts.append(severalProtections)

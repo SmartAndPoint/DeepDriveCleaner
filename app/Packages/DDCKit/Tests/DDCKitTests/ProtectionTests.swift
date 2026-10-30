@@ -154,12 +154,31 @@ struct ProtectionTests {
             "Protected by .ddc-keep in ~/p/node_modules", "Protected by .ddc-keep in ~/p/node_modules/patched",
             "Holds a folder skipped in Settings: ~/p/node_modules/raw", "otherwise: node.node_modules", CleanWording.severalProtections,
         ])
-        // A marker and a flag: never sent to Settings, where no flag is.
+    }
+
+    @Test("a row kept by a .ddc-keep and a flag is told to remove both, never sent to Settings")
+    func markerAndFlagWording() throws {
+        func words(_ protection: [String: Any]) throws -> [String] {
+            CleanWording.protection(try F.finding(protection), home: F.home)
+        }
+        let held = "/Users/example/p/node_modules/raw"
         let mixed = F.protection(markers: [F.marker()], exclusions: [F.exclusion(held, kind: "skip", origin: "flag", inside: true)])
         #expect(try words(mixed) == [
-            "Protected by .ddc-keep in ~/p/node_modules", "Holds a folder skipped by a command-line flag: ~/p/node_modules/raw", CleanWording.flagOnly,
+            "Protected by .ddc-keep in ~/p/node_modules", "Holds a folder skipped by a command-line flag: ~/p/node_modules/raw",
+            "Remove the .ddc-keep in Finder and scan without the flag",
         ])
+        #expect(CleanWording.markerAndFlag == "Remove the .ddc-keep in Finder and scan without the flag")
+        #expect(try !words(mixed).contains(CleanWording.flagOnly))
         #expect(try !words(mixed).contains(CleanWording.severalProtections))
+        // With its rule, the rule still comes before the advice.
+        let ruled = F.protection(markers: [F.marker()], exclusions: [F.exclusion(held, kind: "skip", origin: "flag", inside: true)], rule: "node.node_modules")
+        #expect(try words(ruled).suffix(2) == ["otherwise: node.node_modules", CleanWording.markerAndFlag])
+        // A flag and a Settings exclusion, no marker: the flag still governs.
+        let flagAndSettings = F.protection(exclusions: [
+            F.exclusion(held, kind: "skip", origin: "flag", inside: true),
+            F.exclusion("/Users/example/p/node_modules/other", kind: "skip", origin: "settings", inside: true),
+        ])
+        #expect(try words(flagAndSettings).last == CleanWording.flagOnly)
     }
 
     @Test("the rule is named by its whole id: several rules share a last part")
