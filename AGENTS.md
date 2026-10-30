@@ -40,11 +40,10 @@
   then `gh pr create --fill` and `gh pr merge --auto --rebase`. It merges once the
   Gate's `scope`, `gate`, `coverage`, `app` and `release-build` pass.
 - The vault is one checkout on `main`, shared by every session, with other sessions'
-  uncommitted edits in it: never switch its branch and never `reset --hard` it. Commit on
-  `main` as before, then `git push origin HEAD:refs/heads/<topic>`,
-  `gh pr create --head <topic> --fill`, `gh pr merge <topic> --rebase` (no checks, so
-  no `--auto`; retry once if GitHub is still computing mergeability), and
-  `git pull --rebase --autostash origin main`: the merged copies replace yours.
+  uncommitted edits in it: never switch its branch, never `reset --hard` it, and never
+  `git pull --rebase --autostash` in it. Commit on `main`, push to a topic branch, open
+  and merge its PR, then move local `main` onto the merged commits with `update-ref`: the
+  steps are in the vault's own `AGENTS.md`.
 - A step is done when its PR is merged, not when auto-merge is on: a red check or a
   conflict with a newer `main` cancels auto-merge with no more than an email. Check
   `gh pr view <n> --json state` says `MERGED`. On a conflict, `git fetch && git rebase
