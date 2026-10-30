@@ -128,16 +128,33 @@ impl Tree {
     }
 
     fn add_dir(&mut self, dir: &Path) {
+        let dir = self.spelled(dir);
         for a in dir.ancestors() {
             self.dirs.insert(a.to_path_buf());
         }
     }
 
     fn add_file(&mut self, file: &Path, content: Content) {
+        let file = self.spelled(file);
         if let Some(parent) = file.parent() {
             self.add_dir(parent);
         }
-        self.files.insert(file.to_path_buf(), content);
+        self.files.insert(file, content);
+    }
+
+    /// `path` with each name spelled as the tree already spells it in any case:
+    /// macOS folds `Caches` and `caches` into one entry, so the tree never holds both.
+    fn spelled(&self, path: &Path) -> PathBuf {
+        let mut out = PathBuf::new();
+        for comp in path.iter() {
+            let want = out.join(comp);
+            let same = |p: &&PathBuf| {
+                p.parent() == Some(out.as_path()) && p.file_name().is_some_and(|n| n.eq_ignore_ascii_case(comp))
+            };
+            let have = self.dirs.iter().find(same).or_else(|| self.files.keys().find(same));
+            out = have.cloned().unwrap_or(want);
+        }
+        out
     }
 
     fn has(&self, dir: &Path, name: &str) -> bool {
@@ -625,4 +642,17 @@ proptest! {
             }
         }
     }
+}
+
+/// The case CI's macOS runner found: two names that differ only in case are one
+/// folder on disk, so the tree holds one of them and the walk agrees with it.
+#[test]
+fn names_that_differ_only_in_case_are_one_folder() {
+    let seed = |name: &str| -> Seed { (".gradle".to_owned(), vec![name.to_owned()], vec![], vec![]) };
+    let t = Tree::build(vec![seed("caches"), seed("Caches")], None);
+    assert!(!t.dirs.contains(Path::new(".gradle/Caches")), "{:?}", t.dirs);
+    let (tb, excludes) = on_disk(&t);
+    let catalog = Catalog::builtin(tb.root());
+    let visitor = RuleVisitor::new(&catalog, excludes);
+    assert_eq!(walk_found(&visitor, &catalog, tb.root()), reference_walk(&t));
 }
