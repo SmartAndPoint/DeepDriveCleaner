@@ -13,7 +13,7 @@ use crate::disk::Sources;
 use crate::disk::simulators::{RawDevice, RawRuntime};
 use crate::exec::{CommandRunner, ProcessTable, guard};
 use crate::plan::normalised;
-use crate::sys::fsops::can_write;
+use crate::platform::fsops::can_write;
 
 /// Exactly one runtime has `identifier`, and it may be deleted: under
 /// AssetsV2, deletable, not deleting, joinable to its devices, none booted.

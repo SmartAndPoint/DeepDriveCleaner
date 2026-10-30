@@ -9,8 +9,8 @@ use std::process::ExitCode;
 use anyhow::Context as _;
 use ddc_core::agents::{self, AgentsOptions};
 use ddc_core::env::Env;
+use ddc_core::platform::{procs, signals};
 use ddc_core::settings::ScanFlags;
-use ddc_core::sys::{procs, signals};
 
 use crate::cli::AgentsArgs;
 use crate::render;

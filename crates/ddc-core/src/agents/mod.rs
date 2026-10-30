@@ -21,8 +21,8 @@ pub use claude::utc_ctime;
 pub use model::*;
 
 use crate::env::Env;
+use crate::platform::procs::{self, ProcInfo};
 use crate::rules::Catalog;
-use crate::sys::procs::{self, ProcInfo};
 use sizes::{Shape, TranscriptBytes};
 
 /// One folder of a harness, relative to the home folder.

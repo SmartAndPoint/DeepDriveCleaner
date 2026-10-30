@@ -10,9 +10,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::model::{Conda, CondaFolder, CondaInstall};
 use super::visitor::DiskVisitor;
+use crate::platform::fsops::can_write;
 use crate::rules::Catalog;
 use crate::scan::{self, Progress, Tag, WalkOptions};
-use crate::sys::fsops::can_write;
 
 /// Each `/opt` install under `opt` (the firmlinked `/opt`), its environments
 /// and its package folder measured; `None` when there is none.

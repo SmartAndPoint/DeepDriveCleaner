@@ -1,4 +1,4 @@
-//! Directory listing abstraction. [`BulkReader`](crate::sys::bulk::BulkReader)
+//! Directory listing abstraction. [`BulkReader`](crate::platform::bulk::BulkReader)
 //! is the fast path; [`StdReader`] uses `std::fs` and serves as a reference in
 //! tests and as a fallback.
 

@@ -83,7 +83,7 @@ impl Counter {
 #[inline(always)]
 pub fn add(c: Counter, n: u64) {
     #[cfg(feature = "op-stats")]
-    crate::sys::op_stats::add(c as usize, n);
+    crate::platform::op_stats::add(c as usize, n);
     #[cfg(not(feature = "op-stats"))]
     let _ = (c, n);
 }
@@ -114,7 +114,7 @@ impl Snapshot {
 pub fn snapshot() -> Snapshot {
     #[cfg(feature = "op-stats")]
     {
-        Snapshot(std::array::from_fn(crate::sys::op_stats::get))
+        Snapshot(std::array::from_fn(crate::platform::op_stats::get))
     }
     #[cfg(not(feature = "op-stats"))]
     {

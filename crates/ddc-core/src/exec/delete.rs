@@ -76,7 +76,7 @@ mod tests {
 
     use super::*;
     use crate::exec::SkipReason;
-    use crate::sys::fsops::DirFd;
+    use crate::platform::fsops::DirFd;
 
     fn verified(parent: &Path, name: &str) -> Verified {
         let md = fs::symlink_metadata(parent.join(name)).unwrap();

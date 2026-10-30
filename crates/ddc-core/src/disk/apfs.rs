@@ -8,8 +8,8 @@ use std::time::Duration;
 use super::model::{Container, ContainerSource, VolumeRow};
 use super::plist::{self, Value};
 use crate::exec::CommandRunner;
+use crate::platform::statfs::VolumeStats;
 use crate::report::volumes::StatFs;
-use crate::sys::statfs::VolumeStats;
 
 const DISKUTIL_TIMEOUT: Duration = Duration::from_secs(30);
 

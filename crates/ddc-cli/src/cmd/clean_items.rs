@@ -18,6 +18,8 @@ use ddc_core::exec::{
 };
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{ListedItem, ListedItems, Refused, plan_listed};
+use ddc_core::platform::bulk::BulkReader;
+use ddc_core::platform::signals;
 use ddc_core::progress::{Phase, WalkStep};
 use ddc_core::report::after_clean::{self, Remeasured};
 use ddc_core::report::contents::EntryIndex;
@@ -28,8 +30,6 @@ use ddc_core::rules::Catalog;
 use ddc_core::scan::{Progress, WalkOptions};
 use ddc_core::settings::ScanFlags;
 use ddc_core::store::{self, LockMode};
-use ddc_core::sys::bulk::BulkReader;
-use ddc_core::sys::signals;
 
 use crate::cli::CleanArgs;
 use crate::render::{self, Style};

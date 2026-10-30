@@ -21,12 +21,12 @@ use ddc_core::exec::report::CleanReport;
 use ddc_core::exec::{self, Consent, ExecOptions, MemoryJournal, Outcome, Ports, ProcessTable, SkipReason};
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{ActionKind, ListedItem, plan_listed};
+use ddc_core::platform::procs::ProcInfo;
 use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
 use ddc_core::rules::listing::group_of;
 use ddc_core::scan::{Progress, StdReader, WalkOptions};
-use ddc_core::sys::procs::ProcInfo;
 
 const HOUR: Duration = Duration::from_secs(3_600);
 

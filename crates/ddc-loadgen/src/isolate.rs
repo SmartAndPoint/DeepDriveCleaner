@@ -13,7 +13,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use ddc_core::exec::preflight::PreflightSummary;
-use ddc_core::sys::procs;
+use ddc_core::platform::procs;
 
 use crate::target::{self, Layout};
 

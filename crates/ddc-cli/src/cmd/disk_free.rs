@@ -13,9 +13,9 @@ use ddc_core::disk::Sources;
 use ddc_core::env::Env;
 use ddc_core::exec::{FileJournal, SystemCommands, SystemProcesses};
 use ddc_core::free::{self, ActionList, ActionResult, FREE_SCHEMA_VERSION, FreeContext, FreeReport};
+use ddc_core::platform::{procs, signals};
 use ddc_core::settings::ScanFlags;
 use ddc_core::store::{self, LockMode};
-use ddc_core::sys::{procs, signals};
 
 use crate::cli::FreeArgs;
 use crate::render::{self, Style};

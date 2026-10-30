@@ -6,7 +6,7 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 use ddc_core::model::ScanReport;
-use ddc_core::sys::signals::kill_group;
+use ddc_core::platform::signals::kill_group;
 use ddc_loadgen::isolate::ClearEnv as _;
 
 mod contract;

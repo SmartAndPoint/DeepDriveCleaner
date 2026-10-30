@@ -22,10 +22,10 @@ use ddc_core::exec::{
 };
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{Action, Plan, PlanItem, PlanOptions, build_plan};
+use ddc_core::platform::procs::ProcInfo;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::{Catalog, RULES, owns};
 use ddc_core::scan::{Progress, WalkOptions};
-use ddc_core::sys::procs::ProcInfo;
 
 const DAY: Duration = Duration::from_secs(86_400);
 

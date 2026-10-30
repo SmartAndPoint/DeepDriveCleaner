@@ -14,9 +14,9 @@ use ddc_core::exec::Outcome;
 use ddc_core::exec::preflight::{Prediction, PreflightLine, PreflightSummary};
 use ddc_core::exec::report::CleanReport;
 use ddc_core::plan::ListedItems;
+use ddc_core::platform::{procs, statfs, usage};
 use ddc_core::settings::SETTINGS;
 use ddc_core::store::{LAST_DISK, LAST_SCAN};
-use ddc_core::sys::{procs, statfs, usage};
 
 use crate::isolate::{self, Target};
 use crate::limits::{self, Mode};

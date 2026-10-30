@@ -17,11 +17,11 @@ use ddc_core::disk::{
     SimulatorStatus, Sources,
 };
 use ddc_core::env::Env;
+use ddc_core::platform::statfs::VolumeStats;
 use ddc_core::report::volumes::StatFs;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::scan::{DirListing, DirReader, Progress, ReadError, StdReader};
 use ddc_core::store;
-use ddc_core::sys::statfs::VolumeStats;
 
 const DATA: &str = "sys/System/Volumes/Data";
 

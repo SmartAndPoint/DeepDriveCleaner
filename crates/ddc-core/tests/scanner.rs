@@ -294,8 +294,8 @@ fn nested_roots_are_merged() {
 
 #[test]
 fn dataless_materialization_can_be_disabled() {
-    ddc_core::sys::iopolicy::disable_dataless_materialization().unwrap();
-    assert!(ddc_core::sys::iopolicy::dataless_materialization_disabled().unwrap());
+    ddc_core::platform::iopolicy::disable_dataless_materialization().unwrap();
+    assert!(ddc_core::platform::iopolicy::dataless_materialization_disabled().unwrap());
 }
 
 #[test]
@@ -323,8 +323,8 @@ fn private_size_is_unknown_when_not_returned() {
 fn bulk_reader_matches_lstat_per_entry_across_batches() {
     use std::collections::HashMap;
 
+    use ddc_core::platform::bulk::BulkReader;
     use ddc_core::scan::{DirReader, EntryKind, StdReader};
-    use ddc_core::sys::bulk::BulkReader;
 
     let t = TreeBuilder::new();
     let dir = t.dir("big");

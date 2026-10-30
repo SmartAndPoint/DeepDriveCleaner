@@ -197,8 +197,8 @@ fn conda_runs_only_its_named_commands() {
 fn the_release_build_carries_no_counters() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let marker = "DDC_OP_STATS";
-    let op_stats = std::fs::read_to_string(root.join("crates/ddc-core/src/sys/op_stats.rs")).unwrap();
-    assert!(op_stats.contains(&format!("pub static {marker}:")), "sys/op_stats.rs no longer exports {marker}");
+    let op_stats = std::fs::read_to_string(root.join("crates/ddc-core/src/platform/op_stats.rs")).unwrap();
+    assert!(op_stats.contains(&format!("pub static {marker}:")), "platform/op_stats.rs no longer exports {marker}");
     let dist = std::fs::read_to_string(root.join("scripts/build-dist.sh")).unwrap();
     assert!(
         dist.contains("scripts/build-cli.sh\" \"$TARGET\""),
@@ -325,31 +325,29 @@ fn only_the_unported_check_builds_the_simulated_platform() {
 }
 
 /// The seam's switches are literals (ADR "Platform seam: one platform module
-/// per OS with declared capabilities", §5, §8): `platform/mod.rs` reads no
-/// environment variable and its only `cfg!(feature …)` is
-/// `simulate-unported`; each OS module's `SUPPORTED` is `true` or `false`
-/// and its `CAPABILITIES` a slice written out, and it reads the environment
-/// only for the folders of its user.
+/// per OS with declared capabilities", §5, §8): `platform/mod.rs` and
+/// `platform/types.rs` read no environment variable, and the only
+/// `cfg!(feature …)` of `mod.rs` is `simulate-unported`; each OS module's
+/// `SUPPORTED` is `true` or `false` and its `CAPABILITIES` a slice written
+/// out. Every other file under `platform/` reads the environment only for
+/// the folders of its user, from the allowlist, and only a `folders` item
+/// reads `HOME`.
 #[test]
 fn the_platform_switches_are_literals() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ddc-core/src/platform");
-    let code = |file: &str| -> String {
-        let text = std::fs::read_to_string(dir.join(file)).unwrap();
+    let code = |path: &Path| -> String {
+        let text = std::fs::read_to_string(path).unwrap();
         text.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n")
     };
     let env_reads = ["env::var", "var_os(", "option_env!(", "env!("];
-    let shared = code("mod.rs");
-    for read in env_reads {
-        assert!(!shared.contains(read), "platform/mod.rs reads the environment: {read}");
-    }
+    let shared = code(&dir.join("mod.rs"));
     let features: Vec<&str> = shared.match_indices("feature").map(|(i, _)| &shared[i..]).collect();
     assert!(!features.is_empty(), "platform/mod.rs: the simulate-unported switch is gone");
     for at in features {
         assert!(at.starts_with("feature = \"simulate-unported\")"), "platform/mod.rs: {}", at.lines().next().unwrap());
     }
-    let allowed = ["HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA"];
-    for file in ["macos.rs", "linux.rs", "windows.rs"] {
-        let text = code(file);
+    for file in ["macos/mod.rs", "linux.rs", "windows.rs"] {
+        let text = code(&dir.join(file));
         let supported: Vec<&str> = text.lines().filter(|l| l.contains("const SUPPORTED")).collect();
         assert!(
             supported == ["pub const SUPPORTED: bool = true;"] || supported == ["pub const SUPPORTED: bool = false;"],
@@ -362,14 +360,42 @@ fn the_platform_switches_are_literals() {
             let name = item.strip_prefix("Capability::").unwrap_or_else(|| panic!("{file}: {item}"));
             assert!(name.chars().all(char::is_alphanumeric), "{file}: {item}");
         }
+    }
+    let allowed = ["HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA"];
+    let files = rust_files(&dir);
+    assert!(files.len() > 4, "{files:?}");
+    for path in files {
+        let rel = path.strip_prefix(&dir).unwrap().to_string_lossy().into_owned();
+        let text = code(&path);
+        let reads_nothing = rel == "mod.rs" || rel == "types.rs";
+        let folders = path.file_stem().is_some_and(|s| s == "folders");
         for read in env_reads {
             for (i, _) in text.match_indices(read) {
+                assert!(!reads_nothing, "platform/{rel} reads the environment: {read}");
                 let name = text[i + read.len()..].trim_start_matches(['(', '"']).split('"').next().unwrap();
                 assert!(
                     allowed.contains(&name) || name.starts_with("XDG_"),
-                    "{file} reads {name} from the environment"
+                    "platform/{rel} reads {name} from the environment"
                 );
+                assert!(name != "HOME" || folders, "platform/{rel} reads HOME outside the folders item");
             }
         }
     }
+}
+
+/// Every `.rs` file under `dir`, at any depth, sorted.
+fn rust_files(dir: &Path) -> Vec<std::path::PathBuf> {
+    let (mut files, mut dirs) = (Vec::new(), vec![dir.to_path_buf()]);
+    while let Some(d) = dirs.pop() {
+        for entry in std::fs::read_dir(&d).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    files
 }

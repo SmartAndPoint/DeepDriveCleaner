@@ -6,9 +6,9 @@ use std::process::ExitCode;
 
 use anyhow::Context as _;
 use ddc_core::env::Env;
+use ddc_core::platform::procs;
 use ddc_core::settings;
 use ddc_core::store;
-use ddc_core::sys::procs;
 
 use crate::cli::{IntervalArg, ScheduleAction};
 use crate::exit;

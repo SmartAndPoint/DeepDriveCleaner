@@ -11,7 +11,7 @@ use std::io;
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 
-use ddc_core::sys::{procs, statfs};
+use ddc_core::platform::{procs, statfs};
 
 /// Length of the tree's absolute path, after `canonicalize()`: path lengths,
 /// the `PATH_MAX` boundary and the order of findings are then the same on

@@ -3,7 +3,7 @@
 use std::process::ExitCode;
 use std::time::Instant;
 
-use ddc_core::sys::{iopolicy, procs, rlimit, statfs};
+use ddc_core::platform::{iopolicy, procs, rlimit, statfs};
 
 pub fn run() -> anyhow::Result<ExitCode> {
     let dataless = match iopolicy::dataless_materialization_disabled() {

@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::MetadataExt as _;
 use std::path::Path;
 
-use crate::sys::procs::OpenVnode;
+use crate::platform::procs::OpenVnode;
 
 use super::{RecordsState, Session, SessionState, UnknownReason};
 

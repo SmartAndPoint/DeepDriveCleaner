@@ -24,7 +24,7 @@ use crate::prompt::{self, Decision};
 use crate::render::{self, Style};
 
 pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
-    if ddc_core::sys::procs::is_root() {
+    if ddc_core::platform::procs::is_root() {
         eprintln!("ddc clean: refusing to run as root; run it as your user");
         return Ok(ExitCode::from(exit::REFUSED));
     }
@@ -137,7 +137,7 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
     let journal_path = journal.path.clone();
     // Ctrl-C now stops the clean after the current item and still reaches a
     // tool running in its own process group.
-    let cancel = ddc_core::sys::signals::install().context("cannot install the signal handler")?;
+    let cancel = ddc_core::platform::signals::install().context("cannot install the signal handler")?;
     let exec_progress = ExecProgress::default();
     let result = reporter.clean(&exec_progress, &scanned.home, cancel, |events| {
         exec::execute(
@@ -152,8 +152,8 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
     })?;
     prompt::print_result(&mut out, &result, &scanned.home, &journal_path, &style)?;
     out.flush()?;
-    if let Some(sig) = ddc_core::sys::signals::received() {
-        ddc_core::sys::signals::reraise(sig);
+    if let Some(sig) = ddc_core::platform::signals::received() {
+        ddc_core::platform::signals::reraise(sig);
     }
     let failed = result.items.iter().any(|i| matches!(i.outcome, exec::Outcome::Failed { .. }));
     Ok(if failed { ExitCode::FAILURE } else { ExitCode::SUCCESS })

@@ -10,11 +10,11 @@ use std::time::{Duration, SystemTime};
 use super::{ProcessTable, SkipReason};
 use crate::env::Env;
 use crate::plan::{Action, PlanItem};
+use crate::platform::fsops::DirFd;
+use crate::platform::procs::ProcInfo;
 use crate::report::backups;
 use crate::rules::entries::{BACKUP_RULE, EntryFacts, lock_of};
 use crate::rules::{Catalog, KEEP_MARKER, PROTECTED_IN_HOME, PROTECTED_SYSTEM, owns};
-use crate::sys::fsops::DirFd;
-use crate::sys::procs::ProcInfo;
 
 /// A verified target: its parent is open and checked; act through it.
 #[derive(Debug)]

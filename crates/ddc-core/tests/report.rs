@@ -10,12 +10,12 @@ use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
 use ddc_core::model::{NotSelected, ScanReport};
 use ddc_core::plan::{PlanOptions, build_plan};
+use ddc_core::platform::statfs::VolumeStats;
 use ddc_core::report::volumes::StatFs;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
 use ddc_core::scan::{Progress, WalkOptions};
 use ddc_core::store;
-use ddc_core::sys::statfs::VolumeStats;
 
 const DAY: Duration = Duration::from_secs(86_400);
 

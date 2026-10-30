@@ -3,7 +3,7 @@
 
 use std::fs;
 
-use ddc_core::sys::procs;
+use ddc_core::platform::procs;
 use ddc_loadgen::target::{self, Facts, Image, MARKER, Refusal, TEMP_MAX, decide};
 
 const S: u64 = 10_000;
@@ -97,7 +97,7 @@ fn a_mount_that_is_not_the_attached_image_is_refused() {
 #[test]
 fn an_unmarked_volume_is_not_an_image() {
     let dir = target::marked().unwrap();
-    let mounted = ddc_core::sys::statfs::statfs(dir.path()).unwrap().mounted_from;
+    let mounted = ddc_core::platform::statfs::statfs(dir.path()).unwrap().mounted_from;
     let f = target::facts(dir.path(), Some(&mounted), S).unwrap();
     assert!(matches!(f.image, Some(Image { marked: false, .. })), "{f:?}");
     // Refused first for its volume; an unmarked image elsewhere is the decision table's.

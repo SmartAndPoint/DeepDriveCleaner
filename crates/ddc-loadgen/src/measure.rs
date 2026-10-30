@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
-use ddc_core::sys::procs;
-use ddc_core::sys::usage::{self, Usage};
+use ddc_core::platform::procs;
+use ddc_core::platform::usage::{self, Usage};
 
 use crate::isolate::ClearEnv as _;
 

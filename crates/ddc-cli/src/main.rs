@@ -51,11 +51,11 @@ fn main() -> ExitCode {
 /// Process-wide setup that must happen before any filesystem access.
 fn init_process() {
     // Never download evicted iCloud / File Provider content while scanning.
-    if let Err(err) = ddc_core::sys::iopolicy::disable_dataless_materialization() {
+    if let Err(err) = ddc_core::platform::iopolicy::disable_dataless_materialization() {
         eprintln!("ddc: warning: cannot disable dataless file materialization: {err}");
     }
     // launchd starts agents with 256 open files; the walker needs headroom.
-    if let Err(err) = ddc_core::sys::rlimit::raise_nofile_limit() {
+    if let Err(err) = ddc_core::platform::rlimit::raise_nofile_limit() {
         eprintln!("ddc: warning: cannot raise the open-file limit: {err}");
     }
 }

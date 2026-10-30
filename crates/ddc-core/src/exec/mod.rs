@@ -33,11 +33,11 @@ pub use system::{SystemCommands, SystemProcesses, SystemTrash};
 use crate::class::{CondaFolder, Fallback, Location, Removal, RiskClass};
 use crate::env::Env;
 use crate::plan::{Action, Plan, PlanItem};
+/// What a [`ProcessTable`] lists: a fake table names it here, not under `platform`.
+pub use crate::platform::procs::ProcInfo;
 use crate::rules::entries::{ENTRY_RULES, EntryLock};
 use crate::rules::{Catalog, KEEP_MARKER};
 use crate::scan::{self, EntryMeta, OwnerKind, Progress, Tag, Visitor, WalkOptions};
-/// What a [`ProcessTable`] lists: a fake table names it here, not under `sys`.
-pub use crate::sys::procs::ProcInfo;
 
 /// Why an item was left alone. Serialized into the journal and the clean report.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -269,7 +269,7 @@ pub fn execute(
     opts: &ExecOptions<'_>,
 ) -> Result<ExecReport, ExecError> {
     crate::platform::require_supported().map_err(ExecError::Unsupported)?;
-    if crate::sys::procs::is_root() {
+    if crate::platform::procs::is_root() {
         return Err(ExecError::Root);
     }
     if let Consent::AssumeYes { classes } = consent
@@ -344,7 +344,7 @@ pub fn execute(
     report.volumes = volumes
         .into_iter()
         .filter_map(|(mount_point, free_before)| {
-            let free_after = crate::sys::statfs::statfs(&mount_point).ok()?.available_bytes;
+            let free_after = crate::platform::statfs::statfs(&mount_point).ok()?.available_bytes;
             Some(VolumeSpace { mount_point, free_before, free_after })
         })
         .collect();
@@ -522,7 +522,7 @@ fn volumes_of(chosen: &[&PlanItem], env: &Env) -> BTreeMap<PathBuf, u64> {
     }
     paths
         .into_iter()
-        .filter_map(|p| crate::sys::statfs::statfs(p).ok())
+        .filter_map(|p| crate::platform::statfs::statfs(p).ok())
         .map(|st| (st.mount_point, st.available_bytes))
         .collect()
 }

@@ -1,9 +1,9 @@
 //! DeepDriveCleaner core: scanning, rules, cleanup planning and execution.
 //!
 //! The core never talks to the terminal: no printing, no prompts. The CLI
-//! (and later the Mac app) owns all user interaction. `sys::term` only reads
-//! the terminal's width for the CLI, because `sys` is the one module allowed
-//! `unsafe`.
+//! (and later the Mac app) owns all user interaction. `platform::term` only
+//! reads the terminal's width for the CLI, because `platform` is the one
+//! module allowed `unsafe`.
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
 pub mod agents;
@@ -27,4 +27,3 @@ pub mod scan;
 pub mod settings;
 pub mod stats;
 pub mod store;
-pub mod sys;

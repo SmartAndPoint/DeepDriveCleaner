@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 
 use super::{CmdOutput, CommandRunner, ProcessTable, Trasher};
 use crate::env::Env;
-use crate::sys::procs::{self, ProcInfo};
-use crate::sys::signals;
+use crate::platform::procs::{self, ProcInfo};
+use crate::platform::signals;
 
 /// Finds tools in `Env::tool_dirs()` (plus `/usr/bin` for system tools).
 pub struct SystemCommands {
@@ -120,7 +120,7 @@ mod tests {
 
     use super::*;
     use crate::exec::NATIVE_TIMEOUT;
-    use crate::sys::usage::thread_cpu_time;
+    use crate::platform::usage::thread_cpu_time;
 
     /// The thread waiting for a native command sleeps between its looks: its
     /// own CPU over a 2 s command is under 1% of the wait.

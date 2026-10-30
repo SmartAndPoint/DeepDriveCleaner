@@ -9,12 +9,12 @@ use anyhow::Context as _;
 use ddc_core::disk::{self, DiskOptions, DiskPorts, Sources};
 use ddc_core::env::Env;
 use ddc_core::exec::system::SystemCommands;
+use ddc_core::platform::signals;
 use ddc_core::progress::{WalkEvent, WalkStep};
 use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::scan::Progress;
 use ddc_core::settings::ScanFlags;
 use ddc_core::store;
-use ddc_core::sys::signals;
 
 use crate::cli::DiskArgs;
 use crate::{progress, render};

@@ -9,7 +9,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use serde_json::{Map, Value};
 
-use crate::sys::procs::{self, ProcStart};
+use crate::platform::procs::{self, ProcStart};
 
 use super::{RecordsState, Session, SessionState, UnknownReason};
 

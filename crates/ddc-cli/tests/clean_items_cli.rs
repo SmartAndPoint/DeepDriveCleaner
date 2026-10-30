@@ -453,7 +453,7 @@ fn a_picked_download_would_go_to_the_trash_unless_it_is_recent_and_names_are_esc
     let tricky = "cod\u{202e}fdp.exe";
     for name in ["old.pdf", "older.pdf", tricky] {
         fx.write(&format!("Downloads/{name}"), &[4u8; 8_000]);
-        ddc_core::sys::fsops::set_times(&fx.path(&format!("Downloads/{name}")), day_ago, day_ago).unwrap();
+        ddc_core::platform::fsops::set_times(&fx.path(&format!("Downloads/{name}")), day_ago, day_ago).unwrap();
     }
     fx.write("Downloads/new.pdf", &[5u8; 8_000]);
     let items = [

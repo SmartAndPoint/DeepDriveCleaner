@@ -5,8 +5,8 @@ use std::io;
 use std::path::Path;
 
 use crate::model::Volume;
-/// What a [`StatFs`] answers: a fake names it here, not under `sys`.
-pub use crate::sys::statfs::VolumeStats;
+/// What a [`StatFs`] answers: a fake names it here, not under `platform`.
+pub use crate::platform::statfs::VolumeStats;
 
 pub trait StatFs {
     fn statfs(&self, path: &Path) -> io::Result<VolumeStats>;
@@ -20,10 +20,10 @@ pub struct SystemStatFs;
 
 impl StatFs for SystemStatFs {
     fn statfs(&self, path: &Path) -> io::Result<VolumeStats> {
-        crate::sys::statfs::statfs(path)
+        crate::platform::statfs::statfs(path)
     }
     fn mounts(&self) -> io::Result<Vec<VolumeStats>> {
-        crate::sys::statfs::mounts()
+        crate::platform::statfs::mounts()
     }
 }
 

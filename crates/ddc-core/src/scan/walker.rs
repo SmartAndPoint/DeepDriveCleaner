@@ -16,7 +16,7 @@ use super::{
     DirCtx, EntryResult, OwnerEntries, OwnerKind, OwnerResult, Post, Pre, Progress, ReaderKind, RootResult, SkipReason,
     Skipped, Tag, Visitor, WalkError, WalkOptions, WalkOutput, WalkSetupError,
 };
-use crate::sys::bulk::BulkReader;
+use crate::platform::bulk::BulkReader;
 
 struct OwnerAcc {
     id: usize,

@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use crate::sys::procs::{ProcInfo, app_bundle};
+use crate::platform::procs::{ProcInfo, app_bundle};
 
 use super::{HarnessId, Running, RunningKind};
 

@@ -171,7 +171,7 @@ mod tests {
 
     use clap::Parser as _;
     use ddc_core::notify::{Decision, NotifyReason};
-    use ddc_core::sys::statfs::VolumeStats;
+    use ddc_core::platform::statfs::VolumeStats;
 
     use super::*;
     use crate::cli::{Cli, Command};

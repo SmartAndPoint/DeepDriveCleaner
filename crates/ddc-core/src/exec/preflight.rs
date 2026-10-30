@@ -31,12 +31,12 @@ use crate::conda;
 use crate::env::Env;
 use crate::model::{Finding, RemovalKind};
 use crate::plan::{Action, ActionKind, ListedItem, PlanItem, action_for};
+use crate::platform::fsops::DirFd;
 use crate::report::backups;
 use crate::rules::entries::{BACKUP_RULE, ENTRY_RULES, EntryFacts, lock_of};
 use crate::rules::{Catalog, KEEP_MARKER, LockFiles, PROTECTED_IN_HOME, Rule, effective_class};
 use crate::scan::reader::SF_DATALESS;
 use crate::scan::{self, DirCtx, DirReader, EntryMeta, OwnerKind, Progress, Tag, Visitor, WalkOptions};
-use crate::sys::fsops::DirFd;
 
 /// One line of the dry run's output (JSON Lines, one per item, then the summary).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

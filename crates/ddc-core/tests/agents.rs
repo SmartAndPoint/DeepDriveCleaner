@@ -15,7 +15,7 @@ use ddc_core::agents::{
     self, AgentsOptions, AgentsReport, Harness, HarnessId, RecordsState, SessionState, UnknownReason, utc_ctime,
 };
 use ddc_core::env::Env;
-use ddc_core::sys::procs;
+use ddc_core::platform::procs;
 
 const A: &str = "0a1b2c3d-0000-4000-8000-00000000000a";
 const B: &str = "0a1b2c3d-0000-4000-8000-00000000000b";

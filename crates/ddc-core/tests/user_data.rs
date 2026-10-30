@@ -19,13 +19,13 @@ use ddc_core::exec::report::CleanReport;
 use ddc_core::exec::{self, Consent, ExecOptions, MemoryJournal, Outcome, Ports, SkipReason};
 use ddc_core::model::{Contents, FolderEntry, FolderEntryKind, RemovalKind, ScanReport};
 use ddc_core::plan::{ActionKind, ListError, ListedItem, ListedItems, PlanOptions, build_plan, plan_listed};
+use ddc_core::platform::procs::ProcInfo;
 use ddc_core::report::contents::{ContentsLimits, EntryIndex, EntryState};
 use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
 use ddc_core::rules::entries::{ENTRY_RULES, EntryLock};
 use ddc_core::scan::{Progress, StdReader, WalkOptions};
-use ddc_core::sys::procs::ProcInfo;
 
 const HOUR: Duration = Duration::from_secs(3_600);
 
@@ -676,7 +676,7 @@ fn the_executor_derives_an_entrys_lock_again_right_before_the_trash() {
 
     // After the plan, before the action: one file changes now, a folder gets a marker deep inside.
     let minute_ago = h.now - Duration::from_secs(60);
-    ddc_core::sys::fsops::set_times(&h.path("Downloads/a.iso"), minute_ago, minute_ago).unwrap();
+    ddc_core::platform::fsops::set_times(&h.path("Downloads/a.iso"), minute_ago, minute_ago).unwrap();
     h.tree.write("Downloads/Project/sub/.ddc-keep", "");
     let mut journal = MemoryJournal::default();
     let run = exec::execute(

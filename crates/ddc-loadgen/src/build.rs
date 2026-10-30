@@ -24,7 +24,7 @@ const DIR: OFlags = OFlags::RDONLY.union(OFlags::DIRECTORY).union(OFlags::NOFOLL
 pub fn build(desc: &Desc, tree: &Path) -> io::Result<()> {
     // One handle per open ancestor: a chain to `PATH_MAX` is about 430 deep,
     // past the default soft limit of 256.
-    ddc_core::sys::rlimit::raise_nofile_limit()?;
+    ddc_core::platform::rlimit::raise_nofile_limit()?;
     let root = openat(rustix::fs::CWD, tree, DIR, Mode::empty())?;
     let block = content();
     walk(&root, &desc.nodes, |dir, node| create(dir, node, tree, &block))?;

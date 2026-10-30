@@ -278,7 +278,7 @@ pub fn with_clean_line<T>(progress: &ExecProgress, home: &Path, cancel: &AtomicB
             if cancel.load(Ordering::SeqCst) {
                 progress.cancel_walk();
             }
-            let columns = ddc_core::sys::term::stderr_columns().map_or(80, usize::from);
+            let columns = ddc_core::platform::term::stderr_columns().map_or(80, usize::from);
             // The frame and its space, counted wide, and one spare column so a
             // terminal that wraps at the last column early never wraps the line.
             format!("{frame} {}", clean_line(&progress.snapshot(), home, columns.saturating_sub(4)))
@@ -600,7 +600,7 @@ mod tests {
     /// nothing changes, as a share of the wall time: the thread's clock, so
     /// other tests in the process do not count.
     fn idle_share(tick: impl Fn() + Sync) -> f64 {
-        use ddc_core::sys::usage::thread_cpu_time;
+        use ddc_core::platform::usage::thread_cpu_time;
         let first = Mutex::new(None);
         let span = Mutex::new(None);
         ticker(

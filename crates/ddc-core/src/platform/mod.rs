@@ -3,11 +3,12 @@
 //! DDC-007): one child module per OS, chosen at compile time and re-exported
 //! here, so shared code never names an OS.
 //!
-//! This story brings the constants: which platform this build is for, what
-//! it can do ([`CAPABILITIES`]) and whether it may scan or change anything
-//! at all ([`SUPPORTED`]). Story "Move OS calls behind the platform module"
-//! moves `sys/` here and pins each function's signature once, as
-//! `const _: fn(&Path) -> io::Result<StatFs> = imp::statfs;`.
+//! It holds the constants: which platform this build is for, what it can do
+//! ([`CAPABILITIES`]) and whether it may scan or change anything at all
+//! ([`SUPPORTED`]). Story "Move OS calls behind the platform module" moved
+//! `sys/` here: shared code calls `platform::<module>::<item>`, and each
+//! item's signature is pinned once below, as
+//! `const _: fn(&Path) -> io::Result<VolumeStats> = imp::statfs::statfs;`.
 //!
 //! [`SUPPORTED`] is each OS module's literal, never an environment variable,
 //! a settings key or a flag: nothing a user or an agent sets can turn it on.
@@ -19,6 +20,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::disk::ActionId;
+
+pub mod op_stats;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -33,6 +36,10 @@ use linux as imp;
 use macos as imp;
 #[cfg(target_os = "windows")]
 use windows as imp;
+
+// The OS calls, as `platform::<module>::<item>` (ADR §1, amended): shared
+// code never names `macos`, which stays private.
+pub use imp::{bulk, fsops, iopolicy, procs, rlimit, signals, statfs, term, usage};
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 compile_error!("deepdrivecleaner builds for macOS, Linux and Windows only (ADR \"Platform seam\", §1)");

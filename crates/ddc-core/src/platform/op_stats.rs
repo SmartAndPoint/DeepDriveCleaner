@@ -1,6 +1,12 @@
 //! The counters of [`crate::stats`] and the counting global allocator,
 //! only under the `op-stats` feature. Relaxed atomics, each on its own cache
 //! line: the walker's threads add to them at once. Nothing here allocates.
+//!
+//! Not OS code: it lives in `platform/` because it needs `unsafe`
+//! (`GlobalAlloc`, `no_mangle`), which is allowed only here and in
+//! `platform/macos/`.
+#![cfg(feature = "op-stats")]
+#![allow(unsafe_code)]
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicU64, Ordering};
