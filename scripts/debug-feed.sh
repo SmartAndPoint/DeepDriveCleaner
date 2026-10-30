@@ -8,7 +8,7 @@
 #
 # The owner's test of Update and Relaunch:
 #   1. Build the update: raise CURRENT_PROJECT_VERSION, `make app`, and zip it:
-#        ditto -c -k --sequesterRsrc --keepParent build/Debug/DeepDriveCleaner.app <zip>
+#        ditto -c -k --norsrc --noextattr --keepParent build/Debug/DeepDriveCleaner.app <zip>
 #      Put CURRENT_PROJECT_VERSION back and `make app` again: that is the copy to update.
 #   2. scripts/debug-feed.sh <zip>
 #   3. Serve it:       cd build/debug-feed && python3 -m http.server 8000 --bind 127.0.0.1

@@ -227,11 +227,12 @@ grep -q "source=Notarized Developer ID" <<<"$ASSESSMENT" || fail "Gatekeeper doe
 
 step "Packing $(basename "$ZIP")"
 # Zipped after stapling, so the ticket travels with the app. The zip is Sparkle's
-# enclosure too: --sequesterRsrc, as Sparkle advises, would keep a resource fork in
-# __MACOSX/, which the app, stripped by `xattr -cr`, should never have.
-ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+# enclosure too. It carries no extended attributes: a signed bundle may hold no
+# resource fork, and macOS can put com.apple.provenance on every file a build writes,
+# which `xattr -cr` cannot remove and which would land in __MACOSX/.
+ditto -c -k --norsrc --noextattr --keepParent "$APP" "$ZIP"
 ZIP_LISTING="$(unzip -Z1 "$ZIP")" || fail "cannot list $(basename "$ZIP")"
-if grep -q '^__MACOSX/' <<<"$ZIP_LISTING"; then fail "the zip holds __MACOSX/: the app carries extended attributes"; fi
+if grep -qE '(^__MACOSX/|(^|/)\._)' <<<"$ZIP_LISTING"; then fail "the zip holds __MACOSX/ or ._ files: ditto packed extended attributes"; fi
 shasum -a 256 "$ZIP" | awk '{print $1}' > "$ZIP.sha256"
 
 printf '\033[0;32m✅ %s\033[0m\n' "$ZIP"
