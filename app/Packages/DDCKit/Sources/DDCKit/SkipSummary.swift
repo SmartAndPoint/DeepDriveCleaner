@@ -145,7 +145,7 @@ extension CleanWording {
         "\(which) changed since the scan. Scan Again to see \(count == 1 ? "it as it is" : "them as they are") now."
     }
 
-    /// `DOCKER_DOWN` and the missing context of `crates/ddc-core/src/rules/catalog.rs`.
+    /// `DOCKER_DOWN` and the missing context of `crates/ddc-core/src/rules/catalog/mod.rs`.
     static let dockerDown = "Docker Desktop is not running or not answering"
     static let dockerNoContext = "the desktop-linux context does not exist"
 
