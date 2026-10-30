@@ -21,9 +21,11 @@ struct SessionPickTests {
     static let home = "/Users/example"
     static let project = "\(home)/.claude/projects/-Users-example-proj"
     static let fileHistory = "\(home)/.claude/file-history"
-    /// `scan-report-origin`'s two sessions: one live, one free.
+    /// `scan-report-origin`'s two sessions, one live and one free, and a
+    /// third whose liveness is unknown.
     static let live = "\(project)/0a1b2c3d-0000-4000-8000-00000000000a.jsonl"
     static let free = "\(project)/0a1b2c3d-0000-4000-8000-00000000000b.jsonl"
+    static let unsure = "\(project)/0a1b2c3d-0000-4000-8000-00000000000e.jsonl"
     /// The file-history folder's two sessions: liveness unknown, and free.
     static let unknown = "\(fileHistory)/0a1b2c3d-0000-4000-8000-00000000000c"
     static let checkpoints = "\(fileHistory)/0a1b2c3d-0000-4000-8000-00000000000d"
@@ -31,11 +33,21 @@ struct SessionPickTests {
     static let transcriptsHint = "This session's transcript. --resume of it fails until it is put back from the Trash, before it is resumed."
     static let fileHistoryHint = "Checkpoints of this session. /rewind cannot use them once moved."
 
-    /// The Coding agents report of `AgentsReviewTests`, with Claude Code's
-    /// file-history folder and its two sessions.
+    /// The Coding agents report of `AgentsReviewTests`, with a third session in
+    /// the transcripts folder, and Claude Code's file-history folder with two.
     static func report() throws -> Data {
         try AgentsReviewTests.report { findings in
-            guard var history = findings.first(where: { $0["rule"] as? String == "agent.claude-code-transcripts" }) else { return }
+            guard let index = findings.firstIndex(where: { $0["rule"] as? String == "agent.claude-code-transcripts" }),
+                var contents = findings[index]["contents"] as? [String: Any],
+                let entries = contents["entries"] as? [[String: Any]]
+            else { return }
+            contents["entries"] = entries + [[
+                "path": unsure, "kind": "file", "bytes": 4096, "dev": 16_777_232, "ino": 339_569_813,
+                "modified": "2026-10-19T09:00:00Z",
+                "lock": ["reason": "liveness-unknown", "cause": "records-missing"],
+            ]]
+            findings[index]["contents"] = contents
+            var history = findings[index]
             history["path"] = fileHistory
             history["rule"] = "agent.claude-code-file-history"
             history["hint"] = fileHistoryHint
@@ -88,31 +100,37 @@ struct SessionPickTests {
 
     // MARK: - The rows
 
-    @Test("Review → Coding agents lists both sessions of the transcripts folder; the live one cannot be picked and says why, the other can")
+    @Test("Review → Coding agents lists the transcripts folder's three sessions: the live and the unknown one say why and cannot be picked, the free one can")
     func listsSessions() throws {
         let items = try items()
         let layout = items.layout(Self.entry, matching: "")
         #expect(layout.shape == .rules)
         let transcripts = try #require(subgroups(layout).first { $0.title == "~/.claude/projects/-Users-example-proj" })
         #expect(!transcripts.checkable, "sessions are picked one by one")
-        #expect(transcripts.isFolder)
+        #expect(transcripts.isFolder && transcripts.kind == .sessions)
         #expect(transcripts.hint == Self.transcriptsHint)
-        #expect(transcripts.subtitle == "agent.claude-code-transcripts · 2 sessions · 1 other item (\(ByteSize.human(4096))) is not listed")
+        #expect(transcripts.subtitle == "agent.claude-code-transcripts · 3 sessions · 1 other item (\(ByteSize.human(4096))) is not listed")
         // Its rows are named by their session id, largest first.
-        #expect(transcripts.items.map(\.shown) == ["0a1b2c3d-0000-4000-8000-00000000000a", "0a1b2c3d-0000-4000-8000-00000000000b"])
-        #expect(transcripts.items.map(\.row.finding.bytes) == [36864, 8192])
+        #expect(transcripts.items.map(\.shown) == [
+            "0a1b2c3d-0000-4000-8000-00000000000a", "0a1b2c3d-0000-4000-8000-00000000000b", "0a1b2c3d-0000-4000-8000-00000000000e",
+        ])
+        #expect(transcripts.items.map(\.row.finding.bytes) == [36864, 8192, 4096])
 
         let live = try #require(transcripts.items.first { $0.row.finding.path == Self.live })
         #expect(!live.row.selectable)
         #expect(live.row.lock == .entry(.liveSession(session: "0a1b2c3d-0000-4000-8000-00000000000a", by: .record)))
         #expect(live.detail == "A running Claude Code has this session open")
+        let unsure = try #require(transcripts.items.first { $0.row.finding.path == Self.unsure })
+        #expect(!unsure.row.selectable)
+        #expect(unsure.row.lock == .entry(.livenessUnknown(cause: .recordsMissing)))
+        #expect(unsure.detail == "Could not tell whether the session is in use · Claude Code keeps no session records here")
         let free = try #require(transcripts.items.first { $0.row.finding.path == Self.free })
         #expect(free.row.selectable && free.row.lock == nil)
         #expect(free.detail.isEmpty, "a free session's size and change are its columns")
         #expect(free.row.finding.modified == "2026-10-20T09:00:00Z")
 
-        // Both are rows of the Review entry, never of User data.
-        #expect([live, free].allSatisfy { $0.row.riskClass == .review && $0.row.userEntry?.isSession == true })
+        // All three are rows of the Review entry, never of User data.
+        #expect([live, free, unsure].allSatisfy { $0.row.riskClass == .review && $0.row.userEntry?.isSession == true })
         #expect(items.rows(in: Self.entry).contains { $0.id == free.id })
         #expect(items.sidebar.first { $0.riskClass == .userData }?.entries.contains { $0.group == AgentsSummary.group } != true)
 
@@ -120,6 +138,50 @@ struct SessionPickTests {
         let history = try folder(items, "agent.claude-code-history").id
         #expect(layout.selectAll == [history])
         #expect(Set(layout.pickScope) == [free.id, try id(items, Self.checkpoints)])
+        // Of this folder, only the free session is in the picks.
+        #expect(Set(layout.pickScope).intersection(transcripts.ids) == [free.id])
+    }
+
+    @Test("Select all's total counts its own rows only, never the sessions beside it")
+    func selectAllTotal() throws {
+        let items = try items()
+        let layout = items.layout(Self.entry, matching: "")
+        // The history, then three transcripts sessions and two file-history ones.
+        #expect(layout.count == 6)
+        #expect(layout.selectAllBytes == 16384)
+        #expect(layout.selectAllTotal == "1 folder · \(ByteSize.human(16384))")
+        // A group with no sessions: its total is the group's, as before.
+        let safe = items.layout(ReviewItems.Entry(riskClass: .safe, group: AgentsSummary.group), matching: "")
+        #expect(safe.selectAllTotal == "\(Wording.items(safe.count, "folder")) · \(ByteSize.human(safe.bytes))")
+    }
+
+    @Test("a session subgroup's fold button says it shows or hides its sessions")
+    func foldHint() throws {
+        let layout = try items().layout(Self.entry, matching: "")
+        let transcripts = try #require(subgroups(layout).first { $0.kind == .sessions })
+        #expect(transcripts.foldHint(expanded: false) == "Shows its sessions")
+        #expect(transcripts.foldHint(expanded: true) == "Hides its sessions")
+        let folders = try #require(subgroups(items().layout(ReviewItems.Entry(riskClass: .safe, group: AgentsSummary.group), matching: "")).first)
+        #expect(folders.foldHint(expanded: false) == "Shows its folders")
+    }
+
+    @Test("a session folder the scan could not list: no rows, nothing to pick, still locked as a session folder")
+    func notListed() throws {
+        let report = try AgentsReviewTests.report { findings in
+            for index in findings.indices where findings[index]["rule"] as? String == "agent.claude-code-transcripts" {
+                findings[index].removeValue(forKey: "contents")
+            }
+        }
+        let items = ReviewItems.make(report: try ScanReport.read(report), settings: nil, rules: try Fixture.rules())
+        let row = try folder(items, "agent.claude-code-transcripts")
+        #expect(row.lock == .sessions)
+        #expect(!row.selectable)
+        #expect(!items.rows.contains { $0.userEntry != nil })
+        let layout = items.layout(Self.entry, matching: "")
+        let transcripts = try #require(subgroups(layout).first { $0.kind == .sessions })
+        #expect(transcripts.subtitle == "agent.claude-code-transcripts · Its sessions could not be listed")
+        #expect(transcripts.items.isEmpty)
+        #expect(layout.pickScope.isEmpty)
     }
 
     @Test("a session whose liveness is unknown says why and cannot be picked; a file-history session can")
@@ -200,9 +262,9 @@ struct SessionPickTests {
         #expect(CleanWording.sheetTitle(confirmation) == "Move 1 item to the Trash?")
         #expect(CleanWording.sheetAction(confirmation) == "Move to the Trash")
         let note = try #require(CleanWording.sessions(confirmation))
-        #expect(note == "1 session goes to the Trash with its companion files; nothing is deleted permanently. agent.claude-code-transcripts: \(Self.transcriptsHint)")
+        #expect(note == "1 session goes to the Trash with its companion files; nothing is deleted permanently. Claude Code transcripts: \(Self.transcriptsHint)")
         #expect(note.contains("Trash") && note.contains("--resume"))
-        #expect(!note.contains("User data"))
+        #expect(!note.contains("User data") && !note.contains("agent."))
         // A sheet without a session says nothing of sessions.
         let history = try folder(items, "agent.claude-code-history").id
         #expect(CleanWording.sessions(Confirmation(items, selection: [history], deletePermanently: false)) == nil)
@@ -216,6 +278,7 @@ struct SessionPickTests {
         #expect(one.itemList(checkedAgainst: items).items.map(\.class) == [.userData])
         let note = try #require(CleanWording.sessions(one))
         #expect(note.contains("/rewind") && !note.contains("--resume"))
+        #expect(note.contains("Claude Code file history: ") && !note.contains("agent."))
 
         let both = Confirmation(items, selection: [checkpoints, try id(items, Self.free)], deletePermanently: false)
         let text = try #require(CleanWording.sessions(both))
@@ -240,20 +303,23 @@ struct SessionPickTests {
         #expect(review.amount(of: Self.entry) == Wording.amount(selected: 8192, total: 49152 + 16384 + 20480))
     }
 
-    @Test("picking a session and cleaning sends clean --items with that session's path only")
+    @Test("picking a transcript session and a file-history session sends one clean --items with those two paths only")
     func clean() async throws {
         let report = try Self.report()
         try data.write(lastScan: report)
         let fake = try FakeCLI(lastScan: data.directory.lastScan)
         try fake.put("dry-run.jsonl", Data("""
             {"type":"item","path":"\(Self.free)","rule":"agent.claude-code-transcripts","class":"user-data","action":"trash","bytes":8192,"prediction":"would-trash"}
-            {"type":"summary","items":1,"would_delete":0,"would_trash":1,"would_run":0,"would_skip":0,"bytes":8192}
+            {"type":"item","path":"\(Self.checkpoints)","rule":"agent.claude-code-file-history","class":"user-data","action":"trash","bytes":8192,"prediction":"would-trash"}
+            {"type":"summary","items":2,"would_delete":0,"would_trash":2,"would_run":0,"would_skip":0,"bytes":16384}
 
             """.utf8))
         try fake.put("clean-report.json", Data("""
             {"schema_version": 5, "ddc_version": "0.11.0", "platform": "macos", "capabilities": ["private-size", "in-use-check", "dataless-files", "full-disk-access", "local-snapshots", "whole-disk", "coding-agents", "homebrew", "schedule", "notifications"], "cancelled": false, "failed": 0, "local_snapshots": 0,
              "journal": "/Users/example/Library/Logs/DeepDriveCleaner/actions.jsonl", "volumes": [],
              "items": [{"path": "\(Self.free)", "dev": 16777232, "ino": 339569812, "rule": "agent.claude-code-transcripts",
+                        "class": "user-data", "action": "trash", "bytes": 8192, "outcome": "trashed"},
+                       {"path": "\(Self.checkpoints)", "dev": 16777232, "ino": 339569822, "rule": "agent.claude-code-file-history",
                         "class": "user-data", "action": "trash", "bytes": 8192, "outcome": "trashed"}]}
             """.utf8))
         try fake.put("saved-scan.json", report)
@@ -263,11 +329,17 @@ struct SessionPickTests {
         #expect(review.open(ReviewRequest(group: AgentsSummary.group, classes: [], confirm: false)))
         let items = try #require(review.items)
         let free = try id(items, Self.free)
+        let checkpoints = try id(items, Self.checkpoints)
         review.toggle(free)
+        review.toggle(checkpoints)
         review.toggle(try id(items, Self.live))
+        review.toggle(try id(items, Self.unsure))
+        #expect(review.selection == [free, checkpoints])
 
         review.openSheet(scope: items.layout(Self.entry, matching: "").pickScope)
-        #expect(review.sheet?.confirmation.items.map(\.id) == [free])
+        let confirmation = try #require(review.sheet?.confirmation)
+        #expect(confirmation.items.map(\.id) == [free, checkpoints])
+        #expect(confirmation.items.allSatisfy { !$0.canBePermanent && !$0.permanent && $0.isSession })
         try await until("the dry run") { review.sheet?.warnings == .checked }
         review.cleanConfirmedItems()
         try fake.open("clean-start")
@@ -275,17 +347,14 @@ struct SessionPickTests {
         try await until("the result") { review.sheet?.stage.result != nil }
 
         let runs = try fake.runs().filter { $0.event == "start" }.map(\.args)
-        #expect(runs.contains { $0.hasPrefix("clean --items ") && !$0.contains("--dry-run") })
+        #expect(runs.filter { $0.hasPrefix("clean --items ") && !$0.contains("--dry-run") }.count == 1, "one clean")
         let lists = try fake.lists()
         #expect(lists.count == 2, "the dry run's list, then the clean's")
         for list in lists {
             let json = try #require(try JSONSerialization.jsonObject(with: list) as? [String: Any])
             let sent = try #require(json["items"] as? [[String: Any]])
-            #expect(sent.count == 1)
-            #expect(sent.first?["path"] as? String == Self.free)
-            #expect(sent.first?["class"] as? String == "user-data")
-            #expect(sent.first?["action"] as? String == "trash")
-            #expect(sent.first?["permanent"] == nil)
+            #expect(sent.compactMap { $0["path"] as? String } == [Self.free, Self.checkpoints])
+            #expect(sent.allSatisfy { $0["class"] as? String == "user-data" && $0["action"] as? String == "trash" && $0["permanent"] == nil })
         }
         try await until("the rescan") { events.busy == [true, false] }
         review.closeSheet()

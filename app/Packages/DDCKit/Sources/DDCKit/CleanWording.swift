@@ -249,9 +249,19 @@ extension CleanWording {
         var rules: [String] = []
         for item in sessions where !rules.contains(item.finding.rule) {
             rules.append(item.finding.rule)
-            if let hint = hint(item.finding.hint) { parts.append("\(ruleName(item.finding.rule)): \(hint)") }
+            if let hint = hint(item.finding.hint) { parts.append("\(sessionFolderName(item.finding.rule)): \(hint)") }
         }
         return parts.joined(separator: " ")
+    }
+
+    /// A session folder's plain name in the sheet: "Claude Code transcripts".
+    /// A rule this app does not know yet says the last part of its id.
+    public static func sessionFolderName(_ rule: String) -> String {
+        switch rule {
+        case "agent.claude-code-transcripts": "Claude Code transcripts"
+        case "agent.claude-code-file-history": "Claude Code file history"
+        default: Wording.escaped(rule.split(separator: ".").last.map(String.init) ?? rule)
+        }
     }
 
     /// An entry row's own facts: its lock, a backup's device and date, the

@@ -338,6 +338,11 @@ struct ContractTests {
         let list = try #require(source.firstMatch(of: /pub const SESSION_ENTRY_RULES: &\[&str\] = &\[(.*?)\];/))
         let core = Set(String(list.1).matches(of: /"([^"]+)"/).map { String($0.1) })
         #expect(core == ["agent.claude-code-file-history", "agent.claude-code-transcripts"])
+        // The sheet names each by a plain name of its own, never its id.
+        for id in core {
+            let name = CleanWording.sessionFolderName(id)
+            #expect(!name.contains(".") && name != id.split(separator: ".").last.map(String.init), "\(id)")
+        }
 
         let raw = try #require(try JSONSerialization.jsonObject(with: Fixture.data("rules")) as? [String: Any])
         let rules = try #require(raw["rules"] as? [[String: Any]]).filter { $0["class"] as? String != "user-data" }

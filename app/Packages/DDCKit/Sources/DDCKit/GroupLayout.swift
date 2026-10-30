@@ -48,6 +48,8 @@ public struct GroupLayout: Sendable, Equatable {
             /// Findings the report notes as inside an app's own folder.
             case appOwned
             case rule(String)
+            /// A coding agent's session folder: its sessions.
+            case sessions
         }
 
         public let key: Key
@@ -71,6 +73,12 @@ public struct GroupLayout: Sendable, Equatable {
         public var ids: [Int] { items.map(\.id) }
         /// A folder subgroup, drawn with a folder icon.
         public var isFolder: Bool { if case .rule = kind { false } else { true } }
+
+        /// Its fold button's accessibility hint: what pressing it shows or hides.
+        public func foldHint(expanded: Bool) -> String {
+            let what = kind == .sessions ? "sessions" : "folders"
+            return expanded ? "Hides its \(what)" : "Shows its \(what)"
+        }
     }
 
     /// A rule with one item: one row, with no subgroup around it.
@@ -157,7 +165,7 @@ public struct GroupLayout: Sendable, Equatable {
     public let hint: String?
     /// The rows Select all covers; nil where the group has none (user data).
     public let selectAll: [Int]?
-    /// The rows shown, and their bytes.
+    /// The rows shown, and their bytes: a session folder's sessions included.
     public let count: Int
     public let bytes: UInt64
     /// In the sort's order (`ReviewSort`).
@@ -176,6 +184,15 @@ public struct GroupLayout: Sendable, Equatable {
     /// rows, this over the sessions (story "Review window: pick a coding
     /// agent's sessions one by one").
     public internal(set) var pickScope: [Int] = []
+    /// The bytes of the rows Select all covers: `bytes` without a session
+    /// folder's sessions, which are not under it.
+    public internal(set) var selectAllBytes: UInt64 = 0
+
+    /// Select all's total when none of its rows can be selected: "9 folders
+    /// · 3.8 GiB", its own rows only; nil without Select all.
+    public var selectAllTotal: String? {
+        selectAll.map { "\(Wording.items($0.count, "folder")) · \(ByteSize.human(selectAllBytes))" }
+    }
 
     /// The lines with folded subgroups showing their heading only.
     public func lines(collapsed: Set<Key>) -> [Line] {
@@ -265,7 +282,8 @@ extension ReviewItems {
             rest: nil,
             notScanned: [],
             opensTrash: trash,
-            pickScope: sessions.filter(\.selectable).map(\.id)
+            pickScope: sessions.filter(\.selectable).map(\.id),
+            selectAllBytes: shown.reduce(0) { $0 + $1.finding.bytes }
         )
     }
 
@@ -285,7 +303,7 @@ extension ReviewItems {
             }
             return .subgroup(GroupLayout.Subgroup(
                 key: GroupLayout.Key(entry: entry, tag: Array("s".utf8) + Array(folder.finding.path.utf8)),
-                kind: .folder,
+                kind: .sessions,
                 title: Wording.tilde(folder.finding.path, home: report.home),
                 subtitle: subtitle.joined(separator: " · "),
                 hint: CleanWording.hint(folder.finding.hint),
