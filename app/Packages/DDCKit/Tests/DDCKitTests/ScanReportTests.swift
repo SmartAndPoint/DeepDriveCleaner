@@ -69,6 +69,26 @@ struct ScanReportTests {
         }
     }
 
+    /// A session folder's `contents` must not turn the Coding agents group into
+    /// a list of entries to pick: its folders stay rows, with the history beside them.
+    @Test("the Coding agents group keeps its folders as rows when a session folder lists entries")
+    func codingAgentsGroupKeepsItsRows() throws {
+        let data = try Fixture.editedFindings("scan-report-origin") { findings in
+            var history = findings[findings.count - 1]
+            history["path"] = "/Users/example/.claude/paste-cache"
+            history["rule"] = "agent.claude-code-history"
+            history["removal"] = "trash"
+            history["ino"] = 999
+            history.removeValue(forKey: "contents")
+            findings.append(history)
+        }
+        let items = ReviewItems.make(report: try ScanReport.read(data), settings: nil, rules: try Fixture.rules())
+        let layout = items.layout(ReviewItems.Entry(riskClass: .review, group: "Coding agents"), matching: "")
+        #expect(layout.shape != .entries)
+        #expect(layout.count == 2)
+        #expect(layout.blocks.count == 2)
+    }
+
     @Test("a report of another schema version is unreadable")
     func otherSchemaIsUnreadable() throws {
         let data = try Data(contentsOf: try Self.fixture("scan-report-v1"))

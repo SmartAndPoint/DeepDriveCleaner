@@ -207,7 +207,9 @@ extension ReviewItems {
                 count: 0, bytes: 0, blocks: [], rest: nil, notScanned: cloudSkipped.map { Wording.tilde($0, home: report.home) }
             )
         }
-        let folders = all.filter { $0.userEntry == nil && $0.finding.contents != nil }
+        // Only a user-data folder's entries are picked one by one; a coding agent's
+        // session folder lists its sessions too, but stays a row of its group.
+        let folders = all.filter { $0.userEntry == nil && $0.finding.contents != nil && $0.lock == .userData }
         if !folders.isEmpty {
             return entriesLayout(entry, all.filter { $0.userEntry != nil && matches($0, query) }, folders: folders, sort: sort)
         }
