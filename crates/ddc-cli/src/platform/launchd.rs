@@ -289,6 +289,8 @@ mod tests {
         }
     }
 
+    // macOS only: plutil is a macOS tool.
+    #[cfg(target_os = "macos")]
     #[test]
     fn generated_plist_passes_plutil() {
         let tmp = tempfile::tempdir().unwrap();
@@ -305,6 +307,8 @@ mod tests {
 
     /// The scheduled scan stays in the background: launchd gives it low I/O
     /// priority and a nice of 10 (story "Memory and CPU under load").
+    // macOS only: plutil is a macOS tool.
+    #[cfg(target_os = "macos")]
     #[test]
     fn the_agent_runs_at_low_io_priority_and_nice_10() {
         let tmp = tempfile::tempdir().unwrap();

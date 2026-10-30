@@ -157,8 +157,9 @@ jobs:
           key: check-${{ matrix.target }}
       - run: cargo clippy --workspace --all-targets --locked --target ${{ matrix.target }} -- -D warnings
       # The pass and skip counts are the port's evidence: a gated test prints
-      # "skipped" and returns while the platform is not supported.
-      - run: cargo test --workspace --locked --target ${{ matrix.target }}
+      # "skipped" and returns while the platform is not supported. --no-fail-fast
+      # runs every test binary, so one failure does not hide the rest.
+      - run: cargo test --workspace --locked --no-fail-fast --target ${{ matrix.target }}
 
   # The release CLI as `make dist` builds and checks it before signing (story "Build
   # matrix: every target built, tested and packaged from one tag", DDC-007): release-only
