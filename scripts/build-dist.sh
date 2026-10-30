@@ -28,6 +28,7 @@ step() { printf '\033[0;34m→ %s\033[0m\n' "$1"; }
 [ "$DIST" = "$ROOT/dist" ] || fail "unexpected dist directory: $DIST"
 rm -rf "$DIST"
 
+# shellcheck source=/dev/null
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
 [ -n "${DDC_SIGN_IDENTITY:-}" ] || fail "DDC_SIGN_IDENTITY is not set (.env): a release is signed with the Developer ID"
 [[ "$DDC_SIGN_IDENTITY" =~ ^[0-9A-Fa-f]{40}$ ]] \
@@ -43,19 +44,14 @@ APP_VERSION="$(sed -n 's/^[[:space:]]*MARKETING_VERSION = \(.*\);$/\1/p' app/Dee
 [ "$APP_VERSION" = "$VERSION" ] || fail "the app's MARKETING_VERSION ($APP_VERSION) is not the CLI's version ($VERSION)"
 ASSET="deepdrivecleaner-$VERSION-$TARGET.tar.gz"
 
-step "Building $VERSION for $TARGET"
-# The remap keeps the maintainer's home directory out of the public binary.
-RUSTFLAGS="--remap-path-prefix=$HOME=~" "$CARGO" build --release --locked --target "$TARGET" -p ddc-cli
-BIN="$ROOT/target/$TARGET/release/deepdrivecleaner"
-[ "$(lipo -archs "$BIN")" = "arm64" ] || fail "not an arm64-only binary: $(lipo -archs "$BIN")"
-[ "$("$BIN" --version)" = "deepdrivecleaner $VERSION" ] || fail "the binary reports '$("$BIN" --version)'"
-# strings and nm first and on their own, so a failing tool stops the build instead of passing the check.
-STRINGS="$(strings "$BIN")"
-if grep -F "$HOME" <<<"$STRINGS" >/dev/null; then fail "the binary still contains $HOME"; fi
-# The cost counters of the complexity guard never ship (ddc-core feature op-stats).
-SYMBOLS="$(nm "$BIN")"
-grep ' _main$' <<<"$SYMBOLS" >/dev/null || fail "nm sees no symbol table, so it cannot see the counters"
-if grep DDC_OP_STATS <<<"$SYMBOLS" >/dev/null; then fail "the binary carries the op-stats counters"; fi
+# The tag comes first (make tag), and release.yml builds the other targets from it:
+# this tarball is built from the commit it names, or one release would mix two.
+"$ROOT/scripts/require-tag.sh"
+
+# Build and the unsigned checks (architecture, version, no home folder in the binary,
+# no op-stats counters), shared with CI.
+"$ROOT/scripts/build-cli.sh" "$TARGET"
+BIN="${CARGO_TARGET_DIR:-$ROOT/target}/$TARGET/release/deepdrivecleaner"
 
 STAGE="$DIST/stage"
 mkdir -p "$STAGE"

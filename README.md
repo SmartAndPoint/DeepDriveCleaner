@@ -402,7 +402,8 @@ make release    # optimized build
 make install    # install deepdrivecleaner + ddc
 make app-test   # the app's logic (DDCKit) under swift test
 make app        # the app, Debug, signed with your Developer ID
-make dist       # maintainers: after a green CI run for HEAD, the signed, notarized CLI tarball and app zip (then scripts/publish-release.sh)
+make tag        # maintainers: after a green CI run for HEAD of main, push the tag v<version>; release.yml builds the other targets from it
+make dist       # maintainers: then, on the tagged commit, the signed, notarized CLI tarball and app zip (then scripts/publish-release.sh)
 ```
 
 By submitting a contribution you agree that SmartAndPoint may use, modify and relicense it under any terms, including commercial ones, and you confirm that you have the right to grant this.

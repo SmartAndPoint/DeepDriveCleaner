@@ -190,13 +190,21 @@ fn conda_runs_only_its_named_commands() {
 /// outside a `[features]` table or as a default. A default reached through
 /// another feature is caught by `nm`, which `make release-check` and both
 /// build scripts run on the release binary to look for the counters' marker.
+/// The dist build is `scripts/build-cli.sh`, which `scripts/build-dist.sh` and
+/// CI share (story "Build matrix: every target built, tested and packaged
+/// from one tag", DDC-007).
 #[test]
 fn the_release_build_carries_no_counters() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let marker = "DDC_OP_STATS";
     let op_stats = std::fs::read_to_string(root.join("crates/ddc-core/src/sys/op_stats.rs")).unwrap();
     assert!(op_stats.contains(&format!("pub static {marker}:")), "sys/op_stats.rs no longer exports {marker}");
-    for script in ["scripts/build-dist.sh", "scripts/build-app.sh"] {
+    let dist = std::fs::read_to_string(root.join("scripts/build-dist.sh")).unwrap();
+    assert!(
+        dist.contains("scripts/build-cli.sh\" \"$TARGET\""),
+        "scripts/build-dist.sh no longer builds with scripts/build-cli.sh"
+    );
+    for script in ["scripts/build-cli.sh", "scripts/build-app.sh"] {
         let text = std::fs::read_to_string(root.join(script)).unwrap().replace("\\\n", " ");
         assert!(text.contains(&format!("grep {marker} ")), "{script} does not look for {marker}");
         assert!(text.contains("grep ' _main$'"), "{script} does not check that nm sees a symbol table");
