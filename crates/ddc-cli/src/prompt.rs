@@ -370,6 +370,7 @@ mod tests {
                 contents: None,
                 protection: None,
                 modified: None,
+                origin: None,
             },
             action,
             default_selected: selected,

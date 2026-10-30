@@ -9,6 +9,7 @@
     "Maven and test browsers",
     "Browser and app caches",
     "IDE caches",
+    "Coding agents",
     "Xcode builds",
     "Xcode device support",
     "Old toolchains",
@@ -556,6 +557,96 @@
       "group": "Your data",
       "id": "ide.workspace-storage",
       "listed": true,
+      "removal": "none",
+      "switchable": false
+    },
+    {
+      "category": "app-cache",
+      "class": "safe",
+      "group": "Coding agents",
+      "id": "agent.claude-code-scratch",
+      "listed": true,
+      "removal": "delete",
+      "switchable": true
+    },
+    {
+      "category": "app-cache",
+      "class": "review",
+      "group": "Coding agents",
+      "id": "agent.claude-code-file-history",
+      "listed": true,
+      "removal": "none",
+      "switchable": true
+    },
+    {
+      "category": "app-cache",
+      "class": "review",
+      "group": "Coding agents",
+      "id": "agent.claude-code-transcripts",
+      "listed": true,
+      "removal": "none",
+      "switchable": true
+    },
+    {
+      "category": "app-cache",
+      "class": "review",
+      "group": "Coding agents",
+      "id": "agent.claude-code-history",
+      "listed": true,
+      "removal": "trash",
+      "switchable": true
+    },
+    {
+      "category": "app-cache",
+      "class": "review",
+      "group": "Coding agents",
+      "id": "agent.codex-sessions",
+      "listed": true,
+      "removal": "none",
+      "switchable": false
+    },
+    {
+      "category": "app-cache",
+      "class": "review",
+      "group": "Coding agents",
+      "id": "agent.codex-runtimes",
+      "listed": true,
+      "removal": "none",
+      "switchable": false
+    },
+    {
+      "category": "app-cache",
+      "class": "review",
+      "group": "Coding agents",
+      "id": "agent.opencode-data",
+      "listed": true,
+      "removal": "none",
+      "switchable": false
+    },
+    {
+      "category": "app-cache",
+      "class": "review",
+      "group": "Coding agents",
+      "id": "agent.cursor-agent-data",
+      "listed": true,
+      "removal": "none",
+      "switchable": false
+    },
+    {
+      "category": "personal",
+      "class": "user-data",
+      "group": "Coding agents",
+      "id": "agent.claude-code-sealed",
+      "listed": false,
+      "removal": "none",
+      "switchable": false
+    },
+    {
+      "category": "personal",
+      "class": "user-data",
+      "group": "Coding agents",
+      "id": "agent.cursor-sealed",
+      "listed": false,
       "removal": "none",
       "switchable": false
     },

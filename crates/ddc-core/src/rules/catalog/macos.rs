@@ -5,8 +5,9 @@
 use super::shared;
 use super::{DOCKER_PRUNE, JETBRAINS, rule};
 use crate::class::Category::*;
-use crate::class::Removal;
 use crate::class::RiskClass::*;
+use crate::class::{Removal, RiskClass};
+use crate::model::{Origin, OriginHarness, OriginKind};
 use crate::platform::Platform;
 use crate::rules::{Matcher, Rule, Scope};
 
@@ -32,7 +33,7 @@ pub(super) static PROTECTED_SYSTEM: [&str; 8] =
     ["/", "/System", "/Applications", "/Library", "/usr", "/opt", "/opt/homebrew", "/Users"];
 
 /// How many rules macOS has.
-const COUNT: usize = 77;
+const COUNT: usize = 87;
 
 /// A named `static`, so the list has one address (its rules' tags are
 /// found by it).
@@ -236,6 +237,152 @@ pub(super) static RULES: [Rule; COUNT] = [
             ]),
         )
     },
+    // ---- coding agents (ADR "Agent footprint: worktrees, harness data and
+    // bounded consent for agents", §3) ---------------------------------------------
+    // No owner by process name: §5's in-use check stays, and an owner match
+    // would hold back every path whenever Claude Code runs.
+    Rule {
+        hint: "debug logs and legacy folders Claude Code no longer writes",
+        ..agent(
+            "agent.claude-code-scratch",
+            Safe,
+            Removal::Delete,
+            Matcher::KnownPaths(&[".claude/debug", ".claude/todos", ".claude/statsig", ".claude/logs"]),
+            OriginHarness::ClaudeCode,
+            OriginKind::RuntimeCache,
+        )
+    },
+    // Sessions are the entries of these two (story "Harness data rules"); the
+    // folders themselves have no method. Until the entries land, each hint
+    // speaks of the folder row. The ADR's text for a session's entry:
+    // "Checkpoints of this session. /rewind cannot use them once moved."
+    Rule {
+        hint: "Claude Code's checkpoints of past sessions, for /rewind. DeepDriveCleaner only reports them for now.",
+        ..agent(
+            "agent.claude-code-file-history",
+            Review,
+            Removal::None,
+            Matcher::KnownPaths(&[".claude/file-history"]),
+            OriginHarness::ClaudeCode,
+            OriginKind::SessionData,
+        )
+    },
+    // One finding per project folder: no rule runs inside it, so its
+    // `memory/` (auto memory) is never another rule's finding. The ADR's text
+    // for a session's entry: "This session's transcript. --resume of it fails
+    // until it is put back from the Trash, before it is resumed."
+    Rule {
+        hint: "Claude Code's transcripts of this project's sessions, for --resume. DeepDriveCleaner only reports them for now.",
+        ..agent(
+            "agent.claude-code-transcripts",
+            Review,
+            Removal::None,
+            Matcher::KnownChildren(".claude/projects"),
+            OriginHarness::ClaudeCode,
+            OriginKind::SessionData,
+        )
+    },
+    Rule {
+        hint: "A recalled prompt loses its pasted text; past /insights reports are gone.",
+        ..agent(
+            "agent.claude-code-history",
+            Review,
+            Removal::Trash,
+            Matcher::KnownPaths(&[".claude/paste-cache", ".claude/usage-data"]),
+            OriginHarness::ClaudeCode,
+            OriginKind::SessionData,
+        )
+    },
+    // Codex, opencode and Cursor are report only until a liveness check
+    // refuses a running harness; then they go to the Trash. Their hints say
+    // so until then; the ADR's texts come back with the Trash, in the story's
+    // step 4, and are kept in the comment above each rule.
+    // ADR: "Codex's past threads; Codex cannot reopen them once moved. Quit
+    // Codex, and its app-server, to move them."
+    Rule {
+        hint: "Codex's past threads and its logs. DeepDriveCleaner only reports them for now.",
+        ..agent(
+            "agent.codex-sessions",
+            Review,
+            Removal::None,
+            Matcher::KnownPaths(&[".codex/sessions", ".codex/log"]),
+            OriginHarness::Codex,
+            OriginKind::SessionData,
+        )
+    },
+    // ADR: "Downloaded runtimes; Codex fetches them again on demand. Quit
+    // Codex to move them."
+    Rule {
+        hint: "Runtimes Codex downloaded; it fetches them again on demand. DeepDriveCleaner only reports them for now.",
+        ..agent(
+            "agent.codex-runtimes",
+            Review,
+            Removal::None,
+            Matcher::KnownPaths(&[".cache/codex-runtimes"]),
+            OriginHarness::Codex,
+            OriginKind::RuntimeCache,
+        )
+    },
+    // By subfolder, never whole: `.local/share/opencode` also holds
+    // `auth.json` (provider credentials) and `opencode.db`, its live index.
+    // ADR: "opencode's stored sessions, snapshots and logs; opencode cannot
+    // show those sessions once moved. Quit opencode to move them."
+    Rule {
+        hint: "opencode's stored sessions, snapshots and logs. DeepDriveCleaner only reports them for now.",
+        ..agent(
+            "agent.opencode-data",
+            Review,
+            Removal::None,
+            Matcher::KnownPaths(&[
+                ".local/share/opencode/storage",
+                ".local/share/opencode/snapshot",
+                ".local/share/opencode/log",
+                ".cache/opencode",
+            ]),
+            OriginHarness::Opencode,
+            OriginKind::SessionData,
+        )
+    },
+    // ADR: "Cursor's agent transcripts per project, and its AI-code
+    // tracking; Cursor cannot show them once moved. Quit Cursor to move them."
+    Rule {
+        hint: "Cursor's agent transcripts per project, and its AI-code tracking. DeepDriveCleaner only reports them for now.",
+        ..agent(
+            "agent.cursor-agent-data",
+            Review,
+            Removal::None,
+            Matcher::KnownPaths(&[".cursor/projects", ".cursor/ai-tracking"]),
+            OriginHarness::Cursor,
+            OriginKind::SessionData,
+        )
+    },
+    // Sealed, like app bundles: never a finding, and no rule fires inside.
+    // The live session records; the shell snapshots a live session sources
+    // before every Bash command without holding them open; what the person
+    // installed; the person's plans and chats. `.cursor/worktrees` and
+    // `.codex/worktrees` are not sealed: the rules work inside a worktree.
+    Rule {
+        hint: "Claude Code's live session records, shell snapshots and installed plugins",
+        listed: false,
+        ..rule(
+            "agent.claude-code-sealed",
+            Personal,
+            UserData,
+            Removal::None,
+            Matcher::KnownPaths(&[".claude/sessions", ".claude/shell-snapshots", ".claude/plugins"]),
+        )
+    },
+    Rule {
+        hint: "Cursor's installed extensions and plugins, and the person's plans and chats",
+        listed: false,
+        ..rule(
+            "agent.cursor-sealed",
+            Personal,
+            UserData,
+            Removal::None,
+            Matcher::KnownPaths(&[".cursor/extensions", ".cursor/plugins", ".cursor/plans", ".cursor/chats"]),
+        )
+    },
     // ---- application caches -------------------------------------------------------
     Rule {
         owners: &["Google Chrome"],
@@ -344,3 +491,21 @@ pub(super) static RULES: [Rule; COUNT] = [
     // ---- generic, lowest priority -------------------------------------------------------
     shared::GENERIC_CACHEDIR_TAG,
 ];
+
+/// A rule of a coding agent's harness. Its `review` rules are `listed_only`:
+/// only a person removes them, never `--yes` (ADR "Agent footprint:
+/// worktrees, harness data and bounded consent for agents", §3).
+const fn agent(
+    id: &'static str,
+    class: RiskClass,
+    removal: Removal,
+    matcher: Matcher,
+    harness: OriginHarness,
+    kind: OriginKind,
+) -> Rule {
+    Rule {
+        origin: Some(Origin { harness, kind }),
+        listed_only: matches!(class, RiskClass::Review),
+        ..rule(id, AppCache, class, removal, matcher)
+    }
+}

@@ -465,6 +465,33 @@ fn catalog_invariants() {
     }
 }
 
+/// ADR "Agent footprint: worktrees, harness data and bounded consent for
+/// agents", §3: a harness's history, sessions and live records are never
+/// in a `safe` rule, and every `review` rule of a harness is `listed_only`.
+#[test]
+fn no_safe_agent_rule_names_a_harness_history() {
+    use ddc_core::platform::Platform;
+    use ddc_core::rules::{Matcher, rules_of};
+    let history = ["paste-cache", "usage-data", "file-history", "projects", "shell-snapshots", "sessions"];
+    let agents: Vec<_> = rules_of(Platform::Macos).iter().filter(|r| r.id.starts_with("agent.")).collect();
+    assert!(!agents.is_empty());
+    for rule in agents {
+        let paths: Vec<&str> = match rule.matcher {
+            Matcher::KnownPaths(p) => p.to_vec(),
+            Matcher::KnownChildren(parent) => vec![parent],
+            _ => panic!("{}: an agent rule names its paths", rule.id),
+        };
+        if rule.class == RiskClass::Safe {
+            for p in paths {
+                let last = p.rsplit('/').next().unwrap();
+                assert!(!history.contains(&last), "{}: {p} is in a safe rule", rule.id);
+            }
+        }
+        assert_eq!(rule.listed_only, rule.class == RiskClass::Review, "{}", rule.id);
+        assert!(rule.owners.is_empty(), "{}: no owner by process name", rule.id);
+    }
+}
+
 #[test]
 fn stray_cmake_caches_and_in_place_venvs_never_claim_projects() {
     if common::unsupported("stray_cmake_caches_and_in_place_venvs_never_claim_projects") {
@@ -650,7 +677,19 @@ fn every_rule_has_a_group() {
         list.rules.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
         macos.iter().map(|r| r.id).collect::<Vec<_>>()
     );
-    let fixed: Vec<&str> = list.rules.iter().filter(|r| !r.switchable).map(|r| r.group.as_str()).collect();
+    // The coding agents' sealed folders, and their report-only rules until
+    // a liveness check lets them go to the Trash (story "Harness data rules").
+    const AGENTS_FIXED: &[&str] = &[
+        "agent.claude-code-sealed",
+        "agent.cursor-sealed",
+        "agent.codex-sessions",
+        "agent.codex-runtimes",
+        "agent.opencode-data",
+        "agent.cursor-agent-data",
+    ];
+    let agents_fixed = |r: &&ddc_core::rules::listing::RuleInfo| AGENTS_FIXED.contains(&r.id.as_str());
+    let fixed: Vec<&str> =
+        list.rules.iter().filter(|r| !r.switchable && !agents_fixed(r)).map(|r| r.group.as_str()).collect();
     assert!(
         fixed.iter().all(|g| ["Your data", "Trash", "Interrupted cleanups", "VM and container images"].contains(g)),
         "only user data, the Trash, ddc's leftovers and tool-only runtimes have no switch: {fixed:?}"

@@ -20,6 +20,7 @@ pub use classify::{Classified, LockFiles, Note, classify, effective_class};
 pub use visitor::{KEEP_MARKER, KeptClaim, LARGE_FILE_BYTES, Pins, RuleVisitor};
 
 use crate::class::{Category, Removal, RiskClass};
+use crate::model::Origin;
 use crate::platform::PLATFORM;
 use crate::scan::Tag;
 
@@ -88,6 +89,14 @@ pub struct Rule {
     pub clones: Clones,
     /// What its verdict needs the walk to have visited.
     pub scope: Scope,
+    /// The harness whose own structure it recognizes, copied to its findings.
+    pub origin: Option<Origin>,
+    /// Only a list a person made (`clean --items`) may hold its items:
+    /// [`crate::plan::build_plan`] never plans them and the executor refuses
+    /// them under any other consent, whatever their class (ADR "Agent
+    /// footprint: worktrees, harness data and bounded consent for agents",
+    /// §3, settled at the plan gate).
+    pub listed_only: bool,
 }
 
 /// What a rule's verdict needs the walk to have visited (safety ADR "Cleanup

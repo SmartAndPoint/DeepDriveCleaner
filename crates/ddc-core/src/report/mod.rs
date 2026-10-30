@@ -298,6 +298,7 @@ fn finding(
         // only after its walk (a marker or an exclusion inside it), whose
         // claim still read the times.
         modified: c.owner.modified.filter(|_| c.rule.id != KEPT).and_then(rfc3339_secs),
+        origin: c.rule.origin,
     }
 }
 

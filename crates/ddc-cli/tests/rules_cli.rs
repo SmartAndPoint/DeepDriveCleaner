@@ -83,6 +83,7 @@ fn rules_json_groups_follow_the_settings_types() {
             "Maven and test browsers",
             "Browser and app caches",
             "IDE caches",
+            "Coding agents",
             "Xcode builds",
             "Xcode device support",
             "Old toolchains",
@@ -128,6 +129,39 @@ fn rules_json_groups_follow_the_settings_types() {
             "{group} is all safe"
         );
     }
+}
+
+/// Story "Harness data rules" (DDC-003), AC 7: `ddc rules --json` lists
+/// the group "Coding agents", which has a switch, while Downloads stays
+/// without one. The macOS catalog, which holds the group, from the CLI.
+#[test]
+fn rules_json_lists_the_coding_agents_group_with_a_switch() {
+    let out = ddc(&["rules", "--platform", "macos", "--json"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let list = contract::holds::<RuleList>("rules", &out.stdout);
+    assert!(list.groups.iter().any(|g| g == "Coding agents"), "{:?}", list.groups);
+    let rule = |id: &str| list.rules.iter().find(|r| r.id == id).unwrap_or_else(|| panic!("{id} is listed"));
+    let agents: Vec<_> = list.rules.iter().filter(|r| r.group == "Coding agents").collect();
+    assert!(agents.iter().all(|r| r.id.starts_with("agent.")), "{agents:?}");
+    assert!(agents.iter().any(|r| r.switchable), "the group has a switch");
+    // A rule ddc acts on, and the session folders, whose method is `none`
+    // but whose entries go to the Trash.
+    for id in [
+        "agent.claude-code-scratch",
+        "agent.claude-code-history",
+        "agent.claude-code-transcripts",
+        "agent.claude-code-file-history",
+    ] {
+        assert!(rule(id).switchable, "{id}");
+    }
+    assert_eq!(rule("agent.claude-code-transcripts").removal, ddc_core::model::RemovalKind::None);
+    // The sealed folders are no finding and have no switch.
+    for id in ["agent.claude-code-sealed", "agent.cursor-sealed"] {
+        assert!(!rule(id).listed && !rule(id).switchable, "{id}");
+    }
+    // The user's own folders keep no switch, though they have entries.
+    assert!(!rule("user.downloads").switchable);
+    assert!(!rule("user.pictures").switchable);
 }
 
 /// Linux and Windows print every shared rule and no macOS-only one.

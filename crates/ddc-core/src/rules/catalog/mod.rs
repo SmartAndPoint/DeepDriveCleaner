@@ -119,6 +119,8 @@ const fn rule(
         listed: true,
         clones: Clones::Never,
         scope: Scope::Item,
+        origin: None,
+        listed_only: false,
     }
 }
 
@@ -283,6 +285,8 @@ mod tests {
                     && mac.listed == other.listed
                     && mac.clones == other.clones
                     && mac.scope == other.scope
+                    && mac.origin == other.origin
+                    && mac.listed_only == other.listed_only
                     && std::mem::discriminant(&mac.matcher) == std::mem::discriminant(&other.matcher);
                 assert!(same, "{}: {mac:?} and {other:?} differ beyond the paths", mac.id);
             }

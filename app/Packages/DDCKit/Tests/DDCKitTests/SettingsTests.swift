@@ -107,12 +107,16 @@ struct SettingsTests {
     @Test("a Types row's chips are the distinct classes of its switchable rules, in class order")
     func typesChips() throws {
         let rows = TypesRows.make(rules: try Fixture.rules(), disabled: [])
-        #expect(rows.count == 14, "every group with a switchable rule; not Interrupted cleanups, Trash or Your data")
+        #expect(rows.count == 15, "every group with a switchable rule; not Interrupted cleanups, Trash or Your data")
         let row = { (label: String) in rows.first { $0.label == label } }
         #expect(row("Toolchain caches")?.classes == [.safe] && row("Toolchain caches")?.chips == "Safe")
         #expect(row("node_modules")?.classes == [.rebuildable, .review] && row("node_modules")?.chips == "Rebuildable · Review")
         #expect(row("IDE caches")?.chips == "Safe · Review")
-        #expect(row("Python environments")?.chips == "Safe · Rebuildable")
+        #expect(row("Python environments")?.chips == "Safe · Rebuildable · Review")
+        #expect(row("Coding agents")?.chips == "Safe · Review")
+        #expect(row("Coding agents")?.ids == [
+            "agent.claude-code-scratch", "agent.claude-code-file-history", "agent.claude-code-transcripts", "agent.claude-code-history",
+        ], "report-only harnesses and the sealed folders have no switch")
         #expect(row("VM and container images")?.ids == ["vm.docker-desktop", "vm.podman", "cache.colima"], "switchable rules only")
         #expect(row("Your data") == nil && row("Interrupted cleanups") == nil && row("Trash") == nil)
         #expect(rows.allSatisfy { $0.isOn })

@@ -526,6 +526,17 @@
             "$ref": "#/$defs/Note"
           }
         },
+        "origin": {
+          "description": "The harness whose own structure the rule recognizes (ADR \"Agent\nfootprint: worktrees, harness data and bounded consent for agents\",\n§1). Only on findings of such rules.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Origin"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "parent_dev": {
           "description": "Identity of the parent directory at scan time (re-checked before cleaning).",
           "type": [
@@ -840,6 +851,59 @@
           "description": "Matched `--exclude`.",
           "type": "string",
           "const": "excluded"
+        }
+      ]
+    },
+    "Origin": {
+      "description": "Where a finding comes from: a coding agent's harness and what of it the\nfinding is. A provenance, not a class: the class and the method decide\nwhat happens to it.",
+      "type": "object",
+      "properties": {
+        "harness": {
+          "$ref": "#/$defs/OriginHarness"
+        },
+        "kind": {
+          "$ref": "#/$defs/OriginKind"
+        }
+      },
+      "required": [
+        "harness",
+        "kind"
+      ]
+    },
+    "OriginHarness": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "opencode",
+            "cursor"
+          ]
+        },
+        {
+          "description": "A git worktree, whoever made it.",
+          "type": "string",
+          "const": "git"
+        }
+      ]
+    },
+    "OriginKind": {
+      "oneOf": [
+        {
+          "description": "A worktree an agent works in.",
+          "type": "string",
+          "const": "worktree"
+        },
+        {
+          "description": "What the harness keeps of its sessions: transcripts, history, logs.",
+          "type": "string",
+          "const": "session-data"
+        },
+        {
+          "description": "What the harness downloads or writes for itself and can make again.",
+          "type": "string",
+          "const": "runtime-cache"
         }
       ]
     },

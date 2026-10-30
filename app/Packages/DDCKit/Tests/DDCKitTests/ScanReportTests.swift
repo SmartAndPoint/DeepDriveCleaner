@@ -34,6 +34,21 @@ struct ScanReportTests {
         #expect(report.findings.allSatisfy { $0.class == .userData && !$0.selected })
     }
 
+    /// ADR "Agent footprint: worktrees, harness data and bounded consent for
+    /// agents", §1: a coding agent's finding carries `origin`, a new optional
+    /// field of schema 2, so this app, which does not read it yet, still
+    /// reads the report.
+    @Test("a report whose findings say which coding agent they come from reads as before")
+    func decodesReportWithOrigin() throws {
+        let report = try ScanReport.read(try Data(contentsOf: try Self.fixture("scan-report-origin")))
+        #expect(report.schemaVersion == ScanReport.schemaVersion)
+        #expect(report.findings.map(\.rule) == ["agent.claude-code-scratch", "agent.claude-code-transcripts"])
+        #expect(report.findings.map(\.class) == [.safe, .review])
+        #expect(report.findings.map(\.selected) == [true, false])
+        #expect(report.findings.map(\.modified) == ["2026-10-29T09:12:44Z", "2026-10-30T17:40:02Z"])
+        #expect(report.totals.selectedBytes == 8192)
+    }
+
     @Test("a report of another schema version is unreadable")
     func otherSchemaIsUnreadable() throws {
         let data = try Data(contentsOf: try Self.fixture("scan-report-v1"))

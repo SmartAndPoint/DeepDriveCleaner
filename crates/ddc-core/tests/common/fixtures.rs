@@ -13,6 +13,15 @@ pub const TAG: &str = "Signature: 8a477f597d28d172789f06886806bc55\n# cache\n";
 /// the root, or `None` for an unlisted or untraversed rule.
 pub fn rule_fixture(t: &TreeBuilder, rule: &Rule) -> Option<String> {
     match rule.matcher {
+        // A sealed folder: a project inside it is no finding either.
+        Matcher::KnownPaths(paths) if !rule.listed => {
+            for p in paths {
+                t.write(&format!("{p}/tool/package.json"), "{}");
+                t.write(&format!("{p}/tool/package-lock.json"), "{}");
+                t.file(&format!("{p}/tool/node_modules/x.js"), 100);
+            }
+            None
+        }
         Matcher::KnownPaths(paths) | Matcher::KnownRegion(paths) => {
             for p in paths {
                 t.file(&format!("{p}/payload"), 100);
@@ -33,6 +42,7 @@ pub fn rule_fixture(t: &TreeBuilder, rule: &Rule) -> Option<String> {
                     &[(".rustup/settings.toml", "default_toolchain = \"stable-aarch64-apple-darwin\"\n")],
                 ),
                 "ide.jetbrains-old-data" => ("PyCharm2023.1", "PyCharm2024.1", &[]),
+                "agent.claude-code-transcripts" => ("-Users-example-a", "-Users-example-b", &[]),
                 other => panic!("no fixture for KnownChildren rule {other}"),
             };
             for v in [old, new] {

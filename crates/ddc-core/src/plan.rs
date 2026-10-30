@@ -119,8 +119,8 @@ pub struct PlanOptions {
     pub permanent: bool,
 }
 
-/// User data, report-only rules, findings `settings.json` hides and the scan
-/// roots themselves never enter a plan.
+/// User data, report-only rules, `listed_only` rules, findings
+/// `settings.json` hides and the scan roots themselves never enter a plan.
 pub fn build_plan(report: &ScanReport, catalog: &Catalog, opts: &PlanOptions) -> Plan {
     let items = report
         .findings
@@ -133,7 +133,9 @@ pub fn build_plan(report: &ScanReport, catalog: &Catalog, opts: &PlanOptions) ->
         .filter(|f| f.bytes >= opts.min_size)
         .filter_map(|f| {
             // Nothing ddc can run (colima, lima, …) is manual only, not planned.
-            let action = action_for(catalog.by_id(&f.rule)?, f.class, opts.permanent)?;
+            // Only a list a person made holds a `listed_only` rule's item.
+            let rule = catalog.by_id(&f.rule).filter(|r| !r.listed_only)?;
+            let action = action_for(rule, f.class, opts.permanent)?;
             Some(PlanItem { finding: f.clone(), action, default_selected: f.selected, selected: f.selected })
         })
         .collect();
@@ -373,6 +375,7 @@ fn entry(
         contents: None,
         protection: None,
         modified: None,
+        origin: rule.origin,
     };
     Ok(PlanItem { finding, action: Action::TrashEntry, default_selected: false, selected: true })
 }

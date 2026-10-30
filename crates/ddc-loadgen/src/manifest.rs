@@ -133,7 +133,9 @@ pub fn manifest(profile: &str, seed: u64, desc: &Desc) -> Manifest {
         .iter()
         .filter(|f| f.class != RiskClass::UserData && !f.path.is_empty())
         .filter_map(|f| {
-            let action = action_for(rule(&catalog, &f.rule), f.class, false)?;
+            // A `listed_only` rule's item enters only a person's list.
+            let rule = Some(rule(&catalog, &f.rule)).filter(|r| !r.listed_only)?;
+            let action = action_for(rule, f.class, false)?;
             Some(Planned {
                 path: f.path.clone(),
                 rule: f.rule.clone(),

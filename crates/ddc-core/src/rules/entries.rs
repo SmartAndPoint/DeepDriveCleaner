@@ -13,6 +13,18 @@ use serde::{Deserialize, Serialize};
 /// backups stay report only until their layout is checked.
 pub const ENTRY_RULES: &[&str] = &["user.downloads", "user.pictures", "user.movies", "user.music", "user.ios-backups"];
 
+/// Rules whose sessions are their entries, to the Trash one by one (ADR
+/// "Agent footprint: worktrees, harness data and bounded consent for
+/// agents", §3). Not [`ENTRY_RULES`], which means the user's own folders;
+/// until their entry policy lands they are report only.
+pub const SESSION_ENTRY_RULES: &[&str] = &["agent.claude-code-file-history", "agent.claude-code-transcripts"];
+
+/// Whether `rule`'s findings have entries a person can pick: the user's
+/// own folders and the coding agents' session folders.
+pub fn has_entries(rule: &str) -> bool {
+    ENTRY_RULES.contains(&rule) || SESSION_ENTRY_RULES.contains(&rule)
+}
+
 /// The rule whose entries are device backups.
 pub const BACKUP_RULE: &str = "user.ios-backups";
 
