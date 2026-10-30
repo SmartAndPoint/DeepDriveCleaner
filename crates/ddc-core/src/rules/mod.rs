@@ -14,12 +14,13 @@ mod visitor;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-pub use catalog::{DOCKER_DOWN, RULES, SHARED_IDS, rules_of};
+pub use catalog::{DOCKER_DOWN, RULES, SHARED_IDS, protected_in_home, protected_system, rules_of};
 pub(crate) use classify::AtOrAbove;
 pub use classify::{Classified, LockFiles, Note, classify, effective_class};
 pub use visitor::{KEEP_MARKER, LARGE_FILE_BYTES, Pins, RuleVisitor};
 
 use crate::class::{Category, Removal, RiskClass};
+use crate::platform::PLATFORM;
 use crate::scan::Tag;
 
 /// An app that owns a cache, by its bundle name (`Cursor` for `Cursor.app`): while
@@ -123,34 +124,6 @@ pub const KEPT: &str = "user.kept";
 /// What an interrupted clean leaves behind (`.ddc-deleting-*`).
 pub const TOMBSTONE: &str = "ddc.tombstone";
 
-/// Directories (relative to `$HOME`) that are never a finding nor deleted
-/// themselves (ADR "Cleanup safety model", §6).
-pub const PROTECTED_IN_HOME: &[&str] = &[
-    "",
-    "Documents",
-    "Desktop",
-    "Pictures",
-    "Movies",
-    "Music",
-    "Downloads",
-    "Projects",
-    "Library",
-    "Library/Caches",
-    "Library/Application Support",
-    "Library/Containers",
-    "Library/Group Containers",
-    "Library/Mobile Documents",
-    "Library/CloudStorage",
-    ".config",
-    ".ssh",
-    ".gnupg",
-    ".local",
-    ".cache",
-];
-/// System directories that are never deleted.
-pub const PROTECTED_SYSTEM: &[&str] =
-    &["/", "/System", "/Applications", "/Library", "/usr", "/opt", "/opt/homebrew", "/Users"];
-
 /// Manifests that mark a project directory: such a directory is never an artifact.
 const PROJECT_MANIFESTS: &[&str] = &[
     "pyproject.toml",
@@ -206,7 +179,7 @@ impl Catalog {
             children_of: HashMap::new(),
             no_traverse: HashMap::new(),
             ancestors: HashSet::new(),
-            protected: PROTECTED_IN_HOME.iter().map(|rel| home.join(rel)).collect(),
+            protected: protected_in_home(PLATFORM).iter().map(|rel| home.join(rel)).collect(),
             specialized: Vec::new(),
             cachedir: Tag::MAX,
             kept: Tag::MAX,

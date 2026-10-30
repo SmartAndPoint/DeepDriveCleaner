@@ -11,9 +11,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::backups;
 use crate::model::{Backup, Contents, Finding, FolderEntry, FolderEntryKind};
+use crate::platform::PLATFORM;
 use crate::rules::AtOrAbove;
 use crate::rules::entries::{BACKUP_RULE, ENTRY_RULES, EntryFacts, EntryLock, lock_of};
-use crate::rules::{KEPT, PROTECTED_IN_HOME};
+use crate::rules::{KEPT, protected_in_home};
 use crate::scan::reader::SF_DATALESS;
 use crate::scan::{EntryKind, EntryResult, OwnerEntries};
 use crate::stats::{self, Counter};
@@ -96,7 +97,7 @@ pub(crate) struct Context<'a> {
 
 /// Fills `contents` of each folder finding and returns the full index.
 pub(crate) fn attach(findings: &mut [Finding], walked: &[OwnerEntries], cx: &Context<'_>) -> EntryIndex {
-    let protected: Vec<PathBuf> = PROTECTED_IN_HOME.iter().map(|rel| cx.home.join(rel)).collect();
+    let protected: Vec<PathBuf> = protected_in_home(PLATFORM).iter().map(|rel| cx.home.join(rel)).collect();
     let others: Vec<(PathBuf, bool)> = findings.iter().map(|f| (f.path.clone(), f.rule == KEPT)).collect();
     let known = Known {
         found: others.iter().map(|(p, _)| p.as_path()).collect(),

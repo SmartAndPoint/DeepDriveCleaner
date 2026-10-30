@@ -53,12 +53,13 @@ use ddc_core::model::{Finding, RemovalKind, ScanReport};
 use ddc_core::plan::{
     Action, ActionKind, ListedItem, Plan, PlanItem, PlanOptions, action_for, build_plan, plan_listed,
 };
+use ddc_core::platform::PLATFORM;
 use ddc_core::report::contents::{EntryIndex, EntryState};
 use ddc_core::report::volumes::{StatFs, VolumeStats};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::entries::{ENTRY_RULES, EntryLock};
 use ddc_core::rules::{
-    Catalog, KEEP_MARKER, KEPT, Matcher, PROTECTED_IN_HOME, PROTECTED_SYSTEM, RULES, Rule, RuleVisitor,
+    Catalog, KEEP_MARKER, KEPT, Matcher, RULES, Rule, RuleVisitor, protected_in_home, protected_system,
 };
 use ddc_core::scan::{self, DirListing, DirReader, Progress, ReadError, ReaderKind, StdReader, WalkOptions};
 use ddc_loadgen::desc::{BLOCK, Desc, join, parent};
@@ -81,10 +82,9 @@ fn config() -> ProptestConfig {
     ProptestConfig { max_shrink_time, ..base }
 }
 
-/// The protected folders: relative to the home, and absolute. The one place
-/// the per-OS split of epic DDC-007 changes.
+/// The protected folders of this platform: relative to the home, and absolute.
 fn protected() -> (&'static [&'static str], &'static [&'static str]) {
-    (PROTECTED_IN_HOME, PROTECTED_SYSTEM)
+    (protected_in_home(PLATFORM), protected_system(PLATFORM))
 }
 
 /// Protected folders the walk asks `Catalog::claimable` about. The others

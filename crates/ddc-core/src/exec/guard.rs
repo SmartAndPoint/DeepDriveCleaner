@@ -10,11 +10,12 @@ use std::time::{Duration, SystemTime};
 use super::{ProcessTable, SkipReason};
 use crate::env::Env;
 use crate::plan::{Action, PlanItem};
+use crate::platform::PLATFORM;
 use crate::platform::fsops::DirFd;
 use crate::platform::procs::ProcInfo;
 use crate::report::backups;
 use crate::rules::entries::{BACKUP_RULE, EntryFacts, lock_of};
-use crate::rules::{Catalog, KEEP_MARKER, PROTECTED_IN_HOME, PROTECTED_SYSTEM, owns};
+use crate::rules::{Catalog, KEEP_MARKER, owns, protected_in_home, protected_system};
 
 /// A verified target: its parent is open and checked; act through it.
 #[derive(Debug)]
@@ -106,8 +107,8 @@ impl<'a> Guard<'a> {
         procs: &'a dyn ProcessTable,
     ) -> Self {
         let table = procs.processes();
-        let mut paths: Vec<PathBuf> = PROTECTED_IN_HOME.iter().map(|rel| env.home().join(rel)).collect();
-        paths.extend(PROTECTED_SYSTEM.iter().map(PathBuf::from));
+        let mut paths: Vec<PathBuf> = protected_in_home(PLATFORM).iter().map(|rel| env.home().join(rel)).collect();
+        paths.extend(protected_system(PLATFORM).iter().map(PathBuf::from));
         paths.extend(roots.iter().cloned());
         let protected_ids = paths
             .iter()
@@ -308,7 +309,7 @@ impl<'a> Guard<'a> {
             now: self.now,
             kept: self.markers.iter().any(|m| m.starts_with(path))
                 || fs::symlink_metadata(path.join(KEEP_MARKER)).is_ok(),
-            protected: PROTECTED_IN_HOME.iter().any(|rel| self.home.join(rel).starts_with(path)),
+            protected: protected_in_home(PLATFORM).iter().any(|rel| self.home.join(rel).starts_with(path)),
             other_volume: st.dev != parent_id.0,
             finished: rule == BACKUP_RULE && st.is_dir && backups::finished(path),
         };

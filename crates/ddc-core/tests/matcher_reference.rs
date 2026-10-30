@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 
 use common::TreeBuilder;
 use common::fixtures::TAG;
-use ddc_core::rules::{Catalog, KEEP_MARKER, KEPT, Matcher, PROTECTED_IN_HOME, RULES, RuleVisitor};
+use ddc_core::platform::PLATFORM;
+use ddc_core::rules::{Catalog, KEEP_MARKER, KEPT, Matcher, RULES, RuleVisitor, protected_in_home};
 use ddc_core::scan::{
     self, DirCtx, DirListing, EntryKind, EntryMeta, OwnerKind, Post, Pre, Progress, Visitor, WalkOptions,
 };
@@ -293,7 +294,7 @@ fn reference(t: &Tree, rel: &Path) -> Verdict {
     if t.has(rel, KEEP_MARKER) {
         return Verdict::Claim(KEPT);
     }
-    if holds_known_path(rel) || rel.as_os_str().is_empty() || named(PROTECTED_IN_HOME) || t.has(rel, ".git") {
+    if holds_known_path(rel) || rel.as_os_str().is_empty() || named(protected_in_home(PLATFORM)) || t.has(rel, ".git") {
         return not_claimed;
     }
     let manifest = PROJECT_MANIFESTS.iter().any(|m| t.has(rel, m));
@@ -462,7 +463,7 @@ impl Vocab {
         let mut artifact = |names: Vec<String>, beside: Vec<String>, inside: Vec<String>, homes: Vec<String>| {
             artifacts.push(Artifact { names, beside, inside, homes });
         };
-        for p in PROTECTED_IN_HOME {
+        for p in protected_in_home(PLATFORM) {
             base(p, &mut dir_names);
         }
         for rule in RULES {
@@ -551,7 +552,8 @@ impl Vocab {
 /// makes a finding.
 fn trees() -> impl Strategy<Value = Tree> {
     let v = Vocab::from_catalog();
-    let protected: Vec<String> = PROTECTED_IN_HOME.iter().filter(|p| !p.is_empty()).map(|p| (*p).to_owned()).collect();
+    let protected: Vec<String> =
+        protected_in_home(PLATFORM).iter().filter(|p| !p.is_empty()).map(|p| (*p).to_owned()).collect();
     let folder = (
         prop_oneof![select(protected), select(v.bases.clone())],
         prop::collection::vec((select(v.content_files), 0..VARIANTS), 1..=2),

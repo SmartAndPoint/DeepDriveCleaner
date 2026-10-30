@@ -40,6 +40,44 @@ pub const fn rules_of(p: Platform) -> &'static [Rule] {
 /// `rules_of(PLATFORM)`.
 pub static RULES: &[Rule] = rules_of(PLATFORM);
 
+/// Directories, relative to `$HOME`, that are never a finding nor removed
+/// themselves on platform `p` (safety ADR "Cleanup safety model", §6,
+/// amended 2026-10-30): the shared section and `p`'s own. `""` is the home.
+pub const fn protected_in_home(p: Platform) -> &'static [&'static str] {
+    match p {
+        Platform::Macos => &macos::PROTECTED_IN_HOME,
+        Platform::Linux => &linux::PROTECTED_IN_HOME,
+        Platform::Windows => &win::PROTECTED_IN_HOME,
+    }
+}
+
+/// System directories that are never removed on platform `p` (§6).
+pub const fn protected_system(p: Platform) -> &'static [&'static str] {
+    match p {
+        Platform::Macos => &macos::PROTECTED_SYSTEM,
+        Platform::Linux => &linux::PROTECTED_SYSTEM,
+        Platform::Windows => &win::PROTECTED_SYSTEM,
+    }
+}
+
+/// `a` then `b`, as one array of `N`: a section of protected folders after
+/// the shared one. A wrong `N` fails the build.
+const fn concat<const N: usize>(a: &[&'static str], b: &[&'static str]) -> [&'static str; N] {
+    assert!(a.len() + b.len() == N, "the length is not the sum of the sections");
+    let mut out = [""; N];
+    let mut i = 0;
+    while i < a.len() {
+        out[i] = a[i];
+        i += 1;
+    }
+    let mut j = 0;
+    while j < b.len() {
+        out[i + j] = b[j];
+        j += 1;
+    }
+    out
+}
+
 const PY_LOCKS: &[&str] = &["uv.lock", "poetry.lock", "Pipfile.lock", "requirements*.txt"];
 const JS_LOCKS: &[&str] = &["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"];
 const JS_BUILD: &[&str] = &[".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache", ".angular"];
@@ -249,5 +287,79 @@ mod tests {
                 assert!(same, "{}: {mac:?} and {other:?} differ beyond the paths", mac.id);
             }
         }
+    }
+
+    /// The macOS protected folders are §6's list of the safety ADR "Cleanup
+    /// safety model", and no folder sits in two sections (story "Rule catalog
+    /// split: shared and per-OS sections", AC4).
+    #[test]
+    fn the_macos_protected_folders_are_the_safety_adrs_list() {
+        use std::collections::BTreeSet;
+        // §6: `/`, `/Users`, `$HOME`, `~/Documents`, …, then the folders
+        // neither removed nor walked, `~/Library/Mobile Documents` and
+        // `~/Library/CloudStorage`.
+        let in_home = [
+            "",
+            "Documents",
+            "Desktop",
+            "Pictures",
+            "Movies",
+            "Music",
+            "Downloads",
+            "Projects",
+            "Library",
+            "Library/Caches",
+            "Library/Application Support",
+            "Library/Containers",
+            "Library/Group Containers",
+            ".config",
+            ".ssh",
+            ".gnupg",
+            ".local",
+            ".cache",
+            "Library/Mobile Documents",
+            "Library/CloudStorage",
+        ];
+        let system = ["/", "/Users", "/System", "/Applications", "/Library", "/usr", "/opt", "/opt/homebrew"];
+        let set = |s: &[&'static str]| s.iter().copied().collect::<BTreeSet<_>>();
+        assert_eq!(set(protected_in_home(Platform::Macos)), set(&in_home));
+        assert_eq!(protected_in_home(Platform::Macos).len(), in_home.len(), "no folder twice");
+        assert_eq!(set(protected_system(Platform::Macos)), set(&system));
+        assert_eq!(protected_system(Platform::Macos).len(), system.len(), "no folder twice");
+
+        let own: [(Platform, &[&str]); 3] = [
+            (Platform::Macos, &macos::OWN_PROTECTED_IN_HOME),
+            (Platform::Linux, &linux::OWN_PROTECTED_IN_HOME),
+            (Platform::Windows, &win::OWN_PROTECTED_IN_HOME),
+        ];
+        let shared = set(&shared::PROTECTED_IN_HOME);
+        assert_eq!(shared.len(), shared::PROTECTED_IN_HOME.len(), "no shared folder twice");
+        for (p, own) in own {
+            assert!(own.iter().all(|f| !shared.contains(f)), "{p}: a folder is in its section and the shared one");
+            assert_eq!(set(own).len(), own.len(), "{p}: a folder twice in its section");
+            assert_eq!(set(protected_in_home(p)), &shared | &set(own), "{p}: the shared section and its own");
+            assert!(protected_in_home(p).iter().all(|f| !std::path::Path::new(f).has_root()), "{p}: relative");
+            assert!(protected_system(p).iter().all(|f| std::path::Path::new(f).has_root()), "{p}: absolute");
+        }
+    }
+
+    /// The flip guard (safety ADR "Cleanup safety model", amendment of
+    /// 2026-10-30): this build may be supported only where its system
+    /// folders hold the filesystem root and its home folders hold more than
+    /// the shared section. It runs on every CI OS, so a platform switched on
+    /// with empty sections fails here.
+    #[test]
+    fn a_platform_is_supported_only_with_its_own_protected_folders() {
+        let is_root = |f: &&str| {
+            let path = std::path::Path::new(f);
+            path.has_root() && path.parent().is_none()
+        };
+        let root = protected_system(PLATFORM).iter().any(is_root);
+        let own = protected_in_home(PLATFORM).len() > shared::PROTECTED_IN_HOME.len();
+        assert!(
+            !crate::platform::SUPPORTED || (root && own),
+            "{PLATFORM} is supported, but its protected folders are the shared section alone \
+             (system folders hold the root: {root}; home folders beyond the shared ones: {own})"
+        );
     }
 }
