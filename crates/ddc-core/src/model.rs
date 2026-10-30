@@ -183,6 +183,64 @@ pub struct Finding {
     /// `rules::entries::ENTRY_RULES` the scan could read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contents: Option<Contents>,
+    /// What keeps a `user.kept` finding (story "Protected by you: say what it
+    /// is, and Remove Protection"). Only on those findings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protection: Option<Protection>,
+}
+
+/// What protects a `user.kept` finding: its keep markers, the exclusions and
+/// skips at or above it or inside it, and the rule it displaced.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Protection {
+    /// Each folder holding a `.ddc-keep`, the finding's own or one inside it,
+    /// sorted by folder.
+    pub markers: Vec<MarkerFolder>,
+    /// Sorted by path, each once.
+    pub exclusions: Vec<Exclusion>,
+    /// The rule that would have claimed the folder, when the walk knows it.
+    /// Under an exclusion at or above the folder nothing is listed, so only a
+    /// known path, a region or a child of a known path is known there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule: Option<String>,
+}
+
+/// A folder holding a `.ddc-keep`, with its identity at scan time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MarkerFolder {
+    pub folder: PathBuf,
+    pub dev: u64,
+    pub ino: u64,
+}
+
+/// An exclusion or a skip that protects a finding, canonical.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Exclusion {
+    pub path: PathBuf,
+    pub kind: ExclusionKind,
+    pub origin: ExclusionOrigin,
+    /// The path lies inside the finding; otherwise it is the finding's own
+    /// folder or above it.
+    pub inside: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExclusionKind {
+    /// Never touched (`excludes`, `--exclude`).
+    Exclude,
+    /// Never read (`skips`, `--skip`).
+    Skip,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExclusionOrigin {
+    /// `settings.json`.
+    #[default]
+    Settings,
+    /// A command-line flag.
+    Flag,
 }
 
 /// The direct children of a user-data folder: the largest listed, the rest summed.

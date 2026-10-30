@@ -95,7 +95,8 @@ pub trait Visitor: Sync {
     }
 
     /// Called for every non-directory entry, including inside claims.
-    fn on_file(&self, _dir: &Path, _entry: &EntryMeta, _owner: Option<(OwnerKind, Tag)>) {}
+    /// `dir_id` is the `(dev, ino)` of the directory as the walk listed it.
+    fn on_file(&self, _dir: &Path, _dir_id: (u64, u64), _entry: &EntryMeta, _owner: Option<(OwnerKind, Tag)>) {}
 
     /// Whether the walk leaves `dir` unread: asked before every directory is
     /// opened, inside claims too (story "Faster clean: re-check only what the

@@ -390,6 +390,7 @@ fn planned(item: &ListedItem, rule: &Rule, class: RiskClass, action: Action) -> 
         parent_dev: None,
         parent_ino: None,
         contents: None,
+        protection: None,
     };
     PlanItem { finding, action, default_selected: true, selected: true }
 }
@@ -409,7 +410,7 @@ fn walk_item(path: &Path, reader: &dyn DirReader) -> Option<Walked> {
         fn wants_private(&self, _: &DirCtx<'_>, _: Tag) -> bool {
             false
         }
-        fn on_file(&self, _: &Path, entry: &EntryMeta, _: Option<(OwnerKind, Tag)>) {
+        fn on_file(&self, _: &Path, _: (u64, u64), entry: &EntryMeta, _: Option<(OwnerKind, Tag)>) {
             if entry.name == KEEP_MARKER {
                 *self.0.lock().unwrap_or_else(|p| p.into_inner()) = true;
             }

@@ -390,6 +390,59 @@
         }
       ]
     },
+    "Exclusion": {
+      "description": "An exclusion or a skip that protects a finding, canonical.",
+      "type": "object",
+      "properties": {
+        "inside": {
+          "description": "The path lies inside the finding; otherwise it is the finding's own\nfolder or above it.",
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/ExclusionKind"
+        },
+        "origin": {
+          "$ref": "#/$defs/ExclusionOrigin"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "origin",
+        "inside"
+      ]
+    },
+    "ExclusionKind": {
+      "oneOf": [
+        {
+          "description": "Never touched (`excludes`, `--exclude`).",
+          "type": "string",
+          "const": "exclude"
+        },
+        {
+          "description": "Never read (`skips`, `--skip`).",
+          "type": "string",
+          "const": "skip"
+        }
+      ]
+    },
+    "ExclusionOrigin": {
+      "oneOf": [
+        {
+          "description": "`settings.json`.",
+          "type": "string",
+          "const": "settings"
+        },
+        {
+          "description": "A command-line flag.",
+          "type": "string",
+          "const": "flag"
+        }
+      ]
+    },
     "Finding": {
       "type": "object",
       "properties": {
@@ -499,6 +552,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/Project"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "protection": {
+          "description": "What keeps a `user.kept` finding (story \"Protected by you: say what it\nis, and Remove Protection\"). Only on those findings.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Protection"
             },
             {
               "type": "null"
@@ -662,6 +726,30 @@
         "bytes"
       ]
     },
+    "MarkerFolder": {
+      "description": "A folder holding a `.ddc-keep`, with its identity at scan time.",
+      "type": "object",
+      "properties": {
+        "dev": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "folder": {
+          "type": "string"
+        },
+        "ino": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "folder",
+        "dev",
+        "ino"
+      ]
+    },
     "NotSelected": {
       "oneOf": [
         {
@@ -787,6 +875,37 @@
       },
       "required": [
         "root"
+      ]
+    },
+    "Protection": {
+      "description": "What protects a `user.kept` finding: its keep markers, the exclusions and\nskips at or above it or inside it, and the rule it displaced.",
+      "type": "object",
+      "properties": {
+        "exclusions": {
+          "description": "Sorted by path, each once.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Exclusion"
+          }
+        },
+        "markers": {
+          "description": "Each folder holding a `.ddc-keep`, the finding's own or one inside it,\nsorted by folder.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MarkerFolder"
+          }
+        },
+        "rule": {
+          "description": "The rule that would have claimed the folder, when the walk knows it.\nUnder an exclusion at or above the folder nothing is listed, so only a\nknown path, a region or a child of a known path is known there.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "markers",
+        "exclusions"
       ]
     },
     "RemovalKind": {

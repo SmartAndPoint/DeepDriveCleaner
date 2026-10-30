@@ -16,8 +16,8 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::class::{Removal, RiskClass};
 use crate::env::Env;
 use crate::model::{
-    ClassTotal, Finding, Inaccessible, LargeFile, NotSelected, Project, RemovalKind, SCHEMA_VERSION, ScanReport,
-    SkippedPath, Totals,
+    ClassTotal, ExclusionOrigin, Finding, Inaccessible, LargeFile, NotSelected, Project, RemovalKind, SCHEMA_VERSION,
+    ScanReport, SkippedPath, Totals,
 };
 use crate::rules::{Catalog, Classified, RuleVisitor, TOMBSTONE, classify};
 use crate::scan::{self, DirReader, Progress, ReadErrorKind, Visitor, WalkError, WalkOptions, WalkSetupError};
@@ -46,6 +46,11 @@ pub struct ScanOptions {
     /// The user's skips, canonical (`Settings::resolve`): not opened, and
     /// listed in the report's `not_scanned`. They are in `excludes` too.
     pub user_skips: Vec<PathBuf>,
+    /// The `user_skips` only `--skip` gave; the others are the settings'.
+    pub flag_skips: Vec<PathBuf>,
+    /// Where the `excludes` that are not skips came from: `settings.json`,
+    /// or `--exclude` in its place.
+    pub excludes_origin: ExclusionOrigin,
     /// How much of each user-data folder `contents` lists.
     pub contents: ContentsLimits,
     pub walk: WalkOptions,
@@ -62,6 +67,8 @@ impl Default for ScanOptions {
             large_file_bytes: crate::rules::LARGE_FILE_BYTES,
             skip: Vec::new(),
             user_skips: Vec::new(),
+            flag_skips: Vec::new(),
+            excludes_origin: ExclusionOrigin::Settings,
             contents: ContentsLimits::default(),
             walk: WalkOptions::default(),
         }
@@ -157,7 +164,8 @@ pub(crate) fn scan_inner(
     let visitor = RuleVisitor::new(&catalog, excludes)
         .with_large_file_threshold(opts.large_file_bytes)
         .with_skips(opts.skip.clone())
-        .with_user_skips(opts.user_skips.clone());
+        .with_user_skips(opts.user_skips.clone())
+        .with_origins(opts.excludes_origin, opts.flag_skips.clone());
     let pruned = reach.map(|reach| recheck::Pruned { inner: &visitor, reach });
     let walking: &dyn Visitor = match &pruned {
         Some(pruned) => pruned,
@@ -285,6 +293,7 @@ fn finding(
         parent_dev: Some(c.owner.parent_dev),
         parent_ino: Some(c.owner.parent_ino),
         contents: None,
+        protection: c.protection.clone(),
     }
 }
 

@@ -132,8 +132,8 @@ impl<V: Visitor> Visitor for Pruned<'_, V> {
         self.inner.lists_entries(dir, tag)
     }
 
-    fn on_file(&self, dir: &Path, entry: &EntryMeta, owner: Option<(OwnerKind, Tag)>) {
-        self.inner.on_file(dir, entry, owner);
+    fn on_file(&self, dir: &Path, dir_id: (u64, u64), entry: &EntryMeta, owner: Option<(OwnerKind, Tag)>) {
+        self.inner.on_file(dir, dir_id, entry, owner);
     }
 
     fn prunes(&self, dir: &Path) -> bool {

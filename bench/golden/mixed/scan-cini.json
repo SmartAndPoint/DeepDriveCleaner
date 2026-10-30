@@ -8770,6 +8770,17 @@
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
       "path": "<run>/tree/projects/g00/p00067/target",
+      "protection": {
+        "exclusions": [],
+        "markers": [
+          {
+            "dev": "<tree-dev>",
+            "folder": "<run>/tree/projects/g00/p00067/target",
+            "ino": null
+          }
+        ],
+        "rule": "maven.target"
+      },
       "removal": "none",
       "rule": "user.kept",
       "rule_class": "user-data",
@@ -8795,6 +8806,17 @@
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
       "path": "<run>/tree/projects/g00/p00010/build",
+      "protection": {
+        "exclusions": [],
+        "markers": [
+          {
+            "dev": "<tree-dev>",
+            "folder": "<run>/tree/projects/g00/p00010/build",
+            "ino": null
+          }
+        ],
+        "rule": "gradle.build"
+      },
       "removal": "none",
       "rule": "user.kept",
       "rule_class": "user-data",
@@ -8820,6 +8842,17 @@
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
       "path": "<run>/tree/projects/g00/p00052/target",
+      "protection": {
+        "exclusions": [],
+        "markers": [
+          {
+            "dev": "<tree-dev>",
+            "folder": "<run>/tree/projects/g00/p00052/target",
+            "ino": null
+          }
+        ],
+        "rule": "maven.target"
+      },
       "removal": "none",
       "rule": "user.kept",
       "rule_class": "user-data",
@@ -8845,6 +8878,17 @@
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
       "path": "<run>/tree/projects/g00/p00072/Pods",
+      "protection": {
+        "exclusions": [],
+        "markers": [
+          {
+            "dev": "<tree-dev>",
+            "folder": "<run>/tree/projects/g00/p00072/Pods",
+            "ino": null
+          }
+        ],
+        "rule": "cocoapods.pods"
+      },
       "removal": "none",
       "rule": "user.kept",
       "rule_class": "user-data",
@@ -8870,6 +8914,17 @@
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
       "path": "<run>/tree/projects/g00/p00039/.venv",
+      "protection": {
+        "exclusions": [],
+        "markers": [
+          {
+            "dev": "<tree-dev>",
+            "folder": "<run>/tree/projects/g00/p00039/.venv",
+            "ino": null
+          }
+        ],
+        "rule": "python.venv"
+      },
       "removal": "none",
       "rule": "user.kept",
       "rule_class": "user-data",
