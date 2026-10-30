@@ -51,6 +51,34 @@ enum ProtectionFixture {
     }
 }
 
+/// A runner whose `keep remove` answers only when the test releases it;
+/// every other run returns done and empty.
+actor HeldKeep: CLIRunning {
+    private let reply: CLIRunner.Result
+    private var gate: CheckedContinuation<Void, Never>?
+    private var released = false
+    private(set) var runs = 0
+
+    init(_ reply: CLIRunner.Result) {
+        self.reply = reply
+    }
+
+    func run(_ kind: CLIRunner.Kind, _ arguments: [String], options: CLIRunner.Options) async -> CLIRunner.Result {
+        guard kind == .keepRemove else { return FakeRunner.done(Data()) }
+        runs += 1
+        if !released { await withCheckedContinuation { gate = $0 } }
+        return reply
+    }
+
+    func cancel(_ ticket: CLIRunner.Ticket) async {}
+
+    func release() {
+        released = true
+        gate?.resume()
+        gate = nil
+    }
+}
+
 @Suite("Protected by you")
 struct ProtectionTests {
     typealias F = ProtectionFixture
@@ -112,8 +140,8 @@ struct ProtectionTests {
             ruled["rule"] = rule
             // The rule comes after the protections, and before how to remove them.
             let withRule = expected.contains(CleanWording.flagOnly)
-                ? expected.dropLast() + ["otherwise: node_modules", CleanWording.flagOnly]
-                : expected + ["otherwise: node_modules"]
+                ? expected.dropLast() + ["otherwise: node.node_modules", CleanWording.flagOnly]
+                : expected + ["otherwise: node.node_modules"]
             #expect(try words(ruled) == withRule)
         }
         // Several: all of them, and where to remove them.
@@ -124,8 +152,21 @@ struct ProtectionTests {
         )
         #expect(try words(several) == [
             "Protected by .ddc-keep in ~/p/node_modules", "Protected by .ddc-keep in ~/p/node_modules/patched",
-            "Holds a folder skipped in Settings: ~/p/node_modules/raw", "otherwise: node_modules", CleanWording.severalProtections,
+            "Holds a folder skipped in Settings: ~/p/node_modules/raw", "otherwise: node.node_modules", CleanWording.severalProtections,
         ])
+        // A marker and a flag: never sent to Settings, where no flag is.
+        let mixed = F.protection(markers: [F.marker()], exclusions: [F.exclusion(held, kind: "skip", origin: "flag", inside: true)])
+        #expect(try words(mixed) == [
+            "Protected by .ddc-keep in ~/p/node_modules", "Holds a folder skipped by a command-line flag: ~/p/node_modules/raw", CleanWording.flagOnly,
+        ])
+        #expect(try !words(mixed).contains(CleanWording.severalProtections))
+    }
+
+    @Test("the rule is named by its whole id: several rules share a last part")
+    func ruleNames() {
+        #expect(CleanWording.ruleName("rust.target") == "rust.target")
+        #expect(CleanWording.ruleName("rust.target") != CleanWording.ruleName("maven.target"))
+        #expect(CleanWording.ruleName("cmake.build") != CleanWording.ruleName("gradle.build"))
     }
 
     @Test("the second line says the protection instead of the notes, which cannot tell a flag from Settings")
@@ -133,7 +174,7 @@ struct ProtectionTests {
         let items = ReviewItems.make(report: try ScanReport.read(try Fixture.data("scan-report-protection")), settings: nil, rules: try Fixture.rules())
         let rows = try (0..<3).map { try #require(items.row($0)) }
         #expect(CleanWording.detail(rows[1], home: F.home)
-            == "Your data · shown, not cleaned · Holds a folder skipped in Settings: ~/q/node_modules/raw · otherwise: node_modules")
+            == "Your data · shown, not cleaned · Holds a folder skipped in Settings: ~/q/node_modules/raw · otherwise: node.node_modules")
         #expect(CleanWording.detail(rows[2], home: F.home)
             == "Your data · shown, not cleaned · Excluded by a command-line flag · The next scan without the flag lists this folder")
         // Without `home`, the paths show in full.
@@ -161,7 +202,7 @@ struct ProtectionTests {
             if case .subgroup(let subgroup) = block { return subgroup.items.map(\.detail) }
             return []
         }
-        #expect(details.contains("Holds a folder skipped in Settings: ~/q/node_modules/raw · otherwise: node_modules"))
+        #expect(details.contains("Holds a folder skipped in Settings: ~/q/node_modules/raw · otherwise: node.node_modules"))
         // The other user-data groups keep the class's words.
         let pictures = try ReviewFixture.items()
         let other = try #require(pictures.sidebar.flatMap(\.entries).first { $0.group == "Pictures" })
@@ -234,9 +275,38 @@ struct ProtectionTests {
             ]])
             #expect(await runner.count(.scan) == 0, "the rescan is the window's, not a scan of its own")
             #expect(events.rescans == rescans, "\(reply.outcome) \(String(decoding: reply.stdout, as: UTF8.self))")
-            #expect(model.notice == notice)
+            // Said on the row, not above the window.
+            #expect(model.protectionMessage(for: 0) == notice)
+            #expect(model.protectionMessage(for: 1) == nil)
+            #expect(model.notice == nil)
             #expect(model.removingProtection == nil && model.rescanning == nil)
+            // Until the rows are built again.
+            model.reload()
+            #expect(model.protectionMessage(for: 0) == nil)
         }
+    }
+
+    @Test("a refusal stays on its row by the finding's identity, and a second attempt clears it first")
+    @MainActor
+    func messageFollowsTheFinding() async throws {
+        let data = try TempDataDirectory()
+        let defaults = try TempDefaults()
+        let events = ReviewEvents()
+        events.holdRescan = true
+        let runner = FakeRunner(scan: FakeRunner.done(Data()))
+        await runner.reply(.keepRemove, F.keep("refused", extra: #", "reason": "not-a-file""#))
+        let report = try F.oneMarker()
+        let model = makeReview(runner: runner, data: data, defaults: defaults, events: events) { try? F.snapshot(report) }
+        #expect(model.open(ReviewRequest(group: nil, classes: [], confirm: false)))
+        await model.removeProtection(try #require(await model.removalConfirmation(0)))
+        #expect(model.protectionMessage(for: 0)?.hasSuffix("Remove it in Finder.") == true)
+        await runner.reply(.keepRemove, F.keep("removed"))
+        let again = Task { await model.removeProtection(try #require(await model.removalConfirmation(0))) }
+        try await until("the rescan") { model.rescanning == .afterRemovingProtection }
+        #expect(model.protectionMessage(for: 0) == nil, "cleared when the row tries again")
+        events.finishRescan()
+        try await again.value
+        #expect(events.rescans == 1)
     }
 
     @Test("a report of another folder, another version or no report is a failure, and nothing rescans")
@@ -258,34 +328,56 @@ struct ProtectionTests {
             #expect(model.open(ReviewRequest(group: nil, classes: [], confirm: false)))
             await model.removeProtection(try #require(await model.removalConfirmation(0)))
             #expect(events.rescans == 0, "\(stdout)")
-            #expect(model.notice?.contains("Scan Again") == true, "\(stdout)")
+            #expect(model.protectionMessage(for: 0)?.contains("Scan Again") == true, "\(stdout)")
         }
     }
 
-    @Test("the row says Protection removed. Scanning… until the rescan ends; a second press runs nothing")
+    @Test("while a protection goes and the scan after it runs, nothing else starts from the window; a second press runs nothing")
     @MainActor
     func rowWhileScanning() async throws {
         let data = try TempDataDirectory()
         let defaults = try TempDefaults()
         let events = ReviewEvents()
         events.holdRescan = true
-        let runner = FakeRunner(scan: FakeRunner.done(Data()))
-        await runner.reply(.keepRemove, F.keep("removed"))
-        let report = try F.oneMarker()
+        let runner = HeldKeep(F.keep("removed"))
+        // Finding 0 with one marker, and finding 2 a node_modules the window could clean or protect.
+        let scan = try #require(try JSONSerialization.jsonObject(with: Fixture.data("scan-report")) as? [String: Any])
+        var cleanable = try #require((scan["findings"] as? [[String: Any]])?.first { $0["class"] as? String == "rebuildable" })
+        cleanable["path"] = "/Users/example/s/node_modules"
+        cleanable["ino"] = 339_569_740
+        let report = try Fixture.editedFindings("scan-report-protection") { findings in
+            findings[0]["protection"] = F.protection(markers: [F.marker()], rule: "node.node_modules")
+            findings[2] = cleanable
+        }
         let model = makeReview(runner: runner, data: data, defaults: defaults, events: events) { try? F.snapshot(report) }
-        #expect(model.open(ReviewRequest(group: nil, classes: [], confirm: false)))
+        #expect(model.open(ReviewRequest(group: nil, classes: [.rebuildable], confirm: false)))
+        #expect(model.canClean(scope: nil) && model.canProtect(2), "before: the other row can be cleaned and protected")
         let confirmation = try #require(await model.removalConfirmation(0))
         let run = Task { await model.removeProtection(confirmation) }
+
+        // keep remove has not answered.
+        try await until("the removal") { model.removingProtection?.stage == .removing }
+        #expect(model.removingProtection?.text == "Removing the protection…")
+        #expect(!model.canClean(scope: nil) && !model.canClean(scope: [2]))
+        #expect(!model.canProtect(2) && !model.canRemoveProtection(1))
+        model.openSheet()
+        #expect(model.sheet == nil)
+        await model.scanAgain()
+        #expect(events.rescans == 0 && model.rescanning == nil, "Scan Again waits for it")
+        await runner.release()
+
+        // The scan after it.
         try await until("the rescan") { model.rescanning == .afterRemovingProtection }
         #expect(model.removingProtection == RemoveProtection.Progress(id: 0, stage: .scanning))
         #expect(model.removingProtection?.text == "Protection removed. Scanning…")
-        #expect(!model.canRemoveProtection(1) && !model.canClean(scope: nil))
+        #expect(!model.canRemoveProtection(1) && !model.canClean(scope: nil) && !model.canProtect(2))
         await model.removeProtection(confirmation)
-        #expect(await runner.count(.keepRemove) == 1)
+        #expect(await runner.runs == 1)
         events.finishRescan()
         await run.value
         #expect(model.removingProtection == nil && model.rescanning == nil)
         #expect(events.rescans == 1)
+        #expect(model.canClean(scope: nil) && model.canProtect(2), "after: as before")
     }
 
     @Test("the confirmation names the findings it unprotects and the rule that would claim each")
@@ -298,7 +390,7 @@ struct ProtectionTests {
         #expect(model.open(ReviewRequest(group: nil, classes: [], confirm: false)))
         let marker = try #require(await model.removalConfirmation(0))
         #expect(marker.question == "Remove the .ddc-keep in ~/p/node_modules?")
-        #expect(marker.findings == ["~/p/node_modules · otherwise: node_modules"])
+        #expect(marker.findings == ["~/p/node_modules · otherwise: node.node_modules"])
         #expect(marker.message.contains("in its own group, where it may be selected for cleanup by default"))
         #expect(marker.confirmTitle == "Remove Protection")
         let skip = try #require(await model.removalConfirmation(1))
@@ -310,21 +402,27 @@ struct ProtectionTests {
 
     // MARK: - The Settings route
 
-    @Test("the Settings edit removes an entry written through a symlink whose realpath is the reported path, then rescans")
+    @Test("the Settings edit removes every entry, in both lists, whose realpath is the reported path, then rescans")
     @MainActor
     func settingsThroughSymlink() async throws {
         let dir = FileManager.default.temporaryDirectory.appending(path: "ddckit-protect-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         try FileManager.default.createDirectory(at: dir.appending(path: "real/raw"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dir.appending(path: "real/other"), withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: dir.appending(path: "link"), withDestinationURL: dir.appending(path: "real"))
+        try FileManager.default.createSymbolicLink(at: dir.appending(path: "alias"), withDestinationURL: dir.appending(path: "real"))
         let written = dir.appending(path: "link/raw").path
         let canonical = ReportScope.canonical(dir.appending(path: "real/raw").path)
+        let other = dir.appending(path: "link/other").path
         #expect(written != canonical)
         var file = SettingsFile()
-        file.skips = [written]
-        file.excludes = ["/Users/example/elsewhere"]
-        #expect(FolderList.entry(for: canonical, mode: .skip, in: file) == written)
-        #expect(FolderList.entry(for: canonical, mode: .count, in: file) == nil, "a skip is not an exclude")
+        // Three spellings of one folder, two of them skips and one an exclude.
+        file.skips = [written, canonical, other]
+        file.excludes = ["/Users/example/elsewhere", dir.appending(path: "alias/raw").path]
+        #expect(FolderList.entries(for: canonical, in: file) == [dir.appending(path: "alias/raw").path, written, canonical])
+        var copy = file
+        #expect(FolderList.removeEntries(for: canonical, from: &copy).count == 3)
+        #expect(copy.skips == [other] && copy.excludes == ["/Users/example/elsewhere"])
 
         let data = try TempDataDirectory()
         let defaults = try TempDefaults()
@@ -346,8 +444,9 @@ struct ProtectionTests {
         #expect(model.open(ReviewRequest(group: nil, classes: [], confirm: false)))
         let confirmation = try #require(await model.removalConfirmation(1))
         await model.removeProtection(confirmation)
-        #expect(file.skips.isEmpty)
+        #expect(file.skips == [other])
         #expect(file.excludes == ["/Users/example/elsewhere"], "nothing else changes")
+        #expect(model.protectionMessage(for: 1) == nil)
         #expect(events.rescans == 1)
         // An entry already gone is gone: the scan after says so.
         await model.removeProtection(try #require(await model.removalConfirmation(1)))
@@ -372,7 +471,23 @@ struct ProtectionTests {
         #expect(model.open(ReviewRequest(group: nil, classes: [], confirm: false)))
         await model.removeProtection(try #require(await model.removalConfirmation(1)))
         #expect(events.rescans == 0)
-        #expect(model.notice?.hasPrefix("settings.json could not be changed") == true)
+        #expect(model.protectionMessage(for: 1)?.hasPrefix("settings.json could not be changed") == true)
+        #expect(model.protectionMessage(for: 0) == nil && model.notice == nil)
+    }
+
+    @Test("a model given no git check asks nothing: the default runs no git")
+    @MainActor
+    func gitOffByDefault() async throws {
+        #expect(GitTracking.off.binary == nil)
+        let repo = try Repository()
+        #expect(await GitTracking.off.marker(in: repo.folder, roots: repo.roots) == .unknown)
+        let data = try TempDataDirectory()
+        let defaults = try TempDefaults()
+        let report = try F.oneMarker()
+        let model = makeReview(runner: FakeRunner(scan: FakeRunner.done(Data())), data: data, defaults: defaults) { try? F.snapshot(report) }
+        #expect(model.open(ReviewRequest(group: nil, classes: [], confirm: false)))
+        #expect(model.gitTracking.binary == nil)
+        #expect(try #require(await model.removalConfirmation(0)).gitWarning == nil)
     }
 
     // MARK: - git
@@ -510,5 +625,10 @@ struct ProtectionTests {
         #expect(await GitTracking.launch("/bin/sh", ["-c", "sleep 30"], .milliseconds(200)) == nil)
         #expect(ContinuousClock.now - start < .seconds(10))
         #expect(await GitTracking.launch("/nonexistent/git", [], .seconds(1)) == nil)
+        // One that ignores SIGTERM is killed `killAfter` later.
+        let stubborn = ContinuousClock.now
+        #expect(await GitTracking.launch("/bin/sh", ["-c", "trap '' TERM; exec sleep 30"], .milliseconds(200)) == nil)
+        #expect(ContinuousClock.now - stubborn < .seconds(10))
+        #expect(GitTracking.killAfter == .milliseconds(500))
     }
 }

@@ -39,6 +39,13 @@ public struct GitTracking: Sendable {
         self.run = run
     }
 
+    /// Asks nothing and runs nothing: every marker is `.unknown`. What a
+    /// model gets unless the app hands it the real one.
+    public static let off = GitTracking(binaries: [], run: { _, _, _ in nil })
+
+    /// How long a git that ignored SIGTERM gets before SIGKILL.
+    static let killAfter: Duration = .milliseconds(500)
+
     /// The first of `binaries` that is an executable file.
     public var binary: String? {
         binaries.first { FileManager.default.isExecutableFile(atPath: $0) }
@@ -74,7 +81,9 @@ public struct GitTracking: Sendable {
     }
 
     /// The app's runner: stdin, stdout and stderr to /dev/null, SIGTERM past
-    /// the timeout. A run stopped that way is nil whatever its status.
+    /// the timeout, and SIGKILL `killAfter` later if it still runs, so a git
+    /// that ignores SIGTERM cannot hold the confirmation. A run stopped that
+    /// way is nil whatever its status.
     public static let launch: Run = { program, arguments, timeout in
         let process = Process()
         process.executableURL = URL(filePath: program)
@@ -100,6 +109,9 @@ public struct GitTracking: Sendable {
                 guard !Task.isCancelled, process.isRunning else { return }
                 timedOut.set()
                 process.terminate()
+                // Not cancelled from here on: the run ends only when the process does.
+                try? await Task.sleep(for: GitTracking.killAfter)
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
             }
         }
         watcher?.cancel()

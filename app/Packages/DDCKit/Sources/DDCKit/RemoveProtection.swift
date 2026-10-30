@@ -196,21 +196,25 @@ extension ReviewModel {
     /// the confirmed protection away, then scans again through the window's
     /// `Rescan`, as after a clean. A marker that is gone (`removed`, or
     /// `absent` before) and a Settings entry that is gone both rescan; a
-    /// refusal or a failure leaves the protection and says why.
+    /// refusal or a failure leaves the protection, and the row says why.
     public func removeProtection(_ confirmed: RemoveProtection.Confirmation) async {
         guard canRemoveProtection(confirmed.id), let items, let row = items.row(confirmed.id),
               RemoveProtection.target(row.finding.protection) == confirmed.target
         else { return }
-        notice = nil
+        let identity = Identity(row.finding)
+        protectionMessages[identity] = nil
         removingProtection = RemoveProtection.Progress(id: confirmed.id, stage: .removing)
-        let unprotected: Bool
+        let stayed: String?
         switch confirmed.target {
         case .marker(let marker):
-            unprotected = await removeMarker(marker, home: items.report.home)
+            stayed = await removeMarker(marker, home: items.report.home)
         case .settings(let exclusion):
-            unprotected = removeFromSettings(exclusion)
+            stayed = removeFromSettings(exclusion)
         }
-        guard unprotected, !quitting else {
+        if let stayed {
+            protectionMessages[identity] = stayed
+        }
+        guard stayed == nil, !quitting else {
             removingProtection = nil
             return
         }
@@ -222,34 +226,39 @@ extension ReviewModel {
         reload()
     }
 
-    private func removeMarker(_ marker: ScanReport.MarkerFolder, home: String) async -> Bool {
-        guard let runner else { return false }
+    /// Why the row's protection stayed after its Remove Protection…, until
+    /// the rows are built again; nil when nothing failed.
+    public func protectionMessage(for id: Int) -> String? {
+        guard let row = items?.row(id) else { return nil }
+        return protectionMessages[Identity(row.finding)]
+    }
+
+    /// Nil once the marker is gone; else why it stays.
+    private func removeMarker(_ marker: ScanReport.MarkerFolder, home: String) async -> String? {
+        guard let runner else { return "The command-line tool is missing, so nothing was removed." }
         log("keep remove requested: \(marker.folder)")
         switch await RemoveProtection.run(runner, marker, log: log) {
         case .report(let report):
             log("keep remove ended: \(report.result)")
-            notice = RemoveProtection.text(report.result, folder: marker.folder, home: home)
-            return report.result.unprotected
+            guard !report.result.unprotected else { return nil }
+            return RemoveProtection.text(report.result, folder: marker.folder, home: home)
         case .failed(let why):
-            notice = why
-            return false
+            return why
         }
     }
 
-    /// The entry of `settings.json` the report names, edited through the
-    /// app's one writer. An entry that is no longer there is gone already.
-    private func removeFromSettings(_ exclusion: ScanReport.Exclusion) -> Bool {
-        var removed: String?
+    /// The entries of `settings.json` that name the reported folder, in
+    /// either list and whatever their spelling, edited through the app's one
+    /// writer. Nil once none is left, including when none was there any more.
+    private func removeFromSettings(_ exclusion: ScanReport.Exclusion) -> String? {
+        var removed: [String] = []
         let written = editSettings { file in
-            guard let entry = FolderList.entry(for: exclusion.path, mode: exclusion.kind == .skip ? .skip : .count, in: file) else { return }
-            FolderList.removeExclusion(entry, from: &file)
-            removed = entry
+            removed = FolderList.removeEntries(for: exclusion.path, from: &file)
         }
         guard written else {
-            notice = "settings.json could not be changed, so the folder is still protected. Settings → Folders says why."
-            return false
+            return "settings.json could not be changed, so the folder is still protected. Settings → Folders says why."
         }
-        log(removed.map { "settings: removed \($0)" } ?? "settings: \(exclusion.path) was no longer listed")
-        return true
+        log(removed.isEmpty ? "settings: \(exclusion.path) was no longer listed" : "settings: removed \(removed.joined(separator: ", "))")
+        return nil
     }
 }
