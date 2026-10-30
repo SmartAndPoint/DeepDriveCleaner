@@ -11,13 +11,12 @@
 
 use std::collections::HashSet;
 use std::path::Path;
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::exec::ProcessTable;
-use crate::platform::procs::{self, OpenVnode, ProcInfo};
+use crate::platform::procs::{self, OpenVnode, ProcInfo, ProcStart};
 use crate::rules::entries;
 
-use super::{HarnessId, RunningKind, UnknownReason, claude, codex, running};
+use super::{HarnessId, Installs, RunningKind, UnknownReason, claude, codex, running};
 
 /// One Claude Code record (`sessions/<pid>.json`), decided.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +51,8 @@ pub enum UnknownCause {
     LiveRecordWithoutSession,
     /// A record that could not be decided names this session.
     UndecidableSessionRecord,
+    /// The session was given with no file, so nothing could be checked.
+    SessionWithoutFiles,
 }
 
 /// What shows a session live.
@@ -59,7 +60,8 @@ pub enum UnknownCause {
 pub enum LiveBy {
     /// A live record names it.
     Record,
-    /// Its transcript or a companion changed within [`entries::RECENT`].
+    /// Its transcript or a companion changed within [`entries::RECENT`]
+    /// before the check, or later than it.
     Recent,
     /// A process of the user holds one of its files open.
     OpenFile,
@@ -84,7 +86,9 @@ pub struct FileFact {
     pub modified: Option<i64>,
 }
 
-/// A Claude Code session: its id and its files.
+/// A Claude Code session: its id and its files. `files` holds the
+/// transcript and every companion; a session given with none is unknown,
+/// never taken as idle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionFacts {
     pub session: String,
@@ -92,9 +96,20 @@ pub struct SessionFacts {
 }
 
 /// Claude Code's records under `dir` (`~/.claude/sessions`), each decided
-/// against `table` for this user: the facts [`claude()`] takes.
-pub fn claude_records(dir: &Path, table: &dyn ProcessTable) -> Result<Vec<RecordOutcome>, UnknownCause> {
-    claude::records(dir, |pid| table.process_start(pid), procs::uid())
+/// for this user: the facts [`claude()`] takes. `start` gives a pid's
+/// process start (the process table's `process_start`).
+pub fn claude_records(
+    dir: &Path,
+    start: impl Fn(i32) -> Option<ProcStart>,
+) -> Result<Vec<RecordOutcome>, UnknownCause> {
+    claude::records(dir, start, procs::uid())
+}
+
+/// Codex's thread locks under `dir` (`~/.codex/thread-writer-locks`), the
+/// facts [`harness`] takes: `Unreadable` when the folder or any lock in it
+/// could not be read, `Missing` when it does not exist.
+pub fn codex_locks(dir: &Path) -> CodexLocks {
+    codex::locks(dir)
 }
 
 /// Each of `sessions`' state, in their order. `records` is [`claude_records`]'
@@ -105,8 +120,9 @@ pub fn claude_records(dir: &Path, table: &dyn ProcessTable) -> Result<Vec<Record
 /// record could not be parsed, when a record could not be decided and
 /// names no session, or when a live record names no session. Otherwise a
 /// session is live when a live record names it, when one of its files
-/// changed within [`entries::RECENT`] of `now`, or when one of its files
-/// is open; it is unknown when an undecidable record names it. The cheaper
+/// changed within [`entries::RECENT`] before `now` or after it, or when one
+/// of its files is open; it is unknown when an undecidable record names it
+/// or it has no file. The cheaper
 /// answers come first, and the open files are swept only for the sessions
 /// still undecided.
 pub fn claude(
@@ -125,7 +141,9 @@ pub fn claude(
         .map(|s| {
             if live.contains(s.session.as_str()) {
                 Some(SessionLiveness::Live { by: LiveBy::Record })
-            } else if s.files.iter().any(|f| entries::recent(f.modified, None, now)) {
+            } else if s.files.is_empty() {
+                Some(SessionLiveness::Unknown { cause: UnknownCause::SessionWithoutFiles })
+            } else if s.files.iter().any(|f| recent(f.modified, now)) {
                 Some(SessionLiveness::Live { by: LiveBy::Recent })
             } else if undecided.contains(s.session.as_str()) {
                 Some(SessionLiveness::Unknown { cause: UnknownCause::UndecidableSessionRecord })
@@ -147,6 +165,19 @@ pub fn claude(
         }
     }
     out.into_iter().map(|o| o.unwrap_or(SessionLiveness::NotLive)).collect()
+}
+
+/// Changed within [`entries::RECENT`] before `now`, or after it: a time
+/// ahead of the clock is a write the clock has not caught up with, not an
+/// old file. A time not known counts as recent.
+fn recent(modified: Option<i64>, now: SystemTime) -> bool {
+    let Some(modified) = modified else { return true };
+    let now = match now.duration_since(UNIX_EPOCH) {
+        Ok(d) => i64::try_from(d.as_secs()).unwrap_or(i64::MAX),
+        Err(e) => -i64::try_from(e.duration().as_secs()).unwrap_or(i64::MAX),
+    };
+    let window = i64::try_from(entries::RECENT.as_secs()).unwrap_or(i64::MAX);
+    modified >= now.saturating_sub(window)
 }
 
 /// The sessions live records name, and those undecidable records name; or
@@ -213,8 +244,8 @@ pub enum HarnessLiveness {
 }
 
 /// Whether `harness` runs. `procs` are the user's processes and `open`
-/// gives the files one holds open; `codex_packages` is
-/// `~/.codex/packages`. `codex_locks` is what `thread-writer-locks` lists
+/// gives the files one holds open; `installs` are where Codex and Cursor's
+/// agent keep their binaries. `codex_locks` is [`codex_locks`]' answer
 /// (read only for Codex): a missing folder holds no lock, and an
 /// unreadable one leaves Codex unknown unless a process decides first.
 ///
@@ -226,11 +257,11 @@ pub enum HarnessLiveness {
 pub fn harness(
     harness: HarnessId,
     procs: &[ProcInfo],
-    codex_packages: &Path,
+    installs: Installs<'_>,
     codex_locks: &CodexLocks,
     open: impl Fn(i32) -> Vec<OpenVnode>,
 ) -> HarnessLiveness {
-    let runs = running::of(harness, procs, codex_packages);
+    let runs = running::of(harness, procs, installs);
     if runs.iter().any(|r| r.kind != RunningKind::Other) {
         return HarnessLiveness::Live { by: HarnessBy::Running };
     }
@@ -258,7 +289,7 @@ pub fn harness(
 mod tests {
     use std::ffi::OsString;
     use std::path::PathBuf;
-    use std::time::{Duration, UNIX_EPOCH};
+    use std::time::Duration;
 
     use super::*;
 
@@ -266,6 +297,11 @@ mod tests {
     const NOW: u64 = 1_793_180_467;
     const OLD: i64 = NOW as i64 - 3600;
     const PACKAGES: &str = "/Users/example/.codex/packages";
+    const CURSOR_AGENT: &str = "/Users/example/.local/share/cursor-agent";
+
+    fn installs() -> Installs<'static> {
+        Installs { codex_packages: Path::new(PACKAGES), cursor_agent: Path::new(CURSOR_AGENT) }
+    }
 
     fn now() -> SystemTime {
         UNIX_EPOCH + Duration::from_secs(NOW)
@@ -355,22 +391,32 @@ mod tests {
     }
 
     #[test]
-    fn recent_is_within_ten_minutes_of_any_file_either_side() {
-        let at = |modified: Option<i64>| SessionFacts {
+    fn a_session_is_recent_by_any_file_and_without_files_unknown() {
+        // The transcript is old; the companion's own time decides.
+        let with = |modified: Option<i64>| SessionFacts {
             session: "s".into(),
-            files: vec![
-                FileFact { id: (1, 10), modified: Some(OLD) },
-                // A companion: its own time counts.
-                FileFact { id: (1, 11), modified },
-            ],
+            files: vec![FileFact { id: (1, 10), modified: Some(OLD) }, FileFact { id: (1, 11), modified }],
         };
-        let decide = |s: SessionFacts| claude(Ok(&[]), &[s], &[], |_| Vec::new(), now())[0];
         let window = entries::RECENT.as_secs() as i64;
-        assert_eq!(decide(at(Some(NOW as i64 - window))), BY_RECENT);
-        assert_eq!(decide(at(Some(NOW as i64 - window - 1))), NOT_LIVE);
-        assert_eq!(decide(at(Some(NOW as i64 + 30))), BY_RECENT);
-        // A time not known fails closed.
-        assert_eq!(decide(at(None)), BY_RECENT);
+        let now_s = NOW as i64;
+        let table: Vec<(&str, SessionFacts, SessionLiveness)> = vec![
+            ("at the window's edge", with(Some(now_s - window)), BY_RECENT),
+            ("just before the window", with(Some(now_s - window - 1)), NOT_LIVE),
+            ("a little ahead of the clock", with(Some(now_s + 30)), BY_RECENT),
+            ("far ahead of the clock", with(Some(now_s + 10 * window)), BY_RECENT),
+            ("a time not known", with(None), BY_RECENT),
+            (
+                "no file at all",
+                SessionFacts { session: "s".into(), files: Vec::new() },
+                unknown(UnknownCause::SessionWithoutFiles),
+            ),
+        ];
+        for (case, session, want) in table {
+            assert_eq!(claude(Ok(&[]), &[session], &[], |_| Vec::new(), now()), [want], "{case}");
+        }
+        // A live record still names a session given without files.
+        let bare = SessionFacts { session: "s".into(), files: Vec::new() };
+        assert_eq!(claude(Ok(&[live("s")]), &[bare], &[], |_| Vec::new(), now()), [BY_RECORD]);
     }
 
     #[test]
@@ -434,8 +480,19 @@ mod tests {
         let missing = Err(UnknownReason::Missing);
         let unreadable = Err(UnknownReason::Unreadable);
         let cursor_app = proc(6001, "Cursor", "/Applications/Cursor.app/Contents/MacOS/Cursor", &[]);
-        let cursor_agent = proc(6002, "cursor-agent", "/Users/example/.local/bin/cursor-agent", &["cursor-agent"]);
+        // Cursor's agent runs its bundled `node` under the command's name.
+        let version = format!("{CURSOR_AGENT}/versions/2026.10.28-0a1b2c3");
+        let cursor_agent = proc(
+            6002,
+            "node",
+            &format!("{version}/node"),
+            &["/Users/example/.local/bin/agent", &format!("{version}/index.js")],
+        );
         let opencode = proc(6003, "opencode", "/opt/homebrew/bin/opencode", &["opencode"]);
+        // A binary of the harness inside another app's bundle.
+        let bundled_opencode = proc(6004, "opencode", "/Applications/Some.app/Contents/Resources/opencode", &[]);
+        let bundled_cursor_agent =
+            proc(6005, "cursor-agent", "/Applications/Some.app/Contents/Resources/cursor-agent", &[]);
         let table: Vec<(&str, H, Vec<ProcInfo>, &CodexLocks, HarnessLiveness)> = vec![
             ("codex: none running, no lock", H::Codex, vec![shell()], &free, NOT),
             ("codex: no lock folder", H::Codex, vec![shell()], &missing, NOT),
@@ -447,14 +504,23 @@ mod tests {
             ("codex: inside another app, a held lock", H::Codex, vec![chatgpt_codex(), shell()], &held, LOCK_HELD),
             ("codex: unreadable locks", H::Codex, vec![shell()], &unreadable, unknown(C::LocksUnreadable)),
             ("codex: unreadable locks, its CLI", H::Codex, vec![codex_cli()], &unreadable, RUNNING),
+            (
+                "codex: inside another app, unreadable locks",
+                H::Codex,
+                vec![chatgpt_codex()],
+                &unreadable,
+                unknown(C::UnnamedProcess),
+            ),
             ("opencode: running", H::Opencode, vec![opencode.clone()], &unreadable, RUNNING),
             ("opencode: not running", H::Opencode, vec![codex_cli(), shell()], &unreadable, NOT),
+            ("opencode: inside another app", H::Opencode, vec![bundled_opencode], &none, unknown(C::UnnamedProcess)),
             ("cursor: the app", H::Cursor, vec![cursor_app], &none, RUNNING),
             ("cursor: cursor-agent", H::Cursor, vec![cursor_agent], &none, RUNNING),
             ("cursor: not running", H::Cursor, vec![opencode, shell()], &held, NOT),
+            ("cursor: inside another app", H::Cursor, vec![bundled_cursor_agent], &none, unknown(C::UnnamedProcess)),
         ];
         for (case, h, procs, locks, want) in table {
-            assert_eq!(harness(h, &procs, Path::new(PACKAGES), locks, lock_open), want, "{case}");
+            assert_eq!(harness(h, &procs, installs(), locks, lock_open), want, "{case}");
         }
     }
 
@@ -466,10 +532,10 @@ mod tests {
             lock_open(pid)
         };
         let held = Ok(vec![("t1".to_owned(), (2, 77))]);
-        let got = harness(HarnessId::Codex, &[codex_cli(), shell()], Path::new(PACKAGES), &held, counting);
+        let got = harness(HarnessId::Codex, &[codex_cli(), shell()], installs(), &held, counting);
         assert_eq!((got, asked.get()), (HarnessLiveness::Live { by: HarnessBy::Running }, 0));
         // Only Codex has locks: opencode never sweeps.
-        let got = harness(HarnessId::Opencode, &[shell()], Path::new(PACKAGES), &held, counting);
+        let got = harness(HarnessId::Opencode, &[shell()], installs(), &held, counting);
         assert_eq!((got, asked.get()), (HarnessLiveness::NotLive, 0));
     }
 }
