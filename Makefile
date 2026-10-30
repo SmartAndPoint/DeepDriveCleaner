@@ -255,7 +255,6 @@ tools:
 	$(call install-tool,deny,$(DENY_VERSION))
 	$(call install-tool,machete,$(MACHETE_VERSION))
 	$(call install-tool,llvm-cov,$(LLVM_COV_VERSION))
-	$(call install-tool,fuzz,$(FUZZ_VERSION))
 	rustup component add llvm-tools-preview
 	rustup toolchain install $(MSRV) --profile minimal
 

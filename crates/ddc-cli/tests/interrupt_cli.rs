@@ -188,7 +188,20 @@ impl Watched {
     }
 
     fn signal(&self, sig: i32) {
-        signal(self.group, sig);
+        kill(self.group, sig).unwrap_or_else(|e| panic!("kill(-{}, {sig}): {e}", self.group));
+    }
+
+    /// Stops the group; `false` when the child already ended, so there is
+    /// nothing left to interrupt (macOS refuses to signal a group that holds
+    /// only a zombie).
+    fn stop(&mut self) -> bool {
+        match kill(self.group, libc::SIGSTOP) {
+            Ok(()) => true,
+            Err(e) => {
+                assert!(self.child.try_wait().unwrap().is_some(), "kill(-{}, SIGSTOP): {e}", self.group);
+                false
+            }
+        }
     }
 
     /// Waits for the end; the status, stdout and every event.
@@ -205,7 +218,7 @@ impl Drop for Watched {
     /// A failed test never leaves a stopped child behind.
     fn drop(&mut self) {
         if !self.reaped {
-            signal(self.group, libc::SIGKILL);
+            let _ = kill(self.group, libc::SIGKILL);
             let _ = self.child.wait();
         }
     }
@@ -213,10 +226,10 @@ impl Drop for Watched {
 
 /// Sends `sig` to the process group `group`.
 #[allow(unsafe_code)]
-fn signal(group: i32, sig: i32) {
+fn kill(group: i32, sig: i32) -> std::io::Result<()> {
     // SAFETY: kill(2) takes no pointers; a negative pid names a process group.
     let sent = unsafe { libc::kill(-group, sig) };
-    assert_eq!(sent, 0, "kill(-{group}, {sig}): {}", std::io::Error::last_os_error());
+    if sent == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
 }
 
 /// A progress event, or `None` for the CLI's own lines (`ddc: …`).
@@ -225,11 +238,14 @@ fn event(line: &str) -> Option<serde_json::Value> {
 }
 
 /// Stopped first, so the run cannot move on before the signal: SIGSTOP,
-/// `sig`, SIGCONT.
-fn stop_and_signal(w: &Watched, sig: i32) {
-    w.signal(libc::SIGSTOP);
+/// `sig`, SIGCONT. `false` when the run had already ended.
+fn stop_and_signal(w: &mut Watched, sig: i32) -> bool {
+    if !w.stop() {
+        return false;
+    }
     w.signal(sig);
     w.signal(libc::SIGCONT);
+    true
 }
 
 /// `.last-scan.json.tmp-*` files in `data`.
@@ -243,19 +259,34 @@ fn temp_files(data: &Path) -> Vec<String> {
 
 #[test]
 fn a_scan_killed_mid_walk_leaves_the_saved_scan_whole_and_the_lock_free() {
-    let t = Tree::new(Profile::Projects, 2_000);
+    // A fast machine can walk the whole tree before the first tick is read
+    // and the scan end before the stop: such a run interrupted nothing, so it
+    // is tried again, up to `ATTEMPTS` times.
+    const ATTEMPTS: usize = 5;
+    let t = Tree::new(Profile::Projects, 8_000);
     for sig in [libc::SIGTERM, libc::SIGKILL] {
-        let previous = t.scan();
-        let mut w = Watched::spawn(t.ddc(&["scan", "--json", "--progress", "json"]));
-        w.wait_for("the first walk tick", 1, |e| e["event"] == "walk");
+        let mut interrupted = false;
+        for _ in 0..ATTEMPTS {
+            let previous = t.scan();
+            let mut w = Watched::spawn(t.ddc(&["scan", "--json", "--progress", "json"]));
+            w.wait_for("the first walk tick", 1, |e| e["event"] == "walk");
 
-        stop_and_signal(&w, sig);
-        let (status, _, _) = w.finish();
+            interrupted = stop_and_signal(&mut w, sig);
+            let (status, _, _) = w.finish();
 
-        assert_eq!(status.signal(), Some(sig), "a scan has no handler: the signal ends it");
-        t.assert_consistent(&previous);
-        let again = t.scan();
-        t.assert_consistent(&again);
+            if interrupted {
+                assert_eq!(status.signal(), Some(sig), "a scan has no handler: the signal ends it");
+            } else {
+                assert!(status.success(), "the scan ended before the stop: {status}");
+            }
+            t.assert_consistent(&previous);
+            let again = t.scan();
+            t.assert_consistent(&again);
+            if interrupted {
+                break;
+            }
+        }
+        assert!(interrupted, "signal {sig}: the scan ended before the stop in {ATTEMPTS} of {ATTEMPTS} runs");
     }
 }
 
@@ -271,7 +302,7 @@ fn a_clean_stopped_after_its_kth_item_ends_the_current_one_and_runs_no_other() {
     let mut w = Watched::spawn(t.ddc(&["clean", "--items", list.to_str().unwrap(), "--json", "--progress", "json"]));
     w.wait_for("the k-th item event", K, |e| e["event"] == "item");
 
-    stop_and_signal(&w, libc::SIGTERM);
+    assert!(stop_and_signal(&mut w, libc::SIGTERM), "the clean ended before the stop");
     let (status, stdout, events) = w.finish();
 
     assert_eq!(status.signal(), Some(libc::SIGTERM), "the clean ends by the signal it got");

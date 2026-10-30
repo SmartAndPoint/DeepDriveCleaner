@@ -32,7 +32,6 @@ jobs:
             ~/.cargo/bin/cargo-deny
             ~/.cargo/bin/cargo-machete
             ~/.cargo/bin/cargo-llvm-cov
-            ~/.cargo/bin/cargo-fuzz
           key: tools-${{ runner.os }}-${{ hashFiles('.config/tools.mk') }}
       - uses: Swatinem/rust-cache@v2
         with:
