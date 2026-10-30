@@ -123,6 +123,11 @@ mod tests {
     /// own CPU over a 2 s command is under 1% of the wait.
     #[test]
     fn waiting_for_a_tool_does_not_spin() {
+        // The thread clock is not ported off macOS yet, and /bin/sleep is a Unix
+        // path: story "Windows scanner and rule catalog" records it.
+        if crate::platform::skipped("waiting_for_a_tool_does_not_spin") {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let env =
             Env::with_paths(dir.path(), &dir.path().join("data"), &dir.path().join("logs"), SystemTime::now()).unwrap();
