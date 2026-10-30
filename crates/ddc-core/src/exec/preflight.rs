@@ -391,6 +391,7 @@ fn planned(item: &ListedItem, rule: &Rule, class: RiskClass, action: Action) -> 
         parent_ino: None,
         contents: None,
         protection: None,
+        modified: None,
     };
     PlanItem { finding, action, default_selected: true, selected: true }
 }

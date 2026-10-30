@@ -294,6 +294,7 @@ fn finding(
         parent_ino: Some(c.owner.parent_ino),
         contents: None,
         protection: c.protection.clone(),
+        modified: c.owner.modified.and_then(rfc3339_secs),
     }
 }
 
@@ -376,4 +377,11 @@ pub fn full_disk_access(env: &Env) -> bool {
 pub(crate) fn rfc3339(t: SystemTime) -> Option<String> {
     let secs = t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
     (secs < backups::YEAR_10000).then(|| humantime::format_rfc3339_seconds(t).to_string())
+}
+
+/// A file time in Unix seconds as RFC 3339, as [`rfc3339`]: fixed-width UTC
+/// to the second (`2024-01-01T00:00:00Z`), so the strings compare as the times
+/// do. `None` before 1970 or past year 9999.
+pub(crate) fn rfc3339_secs(secs: i64) -> Option<String> {
+    rfc3339(std::time::UNIX_EPOCH.checked_add(std::time::Duration::from_secs(u64::try_from(secs).ok()?))?)
 }

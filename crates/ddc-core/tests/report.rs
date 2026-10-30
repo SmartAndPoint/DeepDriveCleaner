@@ -5,7 +5,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use common::TreeBuilder;
+use common::{OLD, TreeBuilder};
 use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
 use ddc_core::model::{NotSelected, ScanReport};
@@ -269,8 +269,11 @@ fn a_report_without_the_new_fields_still_decodes_and_they_stay_optional() {
     let mut json = serde_json::to_value(populated().scan()).unwrap();
     let obj = json.as_object_mut().unwrap();
     obj.remove("volumes");
-    for f in obj["findings"].as_array_mut().unwrap() {
+    let findings = obj["findings"].as_array_mut().unwrap();
+    assert!(findings.iter().any(|f| f["modified"].is_string()), "{findings:#?}");
+    for f in findings {
         f.as_object_mut().unwrap().remove("ignored");
+        f.as_object_mut().unwrap().remove("modified");
     }
     serde_json::from_value::<ScanReport>(json).expect("a 0.1.0 report decodes");
 
@@ -280,9 +283,73 @@ fn a_report_without_the_new_fields_still_decodes_and_they_stay_optional() {
     };
     assert!(!required(&schema).contains(&"volumes".to_owned()));
     assert!(!required(&schema["$defs"]["Finding"]).contains(&"ignored".to_owned()));
+    // Story "Review window: sort a group's rows by name, size or last change":
+    // an optional date, under the same version.
+    assert!(!required(&schema["$defs"]["Finding"]).contains(&"modified".to_owned()));
+    assert_eq!(schema["$defs"]["Finding"]["properties"]["modified"]["type"], serde_json::json!(["string", "null"]));
     let totals = required(&schema["$defs"]["Totals"]);
     assert!(!totals.contains(&"ignored_count".to_owned()) && !totals.contains(&"ignored_bytes".to_owned()));
     assert_eq!(ddc_core::model::SCHEMA_VERSION, 2);
+}
+
+/// Story "Review window: sort a group's rows by name, size or last change":
+/// a finding's `modified` is the newest change inside it, fixed-width UTC,
+/// wherever that change lies; a region, a user-data folder and a root that
+/// cannot be opened have none. Without the times no finding has one, and a
+/// user-data folder's entries keep their own.
+#[test]
+fn a_finding_reports_the_newest_change_inside_it() {
+    if common::unsupported("a_finding_reports_the_newest_change_inside_it") {
+        return;
+    }
+    let fx = Fixture::new();
+    let t = &fx.tree;
+    t.write("proj/.venv/pyvenv.cfg", "home = /usr/bin\n");
+    t.file("proj/.venv/bin/python", 1_000);
+    t.file("proj/.venv/lib/python3.12/site-packages/old.py", 1_000);
+    t.file("proj/.venv/lib/python3.12/site-packages/new.py", 1_000);
+    t.write("web/package.json", "{}");
+    t.write("web/node_modules/.package-lock.json", "{}");
+    t.file("web/node_modules/left-pad/index.js", 1_000);
+    t.write("linked/package.json", "{}");
+    let stored = t.file("store/index.js", 1_000);
+    t.hardlink(&stored, "linked/node_modules/dep/index.js");
+    t.file("linked/node_modules/dep/README", 1_000);
+    t.file("Downloads/a.zip", 1_000);
+    t.file("Pictures/one.jpg", 1_000);
+    t.file("Library/Caches/Homebrew/x.tar.gz", 1_000);
+    t.age("", OLD);
+    // Three levels down; a direct child of a root claimed after its listing; a hard link.
+    t.touch("proj/.venv/lib/python3.12/site-packages/new.py", OLD + 10);
+    t.touch("web/node_modules/.package-lock.json", OLD + 20);
+    t.touch("store/index.js", OLD + 30);
+    t.touch("Downloads/a.zip", OLD + 40);
+    t.touch("Pictures/one.jpg", OLD + 40);
+    let brew = t.lock("Library/Caches/Homebrew");
+    let enforced = std::fs::read_dir(&brew).is_err();
+
+    for claim_times in [true, false] {
+        let mut opts = fx.opts();
+        opts.walk.claim_times = claim_times;
+        opts.contents.min_bytes = 1;
+        let r = report::scan(&fx.env(), &opts, &Progress::default()).unwrap();
+        let modified = |rel: &str| find(&r, t, rel).modified.clone();
+        let on = |at: &str| claim_times.then(|| at.to_owned());
+        assert_eq!(modified("proj/.venv"), on("2024-01-01T00:00:10Z"), "times {claim_times}");
+        assert_eq!(modified("web/node_modules"), on("2024-01-01T00:00:20Z"), "times {claim_times}");
+        assert_eq!(modified("linked/node_modules"), on("2024-01-01T00:00:30Z"), "times {claim_times}");
+        for none in ["Downloads", "Pictures"] {
+            assert_eq!(modified(none), None, "{none}, times {claim_times}");
+        }
+        if enforced {
+            assert_eq!(modified("Library/Caches/Homebrew"), None, "times {claim_times}");
+        }
+        for folder in ["Downloads", "Pictures"] {
+            let entries = &find(&r, t, folder).contents.as_ref().unwrap().entries;
+            let times: Vec<_> = entries.iter().map(|e| e.modified.as_deref()).collect();
+            assert_eq!(times, [Some("2024-01-01T00:00:40Z")], "{folder}, times {claim_times}");
+        }
+    }
 }
 
 /// Roots under `v2/` live on a second volume; `gone/` cannot be read.

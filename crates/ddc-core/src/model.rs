@@ -187,6 +187,14 @@ pub struct Finding {
     /// is, and Remove Protection"). Only on those findings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protection: Option<Protection>,
+    /// The newest modification time inside it, its own directory included,
+    /// RFC 3339 in UTC to the second (story "Review window: sort a group's
+    /// rows by name, size or last change"). A lower bound when `incomplete`.
+    /// Only inside a claim the walk read times for: none on a region, a
+    /// user-data finding, a protected one, an unlisted rule's, or one whose
+    /// root could not be opened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified: Option<String>,
 }
 
 /// What protects a `user.kept` finding: its keep markers, the exclusions and

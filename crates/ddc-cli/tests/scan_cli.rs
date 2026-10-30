@@ -77,11 +77,12 @@ fn json_report_and_saved_scan() {
 }
 
 /// The hidden `--no-times` (story "Review window: sort a group's rows by
-/// name, size or last change") is only for measuring their cost: it changes
-/// no finding, and a user-data folder's entries keep their own times.
+/// name, size or last change") is only for measuring their cost: it takes
+/// every finding's `modified` away and changes nothing else, and a user-data
+/// folder's entries keep their own times.
 #[test]
-fn a_scan_without_times_reports_the_same_findings() {
-    if common::unsupported("a_scan_without_times_reports_the_same_findings") {
+fn a_scan_without_times_reports_the_same_findings_without_their_dates() {
+    if common::unsupported("a_scan_without_times_reports_the_same_findings_without_their_dates") {
         return;
     }
     let (tmp, home) = fixture();
@@ -94,8 +95,20 @@ fn a_scan_without_times_reports_the_same_findings() {
         serde_json::to_value(contract::holds::<ScanReport>("scan", &out.stdout)).unwrap()
     };
 
-    let (with, without) = (scan(&[]), scan(&["--no-times"]));
+    let (mut with, without) = (scan(&[]), scan(&["--no-times"]));
 
+    let dated = |r: &serde_json::Value, rule: &str| {
+        let f = r["findings"].as_array().unwrap().iter().find(|f| f["rule"] == rule).unwrap();
+        f.get("modified").cloned()
+    };
+    for rule in ["node.node_modules", "cache.npm"] {
+        assert!(dated(&with, rule).is_some_and(|m| m.is_string()), "{rule}: {with}");
+        assert_eq!(dated(&without, rule), None, "{rule}: absent, not null");
+    }
+    assert_eq!(dated(&with, "user.pictures"), None, "user data has no date");
+    for f in with["findings"].as_array_mut().unwrap() {
+        f.as_object_mut().unwrap().remove("modified");
+    }
     assert_eq!(with["findings"], without["findings"]);
     let pictures = without["findings"].as_array().unwrap().iter().find(|f| f["rule"] == "user.pictures").unwrap();
     let entry = &pictures["contents"]["entries"][0];

@@ -110,7 +110,8 @@ const VOLATILE: &[&str] = &[
 ];
 
 /// The modification time of every `Old` entry ([`ddc_loadgen::desc::OLD_SECS`]);
-/// any other activity is the build's own time.
+/// any other activity or modification time (a finding's newest change inside,
+/// an entry's own) is the build's own time.
 const OLD: &str = "2024-01-01T00:00:00Z";
 
 fn normalise(v: &mut Value, at: &Where) {
@@ -121,7 +122,7 @@ fn normalise(v: &mut Value, at: &Where) {
             for (k, item) in map.iter_mut() {
                 match k.as_str() {
                     k if VOLATILE.contains(&k) => *item = Value::Null,
-                    "last_activity" if item.as_str().is_some_and(|t| t != OLD) => *item = "<build>".into(),
+                    "last_activity" | "modified" if item.as_str().is_some_and(|t| t != OLD) => *item = "<build>".into(),
                     // The number depends on the machine; whether an entry
                     // crosses to another device does not.
                     "dev" | "parent_dev" => {

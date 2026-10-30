@@ -372,6 +372,7 @@ fn entry(
         parent_ino: Some(folder.ino),
         contents: None,
         protection: None,
+        modified: None,
     };
     Ok(PlanItem { finding, action: Action::TrashEntry, default_selected: false, selected: true })
 }

@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use common::TreeBuilder;
+use common::{OLD, TreeBuilder};
 use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
 use ddc_core::exec::report::{CLEAN_SCHEMA_VERSION, CleanItem, CleanReport};
@@ -67,6 +67,12 @@ impl Home {
 
 fn finding<'a>(report: &'a ScanReport, path: &Path) -> &'a Finding {
     report.findings.iter().find(|f| f.path == path).unwrap_or_else(|| panic!("no finding at {path:?}"))
+}
+
+/// A report's RFC 3339 time as Unix seconds.
+fn secs(rfc3339: &str) -> i64 {
+    let t = humantime::parse_rfc3339(rfc3339).unwrap();
+    t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64
 }
 
 fn has(report: &ScanReport, path: &Path) -> bool {
@@ -195,6 +201,7 @@ fn skipped_and_not_run_items_take_the_rechecks_finding_or_leave() {
     home.t.file("c/__pycache__/m.pyc", 10_000);
     home.t.file("d/__pycache__/m.pyc", 10_000);
     home.t.file("Downloads/kept.bin", 4_000);
+    home.t.age("", OLD);
     let before = home.scan();
     let [a, b, c, d] = ["a", "b", "c", "d"].map(|p| home.t.path(&format!("{p}/__pycache__")));
     // `a` swapped for a larger folder, `b` gone, `c` and `d` swapped too.
@@ -204,6 +211,9 @@ fn skipped_and_not_run_items_take_the_rechecks_finding_or_leave() {
     home.t.file("a/__pycache__/m.pyc", 30_000);
     home.t.file("c/__pycache__/m.pyc", 10_000);
     home.t.file("d/__pycache__/m.pyc", 10_000);
+    for p in ["a", "c", "d"] {
+        home.t.age(&format!("{p}/__pycache__"), OLD + 60);
+    }
     let fresh = home.scan();
     let picked = home.t.path("Downloads/kept.bin");
     let items = vec![
@@ -218,6 +228,12 @@ fn skipped_and_not_run_items_take_the_rechecks_finding_or_leave() {
     after_clean::edit(&mut after, &clean(items), Some(&fresh), &HashMap::new(), &home.opts());
 
     assert_eq!(finding(&after, &a), finding(&fresh, &a), "the re-check's identity and size");
+    // Story "Review window: sort a group's rows by name, size or last change":
+    // and the re-check's date.
+    assert_eq!(finding(&before, &a).modified.as_deref().map(secs), Some(OLD));
+    assert_eq!(finding(&after, &a).modified.as_deref().map(secs), Some(OLD + 60));
+    assert_eq!(finding(&after, &c).modified.as_deref().map(secs), Some(OLD + 60));
+    assert_eq!(finding(&after, &d).modified.as_deref().map(secs), Some(OLD), "untouched: the report's own");
     assert!(!has(&after, &b), "gone from the disk, gone from the report");
     assert_eq!(finding(&after, &c), finding(&fresh, &c));
     assert_eq!(finding(&after, &d), finding(&before, &d), "a failed action is measured by the next scan");
@@ -282,13 +298,26 @@ fn a_tool_cleaned_item_is_at_its_new_size_or_gone() {
     let before = home.scan();
     let path = home.t.path(".cache/uv");
     let old = finding(&before, &path).clone();
-    let small =
-        Measure { bytes: 4_096, shared_bytes: 0, private_bytes: Some(4_096), files: 1, dirs: 1, incomplete: false };
+    let small = Measure {
+        bytes: 4_096,
+        shared_bytes: 0,
+        private_bytes: Some(4_096),
+        files: 1,
+        dirs: 1,
+        incomplete: false,
+        modified: Some(OLD + 70),
+    };
     let native = || vec![item(&path, "cache.uv", Some(old.bytes), Outcome::Native { commands: Vec::new() })];
 
     let after = home.edited(&before, native(), &[(&path, Remeasured::Measured(small))]);
     let f = finding(&after, &path);
     assert_eq!((f.bytes, f.private_bytes, f.files, f.dirs), (4_096, Some(4_096), 1, 1));
+    // Story "Review window: sort a group's rows by name, size or last change":
+    // the re-measure's date, fixed-width UTC.
+    assert_ne!(old.modified, f.modified);
+    assert_eq!(f.modified.as_deref(), Some("2024-01-01T00:01:10Z"));
+    let undated = home.edited(&before, native(), &[(&path, Remeasured::Measured(Measure { modified: None, ..small }))]);
+    assert_eq!(finding(&undated, &path).modified, None, "a re-measure without a date leaves none");
     assert_eq!(after.totals.scanned_bytes, before.totals.scanned_bytes - old.bytes + 4_096);
     assert_eq!(after.totals.files, before.totals.files - old.files + 1);
     assert_eq!(after.totals.dirs, before.totals.dirs - old.dirs + 1);
@@ -489,7 +518,9 @@ fn a_tool_cleaned_item_is_measured_as_the_scan_measures_it() {
         files: f.files,
         dirs: f.dirs,
         incomplete: f.incomplete,
+        modified: f.modified.as_deref().map(secs),
     };
+    assert!(expected.modified.is_some(), "{f:?}");
     assert_eq!(after_clean::remeasure(&catalog, "cache.uv", &path, &walk), Remeasured::Measured(expected));
 
     let holding = home.data.path().join("holding");
