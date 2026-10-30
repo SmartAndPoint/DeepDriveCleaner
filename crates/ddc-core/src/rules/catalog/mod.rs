@@ -344,22 +344,39 @@ mod tests {
     }
 
     /// The flip guard (safety ADR "Cleanup safety model", amendment of
-    /// 2026-10-30): this build may be supported only where its system
+    /// 2026-10-30): a platform may be supported only where its system
     /// folders hold the filesystem root and its home folders hold more than
-    /// the shared section. It runs on every CI OS, so a platform switched on
-    /// with empty sections fails here.
-    #[test]
-    fn a_platform_is_supported_only_with_its_own_protected_folders() {
+    /// the shared section.
+    fn may_be_supported(p: Platform) -> bool {
         let is_root = |f: &&str| {
             let path = std::path::Path::new(f);
             path.has_root() && path.parent().is_none()
         };
-        let root = protected_system(PLATFORM).iter().any(is_root);
-        let own = protected_in_home(PLATFORM).len() > shared::PROTECTED_IN_HOME.len();
-        assert!(
-            !crate::platform::SUPPORTED || (root && own),
-            "{PLATFORM} is supported, but its protected folders are the shared section alone \
-             (system folders hold the root: {root}; home folders beyond the shared ones: {own})"
-        );
+        protected_system(p).iter().any(is_root) && protected_in_home(p).len() > shared::PROTECTED_IN_HOME.len()
+    }
+
+    /// The guard holds on every OS the tests run on, the required macOS job
+    /// included: macOS has its protected folders, Linux and Windows not yet;
+    /// and no platform module's `SUPPORTED` literal is `true` while the
+    /// guard is false for it, so switching one on fails here first.
+    #[test]
+    fn a_platform_is_supported_only_with_its_own_protected_folders() {
+        assert!(may_be_supported(Platform::Macos));
+        assert!(!may_be_supported(Platform::Linux));
+        assert!(!may_be_supported(Platform::Windows));
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/platform");
+        for (p, file) in
+            [(Platform::Macos, "macos/mod.rs"), (Platform::Linux, "linux.rs"), (Platform::Windows, "windows.rs")]
+        {
+            let text = std::fs::read_to_string(dir.join(file)).unwrap();
+            let line =
+                text.lines().find(|l| l.starts_with("pub const SUPPORTED: bool =")).unwrap_or_else(|| panic!("{file}"));
+            let supported = line.trim_end_matches(';').ends_with("true");
+            assert!(
+                !supported || may_be_supported(p),
+                "platform/{file} is supported, but {p}'s protected folders are the shared section alone"
+            );
+        }
+        assert!(!crate::platform::SUPPORTED || may_be_supported(PLATFORM), "{PLATFORM} is supported");
     }
 }
