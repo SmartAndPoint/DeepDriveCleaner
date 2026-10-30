@@ -254,6 +254,10 @@ pub mod signals {
 
     pub fn kill_group(_group: i32, _sig: i32) {}
 
+    pub fn signal_group(_group: i32, _sig: i32) -> io::Result<()> {
+        super::unsupported()
+    }
+
     /// Ends the process with the shell's code for a death by `sig`.
     pub fn reraise(sig: i32) -> ! {
         std::process::exit(128 + sig)

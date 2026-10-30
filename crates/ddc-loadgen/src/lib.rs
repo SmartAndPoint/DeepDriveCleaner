@@ -78,3 +78,18 @@ pub fn skip_unported(generated: anyhow::Result<Generated>) -> Option<Generated> 
         Err(e) => panic!("generate: {e:#}"),
     }
 }
+
+/// True, after saying why, when this build's platform is not supported (ADR
+/// "Platform seam: one platform module per OS with declared capabilities",
+/// §9): a test that reaches a gated entry point of the core (a scan, a
+/// measure, an execution) or a command the CLI refuses there starts with
+/// `if unsupported("name") { return; }`.
+pub fn unsupported(test: &str) -> bool {
+    match ddc_core::platform::require_supported() {
+        Ok(()) => false,
+        Err(why) => {
+            eprintln!("skipped {test}: {why}");
+            true
+        }
+    }
+}

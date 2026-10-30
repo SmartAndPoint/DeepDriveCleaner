@@ -6,6 +6,8 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
+mod common;
+
 fn ddc(data: &Path, args: &[&str]) -> Output {
     let home = data.parent().unwrap();
     Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
@@ -25,6 +27,9 @@ fn state(data: &Path) -> serde_json::Value {
 
 #[test]
 fn ack_records_the_notification_and_snooze_clears_it() {
+    if common::unsupported("ack_records_the_notification_and_snooze_clears_it") {
+        return;
+    }
     let tmp = tempfile::tempdir().unwrap();
     let data = tmp.path().canonicalize().unwrap().join("data");
 

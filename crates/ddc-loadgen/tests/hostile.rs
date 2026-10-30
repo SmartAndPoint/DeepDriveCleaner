@@ -29,6 +29,9 @@ impl Drop for Stop<'_> {
 
 #[test]
 fn a_scan_completes_while_the_tree_changes() {
+    if ddc_loadgen::unsupported("a_scan_completes_while_the_tree_changes") {
+        return;
+    }
     let dir = target::Scratch::new().unwrap();
     let g = generate(Profile::Hostile, S, 1, dir.path(), None).unwrap();
     let stop = AtomicBool::new(false);
@@ -83,6 +86,9 @@ fn owner<'o>(out: &'o WalkOutput, path: &Path) -> &'o OwnerResult {
 
 #[test]
 fn a_vanished_or_replaced_entry_makes_its_finding_incomplete() {
+    if ddc_loadgen::unsupported("a_vanished_or_replaced_entry_makes_its_finding_incomplete") {
+        return;
+    }
     let dir = target::Scratch::new().unwrap();
     let g = generate(Profile::Hostile, S, 1, dir.path(), None).unwrap();
     let tree = &g.layout.tree;

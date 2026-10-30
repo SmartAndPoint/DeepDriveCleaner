@@ -90,6 +90,9 @@ fn populated() -> Fixture {
 
 #[test]
 fn findings_carry_class_project_activity_and_selection() {
+    if common::unsupported("findings_carry_class_project_activity_and_selection") {
+        return;
+    }
     let fx = populated();
     let t = &fx.tree;
 
@@ -131,6 +134,9 @@ fn findings_carry_class_project_activity_and_selection() {
 /// selected, and its bytes are in no "frees" total.
 #[test]
 fn the_trash_is_found_but_never_selected_or_counted_as_reclaimable() {
+    if common::unsupported("the_trash_is_found_but_never_selected_or_counted_as_reclaimable") {
+        return;
+    }
     let fx = populated();
     let t = &fx.tree;
     t.file(".Trash/old.zip", 50_000);
@@ -149,6 +155,9 @@ fn the_trash_is_found_but_never_selected_or_counted_as_reclaimable() {
 
 #[test]
 fn worktree_activity_comes_from_its_gitdir() {
+    if common::unsupported("worktree_activity_comes_from_its_gitdir") {
+        return;
+    }
     let fx = Fixture::new();
     let t = &fx.tree;
     t.dir("main/.git/worktrees/wt");
@@ -172,6 +181,9 @@ fn worktree_activity_comes_from_its_gitdir() {
 
 #[test]
 fn findings_are_ordered_by_class_then_size() {
+    if common::unsupported("findings_are_ordered_by_class_then_size") {
+        return;
+    }
     let r = populated().scan();
     for pair in r.findings.windows(2) {
         let (a, b) = (&pair[0], &pair[1]);
@@ -183,6 +195,9 @@ fn findings_are_ordered_by_class_then_size() {
 
 #[test]
 fn two_scans_give_the_same_report() {
+    if common::unsupported("two_scans_give_the_same_report") {
+        return;
+    }
     let fx = populated();
     let mut a = fx.scan();
     let mut b = fx.scan();
@@ -197,6 +212,9 @@ fn two_scans_give_the_same_report() {
 
 #[test]
 fn last_scan_is_written_atomically() {
+    if common::unsupported("last_scan_is_written_atomically") {
+        return;
+    }
     let fx = populated();
     let r = fx.scan();
     let path = store::write_last_scan(&fx.env(), &r).unwrap();
@@ -211,6 +229,9 @@ fn last_scan_is_written_atomically() {
 
 #[test]
 fn ignored_findings_keep_their_reason_and_leave_the_totals_and_the_plan() {
+    if common::unsupported("ignored_findings_keep_their_reason_and_leave_the_totals_and_the_plan") {
+        return;
+    }
     let fx = populated();
     let t = &fx.tree;
     t.file("cm/.ddc-deleting-1234/leftover.o", 1000);
@@ -242,6 +263,9 @@ fn ignored_findings_keep_their_reason_and_leave_the_totals_and_the_plan() {
 
 #[test]
 fn a_report_without_the_new_fields_still_decodes_and_they_stay_optional() {
+    if common::unsupported("a_report_without_the_new_fields_still_decodes_and_they_stay_optional") {
+        return;
+    }
     let mut json = serde_json::to_value(populated().scan()).unwrap();
     let obj = json.as_object_mut().unwrap();
     obj.remove("volumes");
@@ -286,6 +310,9 @@ impl StatFs for TwoVolumes {
 
 #[test]
 fn volumes_list_each_volume_once_with_its_roots() {
+    if common::unsupported("volumes_list_each_volume_once_with_its_roots") {
+        return;
+    }
     let fx = Fixture::new();
     let t = &fx.tree;
     for d in ["a", "b", "v2/c", "gone"] {
@@ -332,6 +359,9 @@ fn committed_json_schema_is_current() {
 
 #[test]
 fn fresh_manifest_under_a_stale_git_root_keeps_the_project_active() {
+    if common::unsupported("fresh_manifest_under_a_stale_git_root_keeps_the_project_active") {
+        return;
+    }
     let fx = Fixture::new();
     let t = &fx.tree;
     t.dir("mono/.git");
@@ -355,6 +385,9 @@ fn fresh_manifest_under_a_stale_git_root_keeps_the_project_active() {
 
 #[test]
 fn a_git_repository_in_home_is_not_a_project_root() {
+    if common::unsupported("a_git_repository_in_home_is_not_a_project_root") {
+        return;
+    }
     let fx = Fixture::new();
     let t = &fx.tree;
     t.dir(".git");
@@ -370,6 +403,9 @@ fn a_git_repository_in_home_is_not_a_project_root() {
 
 #[test]
 fn project_root_never_goes_above_the_scan_root() {
+    if common::unsupported("project_root_never_goes_above_the_scan_root") {
+        return;
+    }
     let fx = Fixture::new();
     let t = &fx.tree;
     t.dir("repo/.git");
@@ -396,6 +432,9 @@ fn project_root_never_goes_above_the_scan_root() {
 
 #[test]
 fn large_files_inside_findings_are_not_listed_but_region_remainders_are() {
+    if common::unsupported("large_files_inside_findings_are_not_listed_but_region_remainders_are") {
+        return;
+    }
     let fx = Fixture::new();
     let t = &fx.tree;
     t.write("p/package.json", "{}");
@@ -414,6 +453,9 @@ fn large_files_inside_findings_are_not_listed_but_region_remainders_are() {
 /// finding is read with it, keeps it whole and is not listed.
 #[test]
 fn a_skipped_folder_is_never_opened_and_is_listed_as_not_scanned() {
+    if common::unsupported("a_skipped_folder_is_never_opened_and_is_listed_as_not_scanned") {
+        return;
+    }
     use ddc_core::settings::{ScanFlags, Settings};
     let fx = Fixture::new();
     let t = &fx.tree;
@@ -446,6 +488,9 @@ fn a_skipped_folder_is_never_opened_and_is_listed_as_not_scanned() {
 
 #[test]
 fn unreadable_folders_are_reported() {
+    if common::unsupported("unreadable_folders_are_reported") {
+        return;
+    }
     let fx = Fixture::new();
     let t = &fx.tree;
     t.file("secret/x", 100);
@@ -464,6 +509,9 @@ fn unreadable_folders_are_reported() {
 
 #[test]
 fn app_bundles_count_as_outside_findings_and_their_large_files_are_listed() {
+    if common::unsupported("app_bundles_count_as_outside_findings_and_their_large_files_are_listed") {
+        return;
+    }
     let fx = Fixture::new();
     let t = &fx.tree;
     t.file("Applications/Big.app/Contents/Resources/model.bin", 2 << 20);

@@ -2,7 +2,6 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::SystemTime;
@@ -12,6 +11,7 @@ use ddc_core::notify::{Decision, NotifyReason, NotifyReport, NotifyStatus, SkipC
 use ddc_core::store::{self, LockMode};
 use ddc_loadgen::isolate::ClearEnv as _;
 
+mod common;
 mod contract;
 
 fn ddc(home: &Path, args: &[&str]) -> Output {
@@ -44,7 +44,7 @@ fn snapshot(root: &Path) -> BTreeMap<PathBuf, (u64, fs::FileType)> {
     while let Some(dir) = stack.pop() {
         for e in fs::read_dir(&dir).into_iter().flatten().flatten() {
             let md = fs::symlink_metadata(e.path()).unwrap();
-            out.insert(e.path(), (md.ino(), md.file_type()));
+            out.insert(e.path(), (common::id(e.path()).1, md.file_type()));
             if md.is_dir() {
                 stack.push(e.path());
             }
@@ -55,6 +55,9 @@ fn snapshot(root: &Path) -> BTreeMap<PathBuf, (u64, fs::FileType)> {
 
 #[test]
 fn background_scan_only_reads_and_saves_the_report() {
+    if common::unsupported("background_scan_only_reads_and_saves_the_report") {
+        return;
+    }
     let (_tmp, home, data) = tree();
     let before = snapshot(&home);
 
@@ -76,13 +79,16 @@ fn background_scan_only_reads_and_saves_the_report() {
 
 #[test]
 fn tcc_areas_are_never_opened() {
+    if common::unsupported("tcc_areas_are_never_opened") {
+        return;
+    }
     let (_tmp, home, data) = tree();
     // An unreadable Documents would be an access error if the scan opened it.
-    fs::set_permissions(home.join("Documents"), fs::Permissions::from_mode(0o000)).unwrap();
+    common::set_mode(home.join("Documents"), 0o000);
 
     let out = ddc(&home, &["scan", "--background", "--no-notify", "--data-dir", data.to_str().unwrap()]);
 
-    fs::set_permissions(home.join("Documents"), fs::Permissions::from_mode(0o755)).unwrap();
+    common::set_mode(home.join("Documents"), 0o755);
     assert!(out.status.success());
     let report: serde_json::Value = serde_json::from_slice(&fs::read(data.join("last-scan.json")).unwrap()).unwrap();
     assert_eq!(report["errors_total"], 0, "{}", report["inaccessible"]);
@@ -90,6 +96,9 @@ fn tcc_areas_are_never_opened() {
 
 #[test]
 fn with_full_disk_access_prompting_areas_are_scanned() {
+    if common::unsupported("with_full_disk_access_prompting_areas_are_scanned") {
+        return;
+    }
     let (_tmp, home, data) = tree();
     // Readable TCC.db is how the scan tells it has Full Disk Access.
     let tcc = home.join("Library/Application Support/com.apple.TCC/TCC.db");
@@ -115,6 +124,9 @@ fn with_full_disk_access_prompting_areas_are_scanned() {
 
 #[test]
 fn background_scan_steps_aside_while_the_lock_is_held() {
+    if common::unsupported("background_scan_steps_aside_while_the_lock_is_held") {
+        return;
+    }
     let (_tmp, home, data) = tree();
     let env = Env::with_paths(&home, &data, &data.join("logs"), SystemTime::now()).unwrap();
     let _clean = store::try_lock(&env, LockMode::Exclusive).unwrap();
@@ -147,6 +159,9 @@ fn decide(home: &Path, data: &Path, threshold: &str) -> Decision {
 
 #[test]
 fn notify_json_prints_the_decision_and_leaves_the_state_alone() {
+    if common::unsupported("notify_json_prints_the_decision_and_leaves_the_state_alone") {
+        return;
+    }
     let (_tmp, home, data) = tree();
     fs::create_dir_all(&data).unwrap();
     fs::write(data.join("settings.json"), r#"{"schema_version": 1, "notify_low_disk": false}"#).unwrap();
@@ -165,6 +180,9 @@ fn notify_json_prints_the_decision_and_leaves_the_state_alone() {
 
 #[test]
 fn switched_off_types_never_reach_the_notify_decision() {
+    if common::unsupported("switched_off_types_never_reach_the_notify_decision") {
+        return;
+    }
     let (_tmp, home, data) = tree();
     fs::create_dir_all(&data).unwrap();
     fs::write(

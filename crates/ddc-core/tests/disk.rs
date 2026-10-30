@@ -154,6 +154,9 @@ fn scan_home(fx: &Fixture, env: &Env, roots: Vec<PathBuf>, statfs: &dyn StatFs) 
 
 #[test]
 fn every_area_is_reported_with_its_bytes_and_a_folder_reached_twice_counts_once() {
+    if common::unsupported("every_area_is_reported_with_its_bytes_and_a_folder_reached_twice_counts_once") {
+        return;
+    }
     let fx = Fixture::new();
     let app = fx.file("Applications/Tool.app/Contents/MacOS/tool", 40_960);
     let lib = fx.file("Library/Fonts/font.ttf", 8192);
@@ -212,6 +215,9 @@ fn every_area_is_reported_with_its_bytes_and_a_folder_reached_twice_counts_once(
 
 #[test]
 fn an_area_that_is_another_area_by_dev_and_ino_is_measured_once() {
+    if common::unsupported("an_area_that_is_another_area_by_dev_and_ino_is_measured_once") {
+        return;
+    }
     let fx = Fixture::new();
     let brew = fx.file("opt/homebrew/bin/brew", 8192);
     fx.t.dir(&format!("{DATA}/usr"));
@@ -228,6 +234,9 @@ fn an_area_that_is_another_area_by_dev_and_ino_is_measured_once() {
 
 #[test]
 fn the_home_row_comes_from_the_last_scan_only_when_it_still_describes_the_whole_home() {
+    if common::unsupported("the_home_row_comes_from_the_last_scan_only_when_it_still_describes_the_whole_home") {
+        return;
+    }
     let fx = Fixture::new();
     fx.t.file("home/Code/app/main.rs", 8192);
     fx.t.file("home/notes.txt", 4096);
@@ -276,6 +285,9 @@ fn the_home_row_comes_from_the_last_scan_only_when_it_still_describes_the_whole_
 
 #[test]
 fn not_counted_is_consumed_minus_counted_and_never_clamped() {
+    if common::unsupported("not_counted_is_consumed_minus_counted_and_never_clamped") {
+        return;
+    }
     let fx = Fixture::new();
     fx.file("Library/a", 40_960);
     fx.t.file("home/b", 8192);
@@ -303,6 +315,9 @@ fn not_counted_is_consumed_minus_counted_and_never_clamped() {
 
 #[test]
 fn the_startup_container_is_the_one_holding_the_data_volume() {
+    if common::unsupported("the_startup_container_is_the_one_holding_the_data_volume") {
+        return;
+    }
     let fx = Fixture::new();
     let captured = include_str!("data/apfs-list.plist");
     let r = fx.measure(&FakeCommands::default().with("diskutil", true, captured), &DiskOptions::default());
@@ -322,6 +337,9 @@ fn the_startup_container_is_the_one_holding_the_data_volume() {
 
 #[test]
 fn without_diskutil_the_volumes_come_from_statfs_and_recovery_is_not_measured() {
+    if common::unsupported("without_diskutil_the_volumes_come_from_statfs_and_recovery_is_not_measured") {
+        return;
+    }
     let fx = Fixture::new();
     let r = fx.measure(&FakeCommands::default().with("diskutil", false, "Error"), &DiskOptions::default());
     let c = r.container.unwrap();
@@ -339,6 +357,9 @@ fn without_diskutil_the_volumes_come_from_statfs_and_recovery_is_not_measured() 
 
 #[test]
 fn the_size_only_walk_produces_no_findings() {
+    if common::unsupported("the_size_only_walk_produces_no_findings") {
+        return;
+    }
     let fx = Fixture::new();
     let pyc = fx.file("opt/homebrew/lib/python3.13/site-packages/x/__pycache__/x.pyc", 8192);
     let module = fx.file("opt/homebrew/lib/node_modules/npm/index.js", 4096);
@@ -350,6 +371,9 @@ fn the_size_only_walk_produces_no_findings() {
 
 #[test]
 fn the_entry_budget_stops_the_temporary_folders_and_marks_them_partial() {
+    if common::unsupported("the_entry_budget_stops_the_temporary_folders_and_marks_them_partial") {
+        return;
+    }
     let fx = Fixture::new();
     for i in 0..30 {
         fx.file(&format!("private/var/folders/{i:02}/T/file"), 4096);
@@ -370,6 +394,9 @@ fn the_entry_budget_stops_the_temporary_folders_and_marks_them_partial() {
 
 #[test]
 fn a_folder_with_more_entries_than_the_budget_has_left_is_never_opened() {
+    if common::unsupported("a_folder_with_more_entries_than_the_budget_has_left_is_never_opened") {
+        return;
+    }
     let fx = Fixture::new();
     for i in 0..50 {
         fx.file(&format!("private/var/folders/huge/{i}"), 4096);
@@ -419,6 +446,9 @@ fn ran(commands: &FakeCommands, tool: &str) -> bool {
 
 #[test]
 fn simulator_runtimes_need_developer_tools_and_a_finished_first_launch() {
+    if common::unsupported("simulator_runtimes_need_developer_tools_and_a_finished_first_launch") {
+        return;
+    }
     let fx = Fixture::new();
 
     // No developer directory.
@@ -481,6 +511,9 @@ impl DirReader for CancelAt<'_> {
 
 #[test]
 fn a_stop_during_the_walk_still_reports_with_the_unfinished_areas_partial() {
+    if common::unsupported("a_stop_during_the_walk_still_reports_with_the_unfinished_areas_partial") {
+        return;
+    }
     let fx = Fixture::new();
     for d in ["Applications", "Library", "opt/homebrew", "private/var/folders", "Users/Shared"] {
         for i in 0..5 {
@@ -502,6 +535,9 @@ fn a_stop_during_the_walk_still_reports_with_the_unfinished_areas_partial() {
 
 #[test]
 fn a_stop_before_the_tools_runs_none_of_them() {
+    if common::unsupported("a_stop_before_the_tools_runs_none_of_them") {
+        return;
+    }
     let fx = Fixture::new();
     fx.file("Library/f", 4096);
     let commands = diskutil(1 << 40).with("tmutil", true, "").with("xcode-select", true, "/Dev\n");
@@ -526,6 +562,9 @@ impl DirReader for Opened {
 
 #[test]
 fn the_home_walk_never_opens_a_skip_or_a_cloud_folder() {
+    if common::unsupported("the_home_walk_never_opens_a_skip_or_a_cloud_folder") {
+        return;
+    }
     let fx = Fixture::new();
     fx.t.file("home/skipped/deep/secret", 4096);
     fx.t.file("home/Library/CloudStorage/Drive/doc", 4096);
@@ -553,6 +592,9 @@ fn the_home_walk_never_opens_a_skip_or_a_cloud_folder() {
 
 #[test]
 fn snapshots_are_counted_when_tmutil_answers() {
+    if common::unsupported("snapshots_are_counted_when_tmutil_answers") {
+        return;
+    }
     let fx = Fixture::new();
     let list = "Snapshots for disk /:\ncom.apple.TimeMachine.2026-10-28-100000.local\ncom.apple.TimeMachine.2026-10-28-110000.local\n";
     let r = fx.measure(&diskutil(1 << 40).with("tmutil", true, list), &DiskOptions::default());
@@ -599,6 +641,9 @@ fn every_area_has_the_reveal_of_the_story_table() {
 
 #[test]
 fn the_report_carries_each_areas_reveal() {
+    if common::unsupported("the_report_carries_each_areas_reveal") {
+        return;
+    }
     let fx = Fixture::new();
     fx.file("Applications/App.app/x", 4096);
     fx.file("Library/Updates/update.pkg", 4096);
@@ -656,6 +701,9 @@ fn committed_disk_schema_is_current() {
 
 #[test]
 fn a_skip_outside_the_home_folder_is_never_opened_through_the_data_volume() {
+    if common::unsupported("a_skip_outside_the_home_folder_is_never_opened_through_the_data_volume") {
+        return;
+    }
     let fx = Fixture::new();
     fx.file("opt/private-tool/secret", 4096);
     let kept = fx.file("opt/other/file", 4096);
@@ -710,6 +758,10 @@ fn conda_fixture() -> (Fixture, [PathBuf; 4]) {
 
 #[test]
 fn each_opt_environment_and_the_package_cache_are_measured_and_links_between_them_are_shared() {
+    if common::unsupported("each_opt_environment_and_the_package_cache_are_measured_and_links_between_them_are_shared")
+    {
+        return;
+    }
     let (fx, [own, linked, unused, ml]) = conda_fixture();
     let commands = diskutil(1 << 40);
 
@@ -739,15 +791,17 @@ fn each_opt_environment_and_the_package_cache_are_measured_and_links_between_the
 
 #[test]
 fn a_folder_the_user_cannot_write_is_marked_for_an_administrator() {
-    use std::os::unix::fs::PermissionsExt as _;
+    if common::unsupported("a_folder_the_user_cannot_write_is_marked_for_an_administrator") {
+        return;
+    }
     let (fx, _) = conda_fixture();
     let envs = fx.data("opt/miniconda3/envs");
     let pkgs = fx.data("opt/miniconda3/pkgs");
-    std::fs::set_permissions(&envs, std::fs::Permissions::from_mode(0o555)).unwrap();
-    std::fs::set_permissions(&pkgs, std::fs::Permissions::from_mode(0o555)).unwrap();
+    common::set_mode(&envs, 0o555);
+    common::set_mode(&pkgs, 0o555);
     let r = fx.measure(&diskutil(1 << 40), &DiskOptions::default());
-    std::fs::set_permissions(&envs, std::fs::Permissions::from_mode(0o755)).unwrap();
-    std::fs::set_permissions(&pkgs, std::fs::Permissions::from_mode(0o755)).unwrap();
+    common::set_mode(&envs, 0o755);
+    common::set_mode(&pkgs, 0o755);
 
     let install = &r.conda.as_ref().unwrap().installs[0];
     assert!(install.environments.iter().all(|e| !e.writable), "{install:?}");
@@ -756,6 +810,9 @@ fn a_folder_the_user_cannot_write_is_marked_for_an_administrator() {
 
 #[test]
 fn without_an_opt_install_there_is_no_conda_section() {
+    if common::unsupported("without_an_opt_install_there_is_no_conda_section") {
+        return;
+    }
     let fx = Fixture::new();
     fx.t.symlink("System/Volumes/Data/opt", "sys/opt");
     fx.file("opt/homebrew/bin/brew", 4096);

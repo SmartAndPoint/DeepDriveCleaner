@@ -132,6 +132,9 @@ fn check_totals(r: &ScanReport) {
 
 #[test]
 fn a_deleted_finding_leaves_with_the_reports_own_figures() {
+    if common::unsupported("a_deleted_finding_leaves_with_the_reports_own_figures") {
+        return;
+    }
     let home = Home::new();
     home.t.file("q/__pycache__/a/m.pyc", 10_000);
     home.t.file("p/__pycache__/n.pyc", 3_000);
@@ -154,6 +157,9 @@ fn a_deleted_finding_leaves_with_the_reports_own_figures() {
 
 #[test]
 fn skipped_failed_and_not_run_items_stay_and_an_item_the_report_does_not_hold_edits_nothing() {
+    if common::unsupported("skipped_failed_and_not_run_items_stay_and_an_item_the_report_does_not_hold_edits_nothing") {
+        return;
+    }
     let home = Home::new();
     home.t.file("q/__pycache__/m.pyc", 10_000);
     home.t.file(".Trash/old.bin", 4_000);
@@ -180,6 +186,9 @@ fn skipped_failed_and_not_run_items_stay_and_an_item_the_report_does_not_hold_ed
 /// a failed one and a picked entry stay as they were.
 #[test]
 fn skipped_and_not_run_items_take_the_rechecks_finding_or_leave() {
+    if common::unsupported("skipped_and_not_run_items_take_the_rechecks_finding_or_leave") {
+        return;
+    }
     let home = Home::new();
     home.t.file("a/__pycache__/m.pyc", 10_000);
     home.t.file("b/__pycache__/m.pyc", 10_000);
@@ -229,6 +238,9 @@ fn skipped_and_not_run_items_take_the_rechecks_finding_or_leave() {
 
 #[test]
 fn a_trashed_finding_moves_to_the_trash_of_its_volume_or_counts_as_deleted() {
+    if common::unsupported("a_trashed_finding_moves_to_the_trash_of_its_volume_or_counts_as_deleted") {
+        return;
+    }
     let home = Home::new();
     home.t.file("q/__pycache__/m.pyc", 10_000);
     home.t.file(".Trash/old.bin", 4_000);
@@ -261,6 +273,9 @@ fn a_trashed_finding_moves_to_the_trash_of_its_volume_or_counts_as_deleted() {
 
 #[test]
 fn a_tool_cleaned_item_is_at_its_new_size_or_gone() {
+    if common::unsupported("a_tool_cleaned_item_is_at_its_new_size_or_gone") {
+        return;
+    }
     let home = Home::new();
     home.t.file(".cache/uv/wheels/a.whl", 200_000);
     home.t.file(".cache/uv/wheels/b.whl", 100_000);
@@ -303,6 +318,9 @@ fn a_tool_cleaned_item_is_at_its_new_size_or_gone() {
 
 #[test]
 fn a_picked_folder_leaves_its_folder_with_the_findings_inside_it() {
+    if common::unsupported("a_picked_folder_leaves_its_folder_with_the_findings_inside_it") {
+        return;
+    }
     let home = Home::new();
     home.t.file("Downloads/picked/a.bin", 30_000);
     home.t.file("Downloads/picked/__pycache__/m.pyc", 10_000);
@@ -338,6 +356,9 @@ fn a_picked_folder_leaves_its_folder_with_the_findings_inside_it() {
 
 #[test]
 fn a_picked_file_without_a_trash_finding_counts_as_deleted() {
+    if common::unsupported("a_picked_file_without_a_trash_finding_counts_as_deleted") {
+        return;
+    }
     let home = Home::new();
     home.t.file("Downloads/big.bin", 30_000);
     home.t.file("Downloads/other.bin", 20_000);
@@ -356,6 +377,9 @@ fn a_picked_file_without_a_trash_finding_counts_as_deleted() {
 
 #[test]
 fn a_picked_entry_in_the_rest_leaves_with_the_cleans_measure_and_never_wraps_a_total() {
+    if common::unsupported("a_picked_entry_in_the_rest_leaves_with_the_cleans_measure_and_never_wraps_a_total") {
+        return;
+    }
     let mut home = Home::new();
     home.limits = ContentsLimits { max: 1, min_bytes: 1 };
     home.t.file("Downloads/big/a.bin", 60_000);
@@ -384,6 +408,9 @@ fn a_picked_entry_in_the_rest_leaves_with_the_cleans_measure_and_never_wraps_a_t
 
 #[test]
 fn a_finding_inside_a_downloads_entry_shrinks_that_entry_or_the_rest() {
+    if common::unsupported("a_finding_inside_a_downloads_entry_shrinks_that_entry_or_the_rest") {
+        return;
+    }
     let mut home = Home::new();
     home.limits = ContentsLimits { max: 1, min_bytes: 1 };
     home.t.file("Downloads/proj/src/a.bin", 60_000);
@@ -413,6 +440,9 @@ fn a_finding_inside_a_downloads_entry_shrinks_that_entry_or_the_rest() {
 
 #[test]
 fn lines_under_a_removed_path_leave_and_the_volumes_take_the_cleans_free_space() {
+    if common::unsupported("lines_under_a_removed_path_leave_and_the_volumes_take_the_cleans_free_space") {
+        return;
+    }
     let home = Home::new();
     home.t.file("q/__pycache__/m.pyc", 10_000);
     home.t.file("q/__pycache__/locked/x.pyc", 1_000);
@@ -440,6 +470,9 @@ fn lines_under_a_removed_path_leave_and_the_volumes_take_the_cleans_free_space()
 
 #[test]
 fn a_tool_cleaned_item_is_measured_as_the_scan_measures_it() {
+    if common::unsupported("a_tool_cleaned_item_is_measured_as_the_scan_measures_it") {
+        return;
+    }
     let home = Home::new();
     home.t.file(".cache/uv/wheels/a.whl", 200_000);
     home.t.file(".cache/uv/archive/b/c.bin", 50_000);

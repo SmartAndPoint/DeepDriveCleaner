@@ -9,6 +9,8 @@ use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
+mod common;
+
 struct Fx {
     _tmp: tempfile::TempDir,
     root: PathBuf,
@@ -109,6 +111,9 @@ fn finding<'a>(r: &'a serde_json::Value, path: &str) -> &'a serde_json::Value {
 
 #[test]
 fn the_settings_apply_and_a_flag_wins() {
+    if common::unsupported("the_settings_apply_and_a_flag_wins") {
+        return;
+    }
     let fx = Fx::new();
     fx.settings(serde_json::json!({
         "schema_version": 1,
@@ -139,6 +144,9 @@ fn the_settings_apply_and_a_flag_wins() {
 
 #[test]
 fn switched_off_types_and_small_items_are_ignored() {
+    if common::unsupported("switched_off_types_and_small_items_are_ignored") {
+        return;
+    }
     let fx = Fx::new();
     fx.write("big/__pycache__/d.pyc", 200_000);
     fx.write(".npm/_cacache/content/blob", 30_000);
@@ -161,6 +169,9 @@ fn switched_off_types_and_small_items_are_ignored() {
 
 #[test]
 fn a_malformed_settings_file_or_no_existing_root_is_an_error_naming_it() {
+    if common::unsupported("a_malformed_settings_file_or_no_existing_root_is_an_error_naming_it") {
+        return;
+    }
     let fx = Fx::new();
     fs::create_dir_all(&fx.data).unwrap();
     let named = fx.data.join("settings.json").display().to_string();
@@ -187,6 +198,9 @@ fn a_malformed_settings_file_or_no_existing_root_is_an_error_naming_it() {
 
 #[test]
 fn an_exclude_flag_that_drops_a_protected_folder_names_it_first() {
+    if common::unsupported("an_exclude_flag_that_drops_a_protected_folder_names_it_first") {
+        return;
+    }
     let fx = Fx::new();
     fx.settings(serde_json::json!({ "schema_version": 1, "excludes": [fx.path("p/x")] }));
     let q = fx.arg("q");
@@ -234,6 +248,9 @@ fn an_exclude_flag_that_drops_a_protected_folder_names_it_first() {
 
 #[test]
 fn the_min_size_setting_is_a_floor_under_the_min_size_flag() {
+    if common::unsupported("the_min_size_setting_is_a_floor_under_the_min_size_flag") {
+        return;
+    }
     let fx = Fx::new();
     for (rel, mib) in [("s30/__pycache__/a.pyc", 30), ("s70/__pycache__/a.pyc", 70), ("s110/__pycache__/a.pyc", 110)] {
         fx.write(rel, mib << 20);
@@ -263,6 +280,9 @@ fn the_min_size_setting_is_a_floor_under_the_min_size_flag() {
 /// in one line, and the background scan applies it beside the prompting areas.
 #[test]
 fn a_skip_is_not_scanned_in_every_scan() {
+    if common::unsupported("a_skip_is_not_scanned_in_every_scan") {
+        return;
+    }
     let fx = Fx::new();
     fx.settings(serde_json::json!({ "schema_version": 1, "skips": [fx.path("p/x")] }));
 

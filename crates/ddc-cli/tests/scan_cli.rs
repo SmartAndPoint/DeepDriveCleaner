@@ -1,14 +1,13 @@
 //! `ddc scan` end to end with a temporary HOME and data directory.
 
 use std::fs;
-use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, Output};
 
 use ddc_core::model::ScanReport;
-use ddc_core::platform::signals::kill_group;
 use ddc_loadgen::isolate::ClearEnv as _;
 
+mod common;
 mod contract;
 
 fn ddc(home: &Path, args: &[&str]) -> Output {
@@ -40,6 +39,9 @@ fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
 
 #[test]
 fn json_report_and_saved_scan() {
+    if common::unsupported("json_report_and_saved_scan") {
+        return;
+    }
     let (tmp, home) = fixture();
     let data = tmp.path().join("data");
 
@@ -76,6 +78,9 @@ fn json_report_and_saved_scan() {
 
 #[test]
 fn human_report_lists_classes_in_order_with_totals() {
+    if common::unsupported("human_report_lists_classes_in_order_with_totals") {
+        return;
+    }
     let (tmp, home) = fixture();
     let data = tmp.path().join("data");
 
@@ -95,6 +100,9 @@ fn human_report_lists_classes_in_order_with_totals() {
 
 #[test]
 fn human_report_orders_findings_by_size() {
+    if common::unsupported("human_report_orders_findings_by_size") {
+        return;
+    }
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path().canonicalize().unwrap().join("home");
     for (rel, n) in
@@ -114,8 +122,15 @@ fn human_report_orders_findings_by_size() {
     assert!(pos("~/mid/__pycache__") < pos("~/small/__pycache__"));
 }
 
+// Unix only: it stops and signals the scan's process group.
+#[cfg(unix)]
 #[test]
 fn sigterm_before_the_scan_finishes_leaves_the_saved_scan_untouched() {
+    use std::os::unix::process::CommandExt as _;
+    use std::process::Stdio;
+
+    use ddc_core::platform::signals::kill_group;
+
     let (tmp, home) = fixture();
     let data = tmp.path().join("data");
     fs::create_dir_all(&data).unwrap();
@@ -139,7 +154,11 @@ fn sigterm_before_the_scan_finishes_leaves_the_saved_scan_untouched() {
     kill_group(group, libc::SIGCONT);
     let status = child.wait().unwrap();
 
-    assert_eq!(status.signal(), Some(libc::SIGTERM), "a scan has no handler: the default action ends it");
+    assert_eq!(
+        ddc_loadgen::platform::exit_signal(&status),
+        Some(libc::SIGTERM),
+        "a scan has no handler: the default action ends it"
+    );
     assert_eq!(fs::read(data.join("last-scan.json")).unwrap(), saved);
     let leftovers: Vec<_> = fs::read_dir(&data)
         .unwrap()
@@ -153,6 +172,9 @@ fn sigterm_before_the_scan_finishes_leaves_the_saved_scan_untouched() {
 
 #[test]
 fn a_scan_with_progress_json_emits_walk_ticks_ending_at_the_report_totals() {
+    if common::unsupported("a_scan_with_progress_json_emits_walk_ticks_ending_at_the_report_totals") {
+        return;
+    }
     let (tmp, home) = fixture();
     let data = tmp.path().join("data");
 
@@ -192,6 +214,9 @@ fn shows_line(out: &Output) -> bool {
 
 #[test]
 fn scan_of_other_roots_into_the_app_data_folder_says_the_app_shows_it() {
+    if common::unsupported("scan_of_other_roots_into_the_app_data_folder_says_the_app_shows_it") {
+        return;
+    }
     let (tmp, home) = fixture();
     let other = tmp.path().canonicalize().unwrap().join("other");
     fs::create_dir_all(other.join("x")).unwrap();
@@ -218,6 +243,9 @@ fn scan_of_other_roots_into_the_app_data_folder_says_the_app_shows_it() {
 
 #[test]
 fn scan_of_the_settings_roots_by_path_says_nothing() {
+    if common::unsupported("scan_of_the_settings_roots_by_path_says_nothing") {
+        return;
+    }
     let (tmp, home) = fixture();
     let root = tmp.path().canonicalize().unwrap();
     let other = root.join("other");

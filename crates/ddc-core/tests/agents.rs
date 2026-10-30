@@ -165,6 +165,9 @@ fn records_folder_missing_empty_or_unparsable() {
 
 #[test]
 fn transcripts_leave_out_the_live_sessions() {
+    if common::unsupported("transcripts_leave_out_the_live_sessions") {
+        return;
+    }
     let fx = Fixture::new();
     let me = std::process::id();
     // A is live and has no transcript yet; C is live with one; B ended.
@@ -200,6 +203,9 @@ impl Drop for Holder {
 
 #[test]
 fn a_held_lock_is_an_open_thread() {
+    if common::unsupported("a_held_lock_is_an_open_thread") {
+        return;
+    }
     let fx = Fixture::new();
     let a = fx.write(&format!(".codex/thread-writer-locks/{A}.lock"), "");
     fx.write(&format!(".codex/thread-writer-locks/{B}.lock"), "");
@@ -268,6 +274,9 @@ fn the_codex_sweep_stats_no_open_path_and_takes_no_lock() {
 
 #[test]
 fn sizes_count_hard_links_once_and_nested_folders_inclusively() {
+    if common::unsupported("sizes_count_hard_links_once_and_nested_folders_inclusively") {
+        return;
+    }
     let fx = Fixture::new();
     let shared = fx.file(".claude/plugins/big.bin", 256 * 1024);
     fx.t.hardlink(&shared, "home/.claude/projects/p/link.bin");
@@ -291,6 +300,9 @@ fn sizes_count_hard_links_once_and_nested_folders_inclusively() {
 
 #[test]
 fn an_unreadable_folder_is_unreadable_and_an_unreadable_file_is_still_sized() {
+    if common::unsupported("an_unreadable_folder_is_unreadable_and_an_unreadable_file_is_still_sized") {
+        return;
+    }
     let fx = Fixture::new();
     fx.file(".cursor/extensions/x.bin", 32 * 1024);
     fx.dir(".cursor/locked");
@@ -298,9 +310,8 @@ fn an_unreadable_folder_is_unreadable_and_an_unreadable_file_is_still_sized() {
     let db = fx.file(".local/share/opencode/opencode.db", 64 * 1024);
     let transcript = fx.file(&format!(".claude/projects/p/{B}.jsonl"), 16 * 1024);
     fx.dir(".claude/sessions");
-    use std::os::unix::fs::PermissionsExt as _;
     for f in [&db, &transcript] {
-        std::fs::set_permissions(f, std::fs::Permissions::from_mode(0o000)).unwrap();
+        common::set_mode(f, 0o000);
     }
     fx.t.lock("home/.cursor/locked");
 

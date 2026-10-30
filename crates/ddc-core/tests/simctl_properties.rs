@@ -209,6 +209,9 @@ proptest! {
 
     #[test]
     fn a_runtime_identifier_takes_exactly_the_runtime_it_names_or_is_refused(case in cases()) {
+        if common::unsupported("a_runtime_identifier_takes_exactly_the_runtime_it_names_or_is_refused") {
+            return Ok(());
+        }
         FX.with(|fx| check(fx, &case))?;
     }
 }

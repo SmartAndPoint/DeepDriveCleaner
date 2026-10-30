@@ -3,8 +3,13 @@
 use ddc_loadgen::isolate::ClearEnv as _;
 use std::process::Command;
 
+mod common;
+
 #[test]
 fn ddc_starts_with_dataless_materialization_off_and_raised_file_limit() {
+    if common::unsupported("ddc_starts_with_dataless_materialization_off_and_raised_file_limit") {
+        return;
+    }
     let tmp = tempfile::tempdir().unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()

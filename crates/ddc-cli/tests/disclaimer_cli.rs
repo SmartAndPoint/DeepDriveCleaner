@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+mod common;
+
 const BIN: &str = env!("CARGO_BIN_EXE_deepdrivecleaner");
 const WARNING: &str = "ddc: warning: DeepDriveCleaner deletes files and can remove almost anything it is told to.\n              \
      Use it at your own risk: https://github.com/SmartAndPoint/DeepDriveCleaner/blob/main/DISCLAIMER.md\n";
@@ -149,6 +151,9 @@ fn the_label_is_colored_unless_no_color_is_set() {
 
 #[test]
 fn nothing_that_reads_the_output_sees_the_warning_and_json_is_unchanged() {
+    if common::unsupported("nothing_that_reads_the_output_sees_the_warning_and_json_is_unchanged") {
+        return;
+    }
     let fx = Fx::new();
 
     // In a terminal, with stdout redirected: stdout is the report and nothing else.

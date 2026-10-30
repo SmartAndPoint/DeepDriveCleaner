@@ -6,7 +6,6 @@
 
 use std::fs;
 use std::io::Write as _;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::time::SystemTime;
@@ -16,6 +15,7 @@ use ddc_core::free::{ActionResult, FreeReport, Refusal, ReportEdit};
 use ddc_core::store::{self, LockMode};
 use ddc_loadgen::isolate::ClearEnv as _;
 
+mod common;
 mod contract;
 
 const SIMCTL: &str = "Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/Resources/bin/simctl";
@@ -35,7 +35,7 @@ impl Fx {
         fx.write("sys/System/Volumes/Data/opt/homebrew/Cellar/wget/1.0/wget", 40_000);
         fx.write("sys/System/Volumes/Data/Library/Developer/CoreSimulator/Caches/dyld", 10_000);
         fx.write("home/Library/Caches/Homebrew/downloads/old.tar.gz", 50_000);
-        std::os::unix::fs::symlink("System/Volumes/Data/opt", fx.root.join("sys/opt")).unwrap();
+        common::symlink("System/Volumes/Data/opt", fx.root.join("sys/opt"));
         fx.tool("sys/usr/sbin/diskutil", "exit 1");
         fx.tool("sys/usr/bin/xcode-select", &format!("echo {r}/sys/Dev"));
         fx.tool("sys/Dev/usr/bin/xcodebuild", "exit 0");
@@ -85,7 +85,7 @@ esac"#
         let path = self.root.join(rel);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        common::set_mode(&path, 0o755);
     }
 
     fn ddc(&self, args: &[&str]) -> Command {
@@ -151,6 +151,9 @@ fn report(out: &Output) -> FreeReport {
 
 #[test]
 fn without_actions_and_without_a_terminal_it_refuses_and_runs_nothing() {
+    if common::unsupported("without_actions_and_without_a_terminal_it_refuses_and_runs_nothing") {
+        return;
+    }
     let fx = Fx::new();
     let out = fx.ddc(&["free"]).output().unwrap();
     assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
@@ -169,6 +172,9 @@ fn there_is_no_yes() {
 
 #[test]
 fn a_malformed_list_is_refused_whole_before_anything_runs() {
+    if common::unsupported("a_malformed_list_is_refused_whole_before_anything_runs") {
+        return;
+    }
     let fx = Fx::new();
     for list in [
         r#"{"schema_version": 3, "actions": [{"action": "brew-cleanup", "now": true}]}"#,
@@ -186,6 +192,9 @@ fn a_malformed_list_is_refused_whole_before_anything_runs() {
 
 #[test]
 fn a_confirmed_runtime_is_deleted_journaled_and_left_out_of_the_saved_disk_report() {
+    if common::unsupported("a_confirmed_runtime_is_deleted_journaled_and_left_out_of_the_saved_disk_report") {
+        return;
+    }
     let fx = Fx::new();
     let disk = fx.ddc(&["--json"]).output().unwrap();
     assert!(disk.status.success(), "{}", String::from_utf8_lossy(&disk.stderr));
@@ -218,6 +227,9 @@ fn a_confirmed_runtime_is_deleted_journaled_and_left_out_of_the_saved_disk_repor
 
 #[test]
 fn brew_cleanup_runs_alone_with_no_autoremove_and_its_dry_run_changes_nothing() {
+    if common::unsupported("brew_cleanup_runs_alone_with_no_autoremove_and_its_dry_run_changes_nothing") {
+        return;
+    }
     let fx = Fx::new();
     let dry = fx.free(BREW, &["--dry-run", "--json"]);
     assert!(dry.status.success(), "{}", String::from_utf8_lossy(&dry.stderr));
@@ -240,6 +252,9 @@ fn brew_cleanup_runs_alone_with_no_autoremove_and_its_dry_run_changes_nothing() 
 
 #[test]
 fn after_brew_cleanup_the_last_scan_is_measured_again() {
+    if common::unsupported("after_brew_cleanup_the_last_scan_is_measured_again") {
+        return;
+    }
     let fx = Fx::new();
     let disk = fx.ddc(&["--json"]).output().unwrap();
     assert!(disk.status.success());
@@ -270,6 +285,9 @@ fn after_brew_cleanup_the_last_scan_is_measured_again() {
 
 #[test]
 fn a_permission_error_fails_with_the_terminal_command_and_exits_1_in_text() {
+    if common::unsupported("a_permission_error_fails_with_the_terminal_command_and_exits_1_in_text") {
+        return;
+    }
     let fx = Fx::new();
     fs::write(fx.root.join("brew-denied"), "").unwrap();
 
@@ -293,6 +311,9 @@ fn a_permission_error_fails_with_the_terminal_command_and_exits_1_in_text() {
 
 #[test]
 fn a_refused_action_runs_nothing_and_the_run_still_exits_0() {
+    if common::unsupported("a_refused_action_runs_nothing_and_the_run_still_exits_0") {
+        return;
+    }
     let fx = Fx::new();
     let list = r#"{"schema_version": 3, "actions": [{"action": "simctl-runtime-delete", "identifier": "all"}]}"#;
     let out = fx.free(list, &["--json"]);
@@ -305,6 +326,9 @@ fn a_refused_action_runs_nothing_and_the_run_still_exits_0() {
 
 #[test]
 fn a_held_lock_exits_75_and_runs_nothing() {
+    if common::unsupported("a_held_lock_exits_75_and_runs_nothing") {
+        return;
+    }
     let fx = Fx::new();
     let env = fx.env();
     let held = store::try_lock(&env, LockMode::Shared).unwrap();
@@ -376,6 +400,11 @@ esac"#
 
 #[test]
 fn a_confirmed_opt_environment_is_removed_by_its_own_conda_and_left_out_of_the_saved_disk_report() {
+    if common::unsupported(
+        "a_confirmed_opt_environment_is_removed_by_its_own_conda_and_left_out_of_the_saved_disk_report",
+    ) {
+        return;
+    }
     let fx = Fx::new().with_conda();
     let disk = fx.ddc(&["--json"]).output().unwrap();
     assert!(disk.status.success(), "{}", String::from_utf8_lossy(&disk.stderr));
@@ -408,6 +437,9 @@ fn a_confirmed_opt_environment_is_removed_by_its_own_conda_and_left_out_of_the_s
 
 #[test]
 fn conda_clean_is_limited_to_the_package_folder_and_its_dry_run_changes_nothing() {
+    if common::unsupported("conda_clean_is_limited_to_the_package_folder_and_its_dry_run_changes_nothing") {
+        return;
+    }
     let fx = Fx::new().with_conda();
     let pkgs = format!("{}/pkgs", fx.opt_conda());
     let list = fx.conda_list("conda-clean", &fx.opt_conda());
@@ -433,6 +465,9 @@ fn conda_clean_is_limited_to_the_package_folder_and_its_dry_run_changes_nothing(
 
 #[test]
 fn a_home_environment_is_refused_in_words_and_runs_no_conda() {
+    if common::unsupported("a_home_environment_is_refused_in_words_and_runs_no_conda") {
+        return;
+    }
     let fx = Fx::new().with_conda();
     fx.write("home/miniconda3/envs/x/conda-meta/history", 0);
     let home = format!("{}/home/miniconda3/envs/x", fx.root.display());
@@ -445,6 +480,9 @@ fn a_home_environment_is_refused_in_words_and_runs_no_conda() {
 
 #[test]
 fn a_conda_action_under_a_held_lock_exits_75_and_runs_no_conda() {
+    if common::unsupported("a_conda_action_under_a_held_lock_exits_75_and_runs_no_conda") {
+        return;
+    }
     let fx = Fx::new().with_conda();
     let held = store::try_lock(&fx.env(), LockMode::Shared).unwrap();
     let env = format!("{}/envs/old", fx.opt_conda());
@@ -502,6 +540,10 @@ esac"#
 
 #[test]
 fn two_runtimes_in_one_list_run_in_order_each_journaled_and_both_leave_the_saved_disk_report() {
+    if common::unsupported("two_runtimes_in_one_list_run_in_order_each_journaled_and_both_leave_the_saved_disk_report")
+    {
+        return;
+    }
     let fx = Fx::new().with_two_runtimes();
     let disk = fx.ddc(&["--json"]).output().unwrap();
     assert!(disk.status.success(), "{}", String::from_utf8_lossy(&disk.stderr));

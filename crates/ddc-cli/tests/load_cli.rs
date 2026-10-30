@@ -11,6 +11,8 @@ use ddc_loadgen::run::{RunArgs, run};
 use ddc_loadgen::table::{COLUMNS, Meta};
 use ddc_loadgen::target;
 
+mod common;
+
 fn args(into: &Path, out: &Path, mode: Mode, limits: PathBuf) -> RunArgs {
     RunArgs {
         profile: Profile::Projects,
@@ -32,6 +34,9 @@ fn args(into: &Path, out: &Path, mode: Mode, limits: PathBuf) -> RunArgs {
 
 #[test]
 fn a_harness_run_measures_every_reading_command() {
+    if common::unsupported("a_harness_run_measures_every_reading_command") {
+        return;
+    }
     let dir = target::Scratch::new().unwrap();
     let out = tempfile::tempdir().unwrap();
     let report = run(&args(dir.path(), out.path(), Mode::Record, PathBuf::from("/nonexistent"))).unwrap();
@@ -62,6 +67,9 @@ fn a_harness_run_measures_every_reading_command() {
 /// its limit is a failure, and so is a command with no limit.
 #[test]
 fn an_enforced_run_fails_over_a_limit() {
+    if common::unsupported("an_enforced_run_fails_over_a_limit") {
+        return;
+    }
     let dir = target::Scratch::new().unwrap();
     let out = tempfile::tempdir().unwrap();
     let file = out.path().join("limits.tsv");

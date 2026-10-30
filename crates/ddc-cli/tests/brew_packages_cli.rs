@@ -6,7 +6,6 @@
 
 use std::fs;
 use std::io::Write as _;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
@@ -15,6 +14,7 @@ use ddc_core::free::{ActionResult, FreeReport, Refusal};
 use ddc_loadgen::isolate::ClearEnv as _;
 use serde_json::json;
 
+mod common;
 mod contract;
 
 struct Fx {
@@ -31,7 +31,7 @@ impl Fx {
         fx.write("sys/System/Volumes/Data/opt/homebrew/Cellar/openssl@3/3.4.0/lib/libssl.dylib", 20_000);
         fs::create_dir_all(fx.root.join("sys/System/Volumes/Data/opt/homebrew/Library/Homebrew/services")).unwrap();
         fs::create_dir_all(fx.root.join("home/Library/Caches/Homebrew")).unwrap();
-        std::os::unix::fs::symlink("System/Volumes/Data/opt", fx.root.join("sys/opt")).unwrap();
+        common::symlink("System/Volumes/Data/opt", fx.root.join("sys/opt"));
         let keg = |v: &str, on_request: bool, deps: &[&str]| {
             json!({"version": v, "installed_on_request": on_request,
                    "runtime_dependencies": deps.iter().map(|d| json!({"full_name": d})).collect::<Vec<_>>()})
@@ -74,7 +74,7 @@ esac"#
         let path = self.root.join(rel);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        common::set_mode(&path, 0o755);
     }
 
     fn run(&self, args: &[&str]) -> Output {
@@ -123,6 +123,9 @@ esac"#
 
 #[test]
 fn the_listing_runs_only_brews_read_commands_and_prints_its_json() {
+    if common::unsupported("the_listing_runs_only_brews_read_commands_and_prints_its_json") {
+        return;
+    }
     let fx = Fx::new();
     let out = fx.run(&["--json"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
@@ -153,6 +156,9 @@ fn the_listing_runs_only_brews_read_commands_and_prints_its_json() {
 
 #[test]
 fn the_text_listing_names_each_formula_and_why_one_is_not_offered() {
+    if common::unsupported("the_text_listing_names_each_formula_and_why_one_is_not_offered") {
+        return;
+    }
     let fx = Fx::new();
     let mut info: serde_json::Value = serde_json::from_slice(&fs::read(fx.root.join("info.json")).unwrap()).unwrap();
     info["formulae"][1]["installed"][0]["installed_on_request"] = json!(true);
@@ -170,6 +176,9 @@ fn the_text_listing_names_each_formula_and_why_one_is_not_offered() {
 
 #[test]
 fn a_brew_that_cannot_list_exits_1_and_says_why() {
+    if common::unsupported("a_brew_that_cannot_list_exits_1_and_says_why") {
+        return;
+    }
     let fx = Fx::new();
     fs::write(fx.root.join("offline"), "").unwrap();
     let out = fx.run(&["--json"]);
@@ -182,6 +191,9 @@ fn a_brew_that_cannot_list_exits_1_and_says_why() {
 
 #[test]
 fn a_brew_elsewhere_is_not_asked_for_its_packages() {
+    if common::unsupported("a_brew_elsewhere_is_not_asked_for_its_packages") {
+        return;
+    }
     let fx = Fx::new();
     fs::write(fx.root.join("elsewhere"), "").unwrap();
     let out = fx.run(&["--json"]);
@@ -206,6 +218,9 @@ fn free_report(out: &Output) -> FreeReport {
 
 #[test]
 fn a_listed_formula_is_uninstalled_by_brew_only_after_the_check() {
+    if common::unsupported("a_listed_formula_is_uninstalled_by_brew_only_after_the_check") {
+        return;
+    }
     let fx = Fx::new();
     let listed: BrewPackages = contract::holds("brew-packages", &fx.run(&["--json"]).stdout);
     let list = uninstall(&listed, "wget");
@@ -249,6 +264,9 @@ fn a_listed_formula_is_uninstalled_by_brew_only_after_the_check() {
 
 #[test]
 fn a_formula_something_needs_is_refused_with_what_needs_it() {
+    if common::unsupported("a_formula_something_needs_is_refused_with_what_needs_it") {
+        return;
+    }
     let fx = Fx::new();
     let list = json!({"schema_version": 3, "actions": [
         {"action": "brew-uninstall", "identifier": "openssl@3", "kegs": ["3.4.0"]}]})

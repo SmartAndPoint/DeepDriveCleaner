@@ -11,7 +11,6 @@ mod common;
 
 use std::fs;
 use std::io;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
@@ -77,11 +76,11 @@ impl Fx {
     }
 
     fn listed(&self) -> ListedItem {
-        let meta = fs::symlink_metadata(self.node_modules()).unwrap();
+        let (dev, ino) = common::id(&self.node_modules());
         ListedItem {
             path: self.node_modules(),
-            dev: meta.dev(),
-            ino: meta.ino(),
+            dev,
+            ino,
             rule: "node.node_modules".into(),
             class: RiskClass::Rebuildable,
             action: ActionKind::Trash,
@@ -92,12 +91,12 @@ impl Fx {
     /// One selected item to the Trash, as a plan of the scan would hold it.
     fn plan(&self) -> Plan {
         let path = self.node_modules();
-        let meta = fs::symlink_metadata(&path).unwrap();
-        let parent = fs::symlink_metadata(path.parent().unwrap()).unwrap();
+        let (dev, ino) = common::id(&path);
+        let (parent_dev, parent_ino) = common::id(path.parent().unwrap());
         let finding: Finding = serde_json::from_value(serde_json::json!({
-            "bytes": 4096, "category": "project-artifact", "class": "rebuildable", "dev": meta.dev(),
-            "dirs": 2, "files": 1, "hint": "", "incomplete": false, "ino": meta.ino(), "notes": [],
-            "parent_dev": parent.dev(), "parent_ino": parent.ino(), "path": path, "removal": "trash",
+            "bytes": 4096, "category": "project-artifact", "class": "rebuildable", "dev": dev,
+            "dirs": 2, "files": 1, "hint": "", "incomplete": false, "ino": ino, "notes": [],
+            "parent_dev": parent_dev, "parent_ino": parent_ino, "path": path, "removal": "trash",
             "rule": "node.node_modules", "rule_class": "rebuildable", "selected": true, "shared_bytes": 0
         }))
         .unwrap();

@@ -128,6 +128,9 @@ proptest! {
         seed in 1u64..1_000_000,
         order in any::<u64>(),
     ) {
+        if ddc_loadgen::unsupported("the_same_report_and_plan_for_any_thread_count_and_entry_order") {
+            return Ok(());
+        }
         let dir = target::Scratch::new().unwrap();
         let Some(g) = skip_unported(generate(profile, ENTRIES, seed, dir.path(), None)) else { return Ok(()) };
         let env = Env::with_paths(&g.home, &g.layout.data, &g.layout.data.join("logs"), SystemTime::now()).unwrap();

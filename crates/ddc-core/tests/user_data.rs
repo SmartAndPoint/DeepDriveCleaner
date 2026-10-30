@@ -5,7 +5,6 @@
 mod common;
 
 use std::fs::{self, File};
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, SystemTime};
@@ -99,11 +98,11 @@ impl Home {
     /// An entry as the app lists it when picked: to the Trash, never permanent.
     fn pick(&self, rel: &str, rule: &str) -> ListedItem {
         let path = self.path(rel);
-        let md = fs::symlink_metadata(&path).unwrap();
+        let (dev, ino) = common::id(&path);
         ListedItem {
             path,
-            dev: md.dev(),
-            ino: md.ino(),
+            dev,
+            ino,
             rule: rule.to_owned(),
             class: RiskClass::UserData,
             action: ActionKind::Trash,
@@ -213,6 +212,9 @@ fn rule_of(r: &ScanReport, path: &Path) -> Option<String> {
 
 #[test]
 fn the_scan_lists_entries_largest_first_with_the_cap_and_the_floor_and_sums_the_rest() {
+    if common::unsupported("the_scan_lists_entries_largest_first_with_the_cap_and_the_floor_and_sums_the_rest") {
+        return;
+    }
     let mut h = Home::new();
     h.limits = ContentsLimits { max: 2, min_bytes: 50_000 };
     let t = &h.tree;
@@ -256,6 +258,9 @@ fn reference_alloc_or_file(path: &Path) -> u64 {
 
 #[test]
 fn the_default_limits_list_a_hundred_entries_of_at_least_ten_mebibytes() {
+    if common::unsupported("the_default_limits_list_a_hundred_entries_of_at_least_ten_mebibytes") {
+        return;
+    }
     let h = Home { limits: ContentsLimits::default(), ..Home::new() };
     let t = &h.tree;
     let first = t.file("Downloads/c000.bin", 10 << 20);
@@ -275,6 +280,9 @@ fn the_default_limits_list_a_hundred_entries_of_at_least_ten_mebibytes() {
 
 #[test]
 fn locked_entries_are_listed_with_their_reason() {
+    if common::unsupported("locked_entries_are_listed_with_their_reason") {
+        return;
+    }
     let mut h = Home::new();
     let t = &h.tree;
     t.file("Pictures/Photos Library.photoslibrary/database/Photos.sqlite", 4_000);
@@ -321,6 +329,9 @@ fn locked_entries_are_listed_with_their_reason() {
 
 #[test]
 fn a_fresh_entry_is_recent_against_the_scans_start() {
+    if common::unsupported("a_fresh_entry_is_recent_against_the_scans_start") {
+        return;
+    }
     let mut h = Home::new();
     h.now = SystemTime::now();
     h.tree.file("Downloads/fresh.zip", 4_000);
@@ -334,6 +345,9 @@ fn a_fresh_entry_is_recent_against_the_scans_start() {
 
 #[test]
 fn a_marker_at_the_folders_top_or_an_exclude_inside_still_keeps_the_whole_folder() {
+    if common::unsupported("a_marker_at_the_folders_top_or_an_exclude_inside_still_keeps_the_whole_folder") {
+        return;
+    }
     let h = Home::new();
     h.tree.file("Pictures/Trip/a.jpg", 4_000);
     h.tree.write("Pictures/.ddc-keep", "");
@@ -352,6 +366,9 @@ fn a_marker_at_the_folders_top_or_an_exclude_inside_still_keeps_the_whole_folder
 
 #[test]
 fn a_downloads_folder_holds_findings_with_their_size_and_an_app_is_an_ordinary_entry() {
+    if common::unsupported("a_downloads_folder_holds_findings_with_their_size_and_an_app_is_an_ordinary_entry") {
+        return;
+    }
     let h = Home::new();
     let t = &h.tree;
     t.write("Downloads/repo/package.json", "{}");
@@ -378,6 +395,9 @@ fn a_downloads_folder_holds_findings_with_their_size_and_an_app_is_an_ordinary_e
 
 #[test]
 fn backups_show_their_device_and_lock_until_they_finished() {
+    if common::unsupported("backups_show_their_device_and_lock_until_they_finished") {
+        return;
+    }
     let h = Home::new();
     let t = &h.tree;
     let backups = "Library/Application Support/MobileSync/Backup";
@@ -401,6 +421,9 @@ fn backups_show_their_device_and_lock_until_they_finished() {
 
 #[test]
 fn messengers_imazing_kept_and_the_trash_list_nothing_and_cloud_folders_stay_closed() {
+    if common::unsupported("messengers_imazing_kept_and_the_trash_list_nothing_and_cloud_folders_stay_closed") {
+        return;
+    }
     let h = Home::new();
     let t = &h.tree;
     t.file("Library/Group Containers/6N38VWS5BX.ru.keepcoder.Telegram/media/a", 8_000);
@@ -430,6 +453,9 @@ fn messengers_imazing_kept_and_the_trash_list_nothing_and_cloud_folders_stay_clo
 
 #[test]
 fn an_entry_with_an_unreadable_part_is_listed_partly_unreadable_and_stays_pickable() {
+    if common::unsupported("an_entry_with_an_unreadable_part_is_listed_partly_unreadable_and_stays_pickable") {
+        return;
+    }
     let h = Home::new();
     h.tree.file("Downloads/archive/readable", 8_000);
     h.tree.file("Downloads/archive/closed/secret", 8_000);
@@ -445,6 +471,9 @@ fn an_entry_with_an_unreadable_part_is_listed_partly_unreadable_and_stays_pickab
 
 #[test]
 fn two_scans_list_the_same_contents() {
+    if common::unsupported("two_scans_list_the_same_contents") {
+        return;
+    }
     let h = Home::new();
     for i in 0..30 {
         h.tree.file(&format!("Downloads/d{i}/f"), 1_000 * (i % 7 + 1));
@@ -459,6 +488,9 @@ fn two_scans_list_the_same_contents() {
 
 #[test]
 fn a_picked_file_and_folder_go_to_the_trash() {
+    if common::unsupported("a_picked_file_and_folder_go_to_the_trash") {
+        return;
+    }
     let h = Home::new();
     h.tree.file("Downloads/report.pdf", 40_000);
     h.tree.file("Downloads/Album/song.mp3", 60_000);
@@ -478,6 +510,9 @@ fn a_picked_file_and_folder_go_to_the_trash() {
 
 #[test]
 fn a_symlink_a_replaced_entry_a_locked_one_and_the_folder_itself_are_skipped() {
+    if common::unsupported("a_symlink_a_replaced_entry_a_locked_one_and_the_folder_itself_are_skipped") {
+        return;
+    }
     let h = Home::new();
     h.tree.file("Downloads/a.iso", 40_000);
     h.tree.symlink("a.iso", "Downloads/link");
@@ -513,6 +548,9 @@ fn a_symlink_a_replaced_entry_a_locked_one_and_the_folder_itself_are_skipped() {
 
 #[test]
 fn an_exclude_locks_a_downloads_entry_and_keeps_a_folder_claimed_whole() {
+    if common::unsupported("an_exclude_locks_a_downloads_entry_and_keeps_a_folder_claimed_whole") {
+        return;
+    }
     let mut h = Home::new();
     h.tree.file("Downloads/Kept/a.bin", 20_000);
     h.tree.file("Downloads/Other/notes.txt", 20_000);
@@ -532,6 +570,9 @@ fn an_exclude_locks_a_downloads_entry_and_keeps_a_folder_claimed_whole() {
 
 #[test]
 fn a_path_that_is_no_entry_is_skipped_and_one_beyond_the_listed_hundred_is_not() {
+    if common::unsupported("a_path_that_is_no_entry_is_skipped_and_one_beyond_the_listed_hundred_is_not") {
+        return;
+    }
     let mut h = Home::new();
     h.limits = ContentsLimits { max: 1, min_bytes: 1 };
     h.tree.file("Downloads/big.iso", 90_000);
@@ -546,6 +587,9 @@ fn a_path_that_is_no_entry_is_skipped_and_one_beyond_the_listed_hundred_is_not()
 
 #[test]
 fn another_rules_finding_in_downloads_is_no_entry_in_the_clean() {
+    if common::unsupported("another_rules_finding_in_downloads_is_no_entry_in_the_clean") {
+        return;
+    }
     let h = Home::new();
     h.tree.write("Downloads/package.json", "{}");
     h.tree.file("Downloads/node_modules/dep/index.js", 40_000);
@@ -560,6 +604,9 @@ fn another_rules_finding_in_downloads_is_no_entry_in_the_clean() {
 
 #[test]
 fn delete_and_permanent_are_refused_for_a_picked_entry() {
+    if common::unsupported("delete_and_permanent_are_refused_for_a_picked_entry") {
+        return;
+    }
     let h = Home::new();
     h.tree.file("Downloads/report.pdf", 40_000);
     let mut delete = h.pick("Downloads/report.pdf", "user.downloads");
@@ -576,6 +623,9 @@ fn delete_and_permanent_are_refused_for_a_picked_entry() {
 
 #[test]
 fn a_finding_inside_a_trashed_entry_is_skipped_and_runs_when_the_entry_was_skipped() {
+    if common::unsupported("a_finding_inside_a_trashed_entry_is_skipped_and_runs_when_the_entry_was_skipped") {
+        return;
+    }
     let build = |h: &Home| {
         h.tree.write("Downloads/Project/package.json", "{}");
         h.tree.file("Downloads/Project/node_modules/dep/index.js", 40_000);
@@ -601,6 +651,9 @@ fn a_finding_inside_a_trashed_entry_is_skipped_and_runs_when_the_entry_was_skipp
 
 #[test]
 fn a_symlink_above_the_folder_or_a_path_outside_the_roots_is_skipped_as_for_any_item() {
+    if common::unsupported("a_symlink_above_the_folder_or_a_path_outside_the_roots_is_skipped_as_for_any_item") {
+        return;
+    }
     let h = Home::new();
     h.tree.file("Downloads/report.pdf", 40_000);
     h.tree.symlink(h.tree.root(), "alias");
@@ -622,6 +675,9 @@ fn a_symlink_above_the_folder_or_a_path_outside_the_roots_is_skipped_as_for_any_
 
 #[test]
 fn a_plan_never_holds_an_entry_and_yes_touches_none() {
+    if common::unsupported("a_plan_never_holds_an_entry_and_yes_touches_none") {
+        return;
+    }
     let h = Home::new();
     h.tree.file("Downloads/report.pdf", 40_000);
     h.tree.file("Pictures/Trip/one.jpg", 70_000);
@@ -660,6 +716,9 @@ fn a_plan_never_holds_an_entry_and_yes_touches_none() {
 
 #[test]
 fn the_executor_derives_an_entrys_lock_again_right_before_the_trash() {
+    if common::unsupported("the_executor_derives_an_entrys_lock_again_right_before_the_trash") {
+        return;
+    }
     let h = Home::new();
     h.tree.file("Downloads/a.iso", 40_000);
     h.tree.file("Downloads/Project/sub/x.bin", 20_000);

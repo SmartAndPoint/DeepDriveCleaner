@@ -6,8 +6,6 @@
 
 mod common;
 
-use std::fs;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, SystemTime};
@@ -98,11 +96,11 @@ impl Home {
     /// An entry of a user-data folder, picked by hand.
     fn pick(&self, rel: &str, rule: &str) -> ListedItem {
         let path = self.path(rel);
-        let md = fs::symlink_metadata(&path).unwrap();
+        let (dev, ino) = common::id(&path);
         ListedItem {
             path,
-            dev: md.dev(),
-            ino: md.ino(),
+            dev,
+            ino,
             rule: rule.to_owned(),
             class: RiskClass::UserData,
             action: ActionKind::Trash,
@@ -187,6 +185,9 @@ fn in_use(pid: i32, name: &str) -> Outcome {
 
 #[test]
 fn a_file_held_open_inside_a_deleted_finding_skips_it_and_the_dry_run_says_so() {
+    if common::unsupported("a_file_held_open_inside_a_deleted_finding_skips_it_and_the_dry_run_says_so") {
+        return;
+    }
     let home = Home::new();
     let nm = home.node_modules();
     let item = home.listed(&nm, ActionKind::Delete, false);
@@ -203,6 +204,9 @@ fn a_file_held_open_inside_a_deleted_finding_skips_it_and_the_dry_run_says_so() 
 
 #[test]
 fn a_file_closed_by_the_confirming_read_does_not_skip() {
+    if common::unsupported("a_file_closed_by_the_confirming_read_does_not_skip") {
+        return;
+    }
     let home = Home::new();
     let nm = home.node_modules();
     let item = home.listed(&nm, ActionKind::Delete, false);
@@ -215,6 +219,9 @@ fn a_file_closed_by_the_confirming_read_does_not_skip() {
 
 #[test]
 fn a_tool_command_never_starts_while_a_process_holds_its_cache_open() {
+    if common::unsupported("a_tool_command_never_starts_while_a_process_holds_its_cache_open") {
+        return;
+    }
     let home = Home::new();
     let uv = home.uv_cache();
     let item = home.listed(&uv, ActionKind::Native, false);
@@ -243,6 +250,9 @@ fn a_tool_command_never_starts_while_a_process_holds_its_cache_open() {
 
 #[test]
 fn a_move_to_the_trash_ignores_open_files_and_a_permanent_delete_does_not() {
+    if common::unsupported("a_move_to_the_trash_ignores_open_files_and_a_permanent_delete_does_not") {
+        return;
+    }
     let home = Home::new();
     home.tree.write("nolock/.venv/pyvenv.cfg", "home = /usr/bin");
     home.tree.file("nolock/.venv/lib/x.py", 4_000);
@@ -277,6 +287,9 @@ fn a_move_to_the_trash_ignores_open_files_and_a_permanent_delete_does_not() {
 
 #[test]
 fn a_runtime_prunes_while_its_daemon_works_inside_its_finding() {
+    if common::unsupported("a_runtime_prunes_while_its_daemon_works_inside_its_finding") {
+        return;
+    }
     let home = Home::new();
     home.tree.file("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw", 50_000);
     let docker = home.path("Library/Containers/com.docker.docker");
@@ -295,6 +308,9 @@ fn a_runtime_prunes_while_its_daemon_works_inside_its_finding() {
 
 #[test]
 fn the_dry_run_predicts_a_docker_desktop_that_cannot_answer_without_running_anything() {
+    if common::unsupported("the_dry_run_predicts_a_docker_desktop_that_cannot_answer_without_running_anything") {
+        return;
+    }
     let home = Home::new();
     home.tree.file("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw", 50_000);
     let docker = home.path("Library/Containers/com.docker.docker");
@@ -326,6 +342,9 @@ fn the_dry_run_predicts_a_docker_desktop_that_cannot_answer_without_running_anyt
 
 #[test]
 fn the_reason_names_the_app_a_holder_belongs_to() {
+    if common::unsupported("the_reason_names_the_app_a_holder_belongs_to") {
+        return;
+    }
     let home = Home::new();
     let nm = home.node_modules();
     let item = home.listed(&nm, ActionKind::Delete, false);

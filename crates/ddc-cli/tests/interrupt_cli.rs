@@ -11,6 +11,8 @@
 //! would go to the real Trash whatever `HOME` is. The child runs in its own
 //! process group, which the test signals with `kill(2)`.
 
+// Unix only: it stops, signals and resumes process groups.
+#![cfg(unix)]
 #![cfg(unix)]
 
 use std::collections::BTreeSet;
@@ -35,6 +37,7 @@ use ddc_loadgen::profiles::Profile;
 use ddc_loadgen::target::Scratch;
 use ddc_loadgen::{Generated, generate, items};
 
+mod common;
 mod contract;
 
 /// How long the child may take to reach an event on a loaded machine.
@@ -239,11 +242,8 @@ impl Drop for Watched {
 }
 
 /// Sends `sig` to the process group `group`.
-#[allow(unsafe_code)]
 fn kill(group: i32, sig: i32) -> std::io::Result<()> {
-    // SAFETY: kill(2) takes no pointers; a negative pid names a process group.
-    let sent = unsafe { libc::kill(-group, sig) };
-    if sent == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+    ddc_core::platform::signals::signal_group(group, sig)
 }
 
 /// A progress event, or `None` for the CLI's own lines (`ddc: …`).
@@ -273,6 +273,9 @@ fn temp_files(data: &Path) -> Vec<String> {
 
 #[test]
 fn a_scan_killed_mid_walk_leaves_the_saved_scan_whole_and_the_lock_free() {
+    if common::unsupported("a_scan_killed_mid_walk_leaves_the_saved_scan_whole_and_the_lock_free") {
+        return;
+    }
     // A fast machine can walk the whole tree before the first tick is read
     // and the scan end before the stop: such a run interrupted nothing, so it
     // is tried again, up to `ATTEMPTS` times.
@@ -306,6 +309,9 @@ fn a_scan_killed_mid_walk_leaves_the_saved_scan_whole_and_the_lock_free() {
 
 #[test]
 fn a_clean_stopped_after_its_kth_item_ends_the_current_one_and_runs_no_other() {
+    if common::unsupported("a_clean_stopped_after_its_kth_item_ends_the_current_one_and_runs_no_other") {
+        return;
+    }
     const K: usize = 3;
     let t = Tree::new(Profile::Projects, 2_000);
     let previous = t.scan();
@@ -360,6 +366,9 @@ fn a_clean_stopped_after_its_kth_item_ends_the_current_one_and_runs_no_other() {
 
 #[test]
 fn a_sigkill_during_a_large_deletion_leaves_the_item_whole_gone_or_a_tombstone() {
+    if common::unsupported("a_sigkill_during_a_large_deletion_leaves_the_item_whole_gone_or_a_tombstone") {
+        return;
+    }
     // About 3 000 files in one flat `node_modules`, beside a flat folder outside any finding.
     let t = Tree::new(Profile::Wide, 6_000);
     let previous = t.scan();
@@ -429,6 +438,9 @@ fn a_sigkill_during_a_large_deletion_leaves_the_item_whole_gone_or_a_tombstone()
 /// later run with the same pid truncates it.
 #[test]
 fn a_temp_file_left_by_a_kill_is_ignored_and_the_next_save_replaces_the_file() {
+    if common::unsupported("a_temp_file_left_by_a_kill_is_ignored_and_the_next_save_replaces_the_file") {
+        return;
+    }
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().canonicalize().unwrap();
     let (home, data) = (root.join("home"), root.join("data"));

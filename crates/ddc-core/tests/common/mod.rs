@@ -8,9 +8,10 @@ pub mod fixtures;
 use std::cell::RefCell;
 use std::fs::{self, File};
 use std::io::Write as _;
-use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use ddc_core::platform::meta;
 
 pub struct TreeBuilder {
     _tmp: tempfile::TempDir,
@@ -78,7 +79,7 @@ impl TreeBuilder {
     pub fn symlink(&self, target: impl AsRef<Path>, rel: &str) -> PathBuf {
         let p = self.path(rel);
         fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::os::unix::fs::symlink(target, &p).expect("symlink");
+        symlink(target, &p);
         p
     }
 
@@ -101,7 +102,7 @@ impl TreeBuilder {
     /// Removes all permissions from a directory; restored on drop.
     pub fn lock(&self, rel: &str) -> PathBuf {
         let p = self.path(rel);
-        fs::set_permissions(&p, fs::Permissions::from_mode(0o000)).unwrap();
+        set_mode(&p, 0o000);
         self.locked.borrow_mut().push(p.clone());
         p
     }
@@ -110,7 +111,7 @@ impl TreeBuilder {
 impl Drop for TreeBuilder {
     fn drop(&mut self) {
         for p in self.locked.borrow().iter() {
-            let _ = fs::set_permissions(p, fs::Permissions::from_mode(0o755));
+            let _ = try_set_mode(p, 0o755);
         }
     }
 }
@@ -133,7 +134,42 @@ pub fn unsupported(test: &str) -> bool {
 
 /// Allocated bytes of one path, without following symlinks.
 pub fn alloc(path: &Path) -> u64 {
-    fs::symlink_metadata(path).unwrap().blocks() * 512
+    meta::alloc_bytes(&fs::symlink_metadata(path).unwrap())
+}
+
+/// `(dev, ino)` of one path, without following symlinks.
+pub fn id(path: &Path) -> (u64, u64) {
+    meta::file_id(&fs::symlink_metadata(path).unwrap()).unwrap()
+}
+
+/// Sets the Unix permission bits of `path`. The harness's Unix-only helpers
+/// (this one and [`symlink`]) keep one signature on every OS and panic
+/// elsewhere: only a gated test reaches them, after it has skipped there.
+pub fn set_mode(path: &Path, mode: u32) {
+    try_set_mode(path, mode).unwrap_or_else(|e| panic!("chmod {mode:o} {}: {e}", path.display()));
+}
+
+#[cfg(unix)]
+fn try_set_mode(path: &Path, mode: u32) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+}
+
+#[cfg(not(unix))]
+fn try_set_mode(_path: &Path, _mode: u32) -> std::io::Result<()> {
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Unix permission bits"))
+}
+
+/// A symlink at `link` to `target`; Unix only, as [`set_mode`].
+#[cfg(unix)]
+pub fn symlink(target: impl AsRef<Path>, link: impl AsRef<Path>) {
+    let link = link.as_ref();
+    std::os::unix::fs::symlink(target, link).unwrap_or_else(|e| panic!("symlink {}: {e}", link.display()));
+}
+
+#[cfg(not(unix))]
+pub fn symlink(_target: impl AsRef<Path>, link: impl AsRef<Path>) {
+    panic!("symlink {}: Unix only", link.as_ref().display());
 }
 
 /// Reference size: sum of `blocks * 512` of every non-directory under `root`,
@@ -148,8 +184,8 @@ pub fn reference_alloc(root: &Path) -> u64 {
             let md = e.metadata().unwrap();
             if md.is_dir() {
                 stack.push(e.path());
-            } else if md.nlink() <= 1 || seen.insert((md.dev(), md.ino())) {
-                total += md.blocks() * 512;
+            } else if meta::link_count(&md) <= 1 || seen.insert(meta::file_id(&md).unwrap()) {
+                total += meta::alloc_bytes(&md);
             }
         }
     }

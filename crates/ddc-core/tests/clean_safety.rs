@@ -141,6 +141,9 @@ fn yes() -> Consent {
 
 #[test]
 fn deletes_selected_items_and_journals_each() {
+    if common::unsupported("deletes_selected_items_and_journals_each") {
+        return;
+    }
     let fx = Fx::new();
     let nm = fx.node_project("p");
     let cache = fx.t.dir("q/__pycache__");
@@ -166,12 +169,15 @@ fn deletes_selected_items_and_journals_each() {
 
 #[test]
 fn symlink_swapped_in_after_scan_is_not_followed() {
+    if common::unsupported("symlink_swapped_in_after_scan_is_not_followed") {
+        return;
+    }
     let fx = Fx::new();
     let nm = fx.node_project("p");
     let victim = fx.t.file("precious/data.db", 5000);
     let plan = fx.plan();
     fs::rename(&nm, fx.t.path("p/moved")).unwrap();
-    std::os::unix::fs::symlink(fx.t.path("precious"), &nm).unwrap();
+    common::symlink(fx.t.path("precious"), &nm);
 
     let (r, journal) = fx.run_yes(&plan);
 
@@ -182,6 +188,9 @@ fn symlink_swapped_in_after_scan_is_not_followed() {
 
 #[test]
 fn same_path_and_marker_but_another_directory_is_not_deleted() {
+    if common::unsupported("same_path_and_marker_but_another_directory_is_not_deleted") {
+        return;
+    }
     let fx = Fx::new();
     let nm = fx.node_project("p");
     let plan = fx.plan();
@@ -196,6 +205,9 @@ fn same_path_and_marker_but_another_directory_is_not_deleted() {
 
 #[test]
 fn protected_directories_and_project_roots_are_refused_even_if_planned() {
+    if common::unsupported("protected_directories_and_project_roots_are_refused_even_if_planned") {
+        return;
+    }
     let fx = Fx::new();
     let nm = fx.node_project("p");
     fx.t.file("Documents/cv.pdf", 100);
@@ -227,6 +239,9 @@ fn protected_directories_and_project_roots_are_refused_even_if_planned() {
 
 #[test]
 fn assume_yes_never_touches_review_and_rejects_review_class() {
+    if common::unsupported("assume_yes_never_touches_review_and_rejects_review_class") {
+        return;
+    }
     let fx = Fx::new();
     let orphan = fx.t.dir("x/node_modules");
     fx.t.file("x/node_modules/a.js", 100);
@@ -269,6 +284,9 @@ fn assume_yes_never_touches_review_and_rejects_review_class() {
 
 #[test]
 fn interactive_review_goes_to_the_trash() {
+    if common::unsupported("interactive_review_goes_to_the_trash") {
+        return;
+    }
     let fx = Fx::new();
     let orphan = fx.t.dir("x/node_modules");
     fx.t.file("x/node_modules/a.js", 100);
@@ -283,6 +301,9 @@ fn interactive_review_goes_to_the_trash() {
 
 #[test]
 fn native_only_rules_never_delete_or_trash() {
+    if common::unsupported("native_only_rules_never_delete_or_trash") {
+        return;
+    }
     let fx = Fx::new();
     let docker = fx.t.dir("Library/Containers/com.docker.docker/Data/vms/0");
     fx.t.file("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw", 50_000);
@@ -312,6 +333,9 @@ fn native_only_rules_never_delete_or_trash() {
 
 #[test]
 fn a_docker_desktop_that_does_not_answer_skips_its_item_and_runs_no_prune() {
+    if common::unsupported("a_docker_desktop_that_does_not_answer_skips_its_item_and_runs_no_prune") {
+        return;
+    }
     let fx = Fx::new();
     let docker = fx.docker_desktop();
     let mut plan = fx.plan();
@@ -336,6 +360,9 @@ fn a_docker_desktop_that_does_not_answer_skips_its_item_and_runs_no_prune() {
 
 #[test]
 fn the_probe_names_a_missing_context_or_says_what_docker_said() {
+    if common::unsupported("the_probe_names_a_missing_context_or_says_what_docker_said") {
+        return;
+    }
     let fx = Fx::new();
     let docker = fx.docker_desktop();
     let mut plan = fx.plan();
@@ -368,6 +395,9 @@ fn the_probe_names_a_missing_context_or_says_what_docker_said() {
 
 #[test]
 fn a_prune_that_fails_after_a_good_probe_carries_dockers_last_line() {
+    if common::unsupported("a_prune_that_fails_after_a_good_probe_carries_dockers_last_line") {
+        return;
+    }
     let fx = Fx::new();
     let docker = fx.docker_desktop();
     let mut plan = fx.plan();
@@ -391,6 +421,9 @@ fn a_prune_that_fails_after_a_good_probe_carries_dockers_last_line() {
 
 #[test]
 fn a_probe_that_times_out_skips_and_a_cancel_during_it_runs_no_prune() {
+    if common::unsupported("a_probe_that_times_out_skips_and_a_cancel_during_it_runs_no_prune") {
+        return;
+    }
     let fx = Fx::new();
     let docker = fx.docker_desktop();
     let mut plan = fx.plan();
@@ -431,13 +464,15 @@ fn a_probe_that_times_out_skips_and_a_cancel_during_it_runs_no_prune() {
 
 #[test]
 fn read_only_trees_are_deleted() {
+    if common::unsupported("read_only_trees_are_deleted") {
+        return;
+    }
     let fx = Fx::new();
     let modcache = fx.t.path("go/pkg/mod");
     fx.t.file("go/pkg/mod/example.com/m@v1.0.0/m.go", 2000);
     let nm = fx.node_project("p");
-    use std::os::unix::fs::PermissionsExt as _;
     for d in ["go/pkg/mod/example.com/m@v1.0.0", "go/pkg/mod/example.com", "p/node_modules/dep"] {
-        fs::set_permissions(fx.t.path(d), fs::Permissions::from_mode(0o555)).unwrap();
+        common::set_mode(&fx.t.path(d), 0o555);
     }
     let plan = fx.plan();
 
@@ -450,6 +485,9 @@ fn read_only_trees_are_deleted() {
 
 #[test]
 fn interrupted_deletion_leaves_a_tombstone_found_as_safe() {
+    if common::unsupported("interrupted_deletion_leaves_a_tombstone_found_as_safe") {
+        return;
+    }
     let fx = Fx::new();
     let nm = fx.node_project("p");
     let stuck = fx.t.file("p/node_modules/dep/stuck.js", 100);
@@ -491,6 +529,9 @@ fn wait_until_listed(pid: u32) {
 
 #[test]
 fn processes_using_a_finding_block_it() {
+    if common::unsupported("processes_using_a_finding_block_it") {
+        return;
+    }
     let fx = Fx::new();
     let abs = fx.venv_project("a");
     fx.t.symlink("/bin/sleep", "a/.venv/bin/sleep");
@@ -520,6 +561,9 @@ fn processes_using_a_finding_block_it() {
 
 #[test]
 fn keep_marker_created_after_the_scan_cancels_deletion() {
+    if common::unsupported("keep_marker_created_after_the_scan_cancels_deletion") {
+        return;
+    }
     let fx = Fx::new();
     let top = fx.node_project("p");
     let deep = fx.node_project("q");
@@ -535,6 +579,9 @@ fn keep_marker_created_after_the_scan_cancels_deletion() {
 
 #[test]
 fn running_owner_process_skips_its_cache() {
+    if common::unsupported("running_owner_process_skips_its_cache") {
+        return;
+    }
     let fx = Fx::new();
     let cache = fx.t.dir("Library/Caches/com.spotify.client");
     fx.t.file("Library/Caches/com.spotify.client/data", 1000);
@@ -549,6 +596,9 @@ fn running_owner_process_skips_its_cache() {
 
 #[test]
 fn an_owner_is_an_app_bundle_not_a_process_name() {
+    if common::unsupported("an_owner_is_an_app_bundle_not_a_process_name") {
+        return;
+    }
     let fx = Fx::new();
     let cursor = fx.t.dir("Library/Application Support/Cursor/Cache");
     fx.t.file("Library/Application Support/Cursor/Cache/data", 1000);
@@ -582,6 +632,9 @@ fn an_owner_is_an_app_bundle_not_a_process_name() {
 
 #[test]
 fn a_running_editor_holds_back_only_its_own_caches() {
+    if common::unsupported("a_running_editor_holds_back_only_its_own_caches") {
+        return;
+    }
     let fx = Fx::new();
     let cursor = fx.t.dir("Library/Application Support/Cursor/GPUCache");
     fx.t.file("Library/Application Support/Cursor/GPUCache/data", 1000);
@@ -652,6 +705,9 @@ fn no_system_process_owns_a_cache() {
 
 #[test]
 fn a_renamed_bundle_is_recognised_by_its_executable() {
+    if common::unsupported("a_renamed_bundle_is_recognised_by_its_executable") {
+        return;
+    }
     let fx = Fx::new();
     let chrome = fx.t.dir("Library/Caches/Google/Chrome");
     fx.t.file("Library/Caches/Google/Chrome/data", 1000);
@@ -675,6 +731,9 @@ fn a_renamed_bundle_is_recognised_by_its_executable() {
 
 #[test]
 fn native_command_runs_only_where_the_tool_reports_the_finding() {
+    if common::unsupported("native_command_runs_only_where_the_tool_reports_the_finding") {
+        return;
+    }
     let fx = Fx::new();
     let uv = fx.t.dir(".cache/uv");
     fx.t.file(".cache/uv/wheels/a.whl", 1000);
@@ -694,6 +753,9 @@ fn native_command_runs_only_where_the_tool_reports_the_finding() {
 
 #[test]
 fn review_items_default_to_the_trash_unless_permanent() {
+    if common::unsupported("review_items_default_to_the_trash_unless_permanent") {
+        return;
+    }
     let fx = Fx::new();
     let venv = fx.t.path("nolock/.venv");
     fx.t.write("nolock/.venv/pyvenv.cfg", "x");
@@ -718,6 +780,9 @@ fn review_items_default_to_the_trash_unless_permanent() {
 
 #[test]
 fn user_data_and_report_only_rules_never_enter_a_plan() {
+    if common::unsupported("user_data_and_report_only_rules_never_enter_a_plan") {
+        return;
+    }
     let fx = Fx::new();
     fx.t.file("Pictures/a.jpg", 100);
     fx.t.file(".Trash/old.zip", 100);
@@ -742,6 +807,9 @@ fn forged(
 
 #[test]
 fn the_executor_refuses_actions_the_rule_does_not_allow() {
+    if common::unsupported("the_executor_refuses_actions_the_rule_does_not_allow") {
+        return;
+    }
     let fx = Fx::new();
     fx.t.file("Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw", 50_000);
     fx.t.file("Library/Application Support/MobileSync/Backup/device/Manifest.db", 5_000);
@@ -767,6 +835,9 @@ fn the_executor_refuses_actions_the_rule_does_not_allow() {
 
 #[test]
 fn a_known_path_that_became_a_git_work_tree_is_refused() {
+    if common::unsupported("a_known_path_that_became_a_git_work_tree_is_refused") {
+        return;
+    }
     let fx = Fx::new();
     let uv = fx.t.dir(".cache/uv");
     fx.t.file(".cache/uv/x", 100);
@@ -780,11 +851,14 @@ fn a_known_path_that_became_a_git_work_tree_is_refused() {
 
 #[test]
 fn a_parent_replaced_by_a_symlink_is_refused() {
+    if common::unsupported("a_parent_replaced_by_a_symlink_is_refused") {
+        return;
+    }
     let fx = Fx::new();
     let nm = fx.node_project("p");
     let plan = fx.plan();
     fs::rename(fx.t.path("p"), fx.t.path("p-real")).unwrap();
-    std::os::unix::fs::symlink(fx.t.path("p-real"), fx.t.path("p")).unwrap();
+    common::symlink(fx.t.path("p-real"), fx.t.path("p"));
 
     let (r, _) = fx.run_yes(&plan);
 
@@ -794,6 +868,9 @@ fn a_parent_replaced_by_a_symlink_is_refused() {
 
 #[test]
 fn a_relative_executable_with_unknown_cwd_blocks_same_named_findings() {
+    if common::unsupported("a_relative_executable_with_unknown_cwd_blocks_same_named_findings") {
+        return;
+    }
     let fx = Fx::new();
     let venv = fx.venv_project("a");
     let plan = fx.plan();
@@ -812,6 +889,9 @@ fn a_relative_executable_with_unknown_cwd_blocks_same_named_findings() {
 
 #[test]
 fn assume_yes_skips_active_projects_even_if_selected() {
+    if common::unsupported("assume_yes_skips_active_projects_even_if_selected") {
+        return;
+    }
     let fx = Fx::new();
     let t = &fx.t;
     t.write("fresh/package.json", "{}");
@@ -830,6 +910,9 @@ fn assume_yes_skips_active_projects_even_if_selected() {
 
 #[test]
 fn a_directory_swapped_while_a_tool_runs_is_not_deleted() {
+    if common::unsupported("a_directory_swapped_while_a_tool_runs_is_not_deleted") {
+        return;
+    }
     let fx = Fx::new();
     let uv = fx.t.dir(".cache/uv");
     fx.t.file(".cache/uv/wheels/a.whl", 1000);
@@ -854,6 +937,9 @@ fn a_directory_swapped_while_a_tool_runs_is_not_deleted() {
 
 #[test]
 fn partly_unreadable_findings_are_not_deleted() {
+    if common::unsupported("partly_unreadable_findings_are_not_deleted") {
+        return;
+    }
     let fx = Fx::new();
     let nm = fx.node_project("p");
     fx.t.file("p/node_modules/secret/x.js", 100);
@@ -874,6 +960,9 @@ fn partly_unreadable_findings_are_not_deleted() {
 
 #[test]
 fn progress_reaches_the_totals_with_native_only_bytes_left_out() {
+    if common::unsupported("progress_reaches_the_totals_with_native_only_bytes_left_out") {
+        return;
+    }
     let fx = Fx::new();
     let deleted = fx.node_project("p");
     let kept = fx.node_project("q");
@@ -917,6 +1006,9 @@ impl Journal for CancelOnFirst<'_> {
 
 #[test]
 fn a_cancel_after_the_first_item_counts_only_that_one() {
+    if common::unsupported("a_cancel_after_the_first_item_counts_only_that_one") {
+        return;
+    }
     let fx = Fx::new();
     for p in ["p", "q", "r"] {
         fx.node_project(p);
@@ -953,6 +1045,9 @@ impl ExecEvents for CancelOnItem<'_> {
 
 #[test]
 fn a_cancel_at_the_kth_item_event_leaves_every_later_item_not_run() {
+    if common::unsupported("a_cancel_at_the_kth_item_event_leaves_every_later_item_not_run") {
+        return;
+    }
     let fx = Fx::new();
     for i in 0..6 {
         fx.node_project(&format!("p{i}"));
@@ -1000,6 +1095,9 @@ impl ProcessTable for SnapshotOnFirstCall<'_> {
 
 #[test]
 fn preparing_counts_the_files_of_the_chosen_trees_before_the_first_item() {
+    if common::unsupported("preparing_counts_the_files_of_the_chosen_trees_before_the_first_item") {
+        return;
+    }
     let fx = Fx::new();
     fx.node_project("p");
     fx.venv_project("q");
@@ -1020,6 +1118,9 @@ fn preparing_counts_the_files_of_the_chosen_trees_before_the_first_item() {
 
 #[test]
 fn the_running_tool_is_named_while_its_command_runs() {
+    if common::unsupported("the_running_tool_is_named_while_its_command_runs") {
+        return;
+    }
     let fx = Fx::new();
     let uv = fx.t.dir(".cache/uv");
     fx.t.file(".cache/uv/wheels/a.whl", 1000);
@@ -1061,6 +1162,9 @@ impl Journal for ToolAtRecord<'_> {
 
 #[test]
 fn local_snapshots_counted_by_the_caller_run_no_tmutil() {
+    if common::unsupported("local_snapshots_counted_by_the_caller_run_no_tmutil") {
+        return;
+    }
     let fx = Fx::new();
     fx.node_project("p");
     let plan = fx.plan();
@@ -1112,6 +1216,9 @@ impl Journal for LoggedJournal {
 
 #[test]
 fn the_hook_says_cleaning_before_the_first_action_and_each_item_after_its_record() {
+    if common::unsupported("the_hook_says_cleaning_before_the_first_action_and_each_item_after_its_record") {
+        return;
+    }
     let fx = Fx::new();
     fx.node_project("p");
     fx.node_project("q");
@@ -1145,6 +1252,9 @@ fn the_hook_says_cleaning_before_the_first_action_and_each_item_after_its_record
 
 #[test]
 fn the_hook_says_cleaning_with_no_items_and_nothing_when_execute_refuses() {
+    if common::unsupported("the_hook_says_cleaning_with_no_items_and_nothing_when_execute_refuses") {
+        return;
+    }
     let fx = Fx::new();
     fx.node_project("p");
     let mut plan = fx.plan();
@@ -1172,6 +1282,9 @@ fn the_hook_says_cleaning_with_no_items_and_nothing_when_execute_refuses() {
 
 #[test]
 fn a_cancelled_marker_walk_keeps_its_target() {
+    if common::unsupported("a_cancelled_marker_walk_keeps_its_target") {
+        return;
+    }
     // The ticker cancels the walk on Ctrl-C; whichever flag the executor sees
     // first, a target walked only in part must not be cleaned.
     let fx = Fx::new();

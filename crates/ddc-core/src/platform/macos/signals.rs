@@ -84,10 +84,18 @@ pub fn clear_child_group() {
 
 /// Sends `sig` to every process of `group` (a positive process group id).
 pub fn kill_group(group: i32, sig: i32) {
-    if group > 0 {
-        // SAFETY: kill(2) with a negative pid signals a process group; no memory is involved.
-        unsafe { libc::kill(-group, sig) };
+    let _ = signal_group(group, sig);
+}
+
+/// Sends `sig` to every process of `group` (a positive process group id);
+/// the error when there is no such group or it refuses the signal (macOS
+/// refuses to signal a group that holds only a zombie).
+pub fn signal_group(group: i32, sig: i32) -> io::Result<()> {
+    if group <= 0 {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("not a process group: {group}")));
     }
+    // SAFETY: kill(2) with a negative pid signals a process group; no memory is involved.
+    if unsafe { libc::kill(-group, sig) } == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
 }
 
 /// Ends the process by `sig`: restores its default action, unblocks it and

@@ -4,16 +4,13 @@
 //! fails, so the volumes come from `statfs`; nothing real is run.
 
 use std::fs;
-use std::io::Read as _;
-use std::os::unix::fs::PermissionsExt as _;
-use std::os::unix::process::ExitStatusExt as _;
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
 
 use ddc_core::disk::{DiskReport, HomeSource};
 use ddc_loadgen::isolate::ClearEnv as _;
 
+mod common;
 mod contract;
 
 struct Fx {
@@ -42,7 +39,7 @@ impl Fx {
         let path = self.root.join("sys").join(rel);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, script).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        common::set_mode(&path, 0o755);
     }
 
     fn ddc(&self, args: &[&str]) -> Command {
@@ -68,6 +65,9 @@ fn report(stdout: &[u8]) -> DiskReport {
 
 #[test]
 fn disk_json_reports_the_areas_and_saves_the_same_report() {
+    if common::unsupported("disk_json_reports_the_areas_and_saves_the_same_report") {
+        return;
+    }
     let fx = Fx::new();
     let out = fx.ddc(&["--json"]).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
@@ -87,6 +87,9 @@ fn disk_json_reports_the_areas_and_saves_the_same_report() {
 
 #[test]
 fn disk_prints_a_table_with_the_home_row_first() {
+    if common::unsupported("disk_prints_a_table_with_the_home_row_first") {
+        return;
+    }
     let fx = Fx::new();
     let out = fx.ddc(&[]).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
@@ -100,6 +103,9 @@ fn disk_prints_a_table_with_the_home_row_first() {
 
 #[test]
 fn disk_with_progress_json_emits_disk_walk_ticks_ending_at_the_report_totals() {
+    if common::unsupported("disk_with_progress_json_emits_disk_walk_ticks_ending_at_the_report_totals") {
+        return;
+    }
     let fx = Fx::new();
     let out = fx.ddc(&["--json", "--progress", "json"]).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
@@ -122,55 +128,69 @@ fn disk_with_progress_json_emits_disk_walk_ticks_ending_at_the_report_totals() {
     );
 }
 
-fn wait_for_pid(file: &Path, timeout: Duration) -> i32 {
-    let started = Instant::now();
-    loop {
-        if let Some(pid) = fs::read_to_string(file).ok().filter(|s| s.ends_with('\n')) {
-            return pid.trim().parse().unwrap_or_else(|_| panic!("not a pid: {pid:?}"));
+// Unix only: these send ddc a signal.
+#[cfg(unix)]
+mod signal {
+    use std::io::Read as _;
+    use std::path::Path;
+    use std::process::{Child, ExitStatus};
+    use std::time::{Duration, Instant};
+
+    use super::*;
+
+    fn wait_for_pid(file: &Path, timeout: Duration) -> i32 {
+        let started = Instant::now();
+        loop {
+            if let Some(pid) = fs::read_to_string(file).ok().filter(|s| s.ends_with('\n')) {
+                return pid.trim().parse().unwrap_or_else(|_| panic!("not a pid: {pid:?}"));
+            }
+            assert!(started.elapsed() < timeout, "{file:?} never appeared");
+            std::thread::sleep(Duration::from_millis(20));
         }
-        assert!(started.elapsed() < timeout, "{file:?} never appeared");
-        std::thread::sleep(Duration::from_millis(20));
     }
-}
 
-fn wait_within(child: &mut Child, timeout: Duration) -> Option<ExitStatus> {
-    let started = Instant::now();
-    while started.elapsed() < timeout {
-        if let Some(status) = child.try_wait().unwrap() {
-            return Some(status);
+    fn wait_within(child: &mut Child, timeout: Duration) -> Option<ExitStatus> {
+        let started = Instant::now();
+        while started.elapsed() < timeout {
+            if let Some(status) = child.try_wait().unwrap() {
+                return Some(status);
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
-        std::thread::sleep(Duration::from_millis(10));
+        None
     }
-    None
-}
 
-fn alive(pid: i32) -> bool {
-    Command::new("/bin/kill").args(["-0", &pid.to_string()]).stderr(Stdio::null()).status().unwrap().success()
-}
+    fn alive(pid: i32) -> bool {
+        Command::new("/bin/kill").args(["-0", &pid.to_string()]).stderr(Stdio::null()).status().unwrap().success()
+    }
 
-#[test]
-fn sigterm_while_diskutil_runs_ends_it_and_still_saves_a_partial_report() {
-    let fx = Fx::new();
-    let pid_file = fx.root.join("diskutil.pid");
-    fx.tool("usr/sbin/diskutil", &format!("#!/bin/sh\necho $$ > '{}'\nexec /bin/sleep 30\n", pid_file.display()));
-    let mut child = fx.ddc(&["--json"]).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-    let mut stdout = child.stdout.take().unwrap();
-    let reader = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        stdout.read_to_end(&mut buf).unwrap();
-        buf
-    });
-    let tool = wait_for_pid(&pid_file, Duration::from_secs(60));
+    #[test]
+    fn sigterm_while_diskutil_runs_ends_it_and_still_saves_a_partial_report() {
+        if common::unsupported("sigterm_while_diskutil_runs_ends_it_and_still_saves_a_partial_report") {
+            return;
+        }
+        let fx = Fx::new();
+        let pid_file = fx.root.join("diskutil.pid");
+        fx.tool("usr/sbin/diskutil", &format!("#!/bin/sh\necho $$ > '{}'\nexec /bin/sleep 30\n", pid_file.display()));
+        let mut child = fx.ddc(&["--json"]).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        let mut stdout = child.stdout.take().unwrap();
+        let reader = std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            stdout.read_to_end(&mut buf).unwrap();
+            buf
+        });
+        let tool = wait_for_pid(&pid_file, Duration::from_secs(60));
 
-    Command::new("/bin/kill").args(["-TERM", &child.id().to_string()]).status().unwrap();
-    let status = wait_within(&mut child, Duration::from_secs(5)).expect("ddc ends within seconds");
+        Command::new("/bin/kill").args(["-TERM", &child.id().to_string()]).status().unwrap();
+        let status = wait_within(&mut child, Duration::from_secs(5)).expect("ddc ends within seconds");
 
-    assert_eq!(status.signal(), Some(libc::SIGTERM), "ddc ends by the signal");
-    assert!(!alive(tool), "diskutil's group got the signal");
-    let r = report(&reader.join().unwrap());
-    assert!(r.cancelled);
-    assert!(!r.areas.is_empty());
-    assert!(r.areas.iter().all(|a| a.partial), "{:?}", r.areas);
-    assert!(r.home.partial);
-    assert_eq!(report(&fs::read(fx.root.join("data/last-disk.json")).unwrap()), r);
+        assert_eq!(ddc_loadgen::platform::exit_signal(&status), Some(libc::SIGTERM), "ddc ends by the signal");
+        assert!(!alive(tool), "diskutil's group got the signal");
+        let r = report(&reader.join().unwrap());
+        assert!(r.cancelled);
+        assert!(!r.areas.is_empty());
+        assert!(r.areas.iter().all(|a| a.partial), "{:?}", r.areas);
+        assert!(r.home.partial);
+        assert_eq!(report(&fs::read(fx.root.join("data/last-disk.json")).unwrap()), r);
+    }
 }

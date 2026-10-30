@@ -2,7 +2,6 @@
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, SystemTime};
@@ -10,6 +9,8 @@ use std::time::{Duration, SystemTime};
 use ddc_core::env::Env;
 use ddc_core::store::{self, LockMode};
 use ddc_loadgen::isolate::ClearEnv as _;
+
+mod common;
 
 fn ddc(home: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
@@ -65,7 +66,7 @@ impl Fx {
             for e in fs::read_dir(&dir).unwrap() {
                 let e = e.unwrap();
                 let md = fs::symlink_metadata(e.path()).unwrap();
-                out.insert(e.path(), (md.is_dir(), md.ino()));
+                out.insert(e.path(), (md.is_dir(), common::id(e.path()).1));
                 if md.is_dir() {
                     stack.push(e.path());
                 }
@@ -77,6 +78,9 @@ impl Fx {
 
 #[test]
 fn dry_run_changes_nothing_and_writes_no_journal() {
+    if common::unsupported("dry_run_changes_nothing_and_writes_no_journal") {
+        return;
+    }
     let fx = Fx::new();
     let before = fx.snapshot();
 
@@ -92,6 +96,9 @@ fn dry_run_changes_nothing_and_writes_no_journal() {
 
 #[test]
 fn yes_cleans_only_safe_items_by_default() {
+    if common::unsupported("yes_cleans_only_safe_items_by_default") {
+        return;
+    }
     let fx = Fx::new();
 
     let out = ddc(&fx.home, &["clean", "--yes", "--data-dir", fx.data_arg()]);
@@ -116,6 +123,9 @@ fn yes_cleans_only_safe_items_by_default() {
 
 #[test]
 fn yes_with_rebuildable_class_cleans_idle_projects() {
+    if common::unsupported("yes_with_rebuildable_class_cleans_idle_projects") {
+        return;
+    }
     let fx = Fx::new();
 
     let out =
@@ -129,6 +139,9 @@ fn yes_with_rebuildable_class_cleans_idle_projects() {
 
 #[test]
 fn yes_with_review_class_is_rejected() {
+    if common::unsupported("yes_with_review_class_is_rejected") {
+        return;
+    }
     let fx = Fx::new();
     let out = ddc(&fx.home, &["clean", "--yes", "--class", "review", "--data-dir", fx.data_arg()]);
     assert_eq!(out.status.code(), Some(2));
@@ -138,6 +151,9 @@ fn yes_with_review_class_is_rejected() {
 
 #[test]
 fn without_a_terminal_a_flag_is_required() {
+    if common::unsupported("without_a_terminal_a_flag_is_required") {
+        return;
+    }
     let fx = Fx::new();
     let out = ddc(&fx.home, &["clean", "--data-dir", fx.data_arg()]);
     assert_eq!(out.status.code(), Some(2));
@@ -146,6 +162,9 @@ fn without_a_terminal_a_flag_is_required() {
 
 #[test]
 fn clean_does_not_start_while_the_lock_is_held() {
+    if common::unsupported("clean_does_not_start_while_the_lock_is_held") {
+        return;
+    }
     let fx = Fx::new();
     let env = Env::with_paths(&fx.home, &fx.data, &fx.data.join("logs"), SystemTime::now()).unwrap();
     let _held = store::try_lock(&env, LockMode::Shared).unwrap();
@@ -159,6 +178,9 @@ fn clean_does_not_start_while_the_lock_is_held() {
 
 #[test]
 fn scan_does_not_start_while_a_clean_holds_the_lock() {
+    if common::unsupported("scan_does_not_start_while_a_clean_holds_the_lock") {
+        return;
+    }
     let fx = Fx::new();
     let env = Env::with_paths(&fx.home, &fx.data, &fx.data.join("logs"), SystemTime::now()).unwrap();
     // A clean holds the lock exclusively; scans share it with each other.
@@ -176,6 +198,9 @@ fn scan_does_not_start_while_a_clean_holds_the_lock() {
 /// an explicit list is pruned.
 #[test]
 fn the_terminal_clean_still_rescans_the_whole_home() {
+    if common::unsupported("the_terminal_clean_still_rescans_the_whole_home") {
+        return;
+    }
     let fx = Fx::new();
     for i in 0..8 {
         fx.write(&format!("big/t{i}/deep/f.bin"), b"x");

@@ -27,6 +27,9 @@ const EPSILON: f64 = 0.25;
 const FLOOR: u64 = 64;
 
 fn check(p: Profile) {
+    if ddc_loadgen::unsupported(p.name()) {
+        return;
+    }
     let small = own_process().then(|| {
         let dir = target::Scratch::new().unwrap();
         let g = skip_unported(generate(p, N, 1, dir.path(), None))?;
@@ -133,6 +136,9 @@ fn grown(p: Profile, what: &str, (a, n): (&Snapshot, u64), (b, m): (&Snapshot, u
 /// `nm` checks that keep it out of a release (`make release-check`).
 #[test]
 fn the_counters_are_visible_to_nm() {
+    if ddc_loadgen::unsupported("the_counters_are_visible_to_nm") {
+        return;
+    }
     if !own_process() {
         return;
     }

@@ -158,6 +158,9 @@ fn deletes(commands: &FakeCommands) -> Vec<String> {
 
 #[test]
 fn a_runtime_is_deleted_with_coresimulators_simctl_alone_and_its_bytes_are_measured() {
+    if common::unsupported("a_runtime_is_deleted_with_coresimulators_simctl_alone_and_its_bytes_are_measured") {
+        return;
+    }
     let fx = Fx::new();
     let (asset, holding) = (fx.asset(), fx.holding());
     let commands = FakeCommands {
@@ -209,6 +212,9 @@ fn the_journal_has_its_own_version_and_the_scan_reports_is_unchanged() {
 
 #[test]
 fn every_runtime_the_probe_cannot_vouch_for_is_refused_before_any_delete() {
+    if common::unsupported("every_runtime_the_probe_cannot_vouch_for_is_refused_before_any_delete") {
+        return;
+    }
     let fx = Fx::new();
     let outside = fx.t.dir("elsewhere/x.asset/AssetData");
     let evil = fx.t.dir("sys/System/Library/AssetsV2Evil/x.asset/AssetData");
@@ -274,6 +280,9 @@ fn every_runtime_the_probe_cannot_vouch_for_is_refused_before_any_delete() {
 
 #[test]
 fn without_ready_developer_tools_nothing_is_listed_or_deleted() {
+    if common::unsupported("without_ready_developer_tools_nothing_is_listed_or_deleted") {
+        return;
+    }
     let fx = Fx::new();
     let none = FakeCommands::default().with("xcode-select", false, "").with("simctl", true, "");
     let (reports, _) = run(&fx, &none, &one(ActionId::SimctlRuntimeDelete, Some("A")));
@@ -288,6 +297,9 @@ fn without_ready_developer_tools_nothing_is_listed_or_deleted() {
 
 #[test]
 fn a_runtime_that_left_the_list_while_its_folder_kept_its_size_is_removed_not_freed() {
+    if common::unsupported("a_runtime_that_left_the_list_while_its_folder_kept_its_size_is_removed_not_freed") {
+        return;
+    }
     let fx = Fx::new();
     let commands = simctl(&fx, &[fx.runtime(|_| {})]);
     let (reports, _) = run(&fx, &commands, &one(ActionId::SimctlRuntimeDelete, Some("A")));
@@ -299,6 +311,9 @@ fn a_runtime_that_left_the_list_while_its_folder_kept_its_size_is_removed_not_fr
 
 #[test]
 fn a_runtime_still_listed_at_the_deadline_is_still_deleting() {
+    if common::unsupported("a_runtime_still_listed_at_the_deadline_is_still_deleting") {
+        return;
+    }
     let fx = Fx::new();
     let listed = fx.list(&[fx.runtime(|_| {})]);
     let commands = simctl(&fx, &[]).answers_in_turn("simctl", "runtime list -j", &[(true, &listed)]);
@@ -313,6 +328,9 @@ fn a_runtime_still_listed_at_the_deadline_is_still_deleting() {
 
 #[test]
 fn a_stop_during_the_wait_ends_it_as_still_deleting_and_journals_it() {
+    if common::unsupported("a_stop_during_the_wait_ends_it_as_still_deleting_and_journals_it") {
+        return;
+    }
     let fx = Fx::new();
     let listed = fx.list(&[fx.runtime(|_| {})]);
     let stop = Arc::new(AtomicBool::new(false));
@@ -348,6 +366,9 @@ fn a_stop_during_the_wait_ends_it_as_still_deleting_and_journals_it() {
 /// killed tool's exit, says what happened.
 #[test]
 fn a_stop_during_the_delete_call_reads_the_list_once() {
+    if common::unsupported("a_stop_during_the_delete_call_reads_the_list_once") {
+        return;
+    }
     let fx = Fx::new();
     let ready = fx.list(&[fx.runtime(|_| {})]);
     let deleting = fx.list(&[fx.runtime(|r| r["state"] = json!("Deleting"))]);
@@ -381,6 +402,9 @@ fn a_stop_during_the_delete_call_reads_the_list_once() {
 
 #[test]
 fn brew_cleanup_runs_alone_from_the_areas_brew_with_no_autoremove() {
+    if common::unsupported("brew_cleanup_runs_alone_from_the_areas_brew_with_no_autoremove") {
+        return;
+    }
     let fx = Fx::new();
     let old = fx.t.path(&format!("{DATA}/opt/homebrew/Cellar/wget/1.0"));
     let (cache, holding) = (fx.brew_cache().join("downloads"), fx.holding());
@@ -453,6 +477,9 @@ fn the_dry_run_runs_each_tools_own_dry_run_and_changes_nothing() {
 
 #[test]
 fn a_homebrew_elsewhere_is_refused() {
+    if common::unsupported("a_homebrew_elsewhere_is_refused") {
+        return;
+    }
     let fx = Fx::new();
     let intel = fx.t.dir("sys/usr/local");
     fx.t.dir("sys/usr/local/Cellar");
@@ -478,6 +505,9 @@ fn a_homebrew_elsewhere_is_refused() {
 
 #[test]
 fn a_missing_cache_folder_is_compared_as_a_path() {
+    if common::unsupported("a_missing_cache_folder_is_compared_as_a_path") {
+        return;
+    }
     let fx = Fx::new();
     gone(fx.brew_cache(), &fx.holding());
     let commands = fx.brew(FakeCommands::default());
@@ -491,6 +521,11 @@ fn a_missing_cache_folder_is_compared_as_a_path() {
 
 #[test]
 fn a_failing_tool_carries_its_terminal_command_and_names_an_administrator_only_on_a_permission_error() {
+    if common::unsupported(
+        "a_failing_tool_carries_its_terminal_command_and_names_an_administrator_only_on_a_permission_error",
+    ) {
+        return;
+    }
     let fx = Fx::new();
     let denied = fx.brew(FakeCommands::default()).answer("brew", "cleanup", false, "").stderr_on(
         "brew",
@@ -514,6 +549,9 @@ fn a_failing_tool_carries_its_terminal_command_and_names_an_administrator_only_o
 
 #[test]
 fn a_skipped_folder_is_not_measured_and_the_action_still_runs() {
+    if common::unsupported("a_skipped_folder_is_not_measured_and_the_action_still_runs") {
+        return;
+    }
     let fx = Fx::new();
     let commands = fx.brew(FakeCommands::default());
     let skips = [fx.brew_cache()];
@@ -662,6 +700,9 @@ fn available_offers_the_runtimes_the_probe_passes_and_homebrew() {
 /// offered Homebrew alone.
 #[test]
 fn an_action_whose_capability_is_absent_refuses_the_whole_list() {
+    if common::unsupported("an_action_whose_capability_is_absent_refuses_the_whole_list") {
+        return;
+    }
     let fx = Fx::new();
     let commands = fx.brew(simctl(&fx, &[fx.runtime(|_| {})]));
     let homebrew_only = [Capability::Homebrew];
@@ -791,6 +832,9 @@ fn last_disk_marks_the_areas_that_ran_stale_and_drops_a_runtime_that_left() {
 
 #[test]
 fn after_brew_cleanup_the_homebrew_cache_finding_is_measured_again() {
+    if common::unsupported("after_brew_cleanup_the_homebrew_cache_finding_is_measured_again") {
+        return;
+    }
     let fx = Fx::new();
     let env = fx.env();
     let opts =
@@ -922,6 +966,9 @@ fn removing(fx: &Fx, commands: FakeCommands) -> FakeCommands {
 
 #[test]
 fn an_opt_environment_is_removed_by_its_installs_own_conda_by_path_alone() {
+    if common::unsupported("an_opt_environment_is_removed_by_its_installs_own_conda_by_path_alone") {
+        return;
+    }
     let fx = Fx::new().with_conda();
     // A file of another environment, hard-linked into this one.
     fx.t.write(&format!("{MINICONDA}/envs/ml/conda-meta/history"), "");
@@ -959,6 +1006,9 @@ fn an_opt_environment_is_removed_by_its_installs_own_conda_by_path_alone() {
 
 #[test]
 fn an_environment_named_through_the_data_volume_is_given_to_conda_as_conda_spells_it() {
+    if common::unsupported("an_environment_named_through_the_data_volume_is_given_to_conda_as_conda_spells_it") {
+        return;
+    }
     let fx = Fx::new().with_conda();
     let commands = removing(&fx, fx.conda(&fx.conda_settings(|_| {})));
     let data = fx.t.path(&format!("{MINICONDA}/envs/old"));
@@ -972,6 +1022,9 @@ fn an_environment_named_through_the_data_volume_is_given_to_conda_as_conda_spell
 
 #[test]
 fn every_environment_conda_must_not_remove_is_refused_before_conda_starts() {
+    if common::unsupported("every_environment_conda_must_not_remove_is_refused_before_conda_starts") {
+        return;
+    }
     let fx = Fx::new().with_conda();
     let ok = fx.conda_settings(|_| {});
     fx.t.write("home/miniconda3/envs/mine/conda-meta/history", "");
@@ -1014,6 +1067,9 @@ fn every_environment_conda_must_not_remove_is_refused_before_conda_starts() {
 /// is the Review window's, and conda is not started.
 #[test]
 fn an_opt_install_linked_into_the_home_folder_is_refused_before_conda_starts() {
+    if common::unsupported("an_opt_install_linked_into_the_home_folder_is_refused_before_conda_starts") {
+        return;
+    }
     let fx = Fx::new();
     fx.t.write("home/miniconda3/bin/conda", "#!/bin/sh\nexit 1\n");
     fx.t.write("home/miniconda3/conda-meta/history", "");
@@ -1031,17 +1087,19 @@ fn an_opt_install_linked_into_the_home_folder_is_refused_before_conda_starts() {
 
 #[test]
 fn a_folder_the_user_cannot_write_needs_an_administrator_before_conda_starts() {
-    use std::os::unix::fs::PermissionsExt as _;
+    if common::unsupported("a_folder_the_user_cannot_write_needs_an_administrator_before_conda_starts") {
+        return;
+    }
     let fx = Fx::new().with_conda();
     let commands = fx.conda(&fx.conda_settings(|_| {}));
     let envs = fx.t.path(&format!("{MINICONDA}/envs"));
     let pkgs = fx.t.path(&format!("{MINICONDA}/pkgs"));
-    fs::set_permissions(&envs, fs::Permissions::from_mode(0o555)).unwrap();
-    fs::set_permissions(&pkgs, fs::Permissions::from_mode(0o555)).unwrap();
+    common::set_mode(&envs, 0o555);
+    common::set_mode(&pkgs, 0o555);
     let (removed, _) = run(&fx, &commands, &fx.conda_list(ActionId::CondaEnvRemove, &fx.opt_env()));
     let (cleaned, _) = run(&fx, &commands, &fx.conda_list(ActionId::CondaClean, &fx.opt_conda()));
-    fs::set_permissions(&envs, fs::Permissions::from_mode(0o755)).unwrap();
-    fs::set_permissions(&pkgs, fs::Permissions::from_mode(0o755)).unwrap();
+    common::set_mode(&envs, 0o755);
+    common::set_mode(&pkgs, 0o755);
 
     assert_eq!(removed[0].result, ActionResult::Refused { reason: Refusal::CondaNotWritable });
     assert_eq!(cleaned[0].result, ActionResult::Refused { reason: Refusal::CondaNotWritable });
@@ -1050,6 +1108,9 @@ fn a_folder_the_user_cannot_write_needs_an_administrator_before_conda_starts() {
 
 #[test]
 fn what_conda_says_of_an_environment_can_refuse_it_too() {
+    if common::unsupported("what_conda_says_of_an_environment_can_refuse_it_too") {
+        return;
+    }
     let fx = Fx::new().with_conda();
     let cases: Vec<(&str, FakeCommands, Refusal)> = vec![
         ("no conda", FakeCommands::default(), Refusal::CondaMissing),
@@ -1075,6 +1136,9 @@ fn what_conda_says_of_an_environment_can_refuse_it_too() {
 
 #[test]
 fn an_environment_still_there_after_conda_exits_0_is_removed_not_freed() {
+    if common::unsupported("an_environment_still_there_after_conda_exits_0_is_removed_not_freed") {
+        return;
+    }
     let fx = Fx::new().with_conda();
     let commands = fx.conda(&fx.conda_settings(|_| {}));
     let (reports, _) = run(&fx, &commands, &fx.conda_list(ActionId::CondaEnvRemove, &fx.opt_env()));
@@ -1090,6 +1154,9 @@ fn an_environment_still_there_after_conda_exits_0_is_removed_not_freed() {
 
 #[test]
 fn conda_clean_runs_once_from_the_install_limited_to_its_package_folder() {
+    if common::unsupported("conda_clean_runs_once_from_the_install_limited_to_its_package_folder") {
+        return;
+    }
     let fx = Fx::new().with_conda();
     let commands = fx.conda(&fx.conda_settings(|_| {}));
 
@@ -1113,6 +1180,9 @@ fn conda_clean_runs_once_from_the_install_limited_to_its_package_folder() {
 
 #[test]
 fn a_package_folder_conda_could_clean_beyond_is_refused_in_the_dry_run_too() {
+    if common::unsupported("a_package_folder_conda_could_clean_beyond_is_refused_in_the_dry_run_too") {
+        return;
+    }
     let fx = Fx::new().with_conda();
     let other = fx.t.dir("home/.conda/pkgs");
     let two = json!({ "pkgs_dirs": [fx.opt_conda().join("pkgs"), other] }).to_string();
@@ -1136,6 +1206,9 @@ fn a_package_folder_conda_could_clean_beyond_is_refused_in_the_dry_run_too() {
 
 #[test]
 fn the_conda_dry_runs_ask_the_probe_and_estimate_without_removing() {
+    if common::unsupported("the_conda_dry_runs_ask_the_probe_and_estimate_without_removing") {
+        return;
+    }
     let fx = Fx::new().with_conda();
     let commands = fx.conda(&fx.conda_settings(|_| {}));
     let named = |action, p: PathBuf| ListedAction::new(action, Some(p.to_string_lossy().into_owned()));
@@ -1180,6 +1253,9 @@ fn available_offers_each_opt_installs_package_cache_and_environments() {
 
 #[test]
 fn a_stop_before_a_conda_action_reports_the_command_it_would_have_run() {
+    if common::unsupported("a_stop_before_a_conda_action_reports_the_command_it_would_have_run") {
+        return;
+    }
     let fx = Fx::new().with_conda();
     fx.cancel.store(true, Ordering::SeqCst);
     let commands = fx.conda(&fx.conda_settings(|_| {}));
@@ -1195,6 +1271,9 @@ fn a_stop_before_a_conda_action_reports_the_command_it_would_have_run() {
 /// with the command a person can run again.
 #[test]
 fn a_stop_while_conda_runs_reports_it_stopped_with_its_command() {
+    if common::unsupported("a_stop_while_conda_runs_reports_it_stopped_with_its_command") {
+        return;
+    }
     let fx = Fx::new().with_conda();
     let exe = fx.conda_exe();
     let remove = format!("env remove -p {} --yes", fx.opt_env().display());

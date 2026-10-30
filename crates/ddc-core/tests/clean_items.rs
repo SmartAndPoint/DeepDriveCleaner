@@ -6,7 +6,6 @@ mod common;
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -114,7 +113,7 @@ impl Fx {
             for e in fs::read_dir(&dir).unwrap() {
                 let md = fs::symlink_metadata(e.as_ref().unwrap().path()).unwrap();
                 let path = e.unwrap().path();
-                out.insert(path.clone(), (md.is_dir(), md.ino()));
+                out.insert(path.clone(), (md.is_dir(), common::id(&path).1));
                 if md.is_dir() {
                     stack.push(path);
                 }
@@ -156,6 +155,9 @@ fn outcome<'a>(r: &'a CleanReport, path: &Path) -> &'a Outcome {
 
 #[test]
 fn a_review_item_goes_to_the_trash_unless_permanent_and_a_reclassified_one_is_skipped() {
+    if common::unsupported("a_review_item_goes_to_the_trash_unless_permanent_and_a_reclassified_one_is_skipped") {
+        return;
+    }
     let fx = Fx::new();
     let to_trash = fx.review_modules("a");
     let to_delete = fx.review_modules("b");
@@ -195,6 +197,9 @@ impl Journal for CancelOnFirst<'_> {
 
 #[test]
 fn a_cancel_after_the_first_of_three_items_leaves_the_others_not_run() {
+    if common::unsupported("a_cancel_after_the_first_of_three_items_leaves_the_others_not_run") {
+        return;
+    }
     let fx = Fx::new();
     let caches = [fx.pycache("q1"), fx.pycache("q2"), fx.pycache("q3")];
     let reviewed = fx.scan();
@@ -214,6 +219,9 @@ fn a_cancel_after_the_first_of_three_items_leaves_the_others_not_run() {
 
 #[test]
 fn a_cancel_during_the_location_probe_never_becomes_the_fallback() {
+    if common::unsupported("a_cancel_during_the_location_probe_never_becomes_the_fallback") {
+        return;
+    }
     // A probe killed by the forwarded signal fails like a location mismatch;
     // the cancel must stop the item, not delete the cache through the fallback.
     for probe_succeeds in [true, false] {
@@ -243,6 +251,9 @@ fn a_cancel_during_the_location_probe_never_becomes_the_fallback() {
 
 #[test]
 fn a_user_data_item_is_refused_and_a_swapped_one_is_changed_since_scan() {
+    if common::unsupported("a_user_data_item_is_refused_and_a_swapped_one_is_changed_since_scan") {
+        return;
+    }
     let fx = Fx::new();
     let pictures = fx.t.dir("Pictures");
     fx.t.file("Pictures/a.jpg", 1000);
@@ -262,6 +273,9 @@ fn a_user_data_item_is_refused_and_a_swapped_one_is_changed_since_scan() {
 
 #[test]
 fn the_dry_run_predicts_and_changes_nothing() {
+    if common::unsupported("the_dry_run_predicts_and_changes_nothing") {
+        return;
+    }
     let fx = Fx::new();
     let cache = fx.pycache("q");
     let modules = fx.review_modules("x");
@@ -303,6 +317,9 @@ fn the_dry_run_predicts_and_changes_nothing() {
 
 #[test]
 fn a_newly_kept_item_and_an_unknown_rule_get_the_same_reason_from_the_dry_run_and_the_clean() {
+    if common::unsupported("a_newly_kept_item_and_an_unknown_rule_get_the_same_reason_from_the_dry_run_and_the_clean") {
+        return;
+    }
     let fx = Fx::new();
     let inside = fx.pycache("a");
     let below = fx.pycache("b");
@@ -346,6 +363,9 @@ impl DirReader for Counting {
 
 #[test]
 fn the_dry_run_walks_only_the_listed_items_and_streams_a_line_per_item() {
+    if common::unsupported("the_dry_run_walks_only_the_listed_items_and_streams_a_line_per_item") {
+        return;
+    }
     let fx = Fx::new();
     let listed_paths = [fx.pycache("one"), fx.pycache("two"), fx.pycache("three")];
     // Unlisted trees beside and around them.
@@ -432,6 +452,9 @@ fn a_malformed_list_is_refused_before_anything_runs() {
 
 #[test]
 fn the_clean_report_round_trips_and_names_each_volume() {
+    if common::unsupported("the_clean_report_round_trips_and_names_each_volume") {
+        return;
+    }
     let fx = Fx::new();
     let cache = fx.pycache("q");
     let reviewed = fx.scan();

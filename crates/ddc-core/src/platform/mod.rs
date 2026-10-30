@@ -121,6 +121,7 @@ mod pins {
     const _: fn(i32) = imp::signals::set_child_group;
     const _: fn() = imp::signals::clear_child_group;
     const _: fn(i32, i32) = imp::signals::kill_group;
+    const _: fn(i32, i32) -> io::Result<()> = imp::signals::signal_group;
     const _: fn(i32) -> ! = imp::signals::reraise;
     const _: i32 = imp::signals::SIGKILL;
 

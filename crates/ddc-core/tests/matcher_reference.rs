@@ -627,6 +627,9 @@ proptest! {
 
     #[test]
     fn the_walk_claims_what_the_reference_claims_and_verify_agrees(t in trees()) {
+        if common::unsupported("the_walk_claims_what_the_reference_claims_and_verify_agrees") {
+            return Ok(());
+        }
         let (tb, excludes) = on_disk(&t);
         let home = tb.root();
         let catalog = Catalog::builtin(home);

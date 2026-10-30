@@ -372,6 +372,9 @@ fn listing_fixture() -> String {
 
 #[test]
 fn the_listing_measures_each_keg_and_offers_what_nothing_needs() {
+    if common::unsupported("the_listing_measures_each_keg_and_offers_what_nothing_needs") {
+        return;
+    }
     let a = Area::new();
     a.with_services();
     let wget = a.keg("wget", "1.25.0", 96 * 1024);
@@ -550,6 +553,9 @@ impl Area {
 
 #[test]
 fn the_dry_run_rereads_brew_and_lists_every_keg_it_would_remove() {
+    if common::unsupported("the_dry_run_rereads_brew_and_lists_every_keg_it_would_remove") {
+        return;
+    }
     let a = Area::new();
     a.with_services();
     let old = a.keg("python@3.13", "3.13.0", 64 * 1024);
@@ -759,6 +765,9 @@ const UNINSTALL_PYTHON: &str = "brew uninstall --formula --force python@3.13";
 
 #[test]
 fn a_confirmed_formula_is_uninstalled_by_the_areas_brew_and_what_it_freed_is_measured() {
+    if common::unsupported("a_confirmed_formula_is_uninstalled_by_the_areas_brew_and_what_it_freed_is_measured") {
+        return;
+    }
     let a = Area::new();
     a.with_services();
     let old = a.keg("python@3.13", "3.13.0", 64 * 1024);
@@ -793,6 +802,9 @@ fn a_confirmed_formula_is_uninstalled_by_the_areas_brew_and_what_it_freed_is_mea
 
 #[test]
 fn brew_exiting_0_with_a_keg_left_has_freed_nothing_and_a_failure_says_why() {
+    if common::unsupported("brew_exiting_0_with_a_keg_left_has_freed_nothing_and_a_failure_says_why") {
+        return;
+    }
     let a = Area::new();
     a.keg("wget", "1.25.0", 16 * 1024);
     let call = "uninstall --formula wget";
@@ -813,6 +825,9 @@ fn brew_exiting_0_with_a_keg_left_has_freed_nothing_and_a_failure_says_why() {
 
 #[test]
 fn too_little_time_left_after_the_check_starts_nothing() {
+    if common::unsupported("too_little_time_left_after_the_check_starts_nothing") {
+        return;
+    }
     // A 5 s timeout and a 4 s floor: a check over 1 s leaves too little.
     let a = Area::new();
     a.keg("wget", "1.25.0", 16 * 1024);
@@ -844,6 +859,9 @@ fn too_little_time_left_after_the_check_starts_nothing() {
 
 #[test]
 fn the_orphans_are_uninstalled_together_and_a_refusal_is_journaled_with_what_needs_one() {
+    if common::unsupported("the_orphans_are_uninstalled_together_and_a_refusal_is_journaled_with_what_needs_one") {
+        return;
+    }
     let a = Area::new();
     a.keg("leftover", "1", 8 * 1024);
     let gone = a.uninstalled("leftover");
@@ -869,6 +887,9 @@ fn the_orphans_are_uninstalled_together_and_a_refusal_is_journaled_with_what_nee
 
 #[test]
 fn two_orphans_one_with_two_kegs_go_in_one_command_journaled_with_every_name() {
+    if common::unsupported("two_orphans_one_with_two_kegs_go_in_one_command_journaled_with_every_name") {
+        return;
+    }
     let a = Area::new();
     let mut doc: Value = serde_json::from_str(&listing_fixture()).unwrap();
     let formulae = doc["formulae"].as_array_mut().unwrap();
@@ -904,6 +925,9 @@ fn two_orphans_one_with_two_kegs_go_in_one_command_journaled_with_every_name() {
 
 #[test]
 fn a_stop_before_the_run_leaves_it_not_run() {
+    if common::unsupported("a_stop_before_the_run_leaves_it_not_run") {
+        return;
+    }
     let a = Area::new();
     let commands = a.brew(&listing_fixture(), "[]");
     let (procs, cancel) = (FakeProcs(vec![]), AtomicBool::new(true));
@@ -936,6 +960,9 @@ fn tap_leaf_fixture() -> String {
 
 #[test]
 fn a_tap_leaf_is_uninstalled_by_its_full_name_and_nothing_else() {
+    if common::unsupported("a_tap_leaf_is_uninstalled_by_its_full_name_and_nothing_else") {
+        return;
+    }
     let a = Area::new();
     a.keg("foo", "0.1", 8 * 1024);
     let installed = tap_leaf_fixture();
@@ -963,6 +990,9 @@ fn a_tap_leaf_is_uninstalled_by_its_full_name_and_nothing_else() {
 
 #[test]
 fn a_run_the_rereading_refuses_never_reaches_brew_uninstall() {
+    if common::unsupported("a_run_the_rereading_refuses_never_reaches_brew_uninstall") {
+        return;
+    }
     let a = Area::new();
     a.keg("python@3.13", "3.13.0", 8 * 1024);
     a.keg("python@3.13", "3.13.1", 8 * 1024);
@@ -996,6 +1026,9 @@ fn a_run_the_rereading_refuses_never_reaches_brew_uninstall() {
 
 #[test]
 fn an_empty_set_of_orphans_is_refused_and_never_a_nameless_uninstall() {
+    if common::unsupported("an_empty_set_of_orphans_is_refused_and_never_a_nameless_uninstall") {
+        return;
+    }
     let a = Area::new();
     let list = orphans_of(&[]);
     assert!(list.validate().is_err(), "the list is refused whole first");

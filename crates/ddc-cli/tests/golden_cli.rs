@@ -7,7 +7,6 @@
 //! accepts it.
 
 use std::fs;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -19,6 +18,7 @@ use ddc_loadgen::profiles::Profile;
 use ddc_loadgen::{Generated, generate, target};
 use serde_json::Value;
 
+mod common;
 mod contract;
 
 const S: u64 = 10_000;
@@ -74,10 +74,8 @@ fn outputs(run: &Run, p: Profile) -> Vec<(String, Value)> {
     if p == Profile::SystemRoot {
         out.push(("disk".to_owned(), ddc(home, &["disk", "--json", "--data-dir", &data, "--system-root", &tree])));
     }
-    let at = Where {
-        base: run.g.layout.tree.parent().unwrap().to_str().unwrap().to_owned(),
-        dev: fs::metadata(&run.g.layout.tree).unwrap().dev(),
-    };
+    let at =
+        Where { base: run.g.layout.tree.parent().unwrap().to_str().unwrap().to_owned(), dev: dev(&run.g.layout.tree) };
     for (_, v) in &mut out {
         normalise(v, &at);
     }
@@ -234,6 +232,9 @@ macro_rules! golden {
         $(
             #[test]
             fn $test() {
+                if common::unsupported(stringify!($test)) {
+                    return;
+                }
                 assert_golden(&check(Profile::$p));
             }
         )*
@@ -260,7 +261,7 @@ fn golden_rules() {
     let home = dir.path().join("home");
     fs::create_dir(&home).unwrap();
     let mut got = ddc(&home, &["rules", "--json"]);
-    let at = Where { base: dir.path().to_str().unwrap().to_owned(), dev: fs::metadata(&home).unwrap().dev() };
+    let at = Where { base: dir.path().to_str().unwrap().to_owned(), dev: dev(&home) };
     normalise(&mut got, &at);
     let d = against(&golden_dir().join("rules.json"), &got);
     assert_golden(&d.into_iter().map(|d| format!("rules: {d}")).collect::<Vec<_>>());
@@ -270,6 +271,9 @@ fn golden_rules() {
 /// its findings are reported as ignored and leave the plan.
 #[test]
 fn a_change_to_one_rule_fails_the_golden_check() {
+    if common::unsupported("a_change_to_one_rule_fails_the_golden_check") {
+        return;
+    }
     if recording() {
         return;
     }
@@ -286,4 +290,9 @@ fn every_static_profile_has_a_golden_test() {
     for p in Profile::ALL {
         assert_eq!(tested.contains(&p.name()), p != Profile::Hostile, "{}", p.name());
     }
+}
+
+/// The device of `path`, symlinks followed.
+fn dev(path: &Path) -> u64 {
+    ddc_core::platform::meta::file_id(&fs::metadata(path).unwrap()).unwrap().0
 }

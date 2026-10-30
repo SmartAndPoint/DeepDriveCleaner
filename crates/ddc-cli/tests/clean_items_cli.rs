@@ -8,8 +8,6 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{Read as _, Write as _};
-use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
-use std::os::unix::process::ExitStatusExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant, SystemTime};
@@ -20,6 +18,7 @@ use ddc_core::exec::report::CleanReport;
 use ddc_core::progress::ProgressLine;
 use ddc_loadgen::isolate::ClearEnv as _;
 
+mod common;
 mod contract;
 
 struct Fx {
@@ -119,7 +118,7 @@ impl Fx {
         let bin = self.root.join("bin");
         fs::create_dir_all(&bin).unwrap();
         fs::write(bin.join("uv"), script).unwrap();
-        fs::set_permissions(bin.join("uv"), fs::Permissions::from_mode(0o755)).unwrap();
+        common::set_mode(bin.join("uv"), 0o755);
         pid_file
     }
 
@@ -139,7 +138,7 @@ impl Fx {
             for e in fs::read_dir(&dir).unwrap() {
                 let path = e.unwrap().path();
                 let md = fs::symlink_metadata(&path).unwrap();
-                out.insert(path.clone(), (md.is_dir(), md.ino()));
+                out.insert(path.clone(), (md.is_dir(), common::id(&path).1));
                 if md.is_dir() {
                     stack.push(path);
                 }
@@ -207,6 +206,9 @@ fn alive(pid: i32) -> bool {
 
 #[test]
 fn listed_items_are_cleaned_and_a_swapped_or_user_data_one_is_refused() {
+    if common::unsupported("listed_items_are_cleaned_and_a_swapped_or_user_data_one_is_refused") {
+        return;
+    }
     let fx = Fx::new();
     let list = fx.list(&["q/__pycache__", "p/node_modules", "Pictures"]);
     // The project's dependencies are reinstalled after the review: same path, another directory.
@@ -234,6 +236,9 @@ fn listed_items_are_cleaned_and_a_swapped_or_user_data_one_is_refused() {
 
 #[test]
 fn a_listed_item_of_a_switched_off_type_is_still_cleaned() {
+    if common::unsupported("a_listed_item_of_a_switched_off_type_is_still_cleaned") {
+        return;
+    }
     let fx = Fx::new();
     let list = fx.list(&["q/__pycache__"]);
     // Switched off after the review: the list is the user's confirmation.
@@ -249,6 +254,9 @@ fn a_listed_item_of_a_switched_off_type_is_still_cleaned() {
 /// A load test passes the snapshot count, so `tmutil` is never asked.
 #[test]
 fn a_given_snapshot_count_is_reported_as_is() {
+    if common::unsupported("a_given_snapshot_count_is_reported_as_is") {
+        return;
+    }
     let fx = Fx::new();
     let list = fx.list(&["q/__pycache__"]);
 
@@ -261,13 +269,16 @@ fn a_given_snapshot_count_is_reported_as_is() {
 
 #[test]
 fn the_report_round_trips_names_the_volume_and_a_failed_item_still_exits_0() {
+    if common::unsupported("the_report_round_trips_names_the_volume_and_a_failed_item_still_exits_0") {
+        return;
+    }
     let fx = Fx::new();
     let list = fx.list(&["q/__pycache__"]);
     // The parent cannot be written: the tombstone rename fails.
-    fs::set_permissions(fx.path("q"), fs::Permissions::from_mode(0o555)).unwrap();
+    common::set_mode(fx.path("q"), 0o555);
 
     let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--json"]).output().unwrap();
-    fs::set_permissions(fx.path("q"), fs::Permissions::from_mode(0o755)).unwrap();
+    common::set_mode(fx.path("q"), 0o755);
 
     assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
@@ -283,12 +294,15 @@ fn the_report_round_trips_names_the_volume_and_a_failed_item_still_exits_0() {
 
 #[test]
 fn the_text_mode_counts_refused_items_as_skipped_and_exits_1_on_a_failed_item() {
+    if common::unsupported("the_text_mode_counts_refused_items_as_skipped_and_exits_1_on_a_failed_item") {
+        return;
+    }
     let fx = Fx::new();
     let list = fx.list(&["q/__pycache__", "Pictures"]);
-    fs::set_permissions(fx.path("q"), fs::Permissions::from_mode(0o555)).unwrap();
+    common::set_mode(fx.path("q"), 0o555);
 
     let out = fx.ddc(&["clean", "--items", list.to_str().unwrap()]).output().unwrap();
-    fs::set_permissions(fx.path("q"), fs::Permissions::from_mode(0o755)).unwrap();
+    common::set_mode(fx.path("q"), 0o755);
 
     assert_eq!(out.status.code(), Some(1), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let text = String::from_utf8(out.stdout).unwrap();
@@ -300,6 +314,9 @@ fn the_text_mode_counts_refused_items_as_skipped_and_exits_1_on_a_failed_item() 
 
 #[test]
 fn items_with_permanent_or_a_malformed_list_are_refused_untouched() {
+    if common::unsupported("items_with_permanent_or_a_malformed_list_are_refused_untouched") {
+        return;
+    }
     let fx = Fx::new();
     let list = fx.list(&["q/__pycache__"]);
     // The scan made the data directory; the refused runs must not make it again.
@@ -323,6 +340,9 @@ fn items_with_permanent_or_a_malformed_list_are_refused_untouched() {
 
 #[test]
 fn the_dry_run_prints_a_line_per_item_and_changes_nothing() {
+    if common::unsupported("the_dry_run_prints_a_line_per_item_and_changes_nothing") {
+        return;
+    }
     let fx = Fx::new();
     let list = fx.list(&["q/__pycache__", "p/node_modules", "Pictures"]);
     let before = fx.snapshot();
@@ -349,8 +369,13 @@ fn the_dry_run_prints_a_line_per_item_and_changes_nothing() {
     assert!(!fx.data.join("logs/actions.jsonl").exists());
 }
 
+// Unix only: it sends ddc a signal.
+#[cfg(unix)]
 #[test]
 fn sigterm_or_sighup_during_a_tool_ends_the_tool_and_ddc_with_the_report() {
+    if common::unsupported("sigterm_or_sighup_during_a_tool_ends_the_tool_and_ddc_with_the_report") {
+        return;
+    }
     // SIGHUP: a closed terminal no longer reaches a tool in its own process group.
     for (name, sig) in [("TERM", libc::SIGTERM), ("HUP", libc::SIGHUP)] {
         let fx = Fx::new();
@@ -374,7 +399,7 @@ fn sigterm_or_sighup_during_a_tool_ends_the_tool_and_ddc_with_the_report() {
         Command::new("/bin/kill").args([&format!("-{name}"), &child.id().to_string()]).status().unwrap();
         let status = wait_within(&mut child, Duration::from_secs(1)).expect("ddc ends within a second");
 
-        assert_eq!(status.signal(), Some(sig), "ddc ends by the signal");
+        assert_eq!(ddc_loadgen::platform::exit_signal(&status), Some(sig), "ddc ends by the signal");
         assert!(!alive(tool), "SIG{name}: the tool's group got the signal");
         let mut stderr = String::new();
         child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
@@ -402,6 +427,9 @@ fn sigterm_or_sighup_during_a_tool_ends_the_tool_and_ddc_with_the_report() {
 
 #[test]
 fn ctrl_c_in_a_terminal_reaches_the_tool_and_stops_the_clean_after_it() {
+    if common::unsupported("ctrl_c_in_a_terminal_reaches_the_tool_and_stops_the_clean_after_it") {
+        return;
+    }
     let fx = Fx::new();
     let pid_file = fx.fake_uv();
     // Bigger than the uv cache, so the clean runs it first.
@@ -439,15 +467,18 @@ fn ctrl_c_in_a_terminal_reaches_the_tool_and_stops_the_clean_after_it() {
 
 /// A picked entry of the user's own folders, as the app lists it.
 fn picked(path: &Path, rule: &str, action: &str) -> serde_json::Value {
-    let md = fs::symlink_metadata(path).unwrap();
+    let (dev, ino) = common::id(path);
     serde_json::json!({
-        "path": path, "dev": md.dev(), "ino": md.ino(),
+        "path": path, "dev": dev, "ino": ino,
         "rule": rule, "class": "user-data", "action": action,
     })
 }
 
 #[test]
 fn a_picked_download_would_go_to_the_trash_unless_it_is_recent_and_names_are_escaped() {
+    if common::unsupported("a_picked_download_would_go_to_the_trash_unless_it_is_recent_and_names_are_escaped") {
+        return;
+    }
     let fx = Fx::new();
     let day_ago = SystemTime::now() - Duration::from_secs(86_400);
     let tricky = "cod\u{202e}fdp.exe";
@@ -498,6 +529,9 @@ fn a_picked_download_would_go_to_the_trash_unless_it_is_recent_and_names_are_esc
 /// finding that would be deleted (safety ADR, §5, amendment for 0.2.1).
 #[test]
 fn a_file_held_open_by_a_running_process_is_skipped_until_it_closes() {
+    if common::unsupported("a_file_held_open_by_a_running_process_is_skipped_until_it_closes") {
+        return;
+    }
     let fx = Fx::new();
     let pycache = fx.path("q/__pycache__");
     let list = fx.list(&["q/__pycache__"]);
@@ -526,6 +560,9 @@ fn a_file_held_open_by_a_running_process_is_skipped_until_it_closes() {
 /// cache lock that running `uv run` processes held. Now the tool never starts.
 #[test]
 fn a_tool_never_starts_on_a_cache_a_running_process_holds_open() {
+    if common::unsupported("a_tool_never_starts_on_a_cache_a_running_process_holds_open") {
+        return;
+    }
     let fx = Fx::new();
     let pid_file = fx.fake_uv();
     fx.write(".cache/uv/.lock", b"");
@@ -571,6 +608,9 @@ fn kind(e: &serde_json::Value) -> String {
 
 #[test]
 fn a_clean_emits_its_phases_walks_and_items_in_order() {
+    if common::unsupported("a_clean_emits_its_phases_walks_and_items_in_order") {
+        return;
+    }
     let fx = Fx::new();
     let list = fx.list(&["q/__pycache__", "p/node_modules"]);
 
@@ -612,6 +652,9 @@ fn a_clean_emits_its_phases_walks_and_items_in_order() {
 
 #[test]
 fn cleaning_is_on_stderr_before_the_first_action() {
+    if common::unsupported("cleaning_is_on_stderr_before_the_first_action") {
+        return;
+    }
     let fx = Fx::new();
     let pid_file = fx.fake_uv();
     let list = fx.list(&[".cache/uv", "q/__pycache__"]);
@@ -659,6 +702,9 @@ fn cleaning_is_on_stderr_before_the_first_action() {
 
 #[test]
 fn without_the_flag_no_event_reaches_stderr() {
+    if common::unsupported("without_the_flag_no_event_reaches_stderr") {
+        return;
+    }
     let fx = Fx::new();
     let list = fx.list(&["q/__pycache__"]);
     for args in [vec!["scan", "--json"], vec!["clean", "--items", list.to_str().unwrap(), "--json"]] {
@@ -709,6 +755,9 @@ fn total(report: &serde_json::Value, key: &str) -> u64 {
 /// the one the clean read, without what it deleted; no scan is needed after.
 #[test]
 fn a_pruned_clean_edits_the_report_it_read() {
+    if common::unsupported("a_pruned_clean_edits_the_report_it_read") {
+        return;
+    }
     let fx = Fx::new();
     fx.unrelated();
     let list = fx.list(&["q/__pycache__", "p/node_modules"]);
@@ -737,6 +786,9 @@ fn a_pruned_clean_edits_the_report_it_read() {
 /// missing one leaves the report.
 #[test]
 fn a_skipped_item_is_saved_as_the_recheck_found_it() {
+    if common::unsupported("a_skipped_item_is_saved_as_the_recheck_found_it") {
+        return;
+    }
     let fx = Fx::new();
     fx.unrelated();
     fx.write("r/__pycache__/m.cpython-312.pyc", &[2u8; 10_000]);
@@ -766,6 +818,9 @@ fn a_skipped_item_is_saved_as_the_recheck_found_it() {
 /// AC 6: a tool-cleaned item is measured again after its tool ran.
 #[test]
 fn a_tool_cleaned_item_is_saved_at_its_new_size() {
+    if common::unsupported("a_tool_cleaned_item_is_saved_at_its_new_size") {
+        return;
+    }
     let fx = Fx::new();
     fx.write(".cache/uv/wheels/a.whl", &[4u8; 200_000]);
     fx.write(".cache/uv/keep.txt", &[5u8; 1_000]);
@@ -773,7 +828,7 @@ fn a_tool_cleaned_item_is_saved_at_its_new_size() {
     fs::create_dir_all(&bin).unwrap();
     let script = "#!/bin/sh\ncase \"$1 $2\" in\n  \"cache dir\") echo \"$HOME/.cache/uv\" ;;\n  \"cache clean\") /bin/rm -rf \"$HOME/.cache/uv/wheels\" ;;\nesac\n";
     fs::write(bin.join("uv"), script).unwrap();
-    fs::set_permissions(bin.join("uv"), fs::Permissions::from_mode(0o755)).unwrap();
+    common::set_mode(bin.join("uv"), 0o755);
     let list = fx.list(&[".cache/uv"]);
     let before = found(&fx.last_scan(), &fx.path(".cache/uv")).unwrap().clone();
 
@@ -790,6 +845,9 @@ fn a_tool_cleaned_item_is_saved_at_its_new_size() {
 /// to edit, the clean walks the whole home and saves that walk's report.
 #[test]
 fn without_a_report_of_these_roots_the_clean_walks_the_whole_home() {
+    if common::unsupported("without_a_report_of_these_roots_the_clean_walks_the_whole_home") {
+        return;
+    }
     for case in ["none", "unreadable", "other roots"] {
         let fx = Fx::new();
         fx.unrelated();
@@ -823,14 +881,17 @@ fn without_a_report_of_these_roots_the_clean_walks_the_whole_home() {
 /// full walk, which cannot read it either; the item is refused.
 #[test]
 fn an_unreadable_ancestor_takes_the_full_walk() {
+    if common::unsupported("an_unreadable_ancestor_takes_the_full_walk") {
+        return;
+    }
     let fx = Fx::new();
     fx.unrelated();
     let list = fx.list(&["q/__pycache__", "p/node_modules"]);
     let whole = total(&fx.last_scan(), "files");
-    fs::set_permissions(fx.path("q"), fs::Permissions::from_mode(0o000)).unwrap();
+    common::set_mode(fx.path("q"), 0o000);
 
     let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--json", "--progress", "json"]).output().unwrap();
-    fs::set_permissions(fx.path("q"), fs::Permissions::from_mode(0o755)).unwrap();
+    common::set_mode(fx.path("q"), 0o755);
 
     assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let clean = report(&out.stdout);
@@ -845,13 +906,16 @@ fn an_unreadable_ancestor_takes_the_full_walk() {
 /// report says so, and the app rescans.
 #[test]
 fn a_report_that_cannot_be_saved_is_a_warning_and_the_clean_says_so() {
+    if common::unsupported("a_report_that_cannot_be_saved_is_a_warning_and_the_clean_says_so") {
+        return;
+    }
     let fx = Fx::new();
     let list = fx.list(&["q/__pycache__"]);
     fs::create_dir_all(fx.data.join("logs")).unwrap();
-    fs::set_permissions(&fx.data, fs::Permissions::from_mode(0o555)).unwrap();
+    common::set_mode(&fx.data, 0o555);
 
     let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--json"]).output().unwrap();
-    fs::set_permissions(&fx.data, fs::Permissions::from_mode(0o755)).unwrap();
+    common::set_mode(&fx.data, 0o755);
 
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
@@ -866,6 +930,9 @@ fn a_report_that_cannot_be_saved_is_a_warning_and_the_clean_says_so() {
 /// reads the skipped folder, so without that the clean would say "changed".
 #[test]
 fn an_item_at_under_or_above_a_skip_is_kept_in_the_dry_run_and_the_clean() {
+    if common::unsupported("an_item_at_under_or_above_a_skip_is_kept_in_the_dry_run_and_the_clean") {
+        return;
+    }
     let fx = Fx::new();
     fx.write("q/__pycache__/sub/n.cpython-312.pyc", &[2u8; 1_000]);
     fx.write("r/__pycache__/o.cpython-312.pyc", &[2u8; 1_000]);

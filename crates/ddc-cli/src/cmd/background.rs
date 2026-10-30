@@ -172,6 +172,8 @@ mod tests {
     use clap::Parser as _;
     use ddc_core::notify::{Decision, NotifyReason};
     use ddc_core::platform::statfs::VolumeStats;
+    // A build with `SUPPORTED` false refuses `background`, whose decision reads the volume.
+    use ddc_loadgen::unsupported;
 
     use super::*;
     use crate::cli::{Cli, Command};
@@ -239,6 +241,9 @@ mod tests {
 
     #[test]
     fn json_prints_the_decision_and_never_notifies_or_records_it() {
+        if unsupported("json_prints_the_decision_and_never_notifies_or_records_it") {
+            return;
+        }
         let (_tmp, env) = fixture();
         let recorder = Recorder::default();
         let mut out = Vec::new();
@@ -254,6 +259,9 @@ mod tests {
 
     #[test]
     fn without_json_it_notifies_once_and_records_it() {
+        if unsupported("without_json_it_notifies_once_and_records_it") {
+            return;
+        }
         let (_tmp, env) = fixture();
         let recorder = Recorder::default();
         let mut out = Vec::new();
@@ -269,6 +277,9 @@ mod tests {
 
     #[test]
     fn a_volume_low_on_space_notifies_and_is_named() {
+        if unsupported("a_volume_low_on_space_notifies_and_is_named") {
+            return;
+        }
         let (_tmp, env) = fixture();
         let mut out = Vec::new();
 
@@ -283,6 +294,9 @@ mod tests {
 
     #[test]
     fn low_disk_can_be_switched_off_in_the_settings() {
+        if unsupported("low_disk_can_be_switched_off_in_the_settings") {
+            return;
+        }
         let (_tmp, env) = fixture();
         std::fs::create_dir_all(env.data_dir()).unwrap();
         std::fs::write(env.data_dir().join("settings.json"), r#"{"schema_version": 1, "notify_low_disk": false}"#)
@@ -298,6 +312,9 @@ mod tests {
 
     #[test]
     fn the_threshold_flag_wins_over_the_settings() {
+        if unsupported("the_threshold_flag_wins_over_the_settings") {
+            return;
+        }
         let (_tmp, env) = fixture();
         std::fs::create_dir_all(env.data_dir()).unwrap();
         let settings = |threshold: u64| {

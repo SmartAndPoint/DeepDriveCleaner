@@ -226,6 +226,9 @@ fn removes(commands: FakeCommands, env: &Path, out: &Path) -> FakeCommands {
 
 #[test]
 fn an_environment_and_a_package_folder_are_found_and_the_base_is_not() {
+    if common::unsupported("an_environment_and_a_package_folder_are_found_and_the_base_is_not") {
+        return;
+    }
     let fx = Fx::new();
     let scanned = fx.scan();
     let at = |p: &Path| scanned.findings.iter().find(|f| f.path == p);
@@ -245,6 +248,9 @@ fn an_environment_and_a_package_folder_are_found_and_the_base_is_not() {
 
 #[test]
 fn each_install_is_asked_once_per_clean_and_once_per_cache_and_the_dry_run_asks_none() {
+    if common::unsupported("each_install_is_asked_once_per_clean_and_once_per_cache_and_the_dry_run_asks_none") {
+        return;
+    }
     let fx = Fx::new();
     let env = fx.environment();
     let commands = removes(fx.commands(), &env, &fx.data.path().join("removed"));
@@ -265,6 +271,11 @@ fn each_install_is_asked_once_per_clean_and_once_per_cache_and_the_dry_run_asks_
 
 #[test]
 fn conda_gets_the_one_folder_and_only_the_four_clean_flags_and_the_journal_names_its_bin_conda() {
+    if common::unsupported(
+        "conda_gets_the_one_folder_and_only_the_four_clean_flags_and_the_journal_names_its_bin_conda",
+    ) {
+        return;
+    }
     let fx = Fx::new();
     let env = fx.environment();
     let commands = removes(fx.commands(), &env, &fx.data.path().join("removed"));
@@ -293,6 +304,9 @@ fn conda_gets_the_one_folder_and_only_the_four_clean_flags_and_the_journal_names
 
 #[test]
 fn a_second_existing_package_folder_skips_the_cache_and_one_that_does_not_exist_is_dropped() {
+    if common::unsupported("a_second_existing_package_folder_skips_the_cache_and_one_that_does_not_exist_is_dropped") {
+        return;
+    }
     let fx = Fx::new();
     let cache = fx.cache();
     let other = fx.home.path("miniconda3/pkgs");
@@ -311,6 +325,9 @@ fn a_second_existing_package_folder_skips_the_cache_and_one_that_does_not_exist_
 
 #[test]
 fn an_environment_no_install_lists_goes_to_the_trash() {
+    if common::unsupported("an_environment_no_install_lists_goes_to_the_trash") {
+        return;
+    }
     let fx = Fx::new();
     let env = fx.environment();
     let item = fx.listed(&env);
@@ -330,6 +347,9 @@ fn an_environment_no_install_lists_goes_to_the_trash() {
 
 #[test]
 fn a_package_folder_no_install_lists_is_skipped_and_stays() {
+    if common::unsupported("a_package_folder_no_install_lists_is_skipped_and_stays") {
+        return;
+    }
     let fx = Fx::new();
     let cache = fx.cache();
     let item = fx.listed(&cache);
@@ -348,6 +368,9 @@ fn a_package_folder_no_install_lists_is_skipped_and_stays() {
 
 #[test]
 fn a_path_with_a_comma_is_never_given_to_conda() {
+    if common::unsupported("a_path_with_a_comma_is_never_given_to_conda") {
+        return;
+    }
     let fx = Fx::new();
     fx.home.write("miniconda3/envs/a,b/conda-meta/history", "");
     fx.home.file("miniconda3/envs/a,b/lib/x.dylib", 1_000);
@@ -359,6 +382,9 @@ fn a_path_with_a_comma_is_never_given_to_conda() {
 
 #[test]
 fn a_probe_that_fails_or_prints_what_ddc_cannot_read_claims_nothing() {
+    if common::unsupported("a_probe_that_fails_or_prints_what_ddc_cannot_read_claims_nothing") {
+        return;
+    }
     for (success, stdout) in [(false, None), (true, Some("not json")), (true, Some("{\"root_prefix\": 1}"))] {
         let fx = Fx::new();
         let stdout = stdout.map_or_else(|| fx.home_settings(), str::to_owned);
@@ -371,6 +397,9 @@ fn a_probe_that_fails_or_prints_what_ddc_cannot_read_claims_nothing() {
 
 #[test]
 fn an_envs_dirs_entry_that_does_not_exist_is_skipped() {
+    if common::unsupported("an_envs_dirs_entry_that_does_not_exist_is_skipped") {
+        return;
+    }
     let fx = Fx::new();
     let answer = settings(
         &fx.prefix(),
@@ -387,6 +416,9 @@ fn an_envs_dirs_entry_that_does_not_exist_is_skipped() {
 
 #[test]
 fn an_install_s_base_is_refused_whichever_install_lists_its_parent() {
+    if common::unsupported("an_install_s_base_is_refused_whichever_install_lists_its_parent") {
+        return;
+    }
     let fx = Fx::new();
     let env = fx.environment();
     let opt = fx.opt_prefix();
@@ -404,6 +436,9 @@ fn an_install_s_base_is_refused_whichever_install_lists_its_parent() {
 
 #[test]
 fn an_environment_a_process_runs_in_is_in_use() {
+    if common::unsupported("an_environment_a_process_runs_in_is_in_use") {
+        return;
+    }
     let fx = Fx::new();
     let env = fx.environment();
     let python = ProcInfo { pid: 812, name: "python".into(), env_prefixes: vec![env.clone()], ..ProcInfo::default() };
@@ -418,6 +453,9 @@ fn an_environment_a_process_runs_in_is_in_use() {
 
 #[test]
 fn conda_exiting_0_with_the_environment_still_there_is_a_failure() {
+    if common::unsupported("conda_exiting_0_with_the_environment_still_there_is_a_failure") {
+        return;
+    }
     let fx = Fx::new();
     let env = fx.environment();
     let remove = format!("env remove -p {} --yes", env.display());
@@ -429,6 +467,9 @@ fn conda_exiting_0_with_the_environment_still_there_is_a_failure() {
 
 #[test]
 fn a_cache_is_skipped_when_any_install_that_lists_it_links_by_symlink() {
+    if common::unsupported("a_cache_is_skipped_when_any_install_that_lists_it_links_by_symlink") {
+        return;
+    }
     for (allow, always) in [(false, true), (true, false)] {
         let fx = Fx::new();
         let answer = settings(&fx.prefix(), &[&fx.home.path("miniconda3/envs")], &[&fx.cache()], allow, always);
@@ -453,6 +494,9 @@ fn a_cache_is_skipped_when_any_install_that_lists_it_links_by_symlink() {
 
 #[test]
 fn the_home_install_cleans_a_folder_an_opt_install_also_lists() {
+    if common::unsupported("the_home_install_cleans_a_folder_an_opt_install_also_lists") {
+        return;
+    }
     let fx = Fx::new();
     let opt = fx.opt_prefix();
     let opt_exe = conda::exe(&opt);

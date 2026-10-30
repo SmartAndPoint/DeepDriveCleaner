@@ -5,6 +5,8 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+mod common;
+
 fn du_kib(path: &Path) -> u64 {
     let out = Command::new("/usr/bin/du").arg("-skx").arg(path).output().unwrap();
     String::from_utf8(out.stdout).unwrap().split_whitespace().next().unwrap().parse().unwrap()
@@ -12,6 +14,9 @@ fn du_kib(path: &Path) -> u64 {
 
 #[test]
 fn ddc_du_matches_system_du() {
+    if common::unsupported("ddc_du_matches_system_du") {
+        return;
+    }
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().canonicalize().unwrap();
     for i in 0..30usize {
@@ -20,7 +25,7 @@ fn ddc_du_matches_system_du() {
         fs::write(dir.join(format!("f{i}")), vec![7u8; 3000 * i + 1]).unwrap();
     }
     fs::hard_link(root.join("d0/e0/f0"), root.join("d1/hl")).unwrap();
-    std::os::unix::fs::symlink("d0", root.join("link")).unwrap();
+    common::symlink("d0", root.join("link"));
 
     let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()

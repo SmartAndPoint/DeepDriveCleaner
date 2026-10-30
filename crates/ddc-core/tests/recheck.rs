@@ -8,7 +8,6 @@ mod common;
 
 use std::collections::HashSet;
 use std::fs;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
@@ -106,11 +105,11 @@ impl Home {
     /// An entry of the user's own folders, as the app lists it when picked.
     fn pick(&self, rel: &str, rule: &str) -> ListedItem {
         let path = self.t.path(rel);
-        let md = fs::symlink_metadata(&path).unwrap();
+        let (dev, ino) = common::id(&path);
         ListedItem {
             path,
-            dev: md.dev(),
-            ino: md.ino(),
+            dev,
+            ino,
             rule: rule.to_owned(),
             class: RiskClass::UserData,
             action: ActionKind::Trash,
@@ -200,6 +199,9 @@ fn each_rule_mut(change: &str, apply: impl Fn(&mut Home, &Path)) {
 
 #[test]
 fn every_rule_unchanged_is_planned_alike_and_runs() {
+    if common::unsupported("every_rule_unchanged_is_planned_alike_and_runs") {
+        return;
+    }
     each_rule("unchanged", |_, _, _| {});
 }
 
@@ -207,6 +209,9 @@ fn every_rule_unchanged_is_planned_alike_and_runs() {
 
 #[test]
 fn a_keep_marker_in_at_or_above_the_item() {
+    if common::unsupported("a_keep_marker_in_at_or_above_the_item") {
+        return;
+    }
     each_rule("a keep marker inside", |home, item, _| {
         fs::create_dir_all(item.join("sub")).unwrap();
         fs::write(item.join("sub/.ddc-keep"), "").unwrap();
@@ -218,6 +223,9 @@ fn a_keep_marker_in_at_or_above_the_item() {
 
 #[test]
 fn an_exclude_at_above_or_below_the_item() {
+    if common::unsupported("an_exclude_at_above_or_below_the_item") {
+        return;
+    }
     each_rule_mut("an exclude at it", |home, item| home.excludes = vec![item.to_path_buf()]);
     each_rule_mut("an exclude above it", |home, item| home.excludes = vec![item.parent().unwrap().to_path_buf()]);
     each_rule_mut("an exclude below it", |home, item| {
@@ -229,6 +237,9 @@ fn an_exclude_at_above_or_below_the_item() {
 
 #[test]
 fn a_content_claim_appearing_above_the_item() {
+    if common::unsupported("a_content_claim_appearing_above_the_item") {
+        return;
+    }
     each_rule("a CACHEDIR.TAG above it", |_, item, _| {
         fs::write(item.parent().unwrap().join("CACHEDIR.TAG"), TAG).unwrap()
     });
@@ -237,6 +248,9 @@ fn a_content_claim_appearing_above_the_item() {
 
 #[test]
 fn a_lock_file_appearing_or_disappearing() {
+    if common::unsupported("a_lock_file_appearing_or_disappearing") {
+        return;
+    }
     for rule in RULES.iter().filter(|r| r.lockfiles.is_some()) {
         let locks: Vec<&str> = rule.lockfiles.unwrap().iter().filter(|l| !l.contains('*')).copied().collect();
         for appears in [true, false] {
@@ -262,6 +276,9 @@ fn a_lock_file_appearing_or_disappearing() {
 
 #[test]
 fn the_item_swapped_a_manifest_inside_or_git_above() {
+    if common::unsupported("the_item_swapped_a_manifest_inside_or_git_above") {
+        return;
+    }
     each_rule("the item swapped", |home, item, _| {
         home.take_away(item);
         fs::create_dir_all(item).unwrap();
@@ -282,6 +299,9 @@ fn the_item_swapped_a_manifest_inside_or_git_above() {
 /// the home, which does. Both re-checks refuse it.
 #[test]
 fn a_claim_above_the_item_for_each_matcher_kind() {
+    if common::unsupported("a_claim_above_the_item_for_each_matcher_kind") {
+        return;
+    }
     // A matcher kind, the files that make the claim, and the root it sits at.
     type Case = (&'static str, &'static [(&'static str, &'static str)], &'static str);
     let cases: &[Case] = &[
@@ -318,6 +338,9 @@ fn a_claim_above_the_item_for_each_matcher_kind() {
 /// the pruned walk leaves that subtree unread. Both refuse the item.
 #[test]
 fn a_new_claim_with_a_marker_elsewhere_refuses_the_item_for_another_reason() {
+    if common::unsupported("a_new_claim_with_a_marker_elsewhere_refuses_the_item_for_another_reason") {
+        return;
+    }
     let home = Home::new();
     home.t.file("c/sub/__pycache__/m.pyc", 100);
     home.t.file("c/other/f.bin", 100);
@@ -334,6 +357,9 @@ fn a_new_claim_with_a_marker_elsewhere_refuses_the_item_for_another_reason() {
 
 #[test]
 fn a_sibling_version_added_or_removed() {
+    if common::unsupported("a_sibling_version_added_or_removed") {
+        return;
+    }
     let rule = RULES.iter().find(|r| r.scope == Scope::Siblings).unwrap();
     for (change, newest_goes) in [("a newer sibling added", false), ("the newer sibling removed", true)] {
         let home = Home::new();
@@ -354,6 +380,9 @@ fn a_sibling_version_added_or_removed() {
 
 #[test]
 fn a_picked_entry_that_became_a_finding_or_holds_a_keep_marker() {
+    if common::unsupported("a_picked_entry_that_became_a_finding_or_holds_a_keep_marker") {
+        return;
+    }
     for (folder, rule) in [("Downloads", "user.downloads"), ("Pictures", "user.pictures")] {
         for change in ["a finding", "a keep marker", "unchanged"] {
             let home = Home::new();
@@ -402,6 +431,9 @@ impl DirReader for Counting {
 
 #[test]
 fn the_pruned_recheck_opens_only_the_items_their_ancestors_and_a_siblings_family() {
+    if common::unsupported("the_pruned_recheck_opens_only_the_items_their_ancestors_and_a_siblings_family") {
+        return;
+    }
     let home = Home::new();
     home.t.file("one/two/__pycache__/m.pyc", 100);
     home.t.file(".cache/huggingface/hub/model.bin", 100);
@@ -442,6 +474,9 @@ fn the_pruned_recheck_opens_only_the_items_their_ancestors_and_a_siblings_family
 
 #[test]
 fn an_unreadable_ancestor_sends_the_recheck_to_the_full_walk() {
+    if common::unsupported("an_unreadable_ancestor_sends_the_recheck_to_the_full_walk") {
+        return;
+    }
     let home = Home::new();
     home.t.file("deep/a/b/__pycache__/m.pyc", 100);
     let reviewed = home.review();
@@ -457,6 +492,9 @@ fn an_unreadable_ancestor_sends_the_recheck_to_the_full_walk() {
 
 #[test]
 fn a_toolchain_item_takes_the_full_walk_and_a_new_pin_protects_its_version() {
+    if common::unsupported("a_toolchain_item_takes_the_full_walk_and_a_new_pin_protects_its_version") {
+        return;
+    }
     for rule in RULES.iter().filter(|r| r.scope == Scope::Tree) {
         let home = Home::new();
         let old = rule_fixture(&home.t, rule).unwrap();
@@ -479,6 +517,9 @@ fn a_toolchain_item_takes_the_full_walk_and_a_new_pin_protects_its_version() {
 /// the one to edit; the caller takes it for no report.
 #[test]
 fn only_a_report_of_the_same_roots_and_home_is_edited() {
+    if common::unsupported("only_a_report_of_the_same_roots_and_home_is_edited") {
+        return;
+    }
     let mut home = Home::new();
     home.t.file("p/__pycache__/m.pyc", 100);
     let env = home.env();
@@ -497,6 +538,9 @@ fn only_a_report_of_the_same_roots_and_home_is_edited() {
 
 #[test]
 fn no_report_to_edit_takes_the_full_walk() {
+    if common::unsupported("no_report_to_edit_takes_the_full_walk") {
+        return;
+    }
     let home = Home::new();
     home.t.file("p/__pycache__/m.pyc", 100);
     let reviewed = home.review();

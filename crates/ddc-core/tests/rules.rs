@@ -55,6 +55,9 @@ impl Scan {
 
 #[test]
 fn ambiguous_names_without_markers_are_not_found() {
+    if common::unsupported("ambiguous_names_without_markers_are_not_found") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.file("p1/env/notes.txt", 100);
     t.file("p2/target/out.bin", 100);
@@ -75,6 +78,9 @@ fn ambiguous_names_without_markers_are_not_found() {
 
 #[test]
 fn project_artifacts_are_found_with_their_class() {
+    if common::unsupported("project_artifacts_are_found_with_their_class") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.write("py/uv.lock", "");
     t.write("py/.venv/pyvenv.cfg", "home = /usr/bin");
@@ -125,6 +131,9 @@ fn project_artifacts_are_found_with_their_class() {
 
 #[test]
 fn rule_precedence() {
+    if common::unsupported("rule_precedence") {
+        return;
+    }
     let t = TreeBuilder::new();
     // uv venv carries a valid CACHEDIR.TAG: the venv rule must win.
     t.write("a/uv.lock", "");
@@ -157,6 +166,9 @@ fn rule_precedence() {
 
 #[test]
 fn environments_without_lock_file_need_review() {
+    if common::unsupported("environments_without_lock_file_need_review") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.write("py/.venv/pyvenv.cfg", "x");
     t.write("js/package.json", "{}");
@@ -174,6 +186,9 @@ fn environments_without_lock_file_need_review() {
 
 #[test]
 fn lock_file_at_the_git_root_counts() {
+    if common::unsupported("lock_file_at_the_git_root_counts") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.dir("mono/.git");
     t.write("mono/pnpm-lock.yaml", "");
@@ -194,6 +209,9 @@ fn lock_file_at_the_git_root_counts() {
 
 #[test]
 fn app_owned_artifacts_need_review() {
+    if common::unsupported("app_owned_artifacts_need_review") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.write(".local/pipx/venvs/black/pyvenv.cfg", "x");
     t.write(".local/pipx/venvs/requirements.txt", "x");
@@ -217,6 +235,9 @@ fn app_owned_artifacts_need_review() {
 
 #[test]
 fn keep_markers_and_excludes_protect_findings() {
+    if common::unsupported("keep_markers_and_excludes_protect_findings") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.write(".cache/uv/.ddc-keep", "");
     t.file(".cache/uv/wheels/a.whl", 100);
@@ -252,6 +273,9 @@ fn keep_markers_and_excludes_protect_findings() {
 
 #[test]
 fn known_paths_only_match_inside_scan_roots_and_home() {
+    if common::unsupported("known_paths_only_match_inside_scan_roots_and_home") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.file(".cache/uv/wheels/a", 100);
     t.file("Projects/app/.cache/uv/wheels/a", 100);
@@ -267,6 +291,9 @@ fn known_paths_only_match_inside_scan_roots_and_home() {
 
 #[test]
 fn global_packages_and_cloud_folders_are_not_findings() {
+    if common::unsupported("global_packages_and_cloud_folders_are_not_findings") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.write(".npm-global/lib/package.json", "{}");
     t.file(".npm-global/lib/node_modules/tool/node_modules/dep/i.js", 10);
@@ -280,6 +307,9 @@ fn global_packages_and_cloud_folders_are_not_findings() {
 
 #[test]
 fn nvm_default_alias_resolution() {
+    if common::unsupported("nvm_default_alias_resolution") {
+        return;
+    }
     let cases: &[(&str, &[&str], &[&str])] = &[
         // (alias/default, extra files, expected findings)
         ("node", &[], &["v18.1.0", "v20.5.0"]),
@@ -318,6 +348,9 @@ fn nvm_default_alias_resolution() {
 
 #[test]
 fn single_toolchain_version_is_never_a_finding() {
+    if common::unsupported("single_toolchain_version_is_never_a_finding") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.file(".nvm/versions/node/v22.4.0/bin/node", 100);
     t.write(".nvm/alias/default", "node");
@@ -329,6 +362,9 @@ fn single_toolchain_version_is_never_a_finding() {
 
 #[test]
 fn pyenv_and_rustup_keep_global_and_pinned_versions() {
+    if common::unsupported("pyenv_and_rustup_keep_global_and_pinned_versions") {
+        return;
+    }
     let t = TreeBuilder::new();
     for v in ["3.11.9", "3.12.3", "3.13.1"] {
         t.file(&format!(".pyenv/versions/{v}/bin/python"), 100);
@@ -353,6 +389,9 @@ fn pyenv_and_rustup_keep_global_and_pinned_versions() {
 
 #[test]
 fn only_outdated_jetbrains_data_is_found() {
+    if common::unsupported("only_outdated_jetbrains_data_is_found") {
+        return;
+    }
     let t = TreeBuilder::new();
     let base = "Library/Application Support/JetBrains";
     for d in ["PyCharm2023.3", "PyCharm2024.3", "GoLand2024.1", "consentOptions"] {
@@ -427,6 +466,9 @@ fn catalog_invariants() {
 
 #[test]
 fn stray_cmake_caches_and_in_place_venvs_never_claim_projects() {
+    if common::unsupported("stray_cmake_caches_and_in_place_venvs_never_claim_projects") {
+        return;
+    }
     let t = TreeBuilder::new();
     // `cd ~/Projects && cmake app` leaves a cache in ~/Projects.
     t.write("Projects/app/CMakeLists.txt", "project(app)");
@@ -459,6 +501,9 @@ fn stray_cmake_caches_and_in_place_venvs_never_claim_projects() {
 
 #[test]
 fn excludes_inside_a_finding_or_above_the_root_protect_it() {
+    if common::unsupported("excludes_inside_a_finding_or_above_the_root_protect_it") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.write("p1/package.json", "{}");
     t.write("p1/package-lock.json", "{}");
@@ -478,6 +523,9 @@ fn excludes_inside_a_finding_or_above_the_root_protect_it() {
 
 #[test]
 fn pins_inside_protected_projects_still_protect_toolchains() {
+    if common::unsupported("pins_inside_protected_projects_still_protect_toolchains") {
+        return;
+    }
     let t = TreeBuilder::new();
     for v in ["v18.1.0", "v20.5.0", "v22.4.0"] {
         t.file(&format!(".nvm/versions/node/{v}/bin/node"), 100);
@@ -495,6 +543,9 @@ fn pins_inside_protected_projects_still_protect_toolchains() {
 
 #[test]
 fn a_tombstone_is_a_tombstone_whatever_it_contains() {
+    if common::unsupported("a_tombstone_is_a_tombstone_whatever_it_contains") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.write("old/.venv.ddc-deleting-1700000000-1/pyvenv.cfg", "x");
     t.write("old/build.ddc-deleting-1700000000-2/CMakeCache.txt", "CMAKE_HOME_DIRECTORY:INTERNAL=/nowhere\n");
@@ -507,6 +558,9 @@ fn a_tombstone_is_a_tombstone_whatever_it_contains() {
 
 #[test]
 fn rules_never_fire_inside_app_bundles() {
+    if common::unsupported("rules_never_fire_inside_app_bundles") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.write("Applications/Tool.app/Contents/Resources/app/package.json", "{}");
     t.write("Applications/Tool.app/Contents/Resources/app/package-lock.json", "{}");
@@ -520,6 +574,9 @@ fn rules_never_fire_inside_app_bundles() {
 
 #[test]
 fn pyenv_prefixes_virtualenvs_and_envs_are_protected() {
+    if common::unsupported("pyenv_prefixes_virtualenvs_and_envs_are_protected") {
+        return;
+    }
     let t = TreeBuilder::new();
     for v in ["3.11.9", "3.12.1", "3.12.3", "3.13.1"] {
         t.file(&format!(".pyenv/versions/{v}/bin/python"), 100);
@@ -539,6 +596,9 @@ fn pyenv_prefixes_virtualenvs_and_envs_are_protected() {
 
 #[test]
 fn a_keep_marker_inside_downloads_protects_only_its_finding() {
+    if common::unsupported("a_keep_marker_inside_downloads_protects_only_its_finding") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.write("Downloads/repo/package.json", "{}");
     t.write("Downloads/repo/node_modules/dep/.ddc-keep", "");
@@ -552,6 +612,9 @@ fn a_keep_marker_inside_downloads_protects_only_its_finding() {
 
 #[test]
 fn excluding_a_cloud_folder_still_never_traverses_it() {
+    if common::unsupported("excluding_a_cloud_folder_still_never_traverses_it") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.file("Library/CloudStorage/Drive/doc.txt", 10);
 
@@ -611,6 +674,9 @@ fn committed_rules_schema_is_current() {
 /// fixture fails here.
 #[test]
 fn every_rule_is_covered_by_a_fixture() {
+    if common::unsupported("every_rule_is_covered_by_a_fixture") {
+        return;
+    }
     for rule in RULES {
         let t = TreeBuilder::new();
         let expect = rule_fixture(&t, rule);
@@ -636,6 +702,9 @@ fn every_rule_is_covered_by_a_fixture() {
 /// relative path elsewhere.
 #[test]
 fn known_paths_do_not_match_outside_home() {
+    if common::unsupported("known_paths_do_not_match_outside_home") {
+        return;
+    }
     use ddc_core::rules::Matcher;
     let t = TreeBuilder::new();
     for rule in RULES {

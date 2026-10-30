@@ -72,6 +72,9 @@ fn owner<'a>(out: &'a WalkOutput, path: &Path) -> &'a OwnerResult {
 
 #[test]
 fn allocated_size_matches_lstat_blocks() {
+    if common::unsupported("allocated_size_matches_lstat_blocks") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.file("empty", 0);
     t.file("one-byte", 1);
@@ -91,6 +94,9 @@ fn allocated_size_matches_lstat_blocks() {
 
 #[test]
 fn symlinks_are_not_followed() {
+    if common::unsupported("symlinks_are_not_followed") {
+        return;
+    }
     let outside = TreeBuilder::new();
     outside.file("big", 1 << 20);
     let t = TreeBuilder::new();
@@ -109,6 +115,9 @@ fn symlinks_are_not_followed() {
 
 #[test]
 fn unreadable_directory_is_reported_and_siblings_are_counted() {
+    if common::unsupported("unreadable_directory_is_reported_and_siblings_are_counted") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.file("locked/secret", 50_000);
     let sibling = t.file("open/data", 50_000);
@@ -128,6 +137,9 @@ fn unreadable_directory_is_reported_and_siblings_are_counted() {
 
 #[test]
 fn claimed_subtree_is_attributed_to_its_owner() {
+    if common::unsupported("claimed_subtree_is_attributed_to_its_owner") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.file("loose", 30_000);
     t.file("proj/claimme/a", 40_000);
@@ -153,6 +165,9 @@ fn claimed_subtree_is_attributed_to_its_owner() {
 
 #[test]
 fn region_keeps_rules_working_inside() {
+    if common::unsupported("region_keeps_rules_working_inside") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.file("downloads/movie", 80_000);
     t.file("downloads/repo/claimme/dep", 20_000);
@@ -171,6 +186,9 @@ fn region_keeps_rules_working_inside() {
 
 #[test]
 fn hard_links_inside_one_finding_are_exclusive() {
+    if common::unsupported("hard_links_inside_one_finding_are_exclusive") {
+        return;
+    }
     let t = TreeBuilder::new();
     let a = t.file("claimme/a", 100_000);
     t.hardlink(&a, "claimme/sub/b");
@@ -184,6 +202,9 @@ fn hard_links_inside_one_finding_are_exclusive() {
 
 #[test]
 fn hard_links_across_findings_are_shared_by_both() {
+    if common::unsupported("hard_links_across_findings_are_shared_by_both") {
+        return;
+    }
     let t = TreeBuilder::new();
     let only1 = t.file("claimme1/only", 10_000);
     let a = t.file("claimme1/a", 100_000);
@@ -202,6 +223,9 @@ fn hard_links_across_findings_are_shared_by_both() {
 
 #[test]
 fn hard_link_to_a_file_outside_the_scan_is_shared() {
+    if common::unsupported("hard_link_to_a_file_outside_the_scan_is_shared") {
+        return;
+    }
     let outside = TreeBuilder::new();
     let src = outside.file("src", 100_000);
     let t = TreeBuilder::new();
@@ -223,6 +247,9 @@ fn hard_link_to_a_file_outside_the_scan_is_shared() {
 
 #[test]
 fn apfs_clone_has_near_zero_private_size() {
+    if common::unsupported("apfs_clone_has_near_zero_private_size") {
+        return;
+    }
     let t = TreeBuilder::new();
     let src = t.file("src", 1 << 20);
     let clone = t.clone_file(&src, "claimme-clone/copy");
@@ -240,6 +267,9 @@ fn apfs_clone_has_near_zero_private_size() {
 
 #[test]
 fn walk_is_deterministic() {
+    if common::unsupported("walk_is_deterministic") {
+        return;
+    }
     let t = TreeBuilder::new();
     for i in 0..20 {
         let f = t.file(&format!("claimme{}/f", i % 3), 10_000 + i * 1000);
@@ -258,6 +288,9 @@ fn walk_is_deterministic() {
 
 #[test]
 fn bulk_and_std_readers_agree() {
+    if common::unsupported("bulk_and_std_readers_agree") {
+        return;
+    }
     let t = TreeBuilder::new();
     for i in 0..50 {
         t.file(&format!("d{}/e{}/f{i}", i % 5, i % 7), 1000 * i);
@@ -276,6 +309,9 @@ fn bulk_and_std_readers_agree() {
 
 #[test]
 fn nested_roots_are_merged() {
+    if common::unsupported("nested_roots_are_merged") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.file("a/b/f", 20_000);
 
@@ -300,6 +336,9 @@ fn dataless_materialization_can_be_disabled() {
 
 #[test]
 fn file_root_is_counted() {
+    if common::unsupported("file_root_is_counted") {
+        return;
+    }
     let t = TreeBuilder::new();
     let f = t.file("single", 12_345);
     let out = walk(&f, &NullVisitor);
@@ -308,6 +347,9 @@ fn file_root_is_counted() {
 
 #[test]
 fn private_size_is_unknown_when_not_returned() {
+    if common::unsupported("private_size_is_unknown_when_not_returned") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.file("claimme/a", 50_000);
 
@@ -405,6 +447,9 @@ fn bulk_reader_matches_lstat_per_entry_across_batches() {
 
 #[test]
 fn listed_entries_are_measured_one_by_one_with_claims_inside_folded_back() {
+    if common::unsupported("listed_entries_are_measured_one_by_one_with_claims_inside_folded_back") {
+        return;
+    }
     let t = TreeBuilder::new();
     let region = t.dir("Downloads");
     let pics = t.dir("Pictures");
@@ -448,6 +493,9 @@ fn listed_entries_are_measured_one_by_one_with_claims_inside_folded_back() {
 
 #[test]
 fn a_hard_link_counts_for_an_entry_only_when_every_link_is_inside_it() {
+    if common::unsupported("a_hard_link_counts_for_an_entry_only_when_every_link_is_inside_it") {
+        return;
+    }
     let t = TreeBuilder::new();
     let region = t.dir("Downloads");
     let inside = t.file("Downloads/both/one", 40_000);
@@ -466,6 +514,9 @@ fn a_hard_link_counts_for_an_entry_only_when_every_link_is_inside_it() {
 
 #[test]
 fn listed_entries_are_deterministic() {
+    if common::unsupported("listed_entries_are_deterministic") {
+        return;
+    }
     let t = TreeBuilder::new();
     let region = t.dir("Downloads");
     for i in 0..40 {
@@ -489,7 +540,7 @@ impl Altered {
         for e in &mut listing.entries {
             match (dir == self.folder, dir == self.deep, e.name.to_str()) {
                 (true, _, Some("dataless")) => e.flags |= scan::reader::SF_DATALESS,
-                (true, _, Some("broken")) => e.error = Some(libc::EACCES),
+                (true, _, Some("broken")) => e.error = Some(ddc_core::platform::errno::EACCES),
                 (true, _, Some("volume")) | (_, true, Some("mnt")) => e.dev ^= 0x5a5a,
                 _ => {}
             }
@@ -514,6 +565,9 @@ impl DirReader for Altered {
 
 #[test]
 fn listed_entries_keep_what_the_reader_could_not_measure() {
+    if common::unsupported("listed_entries_keep_what_the_reader_could_not_measure") {
+        return;
+    }
     let t = TreeBuilder::new();
     let region = t.dir("Downloads");
     t.file("Downloads/dataless/f", 1_000);
@@ -536,7 +590,7 @@ fn listed_entries_keep_what_the_reader_could_not_measure() {
     .expect("walk");
 
     assert!(entry(&out, &region, "dataless").flags & scan::reader::SF_DATALESS != 0);
-    assert_eq!(entry(&out, &region, "broken").error, Some(libc::EACCES));
+    assert_eq!(entry(&out, &region, "broken").error, Some(ddc_core::platform::errno::EACCES));
     assert_eq!(entry(&out, &region, "volume").other_fs, 1);
     let deep = entry(&out, &region, "deep");
     assert_eq!(deep.other_fs, 1, "a mount point deeper inside");
@@ -545,14 +599,7 @@ fn listed_entries_keep_what_the_reader_could_not_measure() {
     assert_eq!((fine.other_fs, fine.skipped, fine.errors), (0, 0, 0));
     assert_eq!(
         fine.modified,
-        Some(
-            std::fs::symlink_metadata(t.path("Downloads/fine"))
-                .map(|m| {
-                    use std::os::unix::fs::MetadataExt as _;
-                    m.mtime()
-                })
-                .unwrap()
-        )
+        Some(ddc_core::platform::meta::mtime(&std::fs::symlink_metadata(t.path("Downloads/fine")).unwrap()))
     );
 }
 
@@ -586,6 +633,9 @@ impl DirReader for Opened {
 
 #[test]
 fn a_pruned_directory_inside_a_claim_is_never_opened_and_counts_nowhere() {
+    if common::unsupported("a_pruned_directory_inside_a_claim_is_never_opened_and_counts_nowhere") {
+        return;
+    }
     let t = TreeBuilder::new();
     t.file("claimed/kept/a.bin", 4096);
     t.file("claimed/left/deep/b.bin", 8192);
@@ -629,6 +679,9 @@ impl DirReader for ThreadNames {
 /// the walk then opens directories on no more than three of its own.
 #[test]
 fn a_walk_asked_for_three_threads_reads_on_at_most_three() {
+    if common::unsupported("a_walk_asked_for_three_threads_reads_on_at_most_three") {
+        return;
+    }
     let t = TreeBuilder::new();
     for i in 0..200 {
         t.file(&format!("d{i}/e/f.bin"), 4096);
