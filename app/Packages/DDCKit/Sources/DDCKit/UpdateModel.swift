@@ -37,6 +37,9 @@ public final class UpdateModel {
     public private(set) var flow = UpdateFlow()
     /// The update a check of an earlier launch found, until this session finds or forgets one.
     public private(set) var kept: UpdateRecord?
+    /// The share of the download, then of the extraction, done (0...1); nil
+    /// when neither runs or Sparkle has not said how much there is.
+    public private(set) var progress: Double?
 
     /// Starts a check the person asked for (`SPUUpdater.checkForUpdates()`).
     @ObservationIgnored public var startCheck: (@MainActor () -> Void)?
@@ -105,15 +108,25 @@ public final class UpdateModel {
     @discardableResult
     public func send(_ event: UpdateFlow.Event) -> [UpdateFlow.Effect] {
         let held = jobsHeld
+        let before = flow.state
         let effects = flow.handle(event)
         for effect in effects {
             apply(effect)
         }
+        // Each stage counts from zero; past them there is nothing to count.
+        if flow.state != before { progress = nil }
         if jobsHeld != held {
             log(jobsHeld ? "update: jobs held until the install" : "update: jobs released")
             onJobsHeld?(jobsHeld)
         }
         return effects
+    }
+
+    /// The download's or the extraction's progress, as Sparkle reports it;
+    /// kept only while one of them runs.
+    public func setProgress(_ fraction: Double?) {
+        guard flow.state == .downloading || flow.state == .extracting else { return }
+        progress = fraction.map { min(max($0, 0), 1) }
     }
 
     /// Sparkle's `shouldPostponeRelaunchForUpdate`: true holds the relaunch,

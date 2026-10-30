@@ -35,6 +35,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var healing: Task<Void, Never>?
     /// The runner every model shares; nil when the embedded CLI is missing.
     private var activity: RunnerActivity?
+    /// The update line, and Sparkle behind it: created at launch, started on `.startUpdater`.
+    private var update: UpdateModel?
+    private var updater: SparkleUpdater?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Before launch ends, so a notification response that launched the app arrives.
@@ -57,6 +60,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         activity = runner
         let data = DataDirectory.current()
         let preferences = AppPreferences()
+        // A kept update the running build reaches is forgotten here, at launch.
+        let update = UpdateModel(
+            preferences: preferences,
+            feedURL: SparkleUpdater.feedURL,
+            bundleVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0",
+            busy: { [weak runner] in runner?.busy ?? false },
+            log: { AppLog.write($0) }
+        )
+        let updater = SparkleUpdater(model: update)
+        self.update = update
+        self.updater = updater
+        // A held relaunch goes on once the last run returns.
+        runner?.onIdle = { [weak update] in update?.runnerIdle() }
         // The window opens on what the popover shows, and its clean turns the
         // popover's icon; the popover is its router.
         let review = ReviewModel(
@@ -128,6 +144,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             self.agent = agent
             self.work = work
+            // While a relaunch waits or runs, no scan, clean or free starts.
+            update.onJobsHeld = { [weak model, weak disk] held in
+                model?.setUpdateWaiting(held)
+                disk?.setUpdateWaiting(held)
+            }
             model.onNoticeAction = { [weak model] action in
                 switch action {
                 case .allowNotifications:
@@ -162,6 +183,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Quit during a clean stops it after the current item, then quits: the
     /// CLI is a child process and would go on cleaning unwatched.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // First: a relaunch held for the runner is left to Sparkle, which installs after the app is gone.
+        update?.appQuits()
         guard let review, review.prepareToQuit({ NSApp.reply(toApplicationShouldTerminate: true) }) else { return .terminateNow }
         AppLog.write("quit during a clean: stopping it after the current item")
         return .terminateLater
@@ -238,8 +261,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     await work?.askPermissionOnce()
                 }
             case .startUpdater:
-                // Sparkle joins the project in a later commit; until then the gate is only logged.
-                AppLog.write("updater: may start")
+                // On the main thread, after the first status item (ADR §3).
+                do {
+                    try updater?.start()
+                } catch {
+                    update?.send(.startFailed(error.localizedDescription))
+                }
             case .startScheduledWork:
                 // A scan if due, then the pending notification and its ack; quits after all.
                 Task {

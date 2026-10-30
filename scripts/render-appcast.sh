@@ -7,9 +7,12 @@
 #   scripts/render-appcast.sh --zip <zip> --version <CFBundleVersion> --short-version <x.y.z>
 #       --min-macos <26.0> --url <enclosure URL> --notes-url <release page> --team <team id>
 #       --out <appcast.xml> [--previous <the previous release's appcast.xml>] [--team-change]
+#       [--local] [--ed-key-file <private key file>]
 #
 # sign_update is $SPARKLE_SIGN_UPDATE: it reads the private EdDSA key from the login
-# keychain, so a real release runs unsandboxed, like notarytool.
+# keychain, so a real release runs unsandboxed, like notarytool. --ed-key-file hands it
+# a key file instead (a Debug key). --local, for scripts/debug-feed.sh only, takes the
+# URLs as http on 127.0.0.1, the Debug build's feed.
 #
 # Refuses a CFBundleVersion not greater than the previous appcast's (Sparkle compares
 # CFBundleVersion, so it would never offer it), and a team other than the previous
@@ -23,10 +26,12 @@ TEMPLATE="$ROOT/packaging/sparkle/appcast.xml.tmpl"
 fail() { printf '\033[0;31m❌ %s\033[0m\n' "$1" >&2; exit 1; }
 
 ZIP="" VERSION="" SHORT_VERSION="" MIN_MACOS="" URL="" NOTES_URL="" TEAM="" OUT="" PREVIOUS="" TEAM_CHANGE=0
+LOCAL=0 ED_KEY_FILE=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --team-change) TEAM_CHANGE=1; shift; continue ;;
-        --zip | --version | --short-version | --min-macos | --url | --notes-url | --team | --out | --previous)
+        --local) LOCAL=1; shift; continue ;;
+        --zip | --version | --short-version | --min-macos | --url | --notes-url | --team | --out | --previous | --ed-key-file)
             [ $# -ge 2 ] || fail "$1 needs a value" ;;
         *) fail "unknown argument: $1" ;;
     esac
@@ -40,6 +45,7 @@ while [ $# -gt 0 ]; do
         --team) TEAM="$2" ;;
         --out) OUT="$2" ;;
         --previous) PREVIOUS="$2" ;;
+        --ed-key-file) ED_KEY_FILE="$2" ;;
     esac
     shift 2
 done
@@ -57,8 +63,10 @@ case "$MIN_MACOS" in
 esac
 [[ "$MIN_MACOS" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "--min-macos must be a macOS version such as 26.0: '$MIN_MACOS'"
 URL_FORM='^https://[A-Za-z0-9./_~:%+-]+$'
-[[ "$URL" =~ $URL_FORM ]] || fail "--url must be an https URL: '$URL'"
-[[ "$NOTES_URL" =~ $URL_FORM ]] || fail "--notes-url must be an https URL: '$NOTES_URL'"
+[ "$LOCAL" = 0 ] || URL_FORM='^http://127\.0\.0\.1:[0-9]+/[A-Za-z0-9./_~%+-]*$'
+[[ "$URL" =~ $URL_FORM ]] || fail "--url must be an https URL (with --local, http on 127.0.0.1): '$URL'"
+[[ "$NOTES_URL" =~ $URL_FORM ]] || fail "--notes-url must be an https URL (with --local, http on 127.0.0.1): '$NOTES_URL'"
+[ -z "$ED_KEY_FILE" ] || [ -f "$ED_KEY_FILE" ] || fail "--ed-key-file: no such file: $ED_KEY_FILE"
 [[ "$TEAM" =~ ^[A-Z0-9]{10}$ ]] || fail "--team must be a team identifier: '$TEAM'"
 [ -n "$OUT" ] || fail "--out is required"
 [ -f "$TEMPLATE" ] || fail "appcast template missing: $TEMPLATE"
@@ -89,7 +97,9 @@ fi
 SIGN_UPDATE="${SPARKLE_SIGN_UPDATE:-}"
 [ -n "$SIGN_UPDATE" ] || fail "SPARKLE_SIGN_UPDATE is not set: the path of Sparkle's sign_update"
 [ -x "$SIGN_UPDATE" ] || fail "sign_update is not executable: $SIGN_UPDATE"
-SIGNED="$("$SIGN_UPDATE" "$ZIP")" || fail "sign_update failed on $ZIP"
+SIGN_ARGS=()
+[ -z "$ED_KEY_FILE" ] || SIGN_ARGS=(--ed-key-file "$ED_KEY_FILE")
+SIGNED="$("$SIGN_UPDATE" ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} "$ZIP")" || fail "sign_update failed on $ZIP"
 SIGNATURE="$(sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p' <<<"$SIGNED")"
 LENGTH="$(sed -n 's/.*length="\([^"]*\)".*/\1/p' <<<"$SIGNED")"
 [[ "$SIGNATURE" =~ ^[A-Za-z0-9+/]+=*$ ]] || fail "sign_update printed no edSignature: $SIGNED"

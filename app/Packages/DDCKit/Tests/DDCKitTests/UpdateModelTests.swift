@@ -42,6 +42,31 @@ final class UpdateModelTests {
         return model
     }
 
+    // MARK: Progress
+
+    @Test func progressIsKeptOnlyWhileTheDownloadOrTheExtractionRuns() {
+        let model = model()
+        model.setProgress(0.5)
+        #expect(model.progress == nil)
+        _ = model.send(.found(item, informationOnly: false))
+        model.press()
+        _ = model.send(.found(item, informationOnly: false))
+        #expect(model.state == .downloading)
+        model.setProgress(0.25)
+        #expect(model.progress == 0.25)
+        model.setProgress(1.5)
+        #expect(model.progress == 1)
+        _ = model.send(.extracting)
+        #expect(model.progress == nil)
+        model.setProgress(0.75)
+        #expect(model.progress == 0.75)
+        _ = model.send(.readyToInstall)
+        #expect(model.state == .installing)
+        #expect(model.progress == nil)
+        model.setProgress(0.5)
+        #expect(model.progress == nil)
+    }
+
     // MARK: Postponing
 
     @Test func withTheRunnerBusyTheRelaunchIsHeldAndResumesOnce() {

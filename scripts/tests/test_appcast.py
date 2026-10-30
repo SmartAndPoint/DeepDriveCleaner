@@ -84,6 +84,41 @@ class RenderAppcast(unittest.TestCase):
         self.assertIn('xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"', text)
         self.assertIn("xmlns:ddc=", text)
 
+    def test_http_is_refused_without_local(self):
+        local = "http://127.0.0.1:8000/DeepDriveCleaner-0.8.0.zip"
+        result = self.render("--url", local)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must be an https URL", result.stderr)
+        self.assertFalse(os.path.exists(self.out))
+
+    def test_local_takes_http_on_127_0_0_1_only(self):
+        local = "http://127.0.0.1:8000/DeepDriveCleaner-0.8.0.zip"
+        notes = "http://127.0.0.1:8000/"
+        result = self.render("--local", "--url", local, "--notes-url", notes)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.xpath(f"{ITEM}/*[local-name()='enclosure']/@url"), local)
+        other = self.render("--local", "--url", "http://example.com:8000/x.zip", "--notes-url", notes)
+        self.assertNotEqual(other.returncode, 0)
+        https = self.render("--local", "--notes-url", notes)
+        self.assertNotEqual(https.returncode, 0)
+
+    def test_an_ed_key_file_is_handed_to_sign_update(self):
+        key = os.path.join(self.root, "debug.key")
+        with open(key, "w") as f:
+            f.write("not a key\n")
+        seen = os.path.join(self.root, "arguments")
+        recording = os.path.join(self.root, "sign_update_recording")
+        with open(recording, "w") as f:
+            f.write(f"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{seen}'\n"
+                    f"printf '%s\\n' 'sparkle:edSignature=\"{SIGNATURE}\" length=\"{LENGTH}\"'\n")
+        os.chmod(recording, stat.S_IRWXU)
+        result = self.render("--ed-key-file", key, sign_update=recording)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with open(seen) as f:
+            self.assertEqual(f.read().splitlines(), ["--ed-key-file", key, self.zip])
+        missing = self.render("--ed-key-file", os.path.join(self.root, "none.key"), sign_update=recording)
+        self.assertNotEqual(missing.returncode, 0)
+
     def test_a_greater_version_after_the_previous_one_renders(self):
         previous = self.previous(version="13")
         result = self.render("--previous", previous, version="14")
