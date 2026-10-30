@@ -35,7 +35,7 @@ Open the app once from Applications and grant it Full Disk Access when it asks (
 
 The app updates itself. It checks for a new version once a day (see [Network](#network)); when there is one, the popover and Settings → General show "Version X is available" with its release notes and **Update and Relaunch**. Nothing installs until you press it. If a scan or a clean is running, the update waits for it to finish, then the app quits, is replaced and opens again. A copy dragged to Applications by hand updates the same way.
 
-Because the app updates itself, the cask says `auto_updates true`, and a plain `brew upgrade` leaves it alone. If you use only the command line from Homebrew and never open the app, update with `brew upgrade --greedy deepdrivecleaner`. An upgrade through brew quits the app; it opens again at your next login if Open at login is on, or when you open it. Do not run it while the app is cleaning.
+`brew upgrade` works too, so a Homebrew install that only uses the command line stays current. The cask says `auto_updates true`: brew upgrades the app when the installed copy is older than the cask, and leaves it alone once the app has updated itself (brew's own list may then still show the older version). If you set `HOMEBREW_NO_UPGRADE_AUTO_UPDATES_CASKS`, brew skips the app; update it with `brew upgrade --greedy deepdrivecleaner`. An upgrade through brew quits the app; it opens again at your next login if Open at login is on, or when you open it. Do not run it while the app is cleaning.
 
 To go back to an older version: download its zip from the [releases](https://github.com/SmartAndPoint/DeepDriveCleaner/releases) and replace the app in Applications with it, or install an older cask with `brew reinstall`. Then switch off Check for updates daily in Settings → General, or the app offers the newer version again.
 
@@ -351,7 +351,7 @@ The app's only network requests of its own are for updates, made through [Sparkl
 - **What.** One HTTPS request for `appcast.xml`, the list of releases, from github.com (GitHub redirects it to its download host). The first launch of a version with the updater checks at once, then at most once a day. Check Now in Settings → General makes one request, also with the daily check off. Update and Relaunch downloads the release's zip from the same hosts.
 - **What GitHub sees.** Your IP address, the time, the `User-Agent` `DeepDriveCleaner` with no version, and your system language through the `Accept-Language` header. The app sends no headers or parameters of its own, and Sparkle's system profiling is off.
 - **What the maintainers see.** GitHub's download counter for `appcast.xml`: a total count, nothing per user or per Mac.
-- **To turn it off,** switch off Check for updates daily in Settings → General. Updates then come only from Check Now or from `brew upgrade --greedy deepdrivecleaner`.
+- **To turn it off,** switch off Check for updates daily in Settings → General. Updates then come only from Check Now, or from `brew upgrade` for a Homebrew install.
 
 ## How it is built
 

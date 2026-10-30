@@ -20,8 +20,10 @@ cask "deepdrivecleaner" do
   # notarized and stapled. Apple Silicon and macOS 26 only: every test and
   # measurement ran there. On an older macOS the release's CLI tarball remains.
   # The app updates itself through Sparkle (ADR "Updates through Sparkle,
-  # alongside the Homebrew cask"): `brew upgrade` leaves it alone, and
-  # `brew upgrade --greedy deepdrivecleaner` reinstalls it from the cask.
+  # alongside the Homebrew cask"). `brew upgrade` still upgrades it while the
+  # installed bundle is older than this version, and leaves it alone once Sparkle
+  # has updated it; with HOMEBREW_NO_UPGRADE_AUTO_UPDATES_CASKS set, only
+  # `brew upgrade --greedy deepdrivecleaner` does.
   auto_updates true
   depends_on arch: :arm64
   depends_on macos: :tahoe
