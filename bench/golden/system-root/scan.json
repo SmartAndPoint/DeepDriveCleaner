@@ -18,6 +18,31 @@
   "findings": [
     {
       "bytes": 32768,
+      "category": "app-cache",
+      "class": "safe",
+      "dev": "<tree-dev>",
+      "dirs": 2,
+      "files": 5,
+      "hint": "debug logs and legacy folders Claude Code no longer writes",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "notes": [],
+      "origin": {
+        "harness": "claude-code",
+        "kind": "runtime-cache"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.claude/statsig",
+      "removal": "delete",
+      "rule": "agent.claude-code-scratch",
+      "rule_class": "safe",
+      "selected": true,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 32768,
       "category": "ide",
       "class": "safe",
       "dev": "<tree-dev>",
@@ -33,27 +58,6 @@
       "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/Cursor/Cache",
       "removal": "delete",
       "rule": "ide.cursor-cache",
-      "rule_class": "safe",
-      "selected": true,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 32768,
-      "category": "app-cache",
-      "class": "safe",
-      "dev": "<tree-dev>",
-      "dirs": 2,
-      "files": 5,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "modified": "2024-01-01T00:00:00Z",
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Caches/Firefox",
-      "removal": "delete",
-      "rule": "app.firefox-cache",
       "rule_class": "safe",
       "selected": true,
       "shared_bytes": 0
@@ -86,16 +90,20 @@
       "dev": "<tree-dev>",
       "dirs": 1,
       "files": 6,
-      "hint": "",
+      "hint": "debug logs and legacy folders Claude Code no longer writes",
       "incomplete": false,
       "ino": null,
       "modified": "2024-01-01T00:00:00Z",
       "notes": [],
+      "origin": {
+        "harness": "claude-code",
+        "kind": "runtime-cache"
+      },
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Caches/com.spotify.client",
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.claude/logs",
       "removal": "delete",
-      "rule": "app.spotify-cache",
+      "rule": "agent.claude-code-scratch",
       "rule_class": "safe",
       "selected": true,
       "shared_bytes": 0
@@ -248,6 +256,27 @@
       "shared_bytes": 0
     },
     {
+      "bytes": 24576,
+      "category": "app-cache",
+      "class": "safe",
+      "dev": "<tree-dev>",
+      "dirs": 1,
+      "files": 6,
+      "hint": "",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "notes": [],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Caches/com.spotify.client",
+      "removal": "delete",
+      "rule": "app.spotify-cache",
+      "rule_class": "safe",
+      "selected": true,
+      "shared_bytes": 0
+    },
+    {
       "bytes": 20480,
       "category": "package-cache",
       "class": "safe",
@@ -316,8 +345,8 @@
       "category": "app-cache",
       "class": "safe",
       "dev": "<tree-dev>",
-      "dirs": 2,
-      "files": 5,
+      "dirs": 3,
+      "files": 4,
       "hint": "",
       "incomplete": false,
       "ino": null,
@@ -325,9 +354,9 @@
       "notes": [],
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/Slack/Service Worker/CacheStorage",
+      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Caches/Google/Chrome",
       "removal": "delete",
-      "rule": "app.slack-cache",
+      "rule": "app.chrome-cache",
       "rule_class": "safe",
       "selected": true,
       "shared_bytes": 0
@@ -418,6 +447,31 @@
     },
     {
       "bytes": 16384,
+      "category": "app-cache",
+      "class": "safe",
+      "dev": "<tree-dev>",
+      "dirs": 4,
+      "files": 3,
+      "hint": "debug logs and legacy folders Claude Code no longer writes",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "notes": [],
+      "origin": {
+        "harness": "claude-code",
+        "kind": "runtime-cache"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.claude/debug",
+      "removal": "delete",
+      "rule": "agent.claude-code-scratch",
+      "rule_class": "safe",
+      "selected": true,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 16384,
       "category": "ide",
       "class": "safe",
       "dev": "<tree-dev>",
@@ -454,27 +508,6 @@
       "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/Cursor/CachedExtensionVSIXs",
       "removal": "delete",
       "rule": "ide.cursor-cache",
-      "rule_class": "safe",
-      "selected": true,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 16384,
-      "category": "app-cache",
-      "class": "safe",
-      "dev": "<tree-dev>",
-      "dirs": 3,
-      "files": 4,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "modified": "2024-01-01T00:00:00Z",
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/Slack/Cache",
-      "removal": "delete",
-      "rule": "app.slack-cache",
       "rule_class": "safe",
       "selected": true,
       "shared_bytes": 0
@@ -526,8 +559,8 @@
       "category": "app-cache",
       "class": "safe",
       "dev": "<tree-dev>",
-      "dirs": 4,
-      "files": 3,
+      "dirs": 1,
+      "files": 6,
       "hint": "",
       "incomplete": false,
       "ino": null,
@@ -535,9 +568,9 @@
       "notes": [],
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Caches/Google/Chrome",
+      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Caches/Adobe Camera Raw 2",
       "removal": "delete",
-      "rule": "app.chrome-cache",
+      "rule": "app.adobe-camera-raw-cache",
       "rule_class": "safe",
       "selected": true,
       "shared_bytes": 0
@@ -649,6 +682,48 @@
     },
     {
       "bytes": 12288,
+      "category": "app-cache",
+      "class": "safe",
+      "dev": "<tree-dev>",
+      "dirs": 2,
+      "files": 5,
+      "hint": "",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "notes": [],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/Slack/Cache",
+      "removal": "delete",
+      "rule": "app.slack-cache",
+      "rule_class": "safe",
+      "selected": true,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 12288,
+      "category": "app-cache",
+      "class": "safe",
+      "dev": "<tree-dev>",
+      "dirs": 3,
+      "files": 4,
+      "hint": "",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "notes": [],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/Slack/Service Worker/CacheStorage",
+      "removal": "delete",
+      "rule": "app.slack-cache",
+      "rule_class": "safe",
+      "selected": true,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 12288,
       "category": "ide",
       "class": "safe",
       "dev": "<tree-dev>",
@@ -685,27 +760,6 @@
       "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/Windsurf/GPUCache",
       "removal": "delete",
       "rule": "ide.windsurf-cache",
-      "rule_class": "safe",
-      "selected": true,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 12288,
-      "category": "app-cache",
-      "class": "safe",
-      "dev": "<tree-dev>",
-      "dirs": 4,
-      "files": 3,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "modified": "2024-01-01T00:00:00Z",
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Caches/Adobe Camera Raw 2",
-      "removal": "delete",
-      "rule": "app.adobe-camera-raw-cache",
       "rule_class": "safe",
       "selected": true,
       "shared_bytes": 0
@@ -855,6 +909,31 @@
       "path": "<run>/tree/System/Volumes/Data/Users/load/.cargo/git/checkouts",
       "removal": "delete",
       "rule": "cache.cargo",
+      "rule_class": "safe",
+      "selected": true,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 8192,
+      "category": "app-cache",
+      "class": "safe",
+      "dev": "<tree-dev>",
+      "dirs": 3,
+      "files": 4,
+      "hint": "debug logs and legacy folders Claude Code no longer writes",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "notes": [],
+      "origin": {
+        "harness": "claude-code",
+        "kind": "runtime-cache"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.claude/todos",
+      "removal": "delete",
+      "rule": "agent.claude-code-scratch",
       "rule_class": "safe",
       "selected": true,
       "shared_bytes": 0
@@ -1024,6 +1103,27 @@
       "path": "<run>/tree/System/Volumes/Data/Users/load/.npm/_cacache",
       "removal": "delete",
       "rule": "cache.npm",
+      "rule_class": "safe",
+      "selected": true,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 4096,
+      "category": "app-cache",
+      "class": "safe",
+      "dev": "<tree-dev>",
+      "dirs": 4,
+      "files": 3,
+      "hint": "",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "notes": [],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Caches/Firefox",
+      "removal": "delete",
+      "rule": "app.firefox-cache",
       "rule_class": "safe",
       "selected": true,
       "shared_bytes": 0
@@ -5442,127 +5542,7 @@
       "shared_bytes": 0
     },
     {
-      "bytes": 4096,
-      "category": "project-artifact",
-      "class": "safe",
-      "dev": "<tree-dev>",
-      "dirs": 1,
-      "files": 1,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "modified": "2024-01-01T00:00:00Z",
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/u00183/Projects/p/__pycache__",
-      "project": {
-        "root": "<run>/tree/System/Volumes/Data/Users/u00183/Projects/p"
-      },
-      "removal": "delete",
-      "rule": "python.pycache",
-      "rule_class": "safe",
-      "selected": true,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 4096,
-      "category": "project-artifact",
-      "class": "safe",
-      "dev": "<tree-dev>",
-      "dirs": 1,
-      "files": 1,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "modified": "2024-01-01T00:00:00Z",
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/u00184/Projects/p/__pycache__",
-      "project": {
-        "root": "<run>/tree/System/Volumes/Data/Users/u00184/Projects/p"
-      },
-      "removal": "delete",
-      "rule": "python.pycache",
-      "rule_class": "safe",
-      "selected": true,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 4096,
-      "category": "project-artifact",
-      "class": "safe",
-      "dev": "<tree-dev>",
-      "dirs": 1,
-      "files": 1,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "modified": "2024-01-01T00:00:00Z",
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/u00185/Projects/p/__pycache__",
-      "project": {
-        "root": "<run>/tree/System/Volumes/Data/Users/u00185/Projects/p"
-      },
-      "removal": "delete",
-      "rule": "python.pycache",
-      "rule_class": "safe",
-      "selected": true,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 4096,
-      "category": "project-artifact",
-      "class": "safe",
-      "dev": "<tree-dev>",
-      "dirs": 1,
-      "files": 1,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "modified": "2024-01-01T00:00:00Z",
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/u00186/Projects/p/__pycache__",
-      "project": {
-        "root": "<run>/tree/System/Volumes/Data/Users/u00186/Projects/p"
-      },
-      "removal": "delete",
-      "rule": "python.pycache",
-      "rule_class": "safe",
-      "selected": true,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 4096,
-      "category": "project-artifact",
-      "class": "safe",
-      "dev": "<tree-dev>",
-      "dirs": 1,
-      "files": 1,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "modified": "2024-01-01T00:00:00Z",
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/u00187/Projects/p/__pycache__",
-      "project": {
-        "root": "<run>/tree/System/Volumes/Data/Users/u00187/Projects/p"
-      },
-      "removal": "delete",
-      "rule": "python.pycache",
-      "rule_class": "safe",
-      "selected": true,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 16384,
+      "bytes": 8192,
       "category": "project-artifact",
       "class": "rebuildable",
       "dev": "<tree-dev>",
@@ -5660,6 +5640,122 @@
       "shared_bytes": 0
     },
     {
+      "bytes": 24576,
+      "category": "app-cache",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 3,
+      "files": 4,
+      "hint": "Cursor's agent transcripts per project, and its AI-code tracking. DeepDriveCleaner only reports them for now.",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "origin": {
+        "harness": "cursor",
+        "kind": "session-data"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.cursor/ai-tracking",
+      "removal": "none",
+      "rule": "agent.cursor-agent-data",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 24576,
+      "category": "project-artifact",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 1,
+      "files": 4,
+      "hint": "recreate: npm ci / pnpm install / yarn install",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [
+        "app-owned"
+      ],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/x/node_modules",
+      "project": {
+        "has_lockfile": true,
+        "idle_days": null,
+        "last_activity": "2024-01-01T00:00:00Z",
+        "root": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/x"
+      },
+      "removal": "trash",
+      "rule": "node.node_modules",
+      "rule_class": "rebuildable",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 20480,
+      "category": "app-cache",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 3,
+      "files": 4,
+      "hint": "A recalled prompt loses its pasted text; past /insights reports are gone.",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "origin": {
+        "harness": "claude-code",
+        "kind": "session-data"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.claude/usage-data",
+      "removal": "trash",
+      "rule": "agent.claude-code-history",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 20480,
+      "category": "app-cache",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 1,
+      "files": 6,
+      "hint": "Codex's past threads and its logs. DeepDriveCleaner only reports them for now.",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "origin": {
+        "harness": "codex",
+        "kind": "session-data"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.codex/sessions",
+      "removal": "none",
+      "rule": "agent.codex-sessions",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
       "bytes": 20480,
       "category": "ide",
       "class": "review",
@@ -5709,6 +5805,198 @@
     },
     {
       "bytes": 16384,
+      "category": "trash",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 2,
+      "files": 5,
+      "hint": "empty the Trash in Finder",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.Trash",
+      "removal": "none",
+      "rule": "trash",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 16384,
+      "category": "app-cache",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 3,
+      "files": 4,
+      "hint": "Runtimes Codex downloaded; it fetches them again on demand. DeepDriveCleaner only reports them for now.",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "origin": {
+        "harness": "codex",
+        "kind": "runtime-cache"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.cache/codex-runtimes",
+      "removal": "none",
+      "rule": "agent.codex-runtimes",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 16384,
+      "category": "app-cache",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 3,
+      "files": 4,
+      "hint": "Claude Code's checkpoints of past sessions, for /rewind. DeepDriveCleaner only reports them for now.",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "origin": {
+        "harness": "claude-code",
+        "kind": "session-data"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.claude/file-history",
+      "removal": "none",
+      "rule": "agent.claude-code-file-history",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 16384,
+      "category": "app-cache",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 3,
+      "files": 4,
+      "hint": "A recalled prompt loses its pasted text; past /insights reports are gone.",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "origin": {
+        "harness": "claude-code",
+        "kind": "session-data"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.claude/paste-cache",
+      "removal": "trash",
+      "rule": "agent.claude-code-history",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 16384,
+      "category": "app-cache",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 1,
+      "files": 6,
+      "hint": "Codex's past threads and its logs. DeepDriveCleaner only reports them for now.",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "origin": {
+        "harness": "codex",
+        "kind": "session-data"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.codex/log",
+      "removal": "none",
+      "rule": "agent.codex-sessions",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 16384,
+      "category": "app-cache",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 2,
+      "files": 5,
+      "hint": "Cursor's agent transcripts per project, and its AI-code tracking. DeepDriveCleaner only reports them for now.",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "origin": {
+        "harness": "cursor",
+        "kind": "session-data"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.cursor/projects",
+      "removal": "none",
+      "rule": "agent.cursor-agent-data",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 16384,
+      "category": "app-cache",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 4,
+      "files": 3,
+      "hint": "opencode's stored sessions, snapshots and logs. DeepDriveCleaner only reports them for now.",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "origin": {
+        "harness": "opencode",
+        "kind": "session-data"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.local/share/opencode/log",
+      "removal": "none",
+      "rule": "agent.opencode-data",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 16384,
       "category": "ml-model",
       "class": "review",
       "dev": "<tree-dev>",
@@ -5733,12 +6021,12 @@
     },
     {
       "bytes": 12288,
-      "category": "trash",
+      "category": "app-cache",
       "class": "review",
       "dev": "<tree-dev>",
-      "dirs": 4,
-      "files": 3,
-      "hint": "empty the Trash in Finder",
+      "dirs": 2,
+      "files": 5,
+      "hint": "opencode's stored sessions, snapshots and logs. DeepDriveCleaner only reports them for now.",
       "incomplete": false,
       "ino": null,
       "modified": "2024-01-01T00:00:00Z",
@@ -5746,11 +6034,15 @@
         "reason": "review"
       },
       "notes": [],
+      "origin": {
+        "harness": "opencode",
+        "kind": "session-data"
+      },
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/load/.Trash",
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.cache/opencode",
       "removal": "none",
-      "rule": "trash",
+      "rule": "agent.opencode-data",
       "rule_class": "review",
       "selected": false,
       "shared_bytes": 0
@@ -5775,6 +6067,34 @@
       "path": "<run>/tree/System/Volumes/Data/Users/load/.cache/torch",
       "removal": "trash",
       "rule": "model.torch",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 12288,
+      "category": "app-cache",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 1,
+      "files": 4,
+      "hint": "Claude Code's transcripts of this project's sessions, for --resume. DeepDriveCleaner only reports them for now.",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "origin": {
+        "harness": "claude-code",
+        "kind": "session-data"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.claude/projects/-Users-example-a",
+      "removal": "none",
+      "rule": "agent.claude-code-transcripts",
       "rule_class": "review",
       "selected": false,
       "shared_bytes": 0
@@ -5823,6 +6143,34 @@
       "path": "<run>/tree/System/Volumes/Data/Users/load/.local/share/containers",
       "removal": "native-only",
       "rule": "vm.podman",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 12288,
+      "category": "app-cache",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 2,
+      "files": 5,
+      "hint": "opencode's stored sessions, snapshots and logs. DeepDriveCleaner only reports them for now.",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "origin": {
+        "harness": "opencode",
+        "kind": "session-data"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.local/share/opencode/storage",
+      "removal": "none",
+      "rule": "agent.opencode-data",
       "rule_class": "review",
       "selected": false,
       "shared_bytes": 0
@@ -5949,6 +6297,34 @@
     },
     {
       "bytes": 8192,
+      "category": "app-cache",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 4,
+      "files": 1,
+      "hint": "Claude Code's transcripts of this project's sessions, for --resume. DeepDriveCleaner only reports them for now.",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "origin": {
+        "harness": "claude-code",
+        "kind": "session-data"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.claude/projects/-Users-example-b",
+      "removal": "none",
+      "rule": "agent.claude-code-transcripts",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 8192,
       "category": "vm-container",
       "class": "review",
       "dev": "<tree-dev>",
@@ -5967,6 +6343,34 @@
       "path": "<run>/tree/System/Volumes/Data/Users/load/.lima",
       "removal": "native-only",
       "rule": "vm.lima",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 8192,
+      "category": "app-cache",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 3,
+      "files": 4,
+      "hint": "opencode's stored sessions, snapshots and logs. DeepDriveCleaner only reports them for now.",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "origin": {
+        "harness": "opencode",
+        "kind": "session-data"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/.local/share/opencode/snapshot",
+      "removal": "none",
+      "rule": "agent.opencode-data",
       "rule_class": "review",
       "selected": false,
       "shared_bytes": 0
@@ -5992,38 +6396,6 @@
       "removal": "trash",
       "rule": "repo.maven",
       "rule_class": "review",
-      "selected": false,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 8192,
-      "category": "project-artifact",
-      "class": "review",
-      "dev": "<tree-dev>",
-      "dirs": 3,
-      "files": 2,
-      "hint": "recreate: npm ci / pnpm install / yarn install",
-      "incomplete": false,
-      "ino": null,
-      "modified": "2024-01-01T00:00:00Z",
-      "not_selected": {
-        "reason": "review"
-      },
-      "notes": [
-        "app-owned"
-      ],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/x/node_modules",
-      "project": {
-        "has_lockfile": true,
-        "idle_days": null,
-        "last_activity": "2024-01-01T00:00:00Z",
-        "root": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/x"
-      },
-      "removal": "trash",
-      "rule": "node.node_modules",
-      "rule_class": "rebuildable",
       "selected": false,
       "shared_bytes": 0
     },
@@ -6612,35 +6984,12 @@
       "shared_bytes": 0
     },
     {
-      "bytes": 24576,
-      "category": "personal",
-      "class": "user-data",
-      "dev": "<tree-dev>",
-      "dirs": 2,
-      "files": 5,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "not_selected": {
-        "reason": "user-data"
-      },
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Group Containers/6N38VWS5BX.ru.keepcoder.Telegram",
-      "removal": "none",
-      "rule": "user.telegram",
-      "rule_class": "user-data",
-      "selected": false,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 24576,
+      "bytes": 36864,
       "category": "personal",
       "class": "user-data",
       "contents": {
         "entries": [],
-        "rest_bytes": 24576,
+        "rest_bytes": 36864,
         "rest_count": 6
       },
       "dev": "<tree-dev>",
@@ -6655,9 +7004,65 @@
       "notes": [],
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/load/Music",
+      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/MobileSync/Backup",
       "removal": "none",
-      "rule": "user.music",
+      "rule": "user.ios-backups",
+      "rule_class": "user-data",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 24576,
+      "category": "personal",
+      "class": "user-data",
+      "contents": {
+        "entries": [],
+        "rest_bytes": 24576,
+        "rest_count": 5
+      },
+      "dev": "<tree-dev>",
+      "dirs": 3,
+      "files": 4,
+      "hint": "",
+      "incomplete": false,
+      "ino": null,
+      "not_selected": {
+        "reason": "user-data"
+      },
+      "notes": [],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/Movies",
+      "removal": "none",
+      "rule": "user.movies",
+      "rule_class": "user-data",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 20480,
+      "category": "personal",
+      "class": "user-data",
+      "contents": {
+        "entries": [],
+        "rest_bytes": 20480,
+        "rest_count": 6
+      },
+      "dev": "<tree-dev>",
+      "dirs": 2,
+      "files": 5,
+      "hint": "",
+      "incomplete": false,
+      "ino": null,
+      "not_selected": {
+        "reason": "user-data"
+      },
+      "notes": [],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/Downloads",
+      "removal": "none",
+      "rule": "user.downloads",
       "rule_class": "user-data",
       "selected": false,
       "shared_bytes": 0
@@ -6689,14 +7094,9 @@
       "bytes": 20480,
       "category": "personal",
       "class": "user-data",
-      "contents": {
-        "entries": [],
-        "rest_bytes": 20480,
-        "rest_count": 6
-      },
       "dev": "<tree-dev>",
-      "dirs": 1,
-      "files": 6,
+      "dirs": 2,
+      "files": 5,
       "hint": "",
       "incomplete": false,
       "ino": null,
@@ -6706,9 +7106,9 @@
       "notes": [],
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/load/Movies",
+      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/iMazing/Backups",
       "removal": "none",
-      "rule": "user.movies",
+      "rule": "user.imazing-backups",
       "rule_class": "user-data",
       "selected": false,
       "shared_bytes": 0
@@ -6720,11 +7120,11 @@
       "contents": {
         "entries": [],
         "rest_bytes": 20480,
-        "rest_count": 6
+        "rest_count": 5
       },
       "dev": "<tree-dev>",
-      "dirs": 1,
-      "files": 6,
+      "dirs": 2,
+      "files": 5,
       "hint": "",
       "incomplete": false,
       "ino": null,
@@ -6737,6 +7137,29 @@
       "path": "<run>/tree/System/Volumes/Data/Users/load/Pictures",
       "removal": "none",
       "rule": "user.pictures",
+      "rule_class": "user-data",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 16384,
+      "category": "personal",
+      "class": "user-data",
+      "dev": "<tree-dev>",
+      "dirs": 2,
+      "files": 5,
+      "hint": "",
+      "incomplete": false,
+      "ino": null,
+      "not_selected": {
+        "reason": "user-data"
+      },
+      "notes": [],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Group Containers/group.net.whatsapp.WhatsApp.shared",
+      "removal": "none",
+      "rule": "user.whatsapp",
       "rule_class": "user-data",
       "selected": false,
       "shared_bytes": 0
@@ -6765,17 +7188,12 @@
       "shared_bytes": 0
     },
     {
-      "bytes": 8192,
+      "bytes": 12288,
       "category": "personal",
       "class": "user-data",
-      "contents": {
-        "entries": [],
-        "rest_bytes": 8192,
-        "rest_count": 1
-      },
       "dev": "<tree-dev>",
-      "dirs": 4,
-      "files": 3,
+      "dirs": 1,
+      "files": 6,
       "hint": "",
       "incomplete": false,
       "ino": null,
@@ -6785,9 +7203,9 @@
       "notes": [],
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/load/Downloads",
+      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Group Containers/6N38VWS5BX.ru.keepcoder.Telegram",
       "removal": "none",
-      "rule": "user.downloads",
+      "rule": "user.telegram",
       "rule_class": "user-data",
       "selected": false,
       "shared_bytes": 0
@@ -6811,57 +7229,6 @@
       "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/Code/User/workspaceStorage",
       "removal": "none",
       "rule": "ide.workspace-storage",
-      "rule_class": "user-data",
-      "selected": false,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 8192,
-      "category": "personal",
-      "class": "user-data",
-      "contents": {
-        "entries": [],
-        "rest_bytes": 8192,
-        "rest_count": 5
-      },
-      "dev": "<tree-dev>",
-      "dirs": 3,
-      "files": 4,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "not_selected": {
-        "reason": "user-data"
-      },
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/MobileSync/Backup",
-      "removal": "none",
-      "rule": "user.ios-backups",
-      "rule_class": "user-data",
-      "selected": false,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 8192,
-      "category": "personal",
-      "class": "user-data",
-      "dev": "<tree-dev>",
-      "dirs": 4,
-      "files": 3,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "not_selected": {
-        "reason": "user-data"
-      },
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Application Support/iMazing/Backups",
-      "removal": "none",
-      "rule": "user.imazing-backups",
       "rule_class": "user-data",
       "selected": false,
       "shared_bytes": 0
@@ -6893,9 +7260,14 @@
       "bytes": 4096,
       "category": "personal",
       "class": "user-data",
+      "contents": {
+        "entries": [],
+        "rest_bytes": 4096,
+        "rest_count": 4
+      },
       "dev": "<tree-dev>",
-      "dirs": 2,
-      "files": 5,
+      "dirs": 4,
+      "files": 3,
       "hint": "",
       "incomplete": false,
       "ino": null,
@@ -6905,9 +7277,9 @@
       "notes": [],
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/System/Volumes/Data/Users/load/Library/Group Containers/group.net.whatsapp.WhatsApp.shared",
+      "path": "<run>/tree/System/Volumes/Data/Users/load/Music",
       "removal": "none",
-      "rule": "user.whatsapp",
+      "rule": "user.music",
       "rule_class": "user-data",
       "selected": false,
       "shared_bytes": 0
@@ -6938,40 +7310,40 @@
   "totals": {
     "classes": [
       {
-        "bytes": 1585152,
+        "bytes": 1613824,
         "class": "safe",
-        "count": 237,
-        "selected_bytes": 1585152,
-        "selected_count": 237
+        "count": 236,
+        "selected_bytes": 1613824,
+        "selected_count": 236
       },
       {
-        "bytes": 16384,
+        "bytes": 8192,
         "class": "rebuildable",
         "count": 1,
-        "selected_bytes": 16384,
+        "selected_bytes": 8192,
         "selected_count": 1
       },
       {
-        "bytes": 376832,
+        "bytes": 614400,
         "class": "review",
-        "count": 42,
+        "count": 56,
         "selected_bytes": 0,
         "selected_count": 0
       },
       {
-        "bytes": 163840,
+        "bytes": 200704,
         "class": "user-data",
         "count": 12,
         "selected_bytes": 0,
         "selected_count": 0
       }
     ],
-    "dirs": 3773,
-    "files": 6236,
-    "scanned_bytes": 20819968,
-    "selected_bytes": 1601536,
-    "selected_reclaimable_bytes": 1601536,
-    "unowned_bytes": 18677760
+    "dirs": 3748,
+    "files": 6258,
+    "scanned_bytes": 20959232,
+    "selected_bytes": 1622016,
+    "selected_reclaimable_bytes": 1622016,
+    "unowned_bytes": 18522112
   },
   "volumes": null
 }

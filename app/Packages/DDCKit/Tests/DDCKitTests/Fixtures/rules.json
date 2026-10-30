@@ -10,6 +10,7 @@
     "Maven and test browsers",
     "Browser and app caches",
     "IDE caches",
+    "Coding agents",
     "Xcode builds",
     "Xcode device support",
     "Old toolchains",
@@ -62,6 +63,15 @@
       "category": "project-artifact",
       "class": "rebuildable",
       "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "python.conda-env",
+      "group": "Python environments",
+      "category": "toolchain",
+      "class": "review",
+      "removal": "native",
       "listed": true,
       "switchable": true
     },
@@ -212,6 +222,15 @@
     {
       "id": "cache.uv",
       "group": "Toolchain caches",
+      "category": "package-cache",
+      "class": "safe",
+      "removal": "native",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "cache.conda",
+      "group": "Package downloads",
       "category": "package-cache",
       "class": "safe",
       "removal": "native",
@@ -540,6 +559,96 @@
       "class": "user-data",
       "removal": "none",
       "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "agent.claude-code-scratch",
+      "group": "Coding agents",
+      "category": "app-cache",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "agent.claude-code-file-history",
+      "group": "Coding agents",
+      "category": "app-cache",
+      "class": "review",
+      "removal": "none",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "agent.claude-code-transcripts",
+      "group": "Coding agents",
+      "category": "app-cache",
+      "class": "review",
+      "removal": "none",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "agent.claude-code-history",
+      "group": "Coding agents",
+      "category": "app-cache",
+      "class": "review",
+      "removal": "trash",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "agent.codex-sessions",
+      "group": "Coding agents",
+      "category": "app-cache",
+      "class": "review",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "agent.codex-runtimes",
+      "group": "Coding agents",
+      "category": "app-cache",
+      "class": "review",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "agent.opencode-data",
+      "group": "Coding agents",
+      "category": "app-cache",
+      "class": "review",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "agent.cursor-agent-data",
+      "group": "Coding agents",
+      "category": "app-cache",
+      "class": "review",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "agent.claude-code-sealed",
+      "group": "Coding agents",
+      "category": "personal",
+      "class": "user-data",
+      "removal": "none",
+      "listed": false,
+      "switchable": false
+    },
+    {
+      "id": "agent.cursor-sealed",
+      "group": "Coding agents",
+      "category": "personal",
+      "class": "user-data",
+      "removal": "none",
+      "listed": false,
       "switchable": false
     },
     {

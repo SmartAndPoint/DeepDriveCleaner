@@ -18,6 +18,11 @@ LOCKS_JS = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun
 
 GLOBAL_NODE = ("/.npm-global/", "/.config/yarn/global/", "/.bun/install/global/", "/.volta/", "/.fnm/")
 
+# Sealed like an app bundle (ADR "Agent footprint: worktrees, harness data and bounded consent for agents", §3):
+# never a finding, and no rule fires inside. The worktree folders are not sealed: the rules work inside a worktree.
+SEALED = (".claude/sessions", ".claude/shell-snapshots", ".claude/plugins",
+          ".cursor/extensions", ".cursor/plugins", ".cursor/plans", ".cursor/chats")
+
 
 def du(p):
     """(allocated bytes, note): note is '' (complete), 'partial' (some subpaths unreadable) or 'unreadable' (bytes = -1)."""
@@ -136,6 +141,7 @@ def known():
         ("Library/Group Containers/6N38VWS5BX.ru.keepcoder.Telegram", "user.telegram", "user-data"),
         ("Library/Group Containers/group.net.whatsapp.WhatsApp.shared", "user.whatsapp", "user-data"),
     ]
+    rows += agent_rows()
     for app, rule in (("Code", "ide.vscode-cache"), ("Cursor", "ide.cursor-cache"), ("Windsurf", "ide.windsurf-cache")):
         for c in ("Cache", "CachedData", "CachedExtensionVSIXs", "GPUCache", "logs"):
             rows.append((f"Library/Application Support/{app}/{c}", rule, "safe"))
@@ -160,6 +166,27 @@ def known():
             name = os.path.basename(d)
             if not any(name.startswith(t) for t in {default_tc, *pinned["rust"]} if t):
                 rows.append((os.path.relpath(d, H), "toolchain.rustup", "review"))
+    return rows
+
+
+def agent_rows():
+    """The coding agents' rules: harness scratch is safe, the rest review. One row per Claude Code project folder."""
+    rows = [(f".claude/{d}", "agent.claude-code-scratch", "safe") for d in ("debug", "todos", "statsig", "logs")]
+    rows += [
+        (".claude/file-history", "agent.claude-code-file-history", "review"),
+        (".claude/paste-cache", "agent.claude-code-history", "review"),
+        (".claude/usage-data", "agent.claude-code-history", "review"),
+        (".codex/sessions", "agent.codex-sessions", "review"), (".codex/log", "agent.codex-sessions", "review"),
+        (".cache/codex-runtimes", "agent.codex-runtimes", "review"),
+        (".cache/opencode", "agent.opencode-data", "review"),
+        (".cursor/projects", "agent.cursor-agent-data", "review"),
+        (".cursor/ai-tracking", "agent.cursor-agent-data", "review"),
+    ]
+    # By subfolder, never whole: the folder also holds auth.json and opencode.db.
+    rows += [(f".local/share/opencode/{d}", "agent.opencode-data", "review") for d in ("storage", "snapshot", "log")]
+    for d in sorted(glob.glob(glob.escape(H) + "/.claude/projects/*")):
+        if os.path.isdir(d) and not os.path.islink(d):
+            rows.append((os.path.relpath(d, H), "agent.claude-code-transcripts", "review"))
     return rows
 
 
@@ -227,11 +254,12 @@ def main():
     # Artifacts inside a known path (e.g. node_modules in ~/.npm/_npx) belong to that finding.
     # Regions (Downloads) keep rules working inside, so they do not swallow artifacts.
     known_roots = [os.path.join(H, rel) + os.sep for rel, rule, _ in known_rows if rule != "user.downloads"]
+    known_roots += [os.path.join(H, rel) + os.sep for rel in SEALED]
     with open(os.path.join(HERE, "devartifacts-2026-10-17.txt")) as f:
         for line in f:
             p = line.rstrip("\n").replace("~", H, 1)
             if any(p.startswith(k) for k in known_roots) or ".app/" in p:
-                continue  # inside a known path or inside a sealed .app bundle
+                continue  # inside a known path, a sealed harness folder or a sealed .app bundle
             if os.path.isdir(p) and not os.path.islink(p):
                 hit = classify(p)
                 if hit:

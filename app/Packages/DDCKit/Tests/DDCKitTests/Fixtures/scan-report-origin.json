@@ -1,0 +1,124 @@
+{
+  "schema_version": 2,
+  "ddc_version": "0.9.0",
+  "platform": "macos",
+  "capabilities": [
+    "private-size",
+    "in-use-check",
+    "dataless-files",
+    "full-disk-access",
+    "local-snapshots",
+    "whole-disk",
+    "coding-agents",
+    "homebrew",
+    "schedule",
+    "notifications"
+  ],
+  "generated_at": "2026-10-30T15:20:41Z",
+  "duration_ms": 6,
+  "home": "/Users/example",
+  "scan_roots": [
+    "/Users/example"
+  ],
+  "full_disk_access": false,
+  "min_age_days": 14,
+  "totals": {
+    "scanned_bytes": 65536,
+    "files": 5,
+    "dirs": 3,
+    "unowned_bytes": 8192,
+    "classes": [
+      {
+        "class": "safe",
+        "count": 1,
+        "bytes": 8192,
+        "selected_count": 1,
+        "selected_bytes": 8192
+      },
+      {
+        "class": "rebuildable",
+        "count": 0,
+        "bytes": 0,
+        "selected_count": 0,
+        "selected_bytes": 0
+      },
+      {
+        "class": "review",
+        "count": 1,
+        "bytes": 49152,
+        "selected_count": 0,
+        "selected_bytes": 0
+      },
+      {
+        "class": "user-data",
+        "count": 0,
+        "bytes": 0,
+        "selected_count": 0,
+        "selected_bytes": 0
+      }
+    ],
+    "selected_bytes": 8192,
+    "selected_reclaimable_bytes": 8192
+  },
+  "findings": [
+    {
+      "path": "/Users/example/.claude/debug",
+      "rule": "agent.claude-code-scratch",
+      "category": "app-cache",
+      "class": "safe",
+      "rule_class": "safe",
+      "removal": "delete",
+      "bytes": 8192,
+      "shared_bytes": 0,
+      "files": 2,
+      "dirs": 1,
+      "incomplete": false,
+      "selected": true,
+      "notes": [],
+      "hint": "debug logs and legacy folders Claude Code no longer writes",
+      "dev": 16777232,
+      "ino": 339569801,
+      "parent_dev": 16777232,
+      "parent_ino": 339569800,
+      "modified": "2026-10-29T09:12:44Z",
+      "origin": {
+        "harness": "claude-code",
+        "kind": "runtime-cache"
+      }
+    },
+    {
+      "path": "/Users/example/.claude/projects/-Users-example-proj",
+      "rule": "agent.claude-code-transcripts",
+      "category": "app-cache",
+      "class": "review",
+      "rule_class": "review",
+      "removal": "none",
+      "bytes": 49152,
+      "shared_bytes": 0,
+      "files": 3,
+      "dirs": 2,
+      "incomplete": false,
+      "selected": false,
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "hint": "Claude Code's transcripts of this project's sessions, for --resume. DeepDriveCleaner only reports them for now.",
+      "dev": 16777232,
+      "ino": 339569810,
+      "parent_dev": 16777232,
+      "parent_ino": 339569802,
+      "modified": "2026-10-30T17:40:02Z",
+      "origin": {
+        "harness": "claude-code",
+        "kind": "session-data"
+      }
+    }
+  ],
+  "large_files": [],
+  "inaccessible": [],
+  "errors_total": 0,
+  "skipped": [],
+  "skipped_total": 0,
+  "cancelled": false
+}

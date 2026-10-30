@@ -133,6 +133,13 @@ pub fn home(d: &mut Desc, home: &[u8], rule: &'static Rule, rng: &mut Rng) {
                 d.unopened.push(at(p));
             }
         }
+        // Every project folder of Claude Code's is a finding of its own.
+        Matcher::KnownChildren(parent) if rule.id == "agent.claude-code-transcripts" => {
+            for p in ["-Users-example-a", "-Users-example-b"] {
+                payload(d, rng, &at(&format!("{parent}/{p}")), 4);
+                d.plant(at(&format!("{parent}/{p}")), rule.id);
+            }
+        }
         Matcher::KnownChildren(parent) => {
             let (old, new, pins): (&str, &str, &[(&str, &str)]) = match rule.id {
                 "toolchain.nvm" => ("v18.0.0", "v20.0.0", &[(".nvm/alias/default", "20")]),

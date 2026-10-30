@@ -109,7 +109,7 @@
           "$ref": "#/$defs/RemovalKind"
         },
         "switchable": {
-          "description": "The Types settings may switch it off (`disabled_rules`). False for\nddc's own leftovers and for rules ddc never acts on.",
+          "description": "The Types settings may switch it off (`disabled_rules`): a rule ddc\nacts on, or one whose entries go to the Trash. False for ddc's own\nleftovers, for the user's data and for rules ddc never acts on.",
           "type": "boolean"
         }
       },

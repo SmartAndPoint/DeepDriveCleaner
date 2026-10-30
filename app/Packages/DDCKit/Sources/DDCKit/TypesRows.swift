@@ -61,5 +61,8 @@ public enum TypesRows {
         "Old toolchains": "Node, Python and Rust versions no project uses",
         "ML models": "Ollama, Hugging Face, PyTorch",
         "VM and container images": "Docker Desktop, Podman: image and builder prune only",
+        // Sessions are report only until they are entries and the harnesses
+        // are checked for liveness (story "Harness data rules", steps 3 and 4).
+        "Coding agents": "Claude Code debug logs, and its prompt history when you pick it. Agents' sessions are only reported for now",
     ]
 }

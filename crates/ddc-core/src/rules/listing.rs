@@ -5,6 +5,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::entries::has_entries;
 use super::{KEPT, Rule, TOMBSTONE, rules_of};
 use crate::class::{Category, RiskClass};
 use crate::model::RemovalKind;
@@ -15,11 +16,12 @@ use crate::platform::{PLATFORM, Platform};
 pub const RULES_SCHEMA_VERSION: u32 = 1;
 
 /// Every rule id in exactly one group, in the order of the Types settings:
-/// the thirteen of the design canvas's revised Settings (artboard 10) and
+/// the thirteen of the design canvas's revised Settings (artboard 10),
 /// "Maven and test browsers", which holds the `review` downloads out of the
-/// Safe "Toolchain caches", then three without a switch: ddc's own
-/// leftovers, the Trash (story "The Trash: its own row, not Your data") and
-/// the user's data.
+/// Safe "Toolchain caches", and "Coding agents" (ADR "Agent footprint:
+/// worktrees, harness data and bounded consent for agents", §3) after the
+/// IDE caches, then three without a switch: ddc's own leftovers, the Trash
+/// (story "The Trash: its own row, not Your data") and the user's data.
 pub const GROUPS: &[(&str, &[&str])] = &[
     ("Python environments", &["python.venv", "python.conda-env", "python.tox"]),
     ("node_modules", &["node.node_modules", "node.node_modules-orphan"]),
@@ -61,6 +63,21 @@ pub const GROUPS: &[(&str, &[&str])] = &[
             "ide.vscode-cache",
             "ide.cursor-cache",
             "ide.windsurf-cache",
+        ],
+    ),
+    (
+        "Coding agents",
+        &[
+            "agent.claude-code-scratch",
+            "agent.claude-code-file-history",
+            "agent.claude-code-transcripts",
+            "agent.claude-code-history",
+            "agent.codex-sessions",
+            "agent.codex-runtimes",
+            "agent.opencode-data",
+            "agent.cursor-agent-data",
+            "agent.claude-code-sealed",
+            "agent.cursor-sealed",
         ],
     ),
     ("Xcode builds", &["xcode.derived-data", "xcode.simulator-caches"]),
@@ -119,8 +136,9 @@ pub struct RuleInfo {
     pub removal: RemovalKind,
     /// Shown in reports; unlisted rules only stop other rules from matching inside.
     pub listed: bool,
-    /// The Types settings may switch it off (`disabled_rules`). False for
-    /// ddc's own leftovers and for rules ddc never acts on.
+    /// The Types settings may switch it off (`disabled_rules`): a rule ddc
+    /// acts on, or one whose entries go to the Trash. False for ddc's own
+    /// leftovers, for the user's data and for rules ddc never acts on.
     pub switchable: bool,
 }
 
@@ -129,8 +147,15 @@ pub fn group_of(id: &str) -> Option<&'static str> {
     GROUPS.iter().find(|(_, ids)| ids.contains(&id)).map(|(label, _)| *label)
 }
 
+/// A rule ddc acts on, or one whose method is `none` but whose entries go
+/// to the Trash, unless its class is `user-data`: Downloads and the other
+/// folders of the user's stay without a switch (ADR "Agent footprint:
+/// worktrees, harness data and bounded consent for agents", §3, settled at
+/// the plan gate).
 pub fn switchable(rule: &Rule) -> bool {
-    rule.id != TOMBSTONE && action_for(rule, rule.class, false).is_some()
+    rule.id != TOMBSTONE
+        && (action_for(rule, rule.class, false).is_some()
+            || (rule.class != RiskClass::UserData && has_entries(rule.id)))
 }
 
 impl RuleList {

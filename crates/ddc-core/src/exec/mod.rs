@@ -371,11 +371,17 @@ fn allowed(item: &PlanItem, consent: &Consent) -> bool {
 }
 
 /// The executor does not trust the plan: the action must be one the rule
-/// allows for this finding (ADR §1 — enforced here, not only by `build_plan`).
+/// allows for this finding (ADR §1 — enforced here, not only by `build_plan`),
+/// under a consent the rule allows.
 /// The one way into user data is an entry of the user's own folders that
 /// the user listed (safety ADR, amendment of 2026-10-20).
 fn action_allowed(item: &PlanItem, catalog: &Catalog, consent: &Consent) -> Result<(), SkipReason> {
     let Some(rule) = catalog.by_id(&item.finding.rule) else { return Err(SkipReason::ActionNotAllowed) };
+    // A `listed_only` rule's item runs from a person's list only, whatever
+    // its class: defence in depth behind `build_plan` and `review-with-yes`.
+    if rule.listed_only && *consent != Consent::Listed {
+        return Err(SkipReason::ActionNotAllowed);
+    }
     if item.action == Action::TrashEntry {
         let entry = *consent == Consent::Listed
             && ENTRY_RULES.contains(&rule.id)

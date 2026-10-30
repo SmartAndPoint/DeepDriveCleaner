@@ -147,6 +147,8 @@ extension CleanWording {
         case "ide.workspace-storage": "Editor workspace storage"
         case "macos.app-bundle": "Apps"
         case "node.global-packages": "Global packages"
+        case "agent.claude-code-sealed": "Claude Code sessions, shell snapshots and plugins"
+        case "agent.cursor-sealed": "Cursor extensions, plans and chats"
         default: nil
         }
     }

@@ -192,7 +192,14 @@ mod tests {
         let ids = |scope| rules.iter().filter(|r| r.scope == scope).map(|r| r.id).collect::<Vec<_>>();
         assert_eq!(ids(Scope::Tree), PINNED);
         assert_eq!(ids(Scope::Siblings), [NEWEST_KEPT]);
+        // Every Claude Code project folder is a finding of its own: nothing
+        // is decided from its siblings.
+        let every_child = ["agent.claude-code-transcripts"];
         for rule in rules.iter().filter(|r| matches!(r.matcher, Matcher::KnownChildren(_))) {
+            if every_child.contains(&rule.id) {
+                assert_eq!(rule.scope, Scope::Item, "{}", rule.id);
+                continue;
+            }
             assert_ne!(rule.scope, Scope::Item, "{}: a known-children rule decides from its siblings", rule.id);
         }
     }

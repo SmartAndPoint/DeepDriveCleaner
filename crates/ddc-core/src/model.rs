@@ -195,6 +195,42 @@ pub struct Finding {
     /// root could not be opened.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modified: Option<String>,
+    /// The harness whose own structure the rule recognizes (ADR "Agent
+    /// footprint: worktrees, harness data and bounded consent for agents",
+    /// §1). Only on findings of such rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<Origin>,
+}
+
+/// Where a finding comes from: a coding agent's harness and what of it the
+/// finding is. A provenance, not a class: the class and the method decide
+/// what happens to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct Origin {
+    pub harness: OriginHarness,
+    pub kind: OriginKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum OriginHarness {
+    ClaudeCode,
+    Codex,
+    Opencode,
+    Cursor,
+    /// A git worktree, whoever made it.
+    Git,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum OriginKind {
+    /// A worktree an agent works in.
+    Worktree,
+    /// What the harness keeps of its sessions: transcripts, history, logs.
+    SessionData,
+    /// What the harness downloads or writes for itself and can make again.
+    RuntimeCache,
 }
 
 /// What protects a `user.kept` finding: its keep markers, the exclusions and
