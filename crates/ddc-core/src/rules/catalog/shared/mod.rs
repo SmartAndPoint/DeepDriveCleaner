@@ -58,7 +58,7 @@ impl PerOs {
 }
 
 /// How many rules every platform shares.
-const COUNT: usize = 48;
+pub(super) const COUNT: usize = 48;
 
 /// Every shared rule resolved for `p`, in the macOS order.
 pub(super) const fn all(p: Platform) -> [Rule; COUNT] {

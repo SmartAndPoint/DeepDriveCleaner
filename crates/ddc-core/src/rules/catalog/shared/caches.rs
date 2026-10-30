@@ -186,7 +186,7 @@ pub(crate) const BROWSERS_PUPPETEER: Rule = Rule {
 };
 
 /// Cypress's binary cache: `~/Library/Caches/Cypress` on macOS,
-/// `~/.cache/Cypress` on Linux, `/AppData/Local/Cypress/Cache` on Windows
+/// `~/.cache/Cypress` on Linux, `AppData/Local/Cypress/Cache` on Windows
 /// (docs.cypress.io, "Advanced Installation", "Binary cache").
 pub(crate) const fn browsers_cypress(p: Platform) -> Rule {
     let paths = PerOs {
