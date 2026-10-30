@@ -323,7 +323,7 @@ fn private_size_is_unknown_when_not_returned() {
 fn bulk_reader_matches_lstat_per_entry_across_batches() {
     use std::collections::HashMap;
 
-    use ddc_core::platform::bulk::BulkReader;
+    use ddc_core::scan::SystemReader as BulkReader;
     use ddc_core::scan::{DirReader, EntryKind, StdReader};
 
     let t = TreeBuilder::new();

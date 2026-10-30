@@ -11,12 +11,11 @@ use std::time::Instant;
 
 use super::inodes::{Holder, InodeTable};
 use super::reader::EntryMeta;
-use super::reader::{DirReader, EntryKind, ReadError, ReadErrorKind, SF_DATALESS, StdReader};
+use super::reader::{DirReader, EntryKind, ReadError, ReadErrorKind, SF_DATALESS, StdReader, SystemReader};
 use super::{
     DirCtx, EntryResult, OwnerEntries, OwnerKind, OwnerResult, Post, Pre, Progress, ReaderKind, RootResult, SkipReason,
     Skipped, Tag, Visitor, WalkError, WalkOptions, WalkOutput, WalkSetupError,
 };
-use crate::platform::bulk::BulkReader;
 
 struct OwnerAcc {
     id: usize,
@@ -104,7 +103,7 @@ pub fn walk(
     progress: &Progress,
 ) -> Result<WalkOutput, WalkSetupError> {
     let reader: &dyn DirReader = match opts.reader {
-        ReaderKind::Bulk => &BulkReader,
+        ReaderKind::Bulk => &SystemReader,
         ReaderKind::Std => &StdReader,
     };
     walk_with_reader(roots, visitor, opts, progress, reader)
@@ -302,7 +301,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         // entry this directory lies in, after the loop.
         let own = children.as_ref().map(|c| &c[i]);
         if let Some(errno) = meta.error {
-            if errno == libc::ENOENT {
+            if errno == crate::platform::errno::ENOENT {
                 skipped += 1;
                 sh.vanished();
             } else {

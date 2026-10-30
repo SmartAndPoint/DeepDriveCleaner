@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub use progress::{Progress, ProgressSnapshot};
-pub use reader::{DirListing, DirReader, EntryKind, EntryMeta, ReadError, ReadErrorKind, StdReader};
+pub use reader::{DirListing, DirReader, EntryKind, EntryMeta, ReadError, ReadErrorKind, StdReader, SystemReader};
 pub use walker::{normalized_roots, walk, walk_with_reader};
 
 /// Rule identifier chosen by the visitor (opaque to the walker).

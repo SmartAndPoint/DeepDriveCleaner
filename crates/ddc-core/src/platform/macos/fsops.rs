@@ -10,6 +10,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use libc::{c_char, c_int, c_ulong, c_void, size_t};
 
+use crate::platform::types::EntryStat;
+
 use super::bulk::{ATTR_BIT_MAP_COUNT, ATTR_CMN_ADDEDTIME, ATTR_CMN_MODTIME, ATTR_CMN_RETURNED_ATTRS, AttrList};
 
 const FSOPT_NOFOLLOW: c_ulong = 0x0000_0001;
@@ -69,20 +71,6 @@ impl Drop for DirFd {
         // SAFETY: we own the descriptor and close it once.
         unsafe { libc::close(self.0) };
     }
-}
-
-/// Identity and type of an entry, from `fstatat(.., AT_SYMLINK_NOFOLLOW)`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EntryStat {
-    pub dev: u64,
-    pub ino: u64,
-    pub is_dir: bool,
-    pub is_file: bool,
-    pub is_symlink: bool,
-    /// `st_flags` (`SF_DATALESS`, …).
-    pub flags: u32,
-    /// Allocated bytes (`st_blocks * 512`).
-    pub alloc: u64,
 }
 
 /// The user running ddc may write in `path`, as `access(2)` with `W_OK`

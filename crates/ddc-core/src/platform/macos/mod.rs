@@ -13,6 +13,7 @@
 #![allow(unsafe_code)]
 
 pub mod bulk;
+pub mod errno;
 pub mod fsops;
 pub mod iopolicy;
 pub mod procs;

@@ -18,7 +18,6 @@ use ddc_core::exec::{
 };
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{ListedItem, ListedItems, Refused, plan_listed};
-use ddc_core::platform::bulk::BulkReader;
 use ddc_core::platform::signals;
 use ddc_core::progress::{Phase, WalkStep};
 use ddc_core::report::after_clean::{self, Remeasured};
@@ -27,7 +26,7 @@ use ddc_core::report::recheck::{self, RecheckError, Walk};
 use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
-use ddc_core::scan::{Progress, WalkOptions};
+use ddc_core::scan::{Progress, SystemReader, WalkOptions};
 use ddc_core::settings::ScanFlags;
 use ddc_core::store::{self, LockMode};
 
@@ -206,7 +205,7 @@ fn dry_run(
 ) -> anyhow::Result<ExitCode> {
     let _lock = store::try_lock(env, LockMode::Shared)?;
     let commands = SystemCommands::new(env);
-    let ports = PreflightPorts { commands: &commands, procs: &SystemProcesses, reader: &BulkReader };
+    let ports = PreflightPorts { commands: &commands, procs: &SystemProcesses, reader: &SystemReader };
     let mut out = std::io::stdout().lock();
     let home = env.home().to_path_buf();
     preflight::preflight(env, catalog, &opts.roots, &opts.excludes, &list.items, &ports, &mut |line| {

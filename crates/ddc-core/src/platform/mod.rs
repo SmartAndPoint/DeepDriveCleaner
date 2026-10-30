@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::disk::ActionId;
 
 pub mod op_stats;
+pub mod types;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -39,7 +40,77 @@ use windows as imp;
 
 // The OS calls, as `platform::<module>::<item>` (ADR §1, amended): shared
 // code never names `macos`, which stays private.
-pub use imp::{bulk, fsops, iopolicy, procs, rlimit, signals, statfs, term, usage};
+pub use imp::{bulk, errno, fsops, iopolicy, procs, rlimit, signals, statfs, term, usage};
+
+// Every OS module provides these items with these signatures (ADR §1): a
+// module that drifts fails `cargo check --target <t>` here, not at a caller.
+mod pins {
+    use std::ffi::OsStr;
+    use std::io;
+    use std::path::{Path, PathBuf};
+    use std::process::ExitStatus;
+    use std::sync::atomic::AtomicBool;
+    use std::time::{Duration, SystemTime};
+
+    use super::imp;
+    use super::types::{
+        DirListing, EntryStat, OpenVnode, ProcInfo, ProcStart, ReadError, ReadErrorKind, Usage, VolumeStats,
+    };
+
+    type DirFd = imp::fsops::DirFd;
+    type Identity = Option<(u64, u64)>;
+    type Times = (Option<i64>, Option<i64>);
+    type Waited = Option<(ExitStatus, Usage)>;
+
+    const _: fn(&Path, Identity, bool, bool) -> Result<DirListing, ReadError> = imp::bulk::list;
+
+    const _: fn(i32) -> ReadErrorKind = imp::errno::read_error_kind;
+    const _: i32 = imp::errno::ENOENT;
+    const _: i32 = imp::errno::EACCES;
+    const _: i32 = imp::errno::EIO;
+
+    const _: fn(&Path, SystemTime, SystemTime) -> io::Result<()> = imp::fsops::set_times;
+    const _: fn(&Path) -> bool = imp::fsops::can_write;
+    const _: fn(&Path) -> io::Result<DirFd> = DirFd::open;
+    const _: fn(&DirFd) -> io::Result<(u64, u64)> = DirFd::identity;
+    const _: fn(&DirFd, &OsStr) -> io::Result<EntryStat> = DirFd::stat_child;
+    const _: fn(&DirFd, &OsStr) -> io::Result<Times> = DirFd::child_times;
+    const _: fn(&DirFd, &OsStr, &OsStr) -> io::Result<()> = DirFd::rename_child;
+
+    const _: fn() -> io::Result<()> = imp::iopolicy::disable_dataless_materialization;
+    const _: fn() -> io::Result<bool> = imp::iopolicy::dataless_materialization_disabled;
+
+    const _: fn() -> u32 = imp::procs::uid;
+    const _: fn() -> Option<PathBuf> = imp::procs::real_home;
+    const _: fn() -> bool = imp::procs::is_root;
+    const _: fn() -> Vec<ProcInfo> = imp::procs::current_user_processes;
+    const _: fn() -> Vec<ProcInfo> = imp::procs::current_user_processes_unopened;
+    const _: fn(i32) -> Vec<PathBuf> = imp::procs::open_files;
+    const _: fn(i32) -> Vec<OpenVnode> = imp::procs::open_vnodes;
+    const _: fn(i32) -> Option<ProcStart> = imp::procs::process_start;
+    const _: fn(i32) -> Option<u32> = imp::procs::thread_count;
+
+    const _: fn() -> io::Result<u64> = imp::rlimit::nofile_limit;
+    const _: fn() -> io::Result<u64> = imp::rlimit::raise_nofile_limit;
+
+    const _: fn() -> io::Result<&'static AtomicBool> = imp::signals::install;
+    const _: fn() -> Option<i32> = imp::signals::received;
+    const _: fn(i32) = imp::signals::set_child_group;
+    const _: fn() = imp::signals::clear_child_group;
+    const _: fn(i32, i32) = imp::signals::kill_group;
+    const _: fn(i32) -> ! = imp::signals::reraise;
+
+    const _: fn(&Path) -> io::Result<VolumeStats> = imp::statfs::statfs;
+    const _: fn() -> io::Result<Vec<VolumeStats>> = imp::statfs::mounts;
+
+    const _: fn() -> Option<u16> = imp::term::stderr_columns;
+
+    const _: fn(u32, bool) -> io::Result<Waited> = imp::usage::wait4;
+    const _: fn() -> io::Result<Usage> = imp::usage::self_usage;
+    const _: fn() -> io::Result<Duration> = imp::usage::thread_cpu_time;
+    const _: fn() -> Option<f64> = imp::usage::load_average;
+    const _: fn() -> Option<String> = imp::usage::machine_model;
+}
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 compile_error!("deepdrivecleaner builds for macOS, Linux and Windows only (ADR \"Platform seam\", §1)");

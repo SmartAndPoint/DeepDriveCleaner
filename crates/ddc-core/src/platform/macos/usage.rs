@@ -9,32 +9,19 @@ use std::os::unix::process::ExitStatusExt as _;
 use std::process::ExitStatus;
 use std::time::Duration;
 
+pub use crate::platform::types::Usage;
+
 /// `ru_maxrss` is in bytes on macOS and in KiB on Linux.
 #[cfg(target_os = "macos")]
 const RSS_UNIT: u64 = 1;
 #[cfg(not(target_os = "macos"))]
 const RSS_UNIT: u64 = 1024;
 
-/// What one process used.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Usage {
-    pub user: Duration,
-    pub system: Duration,
-    pub max_rss_bytes: u64,
-}
-
-impl Usage {
-    /// User plus system time.
-    pub fn cpu(&self) -> Duration {
-        self.user + self.system
-    }
-
-    fn from_rusage(ru: &libc::rusage) -> Self {
-        Self {
-            user: duration(ru.ru_utime),
-            system: duration(ru.ru_stime),
-            max_rss_bytes: u64::try_from(ru.ru_maxrss).unwrap_or(0) * RSS_UNIT,
-        }
+fn from_rusage(ru: &libc::rusage) -> Usage {
+    Usage {
+        user: duration(ru.ru_utime),
+        system: duration(ru.ru_stime),
+        max_rss_bytes: u64::try_from(ru.ru_maxrss).unwrap_or(0) * RSS_UNIT,
     }
 }
 
@@ -68,7 +55,7 @@ pub fn wait4(pid: u32, nohang: bool) -> io::Result<Option<(ExitStatus, Usage)>> 
         }
         // SAFETY: filled by the kernel when `wait4` returned the pid.
         let ru = unsafe { ru.assume_init() };
-        return Ok(Some((ExitStatus::from_raw(status), Usage::from_rusage(&ru))));
+        return Ok(Some((ExitStatus::from_raw(status), from_rusage(&ru))));
     }
 }
 
@@ -80,7 +67,7 @@ pub fn self_usage() -> io::Result<Usage> {
         return Err(io::Error::last_os_error());
     }
     // SAFETY: filled by the kernel on success.
-    Ok(Usage::from_rusage(&unsafe { ru.assume_init() }))
+    Ok(from_rusage(&unsafe { ru.assume_init() }))
 }
 
 /// CPU time of the calling thread, unaffected by other threads of the process.

@@ -5,20 +5,7 @@ use std::io;
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VolumeStats {
-    /// `apfs`, `hfs`, `smbfs`, …
-    pub fs_type: String,
-    pub mount_point: PathBuf,
-    /// Bytes available to an unprivileged user.
-    pub available_bytes: u64,
-    pub total_bytes: u64,
-    /// Free bytes, the root's reserve included (`f_bfree`): on APFS
-    /// `total_bytes - free_bytes` is what this volume uses.
-    pub free_bytes: u64,
-    /// The device or source mounted here (`/dev/disk3s5`, `map auto_home`).
-    pub mounted_from: String,
-}
+pub use crate::platform::types::VolumeStats;
 
 pub fn statfs(path: &Path) -> io::Result<VolumeStats> {
     let c_path = CString::new(path.as_os_str().as_bytes())?;

@@ -10,7 +10,7 @@ use std::path::Path;
 
 use libc::c_int;
 
-use crate::scan::reader::{DirListing, DirReader, EntryKind, EntryMeta, ReadError, ReadErrorKind};
+use crate::platform::types::{DirListing, EntryKind, EntryMeta, ReadError, ReadErrorKind};
 
 // <sys/attr.h>
 pub(super) const ATTR_BIT_MAP_COUNT: u16 = 5;
@@ -71,26 +71,11 @@ impl Drop for Fd {
     }
 }
 
-/// [`DirReader`] backed by `getattrlistbulk` (macOS, APFS/HFS+).
-#[derive(Debug, Default, Clone, Copy)]
-pub struct BulkReader;
-
-impl DirReader for BulkReader {
-    fn read(&self, dir: &Path, expect: Option<(u64, u64)>, want_private: bool) -> Result<DirListing, ReadError> {
-        list(dir, expect, want_private, false)
-    }
-
-    fn read_with_times(
-        &self,
-        dir: &Path,
-        expect: Option<(u64, u64)>,
-        want_private: bool,
-    ) -> Result<DirListing, ReadError> {
-        list(dir, expect, want_private, true)
-    }
-}
-
-fn list(dir: &Path, expect: Option<(u64, u64)>, want_private: bool, times: bool) -> Result<DirListing, ReadError> {
+/// Lists `dir` by `getattrlistbulk` (macOS, APFS/HFS+), as
+/// `scan::reader::SystemReader` asks: without following a symlink, nothing
+/// read when the directory is not `expect`, the private size with
+/// `want_private`, the times with `times`.
+pub fn list(dir: &Path, expect: Option<(u64, u64)>, want_private: bool, times: bool) -> Result<DirListing, ReadError> {
     let path = CString::new(dir.as_os_str().as_bytes()).map_err(|_| ReadError::from_errno(libc::EINVAL))?;
     // Retried on EINTR, as std does: a signal is not an unreadable directory.
     let raw = loop {
