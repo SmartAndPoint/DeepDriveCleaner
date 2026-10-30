@@ -10,9 +10,10 @@
 //! not keep an identity the next clean skips again as changed since the
 //! scan. An item the report does not hold edits nothing. The report drifts
 //! from the disk in a few figures until the next full scan replaces it: a
-//! picked folder's files and directories, `unowned_bytes`, and the
-//! `large_files`, `inaccessible` and `skipped` lines under a refreshed item,
-//! which leave and come back with the next full scan.
+//! picked folder's files and directories, `unowned_bytes`, the `modified` of
+//! a Trash finding that took trashed items (it grows but keeps its date), and
+//! the `large_files`, `inaccessible` and `skipped` lines under a refreshed
+//! item, which leave and come back with the next full scan.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -74,7 +75,8 @@ pub fn remeasure(catalog: &Catalog, rule: &str, path: &Path, opts: &scan::WalkOp
             files: 1,
             dirs: 0,
             incomplete: false,
-            modified: Some(crate::platform::meta::mtime(&md)),
+            // As the walk reads it: only with the claim times on.
+            modified: opts.claim_times.then(|| crate::platform::meta::mtime(&md)),
         });
     }
     let Some(tag) = catalog.by_id(rule).and_then(|r| catalog.tag_of(r)) else { return Remeasured::Unknown };

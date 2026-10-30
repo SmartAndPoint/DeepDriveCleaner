@@ -19,7 +19,7 @@ use crate::model::{
     ClassTotal, ExclusionOrigin, Finding, Inaccessible, LargeFile, NotSelected, Project, RemovalKind, SCHEMA_VERSION,
     ScanReport, SkippedPath, Totals,
 };
-use crate::rules::{Catalog, Classified, RuleVisitor, TOMBSTONE, classify};
+use crate::rules::{Catalog, Classified, KEPT, RuleVisitor, TOMBSTONE, classify};
 use crate::scan::{self, DirReader, Progress, ReadErrorKind, Visitor, WalkError, WalkOptions, WalkSetupError};
 use crate::stats;
 use contents::{ContentsLimits, EntryIndex};
@@ -294,7 +294,10 @@ fn finding(
         parent_ino: Some(c.owner.parent_ino),
         contents: None,
         protection: c.protection.clone(),
-        modified: c.owner.modified.and_then(rfc3339_secs),
+        // A protected finding has no date, also one that became `user.kept`
+        // only after its walk (a marker or an exclusion inside it), whose
+        // claim still read the times.
+        modified: c.owner.modified.filter(|_| c.rule.id != KEPT).and_then(rfc3339_secs),
     }
 }
 
@@ -384,4 +387,23 @@ pub(crate) fn rfc3339(t: SystemTime) -> Option<String> {
 /// do. `None` before 1970 or past year 9999.
 pub(crate) fn rfc3339_secs(secs: i64) -> Option<String> {
     rfc3339(std::time::UNIX_EPOCH.checked_add(std::time::Duration::from_secs(u64::try_from(secs).ok()?))?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rfc3339_secs_is_fixed_width_utc_within_the_years_it_can_write() {
+        let last = backups::YEAR_10000 as i64 - 1;
+        assert_eq!(rfc3339_secs(0).as_deref(), Some("1970-01-01T00:00:00Z"));
+        assert_eq!(rfc3339_secs(1_704_067_210).as_deref(), Some("2024-01-01T00:00:10Z"));
+        assert_eq!(rfc3339_secs(last).as_deref(), Some("9999-12-31T23:59:59Z"));
+        for secs in [0, 1, 1_704_067_210, last] {
+            assert_eq!(rfc3339_secs(secs).map(|s| s.len()), Some(20), "{secs}");
+        }
+        assert_eq!(rfc3339_secs(-1), None, "before 1970");
+        assert_eq!(rfc3339_secs(backups::YEAR_10000 as i64), None, "past year 9999");
+        assert_eq!(rfc3339_secs(i64::MAX), None);
+    }
 }
