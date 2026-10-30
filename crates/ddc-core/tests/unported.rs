@@ -159,7 +159,7 @@ fn a_clean_is_refused_before_it_moves_anything() {
         &Catalog::builtin(fx.t.root()),
         &fx.plan(),
         &Consent::AssumeYes { classes: vec![RiskClass::Rebuildable] },
-        Ports { commands: &commands, trash: &trash, procs: &FakeProcs(vec![]), journal: &mut journal },
+        Ports { commands: &commands, trash: &trash, procs: &FakeProcs::new(vec![]), journal: &mut journal },
         &ExecOptions::default(),
     )
     .unwrap_err();
@@ -175,7 +175,7 @@ fn a_dry_run_is_refused_before_it_checks_an_item() {
     let fx = Fx::new();
     let before = fx.state();
     let commands = FakeCommands::default();
-    let ports = PreflightPorts { commands: &commands, procs: &FakeProcs(vec![]), reader: &StdReader };
+    let ports = PreflightPorts { commands: &commands, procs: &FakeProcs::new(vec![]), reader: &StdReader };
     let mut lines = 0;
     let err =
         preflight::preflight(&fx.env(), &Catalog::builtin(fx.t.root()), &[], &[], &[fx.listed()], &ports, &mut |_| {
@@ -197,7 +197,7 @@ fn a_tool_action_is_refused_before_the_tool_runs() {
     let commands = FakeCommands::default().with("brew", true, "");
     let sources = Sources::under(fx.t.root());
     let cancel = AtomicBool::new(false);
-    let procs = FakeProcs(vec![]);
+    let procs = FakeProcs::new(vec![]);
     let skips: [PathBuf; 0] = [];
     let ctx = FreeContext::new(&commands, &sources, fx.t.root(), &skips, &procs, &cancel);
     let list = ActionList {

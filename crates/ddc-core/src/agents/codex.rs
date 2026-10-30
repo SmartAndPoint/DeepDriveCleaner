@@ -9,38 +9,22 @@ use std::path::Path;
 
 use crate::platform::procs::OpenVnode;
 
+use super::liveness::CodexLocks;
 use super::{RecordsState, Session, SessionState, UnknownReason};
 
 /// The threads of `dir` (`~/.codex/thread-writer-locks`): their locks, and
 /// whether a process of `pids` holds each open. `rollouts` maps a thread
 /// id to its rollout's time.
-pub(super) fn threads(
+pub(crate) fn threads(
     dir: &Path,
     pids: &[i32],
     open: impl Fn(i32) -> Vec<OpenVnode>,
     rollouts: &HashMap<String, String>,
 ) -> (RecordsState, Option<UnknownReason>, Vec<Session>) {
-    let entries = match crate::stats::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return (RecordsState::Unknown, Some(UnknownReason::Missing), Vec::new());
-        }
-        Err(_) => return (RecordsState::Unknown, Some(UnknownReason::Unreadable), Vec::new()),
+    let locks = match locks(dir) {
+        Ok(locks) => locks,
+        Err(reason) => return (RecordsState::Unknown, Some(reason), Vec::new()),
     };
-    // Only `<thread-id>.lock`: `.coordination.lock` names no thread.
-    let mut locks: Vec<(String, (u64, u64))> = entries
-        .flatten()
-        .filter_map(|e| {
-            let name = e.file_name();
-            let id = name.to_str()?.strip_suffix(".lock")?;
-            if id.is_empty() || id.starts_with('.') {
-                return None;
-            }
-            let md = std::fs::symlink_metadata(e.path()).ok().filter(|m| m.is_file())?;
-            Some((id.to_owned(), crate::platform::meta::file_id(&md).ok()?))
-        })
-        .collect();
-    locks.sort();
     let held = held(&locks.iter().map(|(_, k)| *k).collect(), pids, open);
     let list = locks
         .into_iter()
@@ -58,10 +42,40 @@ pub(super) fn threads(
     (RecordsState::Readable, None, list)
 }
 
+/// The thread locks of `dir` (`~/.codex/thread-writer-locks`) by thread id,
+/// sorted, each with its `(dev, ino)`; `Missing` or `Unreadable` when the
+/// folder cannot be listed.
+pub(crate) fn locks(dir: &Path) -> CodexLocks {
+    let entries = match crate::stats::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(UnknownReason::Missing),
+        Err(_) => return Err(UnknownReason::Unreadable),
+    };
+    // Only `<thread-id>.lock`: `.coordination.lock` names no thread.
+    let mut locks: Vec<(String, (u64, u64))> = entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name();
+            let id = name.to_str()?.strip_suffix(".lock")?;
+            if id.is_empty() || id.starts_with('.') {
+                return None;
+            }
+            let md = std::fs::symlink_metadata(e.path()).ok().filter(|m| m.is_file())?;
+            Some((id.to_owned(), crate::platform::meta::file_id(&md).ok()?))
+        })
+        .collect();
+    locks.sort();
+    Ok(locks)
+}
+
 /// The locks some process of `pids` holds open, read pid by pid until all
 /// are found. Kept apart so a source test can see it opens and `stat`s
 /// nothing.
-fn held(locks: &HashSet<(u64, u64)>, pids: &[i32], open: impl Fn(i32) -> Vec<OpenVnode>) -> HashSet<(u64, u64)> {
+pub(crate) fn held(
+    locks: &HashSet<(u64, u64)>,
+    pids: &[i32],
+    open: impl Fn(i32) -> Vec<OpenVnode>,
+) -> HashSet<(u64, u64)> {
     let mut found = HashSet::new();
     for &pid in pids {
         if found.len() == locks.len() {

@@ -8,6 +8,7 @@
 
 mod claude;
 mod codex;
+pub mod liveness;
 mod model;
 mod running;
 mod sizes;

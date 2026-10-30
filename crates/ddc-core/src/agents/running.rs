@@ -29,6 +29,8 @@ pub(super) fn classify(proc: &ProcInfo, codex_packages: &Path) -> Option<(Harnes
         }
         "codex" => Some((HarnessId::Codex, kind(RunningKind::Cli))),
         "opencode" => Some((HarnessId::Opencode, kind(RunningKind::Cli))),
+        // Cursor's agent in a terminal, apart from the editor.
+        "cursor-agent" => Some((HarnessId::Cursor, kind(RunningKind::Cli))),
         _ => None,
     }
 }
@@ -127,6 +129,16 @@ mod tests {
         let helper = "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper.app/Contents/MacOS/Cursor Helper";
         assert_eq!(classify(&proc("Cursor Helper", helper, &[])), None);
         assert_eq!(classify(&proc("cursor", "/usr/local/bin/cursor", &[])), None);
+    }
+
+    #[test]
+    fn cursor_agent_is_cursors_cli() {
+        let exe = "/Users/example/.local/share/cursor-agent/versions/2026.10.28/cursor-agent";
+        let agent = proc("cursor-agent", exe, &["cursor-agent"]);
+        assert_eq!(classify(&agent), Some((HarnessId::Cursor, RunningKind::Cli)));
+        assert_eq!(of(HarnessId::Cursor, &[agent], Path::new(PACKAGES)), [Running { pid: 1, kind: RunningKind::Cli }]);
+        // The exact name only.
+        assert_eq!(classify(&proc("cursor-agent-helper", "/usr/local/bin/cursor-agent-helper", &[])), None);
     }
 
     #[test]

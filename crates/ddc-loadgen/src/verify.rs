@@ -7,7 +7,7 @@ use std::time::SystemTime;
 
 use ddc_core::env::Env;
 use ddc_core::exec::preflight::{PreflightPorts, PreflightSummary, preflight};
-use ddc_core::exec::{CmdOutput, CommandRunner, ProcInfo, ProcessTable};
+use ddc_core::exec::{CmdOutput, CommandRunner, OpenVnode, ProcInfo, ProcStart, ProcessTable};
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{Plan, PlanOptions, build_plan};
 use ddc_core::report::{self, ScanOptions};
@@ -79,6 +79,12 @@ impl ProcessTable for NoProcesses {
         Vec::new()
     }
     fn open_files(&self, _: i32) -> Vec<PathBuf> {
+        Vec::new()
+    }
+    fn process_start(&self, _: i32) -> Option<ProcStart> {
+        None
+    }
+    fn open_vnodes(&self, _: i32) -> Vec<OpenVnode> {
         Vec::new()
     }
 }

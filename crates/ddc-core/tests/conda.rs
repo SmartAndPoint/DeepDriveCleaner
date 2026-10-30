@@ -191,7 +191,7 @@ impl Fx {
     }
 
     fn clean_one(&self, path: &Path, commands: &FakeCommands) -> Outcome {
-        self.clean(&[self.listed(path)], commands, &FakeProcs(vec![])).remove(0)
+        self.clean(&[self.listed(path)], commands, &FakeProcs::new(vec![])).remove(0)
     }
 }
 
@@ -256,11 +256,11 @@ fn each_install_is_asked_once_per_clean_and_once_per_cache_and_the_dry_run_asks_
     let commands = removes(fx.commands(), &env, &fx.data.path().join("removed"));
     let items = [fx.listed(&env), fx.listed(&fx.cache())];
 
-    let predicted = fx.dry_run(&items, &commands, &FakeProcs(vec![]));
+    let predicted = fx.dry_run(&items, &commands, &FakeProcs::new(vec![]));
     assert_eq!(predicted, [Prediction::WouldRun, Prediction::WouldRun]);
     assert!(commands.path_calls.borrow().is_empty(), "the dry run runs no conda");
 
-    let outcomes = fx.clean(&items, &commands, &FakeProcs(vec![]));
+    let outcomes = fx.clean(&items, &commands, &FakeProcs::new(vec![]));
     let calls = commands.calls_of(&fx.exe());
     assert_eq!(count(&calls, SHOW), 1, "{calls:?}");
     assert_eq!(count(&calls, SHOW_PKGS), 1, "{calls:?}");
@@ -279,7 +279,7 @@ fn conda_gets_the_one_folder_and_only_the_four_clean_flags_and_the_journal_names
     let fx = Fx::new();
     let env = fx.environment();
     let commands = removes(fx.commands(), &env, &fx.data.path().join("removed"));
-    let outcomes = fx.clean(&[fx.listed(&env), fx.listed(&fx.cache())], &commands, &FakeProcs(vec![]));
+    let outcomes = fx.clean(&[fx.listed(&env), fx.listed(&fx.cache())], &commands, &FakeProcs::new(vec![]));
 
     let calls = commands.calls_of(&fx.exe());
     let remove = format!("env remove -p {} --yes", env.display());
@@ -312,8 +312,8 @@ fn a_second_existing_package_folder_skips_the_cache_and_one_that_does_not_exist_
     let other = fx.home.path("miniconda3/pkgs");
     let commands = fx.commands().at_path(&fx.exe(), SHOW_PKGS, true, &pkgs_answer(&[&cache, &other]));
     let item = fx.listed(&cache);
-    assert_eq!(fx.dry_run(std::slice::from_ref(&item), &commands, &FakeProcs(vec![])), [Prediction::WouldRun]);
-    assert_eq!(fx.clean(&[item], &commands, &FakeProcs(vec![])), [not_ready(conda::NOT_SCOPED)]);
+    assert_eq!(fx.dry_run(std::slice::from_ref(&item), &commands, &FakeProcs::new(vec![])), [Prediction::WouldRun]);
+    assert_eq!(fx.clean(&[item], &commands, &FakeProcs::new(vec![])), [not_ready(conda::NOT_SCOPED)]);
     assert_eq!(count(&commands.calls_of(&fx.exe()), CLEAN), 0);
     assert!(cache.join("scipy-1.11/lib/scipy.so").exists());
 
@@ -333,7 +333,7 @@ fn an_environment_no_install_lists_goes_to_the_trash() {
     let item = fx.listed(&env);
     // No conda at all: the dry run and the clean agree.
     let none = FakeCommands::default();
-    assert_eq!(fx.dry_run(std::slice::from_ref(&item), &none, &FakeProcs(vec![])), [Prediction::WouldTrash]);
+    assert_eq!(fx.dry_run(std::slice::from_ref(&item), &none, &FakeProcs::new(vec![])), [Prediction::WouldTrash]);
     assert_eq!(fx.clean_one(&env, &none), Outcome::Trashed);
     assert!(!env.exists());
 
@@ -355,7 +355,10 @@ fn a_package_folder_no_install_lists_is_skipped_and_stays() {
     let item = fx.listed(&cache);
     let none = FakeCommands::default();
     let reason = SkipReason::ToolNotReady { program: "conda".into(), detail: conda::NOT_LISTED.into() };
-    assert_eq!(fx.dry_run(std::slice::from_ref(&item), &none, &FakeProcs(vec![])), [Prediction::WouldSkip(reason)]);
+    assert_eq!(
+        fx.dry_run(std::slice::from_ref(&item), &none, &FakeProcs::new(vec![])),
+        [Prediction::WouldSkip(reason)]
+    );
     assert_eq!(fx.clean_one(&cache, &none), not_ready(conda::NOT_LISTED));
 
     let only_miniconda =
@@ -442,7 +445,7 @@ fn an_environment_a_process_runs_in_is_in_use() {
     let fx = Fx::new();
     let env = fx.environment();
     let python = ProcInfo { pid: 812, name: "python".into(), env_prefixes: vec![env.clone()], ..ProcInfo::default() };
-    let procs = FakeProcs(vec![python]);
+    let procs = FakeProcs::new(vec![python]);
     let commands = fx.commands();
     let item = fx.listed(&env);
     let reason = SkipReason::InUse { pid: 812, name: "python".into() };
