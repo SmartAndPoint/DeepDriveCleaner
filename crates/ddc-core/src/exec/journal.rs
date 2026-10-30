@@ -19,8 +19,11 @@ use crate::plan::PlanItem;
 /// The journal's own version. Its lines carried the scan report's
 /// `SCHEMA_VERSION` (1) until area actions came, so it starts at 2; a
 /// version 1 line has no `kind` and is an item line. 3: the skip reason
-/// `tool-not-ready`. 4: the kind `keep-remove`.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 4;
+/// `tool-not-ready`. 4: the kind `keep-remove`. 5: in an `item` line, the
+/// skip reason `agent-live` and the entry locks `live-session` and
+/// `liveness-unknown`, and the optional `entry` (ADR "Agent footprint:
+/// worktrees, harness data and bounded consent for agents", §3).
+pub const JOURNAL_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -45,6 +48,11 @@ pub struct JournalEntry {
     pub bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub private_bytes: Option<u64>,
+    /// On a session's companion, moved with its entry: the entry's
+    /// transcript, the path the item was listed by. Each moved path has a
+    /// line of its own, so each can be put back; absent on every other line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entry: Option<PathBuf>,
     #[serde(flatten)]
     pub outcome: Outcome,
 }
@@ -64,6 +72,7 @@ impl JournalEntry {
             method: item.action.name(),
             bytes: f.bytes,
             private_bytes: f.private_bytes,
+            entry: None,
             outcome: outcome.clone(),
         }
     }

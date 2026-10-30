@@ -13,6 +13,9 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
 use crate::platform::procs::{self, OpenVnode, ProcInfo, ProcStart};
 use crate::rules::entries;
 
@@ -35,14 +38,19 @@ pub enum RecordOutcome {
 }
 
 /// Why a session's liveness could not be told. Declared from the widest
-/// to the narrowest: when several apply, the first is reported.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// to the narrowest: when several apply, the first is reported. The scan
+/// report's `liveness-unknown` lock carries it as `cause`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
 pub enum UnknownCause {
     /// The records folder does not exist: an older Claude Code, or a
     /// changed layout.
     RecordsMissing,
     /// The records folder, or an entry of it, could not be read.
     RecordsUnreadable,
+    /// The records folder lies at or under one of the user's skips, so it
+    /// is never opened.
+    RecordsSkipped,
     /// A record could not be parsed.
     UnparsableRecord,
     /// A record could not be decided and names no session.
@@ -55,8 +63,10 @@ pub enum UnknownCause {
     SessionWithoutFiles,
 }
 
-/// What shows a session live.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// What shows a session live. The scan report's `live-session` lock
+/// carries it as `by`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
 pub enum LiveBy {
     /// A live record names it.
     Record,

@@ -30,17 +30,29 @@ public enum SkipReason: Sendable, Equatable, Hashable {
     case entryLocked(EntryLock)
     /// Inside a picked folder that went to the Trash.
     case insideAnotherItem
+    /// A coding agent uses its data now, or whether it does could not be told.
+    case agentLive(harness: AgentsReport.HarnessID, by: AgentLiveBy)
+
+    /// What shows a coding agent in use (`AgentLiveBy` in `crates/ddc-core/src/exec/mod.rs`).
+    public enum AgentLiveBy: String, Decodable, Sendable, Hashable, CaseIterable {
+        /// A process of it runs.
+        case running
+        /// A process holds a Codex thread lock open.
+        case lockHeld = "lock-held"
+        /// It could not be told.
+        case unknown
+    }
 
     /// Every `reason` value, as the schema lists them.
     public static let tags = [
         "missing", "not-a-directory", "symlink", "changed-since-scan", "parent-changed", "rule-mismatch",
         "outside-scan-roots", "scan-root", "protected", "project-root", "kept", "in-use", "in-use-unknown-cwd",
         "owner-running", "needs-confirmation", "action-not-allowed", "incomplete", "native-unavailable",
-        "tool-not-ready", "not-an-entry", "entry-locked", "inside-another-item",
+        "tool-not-ready", "not-an-entry", "entry-locked", "inside-another-item", "agent-live",
     ]
 
     enum CodingKeys: String, CodingKey {
-        case reason, pid, name, program, detail, lock
+        case reason, pid, name, program, detail, lock, harness, by
     }
 
     /// Reads the reason from the container of the item it is flattened into.
@@ -71,6 +83,9 @@ public enum SkipReason: Sendable, Equatable, Hashable {
         case "not-an-entry": self = .notAnEntry
         case "entry-locked": self = .entryLocked(try c.decode(EntryLock.self, forKey: .lock))
         case "inside-another-item": self = .insideAnotherItem
+        case "agent-live":
+            self = .agentLive(
+                harness: try c.decode(AgentsReport.HarnessID.self, forKey: .harness), by: try c.decode(AgentLiveBy.self, forKey: .by))
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .reason, in: c, debugDescription: "unknown reason \(other)")
         }
@@ -80,7 +95,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
 /// `clean --items --json`: what happened to each listed item.
 public struct CleanReport: Decodable, Sendable, Equatable {
     /// `CLEAN_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 4
+    public static let schemaVersion = 5
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)

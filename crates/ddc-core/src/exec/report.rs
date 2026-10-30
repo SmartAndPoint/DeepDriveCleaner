@@ -16,7 +16,10 @@ use crate::platform::{Capability, Platform};
 /// reasons `not-an-entry`, `entry-locked` and `inside-another-item`. 3: the
 /// skip reason `tool-not-ready`. 4: `platform` and `capabilities` (ADR
 /// "Platform seam: one platform module per OS with declared capabilities", §4).
-pub const CLEAN_SCHEMA_VERSION: u32 = 4;
+/// 5: the skip reason `agent-live` and the entry locks `live-session` and
+/// `liveness-unknown` (ADR "Agent footprint: worktrees, harness data and
+/// bounded consent for agents", §3).
+pub const CLEAN_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CleanReport {

@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "ddc_version": "0.9.0",
   "platform": "macos",
   "capabilities": [
@@ -112,6 +112,33 @@
       "origin": {
         "harness": "claude-code",
         "kind": "session-data"
+      },
+      "contents": {
+        "entries": [
+          {
+            "path": "/Users/example/.claude/projects/-Users-example-proj/0a1b2c3d-0000-4000-8000-00000000000a.jsonl",
+            "kind": "file",
+            "bytes": 36864,
+            "dev": 16777232,
+            "ino": 339569811,
+            "modified": "2026-10-30T17:40:02Z",
+            "lock": {
+              "reason": "live-session",
+              "session": "0a1b2c3d-0000-4000-8000-00000000000a",
+              "by": "record"
+            }
+          },
+          {
+            "path": "/Users/example/.claude/projects/-Users-example-proj/0a1b2c3d-0000-4000-8000-00000000000b.jsonl",
+            "kind": "file",
+            "bytes": 8192,
+            "dev": 16777232,
+            "ino": 339569812,
+            "modified": "2026-10-20T09:00:00Z"
+          }
+        ],
+        "rest_count": 1,
+        "rest_bytes": 4096
       }
     }
   ],

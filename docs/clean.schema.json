@@ -96,6 +96,26 @@
         }
       ]
     },
+    "AgentLiveBy": {
+      "description": "What shows a harness in use, for [`SkipReason::AgentLive`].",
+      "oneOf": [
+        {
+          "description": "A process of the harness runs.",
+          "type": "string",
+          "const": "running"
+        },
+        {
+          "description": "A process of the user holds a Codex thread lock open.",
+          "type": "string",
+          "const": "lock-held"
+        },
+        {
+          "description": "It could not be told: a process of the harness ddc cannot name, or\nCodex's locks could not be read.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
     "Capability": {
       "description": "What a platform can do beyond listing, measuring and removing files\n(ADR \"Platform seam\", §3). A closed list in declaration order: a new\nvalue bumps the schema version of every report that carries the list.",
       "oneOf": [
@@ -415,7 +435,54 @@
           "required": [
             "reason"
           ]
+        },
+        {
+          "description": "A coding agent's session that is live: a live record names it, a\nfile of it changed within [`RECENT`], or a process holds one open.\nIn place of `recent` for the session folders.",
+          "type": "object",
+          "properties": {
+            "by": {
+              "$ref": "#/$defs/LiveBy"
+            },
+            "reason": {
+              "type": "string",
+              "const": "live-session"
+            },
+            "session": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "session",
+            "by"
+          ]
+        },
+        {
+          "description": "Whether the session is live could not be told: the harness's live\nrecords could not be read or decided.",
+          "type": "object",
+          "properties": {
+            "cause": {
+              "$ref": "#/$defs/UnknownCause"
+            },
+            "reason": {
+              "type": "string",
+              "const": "liveness-unknown"
+            }
+          },
+          "required": [
+            "reason",
+            "cause"
+          ]
         }
+      ]
+    },
+    "HarnessId": {
+      "type": "string",
+      "enum": [
+        "claude-code",
+        "codex",
+        "cursor",
+        "opencode"
       ]
     },
     "ListedItem": {
@@ -482,6 +549,26 @@
       "required": [
         "schema_version",
         "items"
+      ]
+    },
+    "LiveBy": {
+      "description": "What shows a session live. The scan report's `live-session` lock\ncarries it as `by`.",
+      "oneOf": [
+        {
+          "description": "A live record names it.",
+          "type": "string",
+          "const": "record"
+        },
+        {
+          "description": "Its transcript or a companion changed within [`entries::RECENT`]\nbefore the check, or later than it.",
+          "type": "string",
+          "const": "recent"
+        },
+        {
+          "description": "A process of the user holds one of its files open.",
+          "type": "string",
+          "const": "open-file"
+        }
       ]
     },
     "Platform": {
@@ -997,6 +1084,72 @@
           "required": [
             "reason"
           ]
+        },
+        {
+          "description": "A coding agent's harness uses its data: the whole folder is refused\nwhile it runs (ADR \"Agent footprint: worktrees, harness data and\nbounded consent for agents\", §3).",
+          "type": "object",
+          "properties": {
+            "by": {
+              "$ref": "#/$defs/AgentLiveBy"
+            },
+            "harness": {
+              "$ref": "#/$defs/HarnessId"
+            },
+            "reason": {
+              "type": "string",
+              "const": "agent-live"
+            }
+          },
+          "required": [
+            "reason",
+            "harness",
+            "by"
+          ]
+        }
+      ]
+    },
+    "UnknownCause": {
+      "description": "Why a session's liveness could not be told. Declared from the widest\nto the narrowest: when several apply, the first is reported. The scan\nreport's `liveness-unknown` lock carries it as `cause`.",
+      "oneOf": [
+        {
+          "description": "The records folder does not exist: an older Claude Code, or a\nchanged layout.",
+          "type": "string",
+          "const": "records-missing"
+        },
+        {
+          "description": "The records folder, or an entry of it, could not be read.",
+          "type": "string",
+          "const": "records-unreadable"
+        },
+        {
+          "description": "The records folder lies at or under one of the user's skips, so it\nis never opened.",
+          "type": "string",
+          "const": "records-skipped"
+        },
+        {
+          "description": "A record could not be parsed.",
+          "type": "string",
+          "const": "unparsable-record"
+        },
+        {
+          "description": "A record could not be decided and names no session.",
+          "type": "string",
+          "const": "undecidable-record"
+        },
+        {
+          "description": "A live record names no session.",
+          "type": "string",
+          "const": "live-record-without-session"
+        },
+        {
+          "description": "A record that could not be decided names this session.",
+          "type": "string",
+          "const": "undecidable-session-record"
+        },
+        {
+          "description": "The session was given with no file, so nothing could be checked.",
+          "type": "string",
+          "const": "session-without-files"
         }
       ]
     },

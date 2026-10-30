@@ -24,7 +24,7 @@ use super::{ScanOptions, count_findings, hidden, sort_findings};
 use crate::exec::report::CleanReport;
 use crate::exec::{Outcome, SkipReason, VolumeSpace};
 use crate::model::{FolderEntryKind, ScanReport};
-use crate::rules::entries::ENTRY_RULES;
+use crate::rules::entries::has_entries;
 use crate::rules::{Catalog, RuleVisitor};
 use crate::scan::{self, DirCtx, Pre, Progress, Tag, Visitor};
 
@@ -237,12 +237,14 @@ impl Edit<'_> {
         }
     }
 
-    /// The finding of the user's folder that `path` is a direct entry of.
+    /// The finding of the folder that `path` is a direct entry of: the
+    /// user's own, or a coding agent's session folder, whose entry is keyed
+    /// by its transcript and holds its companions' bytes.
     fn folder_of(&self, path: &Path) -> Option<usize> {
         let parent = path.parent()?;
         let i = self.finding(parent)?;
         let f = &self.report.findings[i];
-        (ENTRY_RULES.contains(&f.rule.as_str()) && f.contents.is_some()).then_some(i)
+        (has_entries(&f.rule) && f.contents.is_some()).then_some(i)
     }
 
     /// A picked entry leaves its folder's contents, the findings inside it

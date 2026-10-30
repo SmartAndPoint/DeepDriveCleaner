@@ -14,8 +14,9 @@ use crate::plan::{ActionKind, PlanItem};
 use crate::scan::ProgressSnapshot;
 
 /// Version of [`ProgressLine`]; the reports have their own. 2: the skip
-/// reason `tool-not-ready` in an item's outcome.
-pub const PROGRESS_SCHEMA_VERSION: u32 = 2;
+/// reason `tool-not-ready` in an item's outcome. 3: the skip reason
+/// `agent-live` and the entry locks `live-session` and `liveness-unknown`.
+pub const PROGRESS_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ProgressLine {

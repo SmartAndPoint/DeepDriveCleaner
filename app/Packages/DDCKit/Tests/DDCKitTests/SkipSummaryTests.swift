@@ -152,18 +152,33 @@ struct SkipSummaryTests {
             + "2 items changed since the scan. Scan Again to see them as they are now. Protected by .ddc-keep or an exclusion.")
     }
 
+    @Test("a coding agent in use reads by its name, and quitting it clears the skip")
+    func agentLive() throws {
+        let line = #"{"type":"item","path":"/Users/example/.codex/sessions","rule":"agent.codex-sessions","class":"review","action":"trash","prediction":"would-skip","reason":"agent-live","harness":"codex","by":"lock-held"}"#
+        guard case .item(let item) = try PreflightLine.read(line), case .wouldSkip(let reason) = item.prediction else {
+            Issue.record("agent-live did not decode as a skip")
+            return
+        }
+        #expect(reason == .agentLive(harness: .codex, by: .lockHeld))
+        #expect(CleanWording.reason(reason) == "Codex holds a lock on it")
+        #expect(reason.afterClean == .keep)
+        #expect(CleanWording.clearing([reason, .agentLive(harness: .codex, by: .running)], again: "Check Again") == ["Quit Codex, then Check Again."])
+        let other = line.replacingOccurrences(of: #""by":"lock-held""#, with: #""by":"guess""#)
+        #expect(throws: (any Error).self) { try PreflightLine.read(other) }
+    }
+
     @Test("the after-clean table: every reason has its class, as the story's table lists them")
     func afterCleanTable() throws {
         var classes: [AfterClean: Set<String>] = [:]
         for tag in SkipReason.tags {
-            let line = #"{"type":"item","path":"/Users/example/x","rule":"cache.npm","class":"safe","action":"delete","prediction":"would-skip","reason":"\#(tag)","pid":7,"name":"node","program":"docker","detail":"x","lock":{"reason":"recent"}}"#
+            let line = #"{"type":"item","path":"/Users/example/x","rule":"cache.npm","class":"safe","action":"delete","prediction":"would-skip","reason":"\#(tag)","pid":7,"name":"node","harness":"claude-code","by":"running","program":"docker","detail":"x","lock":{"reason":"recent"}}"#
             guard case .item(let item) = try PreflightLine.read(line), case .wouldSkip(let reason) = item.prediction else {
                 Issue.record("\(tag) did not decode as a skip")
                 continue
             }
             classes[reason.afterClean, default: []].insert(tag)
         }
-        #expect(classes[.keep] == ["owner-running", "in-use", "in-use-unknown-cwd", "tool-not-ready"])
+        #expect(classes[.keep] == ["owner-running", "in-use", "in-use-unknown-cwd", "tool-not-ready", "agent-live"])
         #expect(classes[.rescan] == [
             "changed-since-scan", "parent-changed", "missing", "rule-mismatch", "not-an-entry", "entry-locked", "symlink",
             "not-a-directory", "incomplete",
@@ -172,6 +187,6 @@ struct SkipSummaryTests {
             "kept", "protected", "project-root", "scan-root", "outside-scan-roots", "action-not-allowed", "needs-confirmation",
             "inside-another-item", "native-unavailable",
         ])
-        #expect(SkipReason.tags.count == 22)
+        #expect(SkipReason.tags.count == 23)
     }
 }

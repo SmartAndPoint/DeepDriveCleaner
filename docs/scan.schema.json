@@ -262,11 +262,11 @@
       ]
     },
     "Contents": {
-      "description": "The direct children of a user-data folder: the largest listed, the rest summed.",
+      "description": "The direct children of a folder with entries: the largest listed, the\nrest summed. A session folder's entry is a session: its transcript (or\nits folder in `file-history`) with the siblings named after it.",
       "type": "object",
       "properties": {
         "entries": {
-          "description": "Largest first (ties by path bytes); at most 100, each at least 10 MiB.",
+          "description": "Largest first (ties by path bytes); at most 100. A user-data folder's\nare each at least 10 MiB; a session folder's have no floor.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/FolderEntry"
@@ -387,6 +387,44 @@
           "required": [
             "reason"
           ]
+        },
+        {
+          "description": "A coding agent's session that is live: a live record names it, a\nfile of it changed within [`RECENT`], or a process holds one open.\nIn place of `recent` for the session folders.",
+          "type": "object",
+          "properties": {
+            "by": {
+              "$ref": "#/$defs/LiveBy"
+            },
+            "reason": {
+              "type": "string",
+              "const": "live-session"
+            },
+            "session": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "session",
+            "by"
+          ]
+        },
+        {
+          "description": "Whether the session is live could not be told: the harness's live\nrecords could not be read or decided.",
+          "type": "object",
+          "properties": {
+            "cause": {
+              "$ref": "#/$defs/UnknownCause"
+            },
+            "reason": {
+              "type": "string",
+              "const": "liveness-unknown"
+            }
+          },
+          "required": [
+            "reason",
+            "cause"
+          ]
         }
       ]
     },
@@ -460,7 +498,7 @@
           "$ref": "#/$defs/RiskClass"
         },
         "contents": {
-          "description": "What one of the user's own folders holds, to pick from (story \"User\ndata: pick your own files for the Trash\"). Only on findings of\n`rules::entries::ENTRY_RULES` the scan could read.",
+          "description": "What one of the user's own folders holds, to pick from (story \"User\ndata: pick your own files for the Trash\"), or the sessions of a\ncoding agent's session folder (story \"Harness data rules\"). Only on\nfindings of a rule with an entry policy (`rules::entries::policy`)\nthe scan could read.",
           "anyOf": [
             {
               "$ref": "#/$defs/Contents"
@@ -628,7 +666,7 @@
       ]
     },
     "FolderEntry": {
-      "description": "One direct child of a user-data folder: a regular file or a directory.",
+      "description": "One direct child of a folder with entries: a regular file or a\ndirectory. A session's entry is its key (`<session>.jsonl`, or\n`<session>/` in `file-history`), with its companions' bytes.",
       "type": "object",
       "properties": {
         "backup": {
@@ -643,7 +681,7 @@
           ]
         },
         "bytes": {
-          "description": "Allocated bytes, findings inside it included.",
+          "description": "Allocated bytes, findings inside it included; a session's, its\ncompanions' too.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
@@ -687,7 +725,7 @@
           ]
         },
         "modified": {
-          "description": "Last modification, RFC 3339.",
+          "description": "Last modification, RFC 3339; a session's, the newest of its files'\nown.",
           "type": [
             "string",
             "null"
@@ -742,6 +780,26 @@
       "required": [
         "path",
         "bytes"
+      ]
+    },
+    "LiveBy": {
+      "description": "What shows a session live. The scan report's `live-session` lock\ncarries it as `by`.",
+      "oneOf": [
+        {
+          "description": "A live record names it.",
+          "type": "string",
+          "const": "record"
+        },
+        {
+          "description": "Its transcript or a companion changed within [`entries::RECENT`]\nbefore the check, or later than it.",
+          "type": "string",
+          "const": "recent"
+        },
+        {
+          "description": "A process of the user holds one of its files open.",
+          "type": "string",
+          "const": "open-file"
+        }
       ]
     },
     "MarkerFolder": {
@@ -1116,6 +1174,51 @@
         "classes",
         "selected_bytes",
         "selected_reclaimable_bytes"
+      ]
+    },
+    "UnknownCause": {
+      "description": "Why a session's liveness could not be told. Declared from the widest\nto the narrowest: when several apply, the first is reported. The scan\nreport's `liveness-unknown` lock carries it as `cause`.",
+      "oneOf": [
+        {
+          "description": "The records folder does not exist: an older Claude Code, or a\nchanged layout.",
+          "type": "string",
+          "const": "records-missing"
+        },
+        {
+          "description": "The records folder, or an entry of it, could not be read.",
+          "type": "string",
+          "const": "records-unreadable"
+        },
+        {
+          "description": "The records folder lies at or under one of the user's skips, so it\nis never opened.",
+          "type": "string",
+          "const": "records-skipped"
+        },
+        {
+          "description": "A record could not be parsed.",
+          "type": "string",
+          "const": "unparsable-record"
+        },
+        {
+          "description": "A record could not be decided and names no session.",
+          "type": "string",
+          "const": "undecidable-record"
+        },
+        {
+          "description": "A live record names no session.",
+          "type": "string",
+          "const": "live-record-without-session"
+        },
+        {
+          "description": "A record that could not be decided names this session.",
+          "type": "string",
+          "const": "undecidable-session-record"
+        },
+        {
+          "description": "The session was given with no file, so nothing could be checked.",
+          "type": "string",
+          "const": "session-without-files"
+        }
       ]
     },
     "Volume": {

@@ -74,7 +74,7 @@ fn the_folder_is_judged_where_it_really_is() {
 #[test]
 fn the_keep_report_and_the_journal_have_their_own_versions() {
     assert_eq!(KEEP_SCHEMA_VERSION, 1);
-    assert_eq!(JOURNAL_SCHEMA_VERSION, 4);
+    assert_eq!(JOURNAL_SCHEMA_VERSION, 5);
 }
 
 #[test]

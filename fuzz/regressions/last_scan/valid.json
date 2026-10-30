@@ -83,7 +83,7 @@
   "scan_roots": [
     "/Users/a"
   ],
-  "schema_version": 2,
+  "schema_version": 3,
   "skipped": [],
   "skipped_total": 0,
   "totals": {

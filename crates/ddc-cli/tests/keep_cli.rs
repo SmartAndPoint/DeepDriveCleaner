@@ -132,10 +132,10 @@ impl Fx {
     }
 }
 
-/// One journal line: kind `keep-remove`, version 4, the folder, its identity
+/// One journal line: kind `keep-remove`, version 5, the folder, its identity
 /// and the rule from the saved report.
 fn assert_line(line: &Value, report: &KeepReport) {
-    assert_eq!(line["schema_version"], 4, "{line}");
+    assert_eq!(line["schema_version"], 5, "{line}");
     assert_eq!(line["kind"], "keep-remove");
     assert_eq!(line["path"], report.path.to_str().unwrap());
     assert_eq!(line["dev"], serde_json::to_value(report.dev).unwrap());

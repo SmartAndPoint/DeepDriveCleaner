@@ -49,6 +49,26 @@ struct ScanReportTests {
         #expect(report.totals.selectedBytes == 8192)
     }
 
+    /// Story "Harness data rules" (epic DDC-003): a session folder lists its
+    /// sessions as entries, a live one locked `live-session`; an unknown
+    /// `by` or `cause` does not decode.
+    @Test("a session folder's entries decode with their liveness locks")
+    func decodesSessionEntries() throws {
+        let report = try ScanReport.read(try Data(contentsOf: try Self.fixture("scan-report-origin")))
+        let contents = try #require(report.findings.last?.contents)
+        #expect(contents.entries.map(\.bytes) == [36864, 8192])
+        #expect(contents.entries.map(\.lock) == [.liveSession(session: "0a1b2c3d-0000-4000-8000-00000000000a", by: .record), nil])
+        #expect((contents.restCount, contents.restBytes) == (1, 4096))
+        let unknown = try JSONDecoder().decode(EntryLock.self, from: Data(#"{"reason":"liveness-unknown","cause":"records-skipped"}"#.utf8))
+        #expect(unknown == .livenessUnknown(cause: .recordsSkipped))
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(EntryLock.self, from: Data(#"{"reason":"live-session","session":"s","by":"guess"}"#.utf8))
+        }
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(EntryLock.self, from: Data(#"{"reason":"liveness-unknown","cause":"new-cause"}"#.utf8))
+        }
+    }
+
     @Test("a report of another schema version is unreadable")
     func otherSchemaIsUnreadable() throws {
         let data = try Data(contentsOf: try Self.fixture("scan-report-v1"))

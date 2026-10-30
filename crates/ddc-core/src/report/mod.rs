@@ -11,10 +11,12 @@ use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::class::{Removal, RiskClass};
 use crate::env::Env;
+use crate::exec::{ProcessTable, SystemProcesses};
 use crate::model::{
     ClassTotal, ExclusionOrigin, Finding, Inaccessible, LargeFile, NotSelected, Project, RemovalKind, SCHEMA_VERSION,
     ScanReport, SkippedPath, Totals,
@@ -51,9 +53,37 @@ pub struct ScanOptions {
     /// Where the `excludes` that are not skips came from: `settings.json`,
     /// or `--exclude` in its place.
     pub excludes_origin: ExclusionOrigin,
-    /// How much of each user-data folder `contents` lists.
+    /// How much of each folder with entries `contents` lists.
     pub contents: ContentsLimits,
     pub walk: WalkOptions,
+    /// The processes a scan asks about a coding agent's sessions, when it
+    /// finds one (story "Harness data rules", epic DDC-003).
+    pub processes: Processes,
+}
+
+/// The process table a scan reads a session's liveness from: the system's,
+/// unless a test injects one.
+#[derive(Clone, Default)]
+pub struct Processes(Option<Arc<dyn ProcessTable + Send + Sync>>);
+
+impl Processes {
+    /// A fixed table instead of the system's.
+    pub fn fixed(table: impl ProcessTable + Send + Sync + 'static) -> Self {
+        Self(Some(Arc::new(table)))
+    }
+
+    fn table(&self) -> &dyn ProcessTable {
+        match &self.0 {
+            Some(table) => table.as_ref(),
+            None => &SystemProcesses,
+        }
+    }
+}
+
+impl std::fmt::Debug for Processes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() { "Processes(fixed)" } else { "Processes(system)" })
+    }
 }
 
 impl Default for ScanOptions {
@@ -71,6 +101,7 @@ impl Default for ScanOptions {
             excludes_origin: ExclusionOrigin::Settings,
             contents: ContentsLimits::default(),
             walk: WalkOptions::default(),
+            processes: Processes::default(),
         }
     }
 }
@@ -183,12 +214,15 @@ pub(crate) fn scan_inner(
         classify(&out, &visitor).iter().map(|c| finding(c, env.now(), opts, &mut activity)).collect();
     sort_findings(&mut findings);
     let markers = visitor.keep_markers();
+    let skips: Vec<PathBuf> = opts.skip.iter().chain(&opts.user_skips).cloned().collect();
     let cx = contents::Context {
         home: env.home(),
         now: env.now(),
         excludes: visitor.excludes(),
         markers: &markers,
         limits: opts.contents,
+        skips: &skips,
+        processes: opts.processes.table(),
     };
     let index = contents::attach(&mut findings, &out.entries, &cx);
 
