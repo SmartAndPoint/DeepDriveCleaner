@@ -41,7 +41,7 @@ class BuildNumber(unittest.TestCase):
     def git(self, *args):
         subprocess.run(["git", *args], cwd=self.repo, env=GIT_ENV, check=True, capture_output=True)
 
-    def release(self, number, tag=None, release=None):
+    def release(self, number, tag=None, release=None, annotated=False):
         """Commits the project at build `number`, and tags it when `tag` is given."""
         path = os.path.join(self.repo, PBXPROJ)
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -50,7 +50,7 @@ class BuildNumber(unittest.TestCase):
         self.git("add", PBXPROJ)
         self.git("commit", "-q", "--allow-empty", "-m", f"build {number}")
         if tag:
-            self.git("tag", tag)
+            self.git("tag", *(["-a", "-m", tag] if annotated else []), tag)
 
     def check(self):
         return subprocess.run([CHECK, "--no-fetch"], cwd=self.repo, env=GIT_ENV, capture_output=True, text=True)
@@ -81,11 +81,27 @@ class BuildNumber(unittest.TestCase):
         self.assertIn("not greater than 12 at v0.10.0", result.stderr)
 
     def test_the_tag_of_this_release_at_head_is_not_the_previous_one(self):
-        self.release(12, tag="v0.7.0")
-        self.release(13, tag="v0.8.0")
+        self.release(12, tag="v0.7.0", annotated=True)
+        self.release(13, tag="v0.8.0", annotated=True)
         result = self.check()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("13, after 12 at v0.7.0", result.stdout)
+
+    def test_a_release_sorts_above_its_pre_release(self):
+        self.release(13, tag="v0.8.0-rc.1")
+        self.release(14, tag="v0.8.0")
+        self.release(14)
+        result = self.check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not greater than 14 at v0.8.0", result.stderr)
+
+    def test_a_pre_release_counts_while_it_is_the_newest_tag(self):
+        self.release(12, tag="v0.7.0")
+        self.release(13, tag="v0.8.0-rc.1")
+        self.release(13)
+        result = self.check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not greater than 13 at v0.8.0-rc.1", result.stderr)
 
     def test_passes_with_no_release_tag(self):
         self.release(1)

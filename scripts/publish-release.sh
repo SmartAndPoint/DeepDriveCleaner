@@ -446,7 +446,9 @@ fi
 printf '\033[0;32mPublishing %s\033[0m  (%s)\n' "$VERSION" "${RELEASED[*]}"
 if [ "$DRY_RUN" = 1 ]; then
     echo "── release ──"
-    if [ "$RELEASE_EXISTS" = 1 ]; then
+    if [ "$RELEASE_EXISTS" = 1 ] && [ "$PRERELEASE" = 1 ]; then
+        echo "exists: a pre-release, nothing to do"
+    elif [ "$RELEASE_EXISTS" = 1 ]; then
         echo "exists: resume at the cask"
         [ "$APPCAST_PRESENT" = 1 ] || echo "would upload the missing appcast.xml"
     else
@@ -489,7 +491,11 @@ if [ "$RELEASE_EXISTS" = 0 ]; then
 fi
 
 if [ "$PRERELEASE" = 1 ]; then
-    printf '\033[0;32m✅ Published pre-release %s — the cask is not touched\033[0m\n' "$VERSION"
+    if [ "$RELEASE_EXISTS" = 1 ]; then
+        printf '\033[0;32m✅ Pre-release %s was already published — nothing to do\033[0m\n' "$VERSION"
+    else
+        printf '\033[0;32m✅ Published pre-release %s — the cask is not touched\033[0m\n' "$VERSION"
+    fi
     exit 0
 fi
 

@@ -41,7 +41,9 @@ CURRENT="$(build_number < "$PBXPROJ")" || fail "$PBXPROJ has no single CURRENT_P
 
 # The highest version tag, wherever it points, but not this release's own: `make tag`
 # pushes v<version> at HEAD before `make dist` runs this. A release is never cut below it.
-TAGS="$(git tag -l 'v[0-9]*' --sort=-v:refname --no-contains HEAD)" || fail "git tag failed"
+# A pre-release counts, and sorts below its release (versionsort.suffix): v0.8.0-rc.1
+# is under v0.8.0.
+TAGS="$(git -c versionsort.suffix=- tag -l 'v[0-9]*' --sort=-v:refname --no-contains HEAD)" || fail "git tag failed"
 TAG="${TAGS%%$'\n'*}"
 if [ -z "$TAG" ]; then
     echo "build number: $CURRENT (no release tag yet)"

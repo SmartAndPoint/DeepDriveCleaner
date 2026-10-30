@@ -36,10 +36,6 @@ TAG="v$VERSION"
 APP_VERSION="$(sed -n 's/^[[:space:]]*MARKETING_VERSION = "\{0,1\}\([^";]*\)"\{0,1\};$/\1/p' app/DeepDriveCleaner.xcodeproj/project.pbxproj | sort -u)"
 [ "$APP_VERSION" = "$VERSION" ] || fail "the app's MARKETING_VERSION ($APP_VERSION) is not the CLI's version ($VERSION): bump both"
 [ -f "docs/releases/$VERSION.md" ] || fail "docs/releases/$VERSION.md missing: write the release notes first"
-# Sparkle offers only a growing build number: scripts/build-dist.sh refuses one that is
-# not, too late for a tag that is already out.
-"$ROOT/scripts/check-build-number.sh"
-
 # Never moved: a tag that exists names a release, or a failed one whose recovery is
 # deleting it by hand on origin.
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
@@ -47,6 +43,12 @@ if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
 fi
 REMOTE="$(git ls-remote origin "refs/tags/$TAG")" || fail "git ls-remote origin failed"
 [ -z "$REMOTE" ] || fail "tag $TAG exists on origin: bump the version, or, if release.yml failed and there is no release, delete it with 'git push origin :refs/tags/$TAG'"
+
+# After the existence checks: this one fetches origin's tags, and would bring a tag
+# that origin still holds down here.
+# Sparkle offers only a growing build number: scripts/build-dist.sh refuses one that is
+# not, too late for a tag that is already out.
+"$ROOT/scripts/check-build-number.sh"
 
 step "Tagging $TAG at ${HEAD_SHA:0:7}"
 git tag -a "$TAG" -m "DeepDriveCleaner $VERSION" "$HEAD_SHA"
