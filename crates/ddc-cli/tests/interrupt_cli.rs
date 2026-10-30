@@ -204,6 +204,20 @@ impl Watched {
         }
     }
 
+    /// Continues the group. SIGSTOP lands asynchronously and SIGKILL ends a
+    /// stopped process at once, so the signal before this one can already
+    /// have ended the child, and macOS refuses SIGCONT to a group that holds
+    /// only a zombie: that refusal is allowed once the child has ended.
+    fn resume(&mut self) {
+        if let Err(e) = kill(self.group, libc::SIGCONT) {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while self.child.try_wait().unwrap().is_none() {
+                assert!(Instant::now() < deadline, "kill(-{}, SIGCONT): {e}", self.group);
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+
     /// Waits for the end; the status, stdout and every event.
     fn finish(mut self) -> (ExitStatus, Vec<u8>, Vec<serde_json::Value>) {
         let status = self.child.wait().unwrap();
@@ -238,17 +252,13 @@ fn event(line: &str) -> Option<serde_json::Value> {
 }
 
 /// Stopped first, so the run cannot move on before the signal: SIGSTOP,
-/// `sig`, SIGCONT. `false` when the run had already ended. SIGKILL ends a
-/// stopped process at once, and macOS then refuses SIGCONT to the group of
-/// a zombie, so it gets no SIGCONT.
+/// `sig`, SIGCONT. `false` when the run had already ended.
 fn stop_and_signal(w: &mut Watched, sig: i32) -> bool {
     if !w.stop() {
         return false;
     }
     w.signal(sig);
-    if sig != libc::SIGKILL {
-        w.signal(libc::SIGCONT);
-    }
+    w.resume();
     true
 }
 
