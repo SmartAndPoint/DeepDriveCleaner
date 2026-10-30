@@ -522,6 +522,20 @@ fn a_tool_cleaned_item_is_measured_as_the_scan_measures_it() {
     };
     assert!(expected.modified.is_some(), "{f:?}");
     assert_eq!(after_clean::remeasure(&catalog, "cache.uv", &path, &walk), Remeasured::Measured(expected));
+    let no_times = WalkOptions { claim_times: false, ..walk };
+    match after_clean::remeasure(&catalog, "cache.uv", &path, &no_times) {
+        Remeasured::Measured(m) => assert_eq!(m, Measure { modified: None, ..expected }),
+        other => panic!("{other:?}"),
+    }
+    // A file: its own time, with the times on only.
+    let file = home.t.file("loose.bin", 1_000);
+    home.t.touch("loose.bin", OLD + 80);
+    for (opts, modified) in [(&walk, Some(OLD + 80)), (&no_times, None)] {
+        match after_clean::remeasure(&catalog, "cache.uv", &file, opts) {
+            Remeasured::Measured(m) => assert_eq!(m.modified, modified),
+            other => panic!("{other:?}"),
+        }
+    }
 
     let holding = home.data.path().join("holding");
     fs::create_dir_all(&holding).unwrap();

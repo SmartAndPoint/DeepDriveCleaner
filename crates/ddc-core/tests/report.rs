@@ -318,7 +318,18 @@ fn a_finding_reports_the_newest_change_inside_it() {
     t.file("Downloads/a.zip", 1_000);
     t.file("Pictures/one.jpg", 1_000);
     t.file("Library/Caches/Homebrew/x.tar.gz", 1_000);
+    // Kept by a marker at its top, by one deep inside, by an exclusion inside;
+    // and one left alone.
+    for p in ["a", "b", "c", "g"] {
+        t.write(&format!("{p}/package.json"), "{}");
+        t.file(&format!("{p}/node_modules/dep/index.js"), 1_000);
+    }
+    t.write("a/node_modules/.ddc-keep", "");
+    t.write("b/node_modules/dep/.ddc-keep", "");
     t.age("", OLD);
+    for p in ["a", "b", "c", "g"] {
+        t.touch(&format!("{p}/node_modules/dep/index.js"), OLD + 50);
+    }
     // Three levels down; a direct child of a root claimed after its listing; a hard link.
     t.touch("proj/.venv/lib/python3.12/site-packages/new.py", OLD + 10);
     t.touch("web/node_modules/.package-lock.json", OLD + 20);
@@ -332,6 +343,7 @@ fn a_finding_reports_the_newest_change_inside_it() {
         let mut opts = fx.opts();
         opts.walk.claim_times = claim_times;
         opts.contents.min_bytes = 1;
+        opts.excludes = vec![t.path("c/node_modules/dep")];
         let r = report::scan(&fx.env(), &opts, &Progress::default()).unwrap();
         let modified = |rel: &str| find(&r, t, rel).modified.clone();
         let on = |at: &str| claim_times.then(|| at.to_owned());
@@ -341,6 +353,12 @@ fn a_finding_reports_the_newest_change_inside_it() {
         for none in ["Downloads", "Pictures"] {
             assert_eq!(modified(none), None, "{none}, times {claim_times}");
         }
+        // A protected finding has no date, also one kept only after its walk.
+        for kept in ["a/node_modules", "b/node_modules", "c/node_modules"] {
+            let f = find(&r, t, kept);
+            assert_eq!((f.rule.as_str(), &f.modified), ("user.kept", &None), "{kept}, times {claim_times}");
+        }
+        assert_eq!(modified("g/node_modules"), on("2024-01-01T00:00:50Z"), "times {claim_times}");
         if enforced {
             assert_eq!(modified("Library/Caches/Homebrew"), None, "times {claim_times}");
         }
