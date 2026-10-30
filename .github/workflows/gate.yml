@@ -136,12 +136,14 @@ jobs:
   # "Platform seam", §9, amended), and the last step compares those lines with
   # .config/native-skips/<os>.txt, so a new skip is a reviewed diff (stage 2). The
   # names do not carry the runner label, so a label bump renames no check. Both are
-  # required checks on main, as gate is; a Rust-free push skips them as it skips gate.
+  # required checks on main, as gate is. A Rust-free push skips every step, never the
+  # job: a matrix job skipped whole is not expanded, so the two check names would never
+  # be posted and a pull request requiring them would wait for good.
   # cargo directly: there is no make on Windows.
   check:
     name: check-${{ matrix.target }}
     needs: scope
-    if: ${{ !cancelled() && needs.scope.outputs.scope != 'skip' }}
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -154,26 +156,33 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        if: ${{ needs.scope.outputs.scope != 'skip' }}
       - name: Toolchain from rust-toolchain.toml
+        if: ${{ needs.scope.outputs.scope != 'skip' }}
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+        if: ${{ needs.scope.outputs.scope != 'skip' }}
         with:
           cache-bin: false
           cache-on-failure: true
           key: check-${{ matrix.target }}
       - name: The nextest version .config/tools.mk pins
+        if: ${{ needs.scope.outputs.scope != 'skip' }}
         id: tools
         shell: bash
         run: echo "nextest=$(sed -n 's/^NEXTEST_VERSION := //p' .config/tools.mk)" >> "$GITHUB_OUTPUT"
       - uses: taiki-e/install-action@v2
+        if: ${{ needs.scope.outputs.scope != 'skip' }}
         with:
           tool: nextest@${{ steps.tools.outputs.nextest }}
       - run: cargo clippy --workspace --all-targets --locked --target ${{ matrix.target }} -- -D warnings
+        if: ${{ needs.scope.outputs.scope != 'skip' }}
       # Profile ci (NEXTEST_PROFILE above): every test binary runs, a hang is killed,
       # and a passing test's output is shown, so its skip line reaches the log. On
       # Windows, bash sets HOME and the temp folder lies inside it, under AppData,
       # which the test trees' guard refuses; TMP and TEMP move them out of the home.
       - name: Tests
+        if: ${{ needs.scope.outputs.scope != 'skip' }}
         id: tests
         shell: bash
         env:
@@ -182,10 +191,10 @@ jobs:
         run: cargo nextest run --workspace --locked --target ${{ matrix.target }} 2>&1 | tee "$RUNNER_TEMP/native-tests.log"
       # nextest runs no doc tests.
       - name: Doc tests
-        if: ${{ !cancelled() && steps.tests.outcome != 'skipped' }}
+        if: ${{ !cancelled() && needs.scope.outputs.scope != 'skip' && steps.tests.outcome != 'skipped' }}
         run: cargo test --workspace --doc --locked --target ${{ matrix.target }}
       - name: Skips as .config/native-skips lists them
-        if: ${{ !cancelled() && steps.tests.outcome != 'skipped' }}
+        if: ${{ !cancelled() && needs.scope.outputs.scope != 'skip' && steps.tests.outcome != 'skipped' }}
         shell: bash
         run: scripts/native-skips.sh "${RUNNER_OS,,}" "$RUNNER_TEMP/native-tests.log"
 
