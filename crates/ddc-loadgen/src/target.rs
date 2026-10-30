@@ -8,10 +8,11 @@
 
 use std::fs;
 use std::io;
-use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 
-use ddc_core::platform::{procs, statfs};
+use ddc_core::platform::{meta, procs, statfs};
+
+use crate::platform;
 
 /// Length of the tree's absolute path, after `canonicalize()`: path lengths,
 /// the `PATH_MAX` boundary and the order of findings are then the same on
@@ -24,7 +25,7 @@ pub const MARKER: &str = ".ddc-loadgen";
 /// The largest tree a marked temporary folder takes (the S tier): millions
 /// of entries never land on the user's volume. Linux and Windows have no
 /// image (DDC-007), so there the folder takes any size.
-pub const TEMP_MAX: Option<u64> = if cfg!(target_os = "macos") { Some(10_000) } else { None };
+pub const TEMP_MAX: Option<u64> = platform::TEMP_MAX;
 
 /// Facts about a target, read from the system by [`facts`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,7 +125,7 @@ pub fn decide(f: &Facts) -> Result<(), Refusal> {
 pub fn facts(target: &Path, device: Option<&str>, entries: u64) -> io::Result<Facts> {
     let target = target.canonicalize()?;
     let home = procs::real_home().ok_or_else(|| io::Error::other("the password database names no home folder"))?;
-    let dev = |p: &Path| fs::metadata(p).map(|m| m.dev());
+    let dev = |p: &Path| fs::metadata(p).and_then(|m| meta::file_id(&m)).map(|(dev, _)| dev);
     let image = match device {
         Some(d) => {
             let st = statfs::statfs(&target)?;
@@ -158,8 +159,8 @@ pub fn holds_marker(dir: &Path) -> bool {
     let nonce = dir.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_prefix(PREFIX));
     let marker = dir.join(MARKER);
     nonce.is_some_and(|n| !n.is_empty())
-        && fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir() && m.uid() == procs::uid())
-        && fs::symlink_metadata(&marker).is_ok_and(|m| m.is_file() && m.uid() == procs::uid())
+        && fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir() && platform::is_mine(&m))
+        && fs::symlink_metadata(&marker).is_ok_and(|m| m.is_file() && platform::is_mine(&m))
         && fs::read_to_string(&marker).ok().as_deref() == nonce
 }
 
@@ -238,11 +239,11 @@ pub fn clean_in(tmp: &Path) -> io::Result<Vec<PathBuf>> {
 /// is locked there.
 pub fn unlock(dir: &Path) {
     let Ok(md) = fs::symlink_metadata(dir) else { return };
-    if !md.is_dir() || md.uid() != procs::uid() {
+    if !md.is_dir() || !platform::is_mine(&md) {
         return;
     }
-    if md.mode() & 0o700 != 0o700 {
-        let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o755));
+    if !platform::owner_has_rwx(&md) {
+        let _ = platform::unlock_dir(dir);
     }
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
         if entry.file_type().is_ok_and(|t| t.is_dir()) {

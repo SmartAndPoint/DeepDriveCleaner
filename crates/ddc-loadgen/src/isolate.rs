@@ -8,7 +8,6 @@
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
@@ -139,7 +138,7 @@ pub fn facts<'a>(
     on: &Target,
     trashes: bool,
 ) -> io::Result<Facts<'a>> {
-    let id = |p: &Path| fs::metadata(p).ok().map(|m| (m.dev(), m.ino()));
+    let id = |p: &Path| fs::metadata(p).ok().and_then(|m| ddc_core::platform::meta::file_id(&m).ok());
     let target = target::decide(&target::facts(&on.dir, on.device.as_deref(), on.entries)?);
     Ok(Facts {
         args,

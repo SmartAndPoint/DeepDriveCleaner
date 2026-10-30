@@ -3,6 +3,9 @@
 //! folder replaced under the same name is skipped as changed. Either makes
 //! its finding incomplete, neither is an error.
 
+// Unix only: the hostile tree swaps folders through Unix symlinks and errno numbers.
+#![cfg(unix)]
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 

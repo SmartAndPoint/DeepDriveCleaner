@@ -11,7 +11,6 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::Path;
 
 use ddc_core::class::RiskClass;
@@ -44,11 +43,11 @@ pub fn listed(m: &Manifest, tree: &Path) -> anyhow::Result<Option<ListedItems>> 
             continue;
         }
         let path = tree.join(&p.path);
-        let md = fs::symlink_metadata(&path)?;
+        let (dev, ino) = ddc_core::platform::meta::file_id(&fs::symlink_metadata(&path)?)?;
         items.push(ListedItem {
             path,
-            dev: md.dev(),
-            ino: md.ino(),
+            dev,
+            ino,
             rule: p.rule.clone(),
             class,
             action,

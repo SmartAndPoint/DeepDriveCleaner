@@ -23,7 +23,7 @@ use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
 use ddc_core::scan::{DirListing, DirReader, Progress, ReadError, ReaderKind, StdReader, WalkOptions};
 use ddc_loadgen::profiles::Profile;
-use ddc_loadgen::{Generated, generate, target};
+use ddc_loadgen::{Generated, generate, skip_unported, target};
 use proptest::prelude::*;
 use proptest::sample::select;
 use serde_json::Value;
@@ -129,7 +129,7 @@ proptest! {
         order in any::<u64>(),
     ) {
         let dir = target::Scratch::new().unwrap();
-        let g = generate(profile, ENTRIES, seed, dir.path(), None).unwrap();
+        let Some(g) = skip_unported(generate(profile, ENTRIES, seed, dir.path(), None)) else { return Ok(()) };
         let env = Env::with_paths(&g.home, &g.layout.data, &g.layout.data.join("logs"), SystemTime::now()).unwrap();
         let case = Case { g, env };
         let shuffled = Shuffled(order);

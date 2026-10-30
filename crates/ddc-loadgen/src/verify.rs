@@ -2,7 +2,6 @@
 //! manifest: findings, totals and the default dry-run plan.
 
 use std::collections::BTreeMap;
-use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -103,7 +102,7 @@ pub fn subset(m: &Manifest, layout: &Layout, home: &Path) -> anyhow::Result<Vec<
 
 /// A scan and its plan, in the manifest's terms.
 fn scanned(layout: &Layout, report: &ScanReport, plan: &Plan) -> (Totals, Vec<Expected>, Vec<Planned>) {
-    let rel = |p: &Path| show(p.strip_prefix(&layout.tree).unwrap_or(p).as_os_str().as_bytes());
+    let rel = |p: &Path| show(p.strip_prefix(&layout.tree).unwrap_or(p).as_os_str().as_encoded_bytes());
 
     let totals = Totals {
         files: report.totals.files,

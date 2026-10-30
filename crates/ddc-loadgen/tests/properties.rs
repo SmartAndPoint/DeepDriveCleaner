@@ -9,8 +9,8 @@
 //! scan runs in process with `ReaderKind::Std`, a fixed `now` an hour after
 //! the build and a fixed volume; the executor runs with a Trash folder in the
 //! scratch, no tools and an empty process table. Nothing here names
-//! `ddc_core::sys`: the tests reach the core through seams that survive
-//! epic DDC-007's move of the OS calls.
+//! an OS module of `ddc_core::platform`: the tests reach the core through
+//! seams that survive epic DDC-007's move of the OS calls.
 //!
 //! Which placements feed which property:
 //! - every property: a rule fixture at a depth under a plain, hidden or
@@ -29,6 +29,9 @@
 //!
 //! Not covered here: that `--yes` runs only the default-selected findings of
 //! its classes (`exec::allowed`, tested in `ddc-core/tests/clean_safety.rs`).
+
+// Unix only: the placements are byte paths, and the checks read st_dev and st_ino.
+#![cfg(unix)]
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashSet};

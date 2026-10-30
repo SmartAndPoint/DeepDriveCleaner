@@ -10,7 +10,7 @@ use ddc_loadgen::isolate::{Facts, Refusal, decide, facts, preflight};
 use ddc_loadgen::items;
 use ddc_loadgen::profiles::Profile;
 use ddc_loadgen::target::{self, Layout};
-use ddc_loadgen::{generate, isolate};
+use ddc_loadgen::{generate, isolate, skip_unported};
 
 fn layout() -> Layout {
     let base = PathBuf::from("/private/var/folders/x/T/ddc-load-ab12/ppp");
@@ -114,7 +114,7 @@ fn a_clean_whose_dry_run_predicts_a_tool_is_refused() {
 #[test]
 fn facts_of_a_built_tree() {
     let dir = target::Scratch::new().unwrap();
-    let g = generate(Profile::Projects, 10_000, 1, dir.path(), None).unwrap();
+    let Some(g) = skip_unported(generate(Profile::Projects, 10_000, 1, dir.path(), None)) else { return };
     let real = isolate::real_home().unwrap();
     let a = args(&["scan", "--data-dir", g.layout.data.to_str().unwrap()]);
     let on = isolate::Target { dir: dir.path().to_owned(), device: None, entries: 10_000 };
@@ -130,7 +130,7 @@ fn facts_of_a_built_tree() {
 #[test]
 fn the_users_list_holds_no_tool_item() {
     let dir = target::Scratch::new().unwrap();
-    let g = generate(Profile::Users, 10_000, 1, dir.path(), None).unwrap();
+    let Some(g) = skip_unported(generate(Profile::Users, 10_000, 1, dir.path(), None)) else { return };
     assert!(
         g.manifest.plan.iter().any(|p| p.selected && p.action.starts_with("native")),
         "users plans no tool item any more; this test checks nothing"

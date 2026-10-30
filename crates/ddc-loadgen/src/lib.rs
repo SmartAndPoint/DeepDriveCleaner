@@ -15,6 +15,7 @@ pub mod leaks;
 pub mod limits;
 pub mod manifest;
 pub mod measure;
+pub mod platform;
 pub mod profiles;
 pub mod rng;
 pub mod run;
@@ -23,7 +24,6 @@ pub mod table;
 pub mod target;
 pub mod verify;
 
-use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -49,6 +49,7 @@ pub fn generate(
     target: &Path,
     device: Option<&str>,
 ) -> anyhow::Result<Generated> {
+    platform::builds()?;
     let layout = target::prepare(target, device, entries)?;
     let caps = caps::probe(&layout.data.join("caps"))?;
     let desc = profile.desc(entries, seed, caps);
@@ -56,8 +57,24 @@ pub fn generate(
     build::build(&desc, &layout.tree)?;
     let build_ms = started.elapsed().as_millis();
     let home = match &desc.home {
-        Some(rel) => layout.tree.join(std::ffi::OsStr::from_bytes(rel)),
+        Some(rel) => layout.tree.join(
+            platform::name(rel).ok_or_else(|| anyhow::anyhow!("{}: not a name here", String::from_utf8_lossy(rel)))?,
+        ),
         None => layout.home.clone(),
     };
     Ok(Generated { manifest: manifest::manifest(profile.name(), seed, &desc), layout, home, build_ms })
+}
+
+/// What a test that reaches the builder through [`generate`] gets: the tree,
+/// or `None` (after saying so) on a platform with no builder yet, where it
+/// skips. Any other error fails the test.
+pub fn skip_unported(generated: anyhow::Result<Generated>) -> Option<Generated> {
+    match generated {
+        Ok(g) => Some(g),
+        Err(e) if e.downcast_ref::<std::io::Error>().is_some_and(|e| e.kind() == std::io::ErrorKind::Unsupported) => {
+            eprintln!("skipped: {e:#}");
+            None
+        }
+        Err(e) => panic!("generate: {e:#}"),
+    }
 }

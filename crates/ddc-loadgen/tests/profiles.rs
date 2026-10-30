@@ -12,7 +12,7 @@ use std::process::Command;
 
 use ddc_core::stats::{self, Bound, Counter, Snapshot};
 use ddc_loadgen::profiles::Profile;
-use ddc_loadgen::{Generated, generate, target, verify};
+use ddc_loadgen::{Generated, generate, skip_unported, target, verify};
 
 const S: u64 = 10_000;
 /// The n of the ratio; S is its 2n.
@@ -29,15 +29,16 @@ const FLOOR: u64 = 64;
 fn check(p: Profile) {
     let small = own_process().then(|| {
         let dir = target::Scratch::new().unwrap();
-        let g = generate(p, N, 1, dir.path(), None).unwrap();
+        let g = skip_unported(generate(p, N, 1, dir.path(), None))?;
         // Run once and measured the second time: one-time setup is no growth.
         verify::scan_and_plan(&g.layout, &g.home).unwrap();
         verify::preflight_items(&g.manifest, &g.layout, &g.home).unwrap();
-        measured(&g)
+        Some(measured(&g))
     });
+    let small = small.flatten();
 
     let dir = target::Scratch::new().unwrap();
-    let g = generate(p, S, 1, dir.path(), None).unwrap();
+    let Some(g) = skip_unported(generate(p, S, 1, dir.path(), None)) else { return };
     assert_eq!(g.layout.tree.as_os_str().len(), target::ROOT_LEN);
     assert!(!g.manifest.findings.is_empty(), "{}: nothing planted", p.name());
     let (report, plan) = verify::scan_and_plan(&g.layout, &g.home).unwrap();

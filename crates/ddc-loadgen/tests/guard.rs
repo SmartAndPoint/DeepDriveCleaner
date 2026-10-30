@@ -1,6 +1,9 @@
 //! The generator builds only in a marked temporary folder or on its own
 //! disk image, whatever `$HOME` says.
 
+// Unix only: it sets Unix permission bits on the folders it refuses.
+#![cfg(unix)]
+
 use std::fs;
 
 use ddc_core::platform::procs;

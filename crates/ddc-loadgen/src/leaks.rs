@@ -9,7 +9,6 @@
 
 use std::ffi::OsString;
 use std::fs;
-use std::os::unix::process::ExitStatusExt as _;
 use std::path::{Path, PathBuf};
 
 use ddc_core::settings::SETTINGS;
@@ -111,7 +110,7 @@ pub fn run(cli: &Path, out: &Path) -> anyhow::Result<Vec<Checked>> {
         let summary = summary(&String::from_utf8_lossy(&fs::read(&output)?));
         let scanned = g.layout.data.join(LAST_SCAN).is_file();
         let code = m.status.code();
-        let exit = match (code, m.status.signal()) {
+        let exit = match (code, crate::platform::exit_signal(&m.status)) {
             (Some(c), _) => c.to_string(),
             (None, Some(s)) => format!("sig{s}"),
             (None, None) => "-".to_owned(),

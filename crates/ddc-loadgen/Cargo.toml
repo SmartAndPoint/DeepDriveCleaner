@@ -12,10 +12,13 @@ publish.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 ddc-core.workspace = true
-rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+
+# The `*at` builder (platform/unix.rs); Windows has no builder yet.
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
 
 [dev-dependencies]
 libc.workspace = true

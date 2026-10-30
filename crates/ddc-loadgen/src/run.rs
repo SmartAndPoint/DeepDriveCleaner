@@ -6,7 +6,6 @@
 
 use std::ffi::OsString;
 use std::fs;
-use std::os::unix::process::ExitStatusExt as _;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
 
@@ -136,7 +135,7 @@ impl Session<'_> {
     }
 
     fn row(&self, name: &str, run: u32, m: &Measured) -> Row {
-        let exit = match (m.status.code(), m.status.signal()) {
+        let exit = match (m.status.code(), crate::platform::exit_signal(&m.status)) {
             (Some(c), _) => c.to_string(),
             (None, Some(s)) => format!("sig{s}"),
             (None, None) => "-".to_owned(),
