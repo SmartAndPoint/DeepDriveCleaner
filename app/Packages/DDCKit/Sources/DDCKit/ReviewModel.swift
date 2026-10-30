@@ -345,6 +345,19 @@ public final class ReviewModel: ReviewRouting {
         if selected { selection.formUnion(selectable) } else { selection.subtract(selectable) }
     }
 
+    /// Deselect All, in the footer (story "Review window: Deselect All, then
+    /// pick across groups and clean only that"): every group's rows, picked
+    /// entries and rows the filter hides included. Nothing else changes.
+    public func deselectAll() {
+        guard canDeselectAll else { return }
+        selection = []
+    }
+
+    /// Off with nothing selected, and behind the sheet, whose items never
+    /// change behind the user's back. A clean or a rescan leaves it on: the
+    /// reload after a clean only removes rows from the selection.
+    public var canDeselectAll: Bool { !selection.isEmpty && sheet == nil }
+
     /// The selection as the clean takes it: a finding inside a picked folder
     /// goes to the Trash with the folder, so it is not counted again.
     public var selectedRows: [ReviewItems.Row] {
