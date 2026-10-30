@@ -18,6 +18,10 @@ public struct AgentsSummary: Sendable, Equatable {
         /// "12.0 GiB", "at least 2.0 GiB", "skipped", or empty before the sizes.
         public let size: String
         public let note: String
+        /// What Show in Finder selects: a folder its own path, a harness its
+        /// top-level folders, anything else nothing (story "Whole disk: Show
+        /// in Finder and the honest action for each row").
+        public let paths: [String]
     }
 
     /// False while only the `--no-sizes` report is in: sizes read empty.
@@ -42,7 +46,8 @@ public struct AgentsSummary: Sendable, Equatable {
                 kind: .harness,
                 title: harness.name,
                 size: skipped ? "skipped" : size(harness.bytes, sizes: report.sizes, unreadable: harness.folders.contains { $0.unreadable > 0 }),
-                note: skipped ? "Skipped in Settings" : running(harness.running)
+                note: skipped ? "Skipped in Settings" : running(harness.running),
+                paths: tops.map(\.path)
             ))
             for folder in harness.folders {
                 rows.append(Row(
@@ -52,7 +57,8 @@ public struct AgentsSummary: Sendable, Equatable {
                     size: folder.skipped ? "skipped" : size(folder.bytes, sizes: report.sizes, unreadable: folder.unreadable > 0),
                     note: folder.skipped
                         ? "Skipped in Settings"
-                        : folder.unreadable > 0 ? "\(Wording.count(folder.unreadable)) unreadable" : ""
+                        : folder.unreadable > 0 ? "\(Wording.count(folder.unreadable)) unreadable" : "",
+                    paths: [folder.path]
                 ))
             }
             guard let sessions = harness.sessions else { continue }
@@ -62,7 +68,8 @@ public struct AgentsSummary: Sendable, Equatable {
                     kind: .records,
                     title: "ddc cannot read \(harness.name)'s session records",
                     size: "",
-                    note: reason(sessions.reason)
+                    note: reason(sessions.reason),
+                    paths: []
                 ))
             }
             for (index, session) in sessions.list.enumerated() where session.state == .live {
@@ -72,11 +79,12 @@ public struct AgentsSummary: Sendable, Equatable {
                     kind: .session,
                     title: project(session),
                     size: "",
-                    note: sessionNote(session, harness: harness.id, now: now, calendar: calendar, locale: locale)
+                    note: sessionNote(session, harness: harness.id, now: now, calendar: calendar, locale: locale),
+                    paths: []
                 ))
             }
             if let line = transcripts(sessions.transcripts, sizes: report.sizes) {
-                rows.append(Row(id: "\(id)/transcripts", kind: .transcripts, title: line.title, size: line.size, note: line.note))
+                rows.append(Row(id: "\(id)/transcripts", kind: .transcripts, title: line.title, size: line.size, note: line.note, paths: []))
             }
         }
         return AgentsSummary(sizes: report.sizes, rows: rows)

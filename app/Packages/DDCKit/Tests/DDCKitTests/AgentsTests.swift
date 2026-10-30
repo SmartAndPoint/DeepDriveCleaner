@@ -86,6 +86,18 @@ struct AgentsSummaryTests {
         #expect(s.rows.contains { $0.kind == .folder && $0.note == "2 unreadable" })
     }
 
+    @Test("Show in Finder selects a folder's path and a harness's top-level folders, and nothing for the other rows")
+    func finderPaths() throws {
+        let s = try summary("agents-report")
+        let claude = try #require(s.rows.first { $0.id == "claude-code" })
+        #expect(claude.paths == ["/Users/example/.claude"], "the nested projects folder is inside the top one")
+        let projects = try #require(s.rows.first { $0.kind == .folder && $0.title == "~/.claude/projects" })
+        #expect(projects.paths == ["/Users/example/.claude/projects"])
+        let others = s.rows.filter { [.session, .transcripts, .records].contains($0.kind) }
+        #expect(others.flatMap(\.paths).isEmpty)
+        #expect(s.rows.filter { $0.kind == .session }.count == 2)
+    }
+
     @Test("before the sizes, every size reads empty and the sessions are there")
     func fast() throws {
         let s = try summary("agents-fast")
