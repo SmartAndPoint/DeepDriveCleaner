@@ -1,6 +1,6 @@
 # The mandatory gate on GitHub (story "Mandatory gate before every commit", DDC-005):
-# `make gate` on every branch push, with coverage and the app's tests beside
-# it. The M-size load trees run nightly (nightly.yml). `make tag` and `make dist` refuse
+# `make gate-fast` (the unit tier) on a branch push and `make gate` on main, with
+# coverage and the app's tests beside it. The M-size load trees run nightly (nightly.yml). `make tag` and `make dist` refuse
 # a commit whose run here is not green (scripts/ci-green.sh --full): every required job,
 # run on that commit, the Linux and Windows `check-<target>` jobs included (story "Build
 # matrix: every target built, tested and packaged from one tag", DDC-007, stage 2).
@@ -82,7 +82,8 @@ jobs:
         with:
           cache-bin: false
       - run: make tools
-      - run: make gate
+      # main's run is the one `make tag` and `make dist` read: it runs the whole gate.
+      - run: make ${{ github.ref == 'refs/heads/main' && 'gate' || 'gate-fast' }}
 
   coverage:
     needs: scope

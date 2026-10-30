@@ -493,7 +493,7 @@ Once per clone, install the pinned check tools and the git hooks. The hooks run 
 
 ```
 make tools      # cargo-nextest, cargo-deny, cargo-machete, cargo-llvm-cov, the MSRV toolchain
-make hooks      # git runs .githooks/: gate-fast before a commit, gate before a push
+make hooks      # git runs .githooks/: lint before a commit, gate-fast before a push
 ```
 
 A commit or push that changes only paths on `.config/rust-free-paths` (the app's own sources, the website, the release notes) skips the Rust tiers in the hooks and in CI (`scripts/gate-scope.sh`): a green hook on such a push says nothing about Rust. `make tag` and `make dist` need the Rust jobs to have passed on the release commit itself. The M-size load trees run nightly.
@@ -512,8 +512,9 @@ gh pr merge --auto --rebase    # merges once scope, gate, coverage, app, release
 A rebase merge gives the commits new SHAs, so the next branch starts from a fresh `origin/main` again. A pull request from a fork gets no Gate run: a maintainer pushes its commits to a branch here to run it.
 
 ```
-make gate-fast  # fmt check, clippy -D warnings, all tests (nextest), doc tests
-make gate       # gate-fast plus cargo deny, unused dependencies, docs, the MSRV build, a release build
+make lint       # fmt check, clippy -D warnings
+make gate-fast  # lint, the unit tests (nextest, no load trees), doc tests
+make gate       # lint, every test, cargo deny, unused dependencies, docs, the MSRV build, a release build (CI on main)
 make check      # the same as make gate-fast
 make coverage   # line coverage, written to target/lcov.info
 make release    # optimized build
