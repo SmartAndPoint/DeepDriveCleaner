@@ -65,14 +65,14 @@ pub fn generate(
     Ok(Generated { manifest: manifest::manifest(profile.name(), seed, &desc), layout, home, build_ms })
 }
 
-/// What a test that reaches the builder through [`generate`] gets: the tree,
-/// or `None` (after saying so) on a platform with no builder yet, where it
-/// skips. Any other error fails the test.
-pub fn skip_unported(generated: anyhow::Result<Generated>) -> Option<Generated> {
+/// What test `test`, which reaches the builder through [`generate`], gets:
+/// the tree, or `None` (after saying so) on a platform with no builder yet,
+/// where it skips. Any other error fails the test.
+pub fn skip_unported(test: &str, generated: anyhow::Result<Generated>) -> Option<Generated> {
     match generated {
         Ok(g) => Some(g),
         Err(e) if e.downcast_ref::<std::io::Error>().is_some_and(|e| e.kind() == std::io::ErrorKind::Unsupported) => {
-            eprintln!("skipped: {e:#}");
+            eprintln!("skipped {test}: {e:#}");
             None
         }
         Err(e) => panic!("generate: {e:#}"),
@@ -86,6 +86,22 @@ pub fn skip_unported(generated: anyhow::Result<Generated>) -> Option<Generated> 
 /// `if unsupported("name") { return; }`.
 pub fn unsupported(test: &str) -> bool {
     match ddc_core::platform::require_supported() {
+        Ok(()) => false,
+        Err(why) => {
+            eprintln!("skipped {test}: {why}");
+            true
+        }
+    }
+}
+
+/// True, after saying why, when this build's platform does not declare
+/// `capability` (ADR "Platform seam", §9, amended): a test of a command or
+/// an action that needs it (`ddc disk`, `ddc disk agents`, Homebrew) starts
+/// with `if lacks("name", Capability::WholeDisk) { return; }`. Never true on
+/// macOS, which declares every capability.
+pub fn lacks(test: &str, capability: ddc_core::platform::Capability) -> bool {
+    use ddc_core::platform;
+    match platform::require(capability, platform::CAPABILITIES, None) {
         Ok(()) => false,
         Err(why) => {
             eprintln!("skipped {test}: {why}");

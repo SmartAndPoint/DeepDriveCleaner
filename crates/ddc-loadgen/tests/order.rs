@@ -129,7 +129,10 @@ proptest! {
             return Ok(());
         }
         let dir = target::Scratch::new().unwrap();
-        let Some(g) = skip_unported(generate(profile, ENTRIES, seed, dir.path(), None)) else { return Ok(()) };
+        let Some(g) = skip_unported(
+            "the_same_report_and_plan_for_any_thread_count_and_entry_order",
+            generate(profile, ENTRIES, seed, dir.path(), None),
+        ) else { return Ok(()) };
         let env = Env::with_paths(&g.home, &g.layout.data, &g.layout.data.join("logs"), SystemTime::now()).unwrap();
         let case = Case { g, env };
         let shuffled = Shuffled(order);

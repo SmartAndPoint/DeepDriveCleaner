@@ -46,7 +46,9 @@ pub use imp::{
     bulk, errno, folders, fsops, iopolicy, meta, process, procs, rlimit, signals, statfs, term, trash, usage,
 };
 
-/// What in-source tests need from the OS (a symlink, a non-UTF-8 name).
+/// What in-source tests need from the OS (a symlink, a non-UTF-8 name, a
+/// tool such as `plutil`): `Unsupported` where it is missing, and the test
+/// skips through [`skipped_without`].
 #[cfg(test)]
 pub use imp::testing;
 
@@ -143,6 +145,8 @@ mod pins {
     const _: fn(&Path, &Path) -> io::Result<()> = imp::testing::symlink;
     #[cfg(test)]
     const _: fn(&[u8]) -> Option<std::ffi::OsString> = imp::testing::name_from_bytes;
+    #[cfg(test)]
+    const _: fn(&Path) -> io::Result<()> = imp::testing::plutil_to_binary;
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
@@ -281,6 +285,41 @@ impl std::error::Error for Unsupported {}
 /// statement of every core entry point that does (ADR §5).
 pub fn require_supported() -> Result<(), Unsupported> {
     if SUPPORTED { Ok(()) } else { Err(Unsupported { platform: PLATFORM, simulated: SIMULATED }) }
+}
+
+/// True, after printing why, when this build's platform is not supported:
+/// the twin of `tests/common`'s `unsupported` for unit tests under `src/`,
+/// which cannot reach `tests/common` (ADR "Platform seam: one platform
+/// module per OS with declared capabilities", §9, amended). A unit test of
+/// platform code that is not ported yet starts with
+/// `if crate::platform::skipped("name") { return; }`. Never true on macOS.
+#[cfg(test)]
+#[allow(clippy::print_stderr)] // the skip line the native jobs compare with their list
+pub(crate) fn skipped(test: &str) -> bool {
+    match require_supported() {
+        Ok(()) => false,
+        Err(why) => {
+            eprintln!("skipped {test}: {why}");
+            true
+        }
+    }
+}
+
+/// The value of a [`testing`] tool helper, or `None` after printing why
+/// when the tool is missing here (`io::ErrorKind::Unsupported`), and the
+/// test skips. Any other error fails the test. The macOS helpers never
+/// return `Unsupported`, so nothing skips there.
+#[cfg(test)]
+#[allow(clippy::print_stderr)] // the skip line, as in `skipped`
+pub(crate) fn skipped_without<T>(test: &str, made: std::io::Result<T>) -> Option<T> {
+    match made {
+        Ok(value) => Some(value),
+        Err(why) if why.kind() == std::io::ErrorKind::Unsupported => {
+            eprintln!("skipped {test}: {why}");
+            None
+        }
+        Err(why) => panic!("{test}: {why}"),
+    }
 }
 
 /// A command, or a `disk free` action, that needs a capability this

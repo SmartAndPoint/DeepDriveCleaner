@@ -594,3 +594,118 @@ fn code(path: &Path) -> String {
     let text = std::fs::read_to_string(path).unwrap();
     text.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n")
 }
+
+/// Every skip names its own test (ADR "Platform seam: one platform module
+/// per OS with declared capabilities", §9, amended; story "Build matrix:
+/// every target built, tested and packaged from one tag", stage 2). The
+/// native jobs compare the `skipped <label>:` lines with a committed list
+/// (`.config/native-skips/`), so a label that is not the test's fn name, a
+/// stale one or one copied from a sibling, could hide a new skip behind an
+/// old line. A label is a literal equal to the enclosing fn's name,
+/// `stringify!` of a macro's test name, or the `test` parameter of a helper
+/// in the same file whose own callers this checks the same way. A file's
+/// own closure, parameter or fn of the same name that takes no `test` is
+/// not a skip.
+#[test]
+fn every_skip_names_its_own_test() {
+    const SKIPS: [&str; 6] = ["unsupported", "lacks", "skipped", "skipped_without", "skip_unported", "idle_share"];
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let (mut checked, mut wrong) = (0, Vec::new());
+    for entry in std::fs::read_dir(&crates).unwrap() {
+        let krate = entry.unwrap().path();
+        for path in rust_files(&krate).into_iter().filter(|p| !p.components().any(|c| c.as_os_str() == "target")) {
+            let text = code(&path);
+            let fns = fn_starts(&text);
+            let enclosing = |at: usize| fns.iter().rev().find(|f| f.0 < at);
+            // A file's own `skipped` closure or fn of another kind is not a skip.
+            let shadowed = |name: &str| {
+                ["let {} =", "({}: ", ", {}: "].iter().any(|form| text.contains(&form.replace("{}", name)))
+                    || fns.iter().any(|&(_, f, takes_test)| f == name && !takes_test)
+            };
+            let mut names: Vec<&str> = SKIPS.into_iter().filter(|n| !shadowed(n)).collect();
+            // The file's own helpers that pass their `test` on, to a fixpoint.
+            loop {
+                let forwarders: Vec<&str> = calls(&text, &names)
+                    .filter(|(_, arg)| *arg == "test")
+                    .filter_map(|(at, _)| enclosing(at).filter(|f| f.2).map(|f| f.1))
+                    .filter(|f| !names.contains(f))
+                    .collect();
+                if forwarders.is_empty() {
+                    break;
+                }
+                names.extend(forwarders);
+                names.sort();
+                names.dedup();
+            }
+            for (at, arg) in calls(&text, &names) {
+                let Some(&(_, test, takes_test)) = enclosing(at) else {
+                    wrong.push(format!("{}: {arg} outside any fn", path.display()));
+                    continue;
+                };
+                let named = arg.strip_prefix('"').and_then(|a| a.strip_suffix('"')) == Some(test)
+                    || arg == format!("stringify!({test})")
+                    || (arg == "test" && takes_test);
+                if !named {
+                    wrong.push(format!("{}: {arg} in fn {test}", path.display()));
+                }
+                checked += 1;
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "skip labels that are not their test's name:\n{}", wrong.join("\n"));
+    assert!(checked > 300, "only {checked} skips read");
+}
+
+/// Each `fn` of `text`: where it starts, its name (a macro's `$test` too),
+/// and whether it takes a `test: &str`.
+fn fn_starts(text: &str) -> Vec<(usize, &str, bool)> {
+    let ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    text.match_indices("fn ")
+        .filter(|&(i, _)| !text[..i].ends_with(ident))
+        .filter_map(|(i, _)| {
+            let rest = &text[i + 3..];
+            let name = &rest[..rest.find(|c: char| !ident(c)).unwrap_or(rest.len())];
+            let params = rest[name.len()..].split(')').next().unwrap_or("");
+            (!name.is_empty()).then_some((i, name, params.contains("test: &str")))
+        })
+        .collect()
+}
+
+/// Each call of one of `names` in `text`, not its definition: where it is,
+/// and its first argument, trimmed. Calls without arguments are someone
+/// else's (`unported.rs`'s `unsupported()`).
+fn calls<'a>(text: &'a str, names: &[&str]) -> impl Iterator<Item = (usize, &'a str)> {
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    let mut found = Vec::new();
+    for name in names {
+        let open = format!("{name}(");
+        for (i, _) in text.match_indices(&open) {
+            if text[..i].ends_with(ident) || text[..i].trim_end().ends_with("fn") {
+                continue;
+            }
+            let args = &text[i + open.len()..];
+            let (mut depth, mut end) = (0i32, args.len());
+            for (j, c) in args.char_indices() {
+                match c {
+                    '(' | '[' | '{' => depth += 1,
+                    ')' | ']' | '}' if depth == 0 => {
+                        end = j;
+                        break;
+                    }
+                    ')' | ']' | '}' => depth -= 1,
+                    ',' if depth == 0 => {
+                        end = j;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            let arg = args[..end].trim();
+            if !arg.is_empty() {
+                found.push((i, arg));
+            }
+        }
+    }
+    found.sort();
+    found.into_iter()
+}

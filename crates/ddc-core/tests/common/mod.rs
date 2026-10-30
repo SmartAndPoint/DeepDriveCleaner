@@ -154,6 +154,24 @@ pub fn unsupported(test: &str) -> bool {
     }
 }
 
+/// True, after printing why, when the build's platform does not declare
+/// `capability` (ADR "Platform seam: one platform module per OS with
+/// declared capabilities", §9, amended): a test of what the capability
+/// covers (Homebrew, the whole disk, the coding agents) starts with
+/// `if common::lacks("name", Capability::Homebrew) { return; }`. It stays
+/// meaningful after a platform's switch flips: a supported platform without
+/// the capability still skips. Never true on macOS, which declares them all.
+pub fn lacks(test: &str, capability: ddc_core::platform::Capability) -> bool {
+    use ddc_core::platform;
+    match platform::require(capability, platform::CAPABILITIES, None) {
+        Ok(()) => false,
+        Err(why) => {
+            eprintln!("skipped {test}: {why}");
+            true
+        }
+    }
+}
+
 /// Allocated bytes of one path, without following symlinks.
 pub fn alloc(path: &Path) -> u64 {
     meta::alloc_bytes(&fs::symlink_metadata(path).unwrap())

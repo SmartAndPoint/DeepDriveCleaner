@@ -285,10 +285,12 @@ fn unescape(s: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
     use std::path::PathBuf;
     use std::process::Command;
 
     use super::*;
+    use crate::platform::{skipped, skipped_without};
 
     const STATUS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -342,36 +344,49 @@ mod tests {
         tempfile::tempdir().expect("temp dir")
     }
 
-    /// Writes `xml` as `name` in `dir`, converted to a binary plist when asked.
-    fn plist(dir: &Path, name: &str, xml: &str, binary: bool) -> PathBuf {
+    /// Writes `xml` as `name` in `dir`, converted to a binary plist when
+    /// asked: `Unsupported` where there is no `plutil`.
+    fn plist(dir: &Path, name: &str, xml: &str, binary: bool) -> io::Result<PathBuf> {
         let path = dir.join(name);
-        std::fs::write(&path, xml).unwrap();
+        std::fs::write(&path, xml)?;
         if binary {
-            let ok = Command::new("/usr/bin/plutil").args(["-convert", "binary1"]).arg(&path).status().unwrap();
-            assert!(ok.success());
-            assert!(std::fs::read(&path).unwrap().starts_with(b"bplist00"));
+            crate::platform::testing::plutil_to_binary(&path)?;
+            assert!(std::fs::read(&path)?.starts_with(b"bplist00"));
         }
-        path
+        Ok(path)
     }
 
+    // The readers open through `fsops`, which is not ported off macOS yet.
     #[test]
     fn a_finished_backup_reads_as_finished_in_both_formats() {
+        if skipped("a_finished_backup_reads_as_finished_in_both_formats") {
+            return;
+        }
         for binary in [false, true] {
             let d = dir();
-            plist(d.path(), "Status.plist", &STATUS.replace("STATE", "finished"), binary);
+            let status = plist(d.path(), "Status.plist", &STATUS.replace("STATE", "finished"), binary);
+            if skipped_without("a_finished_backup_reads_as_finished_in_both_formats", status).is_none() {
+                return;
+            }
             assert!(finished(d.path()), "binary: {binary}");
             let d = dir();
-            plist(d.path(), "Status.plist", &STATUS.replace("STATE", "new"), binary);
+            plist(d.path(), "Status.plist", &STATUS.replace("STATE", "new"), binary).unwrap();
             assert!(!finished(d.path()), "binary: {binary}");
         }
     }
 
     #[test]
     fn the_device_and_last_backup_come_from_the_top_level_only() {
+        if skipped("the_device_and_last_backup_come_from_the_top_level_only") {
+            return;
+        }
         let when = humantime::parse_rfc3339("2026-10-01T12:30:45Z").unwrap();
         for binary in [false, true] {
             let d = dir();
-            plist(d.path(), "Info.plist", INFO, binary);
+            let made = plist(d.path(), "Info.plist", INFO, binary);
+            if skipped_without("the_device_and_last_backup_come_from_the_top_level_only", made).is_none() {
+                return;
+            }
             let info = info(d.path());
             assert_eq!(info.device_name.as_deref(), Some("Example's iPhone & more — ✓"), "binary: {binary}");
             assert_eq!(info.last_backup, Some(when), "binary: {binary}");
@@ -384,7 +399,13 @@ mod tests {
         assert!(!finished(d.path()), "missing");
         assert_eq!(info(d.path()), Info::default());
 
-        let full = plist(d.path(), "Status.plist", &STATUS.replace("STATE", "finished"), true);
+        // The parser is portable; the binary plist comes from plutil.
+        let made = plist(d.path(), "Status.plist", &STATUS.replace("STATE", "finished"), true);
+        let Some(full) =
+            skipped_without("missing_truncated_or_garbage_files_read_as_not_finished_without_a_panic", made)
+        else {
+            return;
+        };
         let bytes = std::fs::read(&full).unwrap();
         let done = Some(Value::String("finished".to_owned()));
         for cut in 0..bytes.len() {
@@ -397,7 +418,7 @@ mod tests {
         }
         // Every single-bit change of a valid binary plist is read or refused,
         // never a panic: the date's exponent bits too.
-        let info = std::fs::read(plist(d.path(), "Info.plist", INFO, true)).unwrap();
+        let info = std::fs::read(plist(d.path(), "Info.plist", INFO, true).unwrap()).unwrap();
         for (bytes, key) in [(&bytes, "SnapshotState"), (&info, "Last Backup Date"), (&info, "Device Name")] {
             for i in 0..bytes.len() {
                 for bit in 0..8 {
@@ -443,8 +464,11 @@ mod tests {
 
     #[test]
     fn a_symlink_or_a_fifo_is_never_read() {
+        if skipped("a_symlink_or_a_fifo_is_never_read") {
+            return;
+        }
         let d = dir();
-        let real = plist(d.path(), "real.plist", &STATUS.replace("STATE", "finished"), false);
+        let real = plist(d.path(), "real.plist", &STATUS.replace("STATE", "finished"), false).unwrap();
         crate::platform::testing::symlink(&real, &d.path().join("Status.plist")).unwrap();
         assert!(!finished(d.path()), "a symlink");
 
