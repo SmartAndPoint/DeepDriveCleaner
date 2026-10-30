@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		DDC0000000000000000000B1 /* DDCKit in Frameworks */ = {isa = PBXBuildFile; productRef = DDC00000000000000000003B /* DDCKit */; };
+		DDC0000000000000000000B4 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = DDC00000000000000000003D /* Sparkle */; };
 		DDC0000000000000000000B2 /* com.smartandpoint.deepdrivecleaner.scheduler.plist in Copy Launch Agents */ = {isa = PBXBuildFile; fileRef = DDC0000000000000000000F2 /* com.smartandpoint.deepdrivecleaner.scheduler.plist */; };
 		DDC0000000000000000000B3 /* com.smartandpoint.deepdrivecleaner.scheduler-open.plist in Copy Launch Agents */ = {isa = PBXBuildFile; fileRef = DDC0000000000000000000F3 /* com.smartandpoint.deepdrivecleaner.scheduler-open.plist */; };
 /* End PBXBuildFile section */
@@ -60,6 +61,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DDC0000000000000000000B1 /* DDCKit in Frameworks */,
+				DDC0000000000000000000B4 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -114,6 +116,7 @@
 			name = DeepDriveCleaner;
 			packageProductDependencies = (
 				DDC00000000000000000003B /* DDCKit */,
+				DDC00000000000000000003D /* Sparkle */,
 			);
 			productName = DeepDriveCleaner;
 			productReference = DDC0000000000000000000F1 /* DeepDriveCleaner.app */;
@@ -145,6 +148,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				DDC00000000000000000003A /* XCLocalSwiftPackageReference "Packages/DDCKit" */,
+				DDC00000000000000000003C /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = DDC0000000000000000000E4 /* Products */;
@@ -300,10 +304,26 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		DDC00000000000000000003C /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.10.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		DDC00000000000000000003B /* DDCKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = DDCKit;
+		};
+		DDC00000000000000000003D /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DDC00000000000000000003C /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
