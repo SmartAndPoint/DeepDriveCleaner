@@ -115,6 +115,31 @@ jobs:
           name: load-m
           path: target/load
 
+  # Every profile at S and M on Linux, 3 runs each, recorded and judged nowhere (story
+  # "Linux scanner and rule catalog", DDC-007): the trees go in marked temporary folders,
+  # as Linux has no disk image without root. `make load-baseline` derives the limits from
+  # the two tables; bench/load-limits-linux.tsv is set from this job's artifact, a hosted
+  # runner being the one Linux reference the repository has.
+  load-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+          key: load-linux
+      - run: make load-baseline
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: load-linux
+          path: target/load
+
   # L-size load on its own runner, so a gate or coverage failure does not skip it and
   # their builds do not share its disk: story "Synthetic load trees: large, wide, deep
   # and hostile".

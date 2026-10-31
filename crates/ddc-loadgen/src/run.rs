@@ -44,7 +44,7 @@ pub struct RunArgs {
     /// Where `<size>-<profile>.tsv` is written.
     pub out: PathBuf,
     pub mode: Mode,
-    /// `bench/load-limits.tsv`, read in `enforce` mode.
+    /// This platform's limits ([`limits::PATH`]), read in `enforce` mode.
     pub limits: PathBuf,
     /// The 1-minute load average when the whole run started, before any
     /// tree was built; read here when not given.

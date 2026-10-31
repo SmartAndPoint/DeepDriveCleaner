@@ -24,6 +24,9 @@ enum Cmd {
     Mktemp,
     /// Remove every marked temporary folder of this user.
     Clean,
+    /// Remove one marked temporary folder of this user (`mktemp`'s), locked
+    /// folders and paths past `PATH_MAX` included; refuses any other folder.
+    Remove { path: PathBuf },
     /// Print every profile's name, one per line.
     Profiles,
     /// Build a tree and print its manifest.
@@ -80,7 +83,7 @@ enum Cmd {
         /// `enforce` fails over a limit (CPU only on a quiet machine); `record` judges nothing.
         #[arg(long, value_enum, default_value_t = Mode::Record)]
         mode: Mode,
-        #[arg(long, default_value = "bench/load-limits.tsv")]
+        #[arg(long, default_value = limits::PATH)]
         limits: PathBuf,
         /// The 1-minute load average when the whole run started (default: now).
         #[arg(long)]
@@ -129,7 +132,7 @@ enum Cmd {
         #[arg(long, value_enum, default_value_t = Mode::Record)]
         mode: Mode,
         /// The memory bases.
-        #[arg(long, default_value = "bench/load-limits.tsv")]
+        #[arg(long, default_value = limits::PATH)]
         limits: PathBuf,
         /// Write here instead of stdout; an existing file is never replaced.
         #[arg(long)]
@@ -156,6 +159,7 @@ fn main() -> anyhow::Result<()> {
     let out = match Cli::parse().cmd {
         Cmd::Mktemp => serde_json::json!({ "path": target::mktemp()? }),
         Cmd::Clean => serde_json::json!({ "removed": target::clean()? }),
+        Cmd::Remove { path } => serde_json::json!({ "removed": target::remove(&path)? }),
         Cmd::Profiles => {
             Profile::ALL.iter().for_each(|p| println!("{}", p.name()));
             return Ok(());
