@@ -79,6 +79,9 @@ pub enum SkipReason {
     ActionNotAllowed,
     /// Part of it could not be read or another filesystem is mounted inside.
     Incomplete,
+    /// Something inside, or the folder itself, belongs to another user
+    /// (safety ADR, amendment of 2026-10-31): refused before any rename.
+    ForeignOwner,
     NativeUnavailable {
         program: String,
     },

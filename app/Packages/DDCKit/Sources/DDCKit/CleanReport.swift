@@ -21,6 +21,8 @@ public enum SkipReason: Sendable, Equatable, Hashable {
     case needsConfirmation
     case actionNotAllowed
     case incomplete
+    /// Something inside, or the folder itself, belongs to another user.
+    case foreignOwner
     case nativeUnavailable(program: String)
     /// The runtime did not answer before its prune commands; `detail` says why.
     case toolNotReady(program: String, detail: String)
@@ -47,7 +49,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
     public static let tags = [
         "missing", "not-a-directory", "symlink", "changed-since-scan", "parent-changed", "rule-mismatch",
         "outside-scan-roots", "scan-root", "protected", "project-root", "kept", "in-use", "in-use-unknown-cwd",
-        "owner-running", "needs-confirmation", "action-not-allowed", "incomplete", "native-unavailable",
+        "owner-running", "needs-confirmation", "action-not-allowed", "incomplete", "foreign-owner", "native-unavailable",
         "tool-not-ready", "not-an-entry", "entry-locked", "inside-another-item", "agent-live",
     ]
 
@@ -77,6 +79,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
         case "needs-confirmation": self = .needsConfirmation
         case "action-not-allowed": self = .actionNotAllowed
         case "incomplete": self = .incomplete
+        case "foreign-owner": self = .foreignOwner
         case "native-unavailable": self = .nativeUnavailable(program: try c.decode(String.self, forKey: .program))
         case "tool-not-ready":
             self = .toolNotReady(program: try c.decode(String.self, forKey: .program), detail: try c.decode(String.self, forKey: .detail))
@@ -95,7 +98,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
 /// `clean --items --json`: what happened to each listed item.
 public struct CleanReport: Decodable, Sendable, Equatable {
     /// `CLEAN_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 5
+    public static let schemaVersion = 6
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)

@@ -32,6 +32,11 @@ pub fn st_flags(_md: &Metadata) -> u32 {
     0
 }
 
+/// The owner's user id (`st_uid`).
+pub fn owner(md: &Metadata) -> Option<u32> {
+    Some(md.uid())
+}
+
 /// Adds `u+rwx`.
 pub fn add_owner_rwx(perms: &mut Permissions) {
     perms.set_mode(perms.mode() | 0o700);

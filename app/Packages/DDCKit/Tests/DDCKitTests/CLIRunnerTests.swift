@@ -76,7 +76,7 @@ struct CLIRunnerTests {
         let runner = CLIRunner(executable: fake.executable)
         let stderr = """
             ddc: warning: one
-            {"schema_version":3,"event":"phase","phase":"preparing"}
+            {"schema_version":4,"event":"phase","phase":"preparing"}
             ddc: two
 
             """
@@ -85,7 +85,7 @@ struct CLIRunnerTests {
 
         let result = await runner.run(.scan, ["stderr", fake.directory.appending(path: "stderr.txt").path]) { lines.append($0) }
 
-        #expect(lines.all == ["ddc: warning: one", #"{"schema_version":3,"event":"phase","phase":"preparing"}"#, "ddc: two"])
+        #expect(lines.all == ["ddc: warning: one", #"{"schema_version":4,"event":"phase","phase":"preparing"}"#, "ddc: two"])
         #expect(result.stderrTail == ["ddc: warning: one", "ddc: two"])
     }
 

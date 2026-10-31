@@ -1006,6 +1006,19 @@
           ]
         },
         {
+          "description": "Something inside, or the folder itself, belongs to another user\n(safety ADR, amendment of 2026-10-31): refused before any rename.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "foreign-owner"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
           "type": "object",
           "properties": {
             "program": {

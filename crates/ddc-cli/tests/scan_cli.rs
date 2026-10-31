@@ -51,7 +51,7 @@ fn json_report_and_saved_scan() {
     let report = serde_json::to_value(contract::holds::<ScanReport>("scan", &out.stdout)).unwrap();
     let rules: Vec<&str> = report["findings"].as_array().unwrap().iter().map(|f| f["rule"].as_str().unwrap()).collect();
     assert_eq!(rules, ["cache.npm", "node.node_modules", "user.pictures"]);
-    assert_eq!(report["schema_version"], 3);
+    assert_eq!(report["schema_version"], 4);
     let f = &report["findings"];
     let classes: Vec<&str> = f.as_array().unwrap().iter().map(|x| x["class"].as_str().unwrap()).collect();
     assert_eq!(classes, ["safe", "rebuildable", "user-data"]);

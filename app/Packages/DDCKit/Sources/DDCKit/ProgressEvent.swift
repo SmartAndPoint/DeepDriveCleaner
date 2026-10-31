@@ -15,7 +15,7 @@ public enum ProgressEvent: Sendable, Equatable {
     case item(Item)
 
     /// `PROGRESS_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 3
+    public static let schemaVersion = 4
     /// Every `event` value, as the schema lists them.
     public static let names = ["phase", "walk", "items", "item"]
 

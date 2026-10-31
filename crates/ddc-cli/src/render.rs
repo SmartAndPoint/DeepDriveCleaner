@@ -93,6 +93,7 @@ fn status(f: &Finding) -> String {
     match f.not_selected {
         Some(NotSelected::ActiveProject { idle_days }) => parts.push(format!("active ({idle_days}d)")),
         Some(NotSelected::UnknownActivity) => parts.push("activity unknown".to_owned()),
+        Some(NotSelected::ForeignOwner) => parts.push("another user's".to_owned()),
         _ => {}
     }
     if let Some(days) = f.project.as_ref().and_then(|p| p.idle_days).filter(|_| f.selected) {

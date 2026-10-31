@@ -315,7 +315,7 @@ struct SessionPickTests {
 
             """.utf8))
         try fake.put("clean-report.json", Data("""
-            {"schema_version": 5, "ddc_version": "0.11.0", "platform": "macos", "capabilities": ["private-size", "in-use-check", "dataless-files", "full-disk-access", "local-snapshots", "whole-disk", "coding-agents", "homebrew", "schedule", "notifications"], "cancelled": false, "failed": 0, "local_snapshots": 0,
+            {"schema_version": 6, "ddc_version": "0.11.0", "platform": "macos", "capabilities": ["private-size", "in-use-check", "dataless-files", "full-disk-access", "local-snapshots", "whole-disk", "coding-agents", "homebrew", "schedule", "notifications"], "cancelled": false, "failed": 0, "local_snapshots": 0,
              "journal": "/Users/example/Library/Logs/DeepDriveCleaner/actions.jsonl", "volumes": [],
              "items": [{"path": "\(Self.free)", "dev": 16777232, "ino": 339569812, "rule": "agent.claude-code-transcripts",
                         "class": "user-data", "action": "trash", "bytes": 8192, "outcome": "trashed"},

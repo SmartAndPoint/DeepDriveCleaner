@@ -34,6 +34,12 @@ pub fn st_flags(md: &Metadata) -> u32 {
     md.st_flags()
 }
 
+/// The owner's user id: not reported on macOS yet, so nothing there is
+/// refused for its owner (safety ADR, amendment of 2026-10-31).
+pub fn owner(_md: &Metadata) -> Option<u32> {
+    None
+}
+
 /// Adds `u+rwx`.
 pub fn add_owner_rwx(perms: &mut Permissions) {
     perms.set_mode(perms.mode() | 0o700);

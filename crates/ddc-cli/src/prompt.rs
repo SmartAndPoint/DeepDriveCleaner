@@ -269,6 +269,7 @@ pub fn reason(r: &SkipReason) -> String {
         SkipReason::NeedsConfirmation => "needs an interactive confirmation".to_owned(),
         SkipReason::ActionNotAllowed => "the rule does not allow this action".to_owned(),
         SkipReason::Incomplete => "partly unreadable or has another filesystem mounted inside".to_owned(),
+        SkipReason::ForeignOwner => "it holds another user's files".to_owned(),
         SkipReason::NotAnEntry => "no longer a file or folder you can pick in its folder".to_owned(),
         SkipReason::EntryLocked { lock } => format!("locked: {}", lock_text(lock)),
         SkipReason::InsideAnotherItem => "inside a folder that went to the Trash".to_owned(),

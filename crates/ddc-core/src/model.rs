@@ -19,8 +19,9 @@ use crate::scan::SkipReason;
 /// capabilities", §4). 3: the entry locks `live-session` and
 /// `liveness-unknown`, on the entries of the coding agents' session folders
 /// (ADR "Agent footprint: worktrees, harness data and bounded consent for
-/// agents", §3).
-pub const SCHEMA_VERSION: u32 = 3;
+/// agents", §3). 4: the reason `foreign-owner` in `not_selected` (safety
+/// ADR, amendment of 2026-10-31).
+pub const SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ScanReport {
@@ -386,6 +387,10 @@ pub enum NotSelected {
     ActiveProject { idle_days: u64 },
     /// No activity signal: treated as active.
     UnknownActivity,
+    /// Something inside, or the folder itself, belongs to another user (a
+    /// container's root, say): never selected, never removed (safety ADR,
+    /// amendment of 2026-10-31).
+    ForeignOwner,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

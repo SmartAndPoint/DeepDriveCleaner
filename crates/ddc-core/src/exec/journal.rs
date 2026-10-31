@@ -22,8 +22,10 @@ use crate::plan::PlanItem;
 /// `tool-not-ready`. 4: the kind `keep-remove`. 5: in an `item` line, the
 /// skip reason `agent-live` and the entry locks `live-session` and
 /// `liveness-unknown`, and the optional `entry` (ADR "Agent footprint:
-/// worktrees, harness data and bounded consent for agents", §3).
-pub const JOURNAL_SCHEMA_VERSION: u32 = 5;
+/// worktrees, harness data and bounded consent for agents", §3). 6: in an
+/// `item` line, the skip reason `foreign-owner` (safety ADR, amendment of
+/// 2026-10-31).
+pub const JOURNAL_SCHEMA_VERSION: u32 = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]

@@ -159,7 +159,7 @@ fn deletes_selected_items_and_journals_each() {
     assert_eq!(journal.0.len(), 2, "one journal line per action");
     let e = journal.0.iter().find(|e| e.path == nm).unwrap();
     // The journal's own version, not the scan report's (safety ADR, amendment of 2026-10-28).
-    assert_eq!((e.rule.as_str(), e.method, e.schema_version), ("node.node_modules", "delete", 5));
+    assert_eq!((e.rule.as_str(), e.method, e.schema_version), ("node.node_modules", "delete", 6));
     let line = serde_json::to_value(e).unwrap();
     assert_eq!(line["kind"], "item");
     for key in ["ts", "path", "dev", "ino", "rule", "class", "method", "bytes", "outcome"] {
@@ -1345,4 +1345,52 @@ fn a_cancelled_marker_walk_keeps_its_target() {
 
     assert_eq!(outcome(&r, &nm), &Outcome::Skipped(SkipReason::Kept));
     assert!(nm.exists());
+}
+
+/// A reader that reports `node_modules/dep` as another user's, as a
+/// container writing into the project as root leaves it.
+struct TheirsInside;
+
+impl ddc_core::scan::DirReader for TheirsInside {
+    fn read(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: ddc_core::scan::Times,
+    ) -> Result<ddc_core::scan::DirListing, ddc_core::scan::ReadError> {
+        let mut listing = ddc_core::scan::StdReader.read(dir, expect, want_private, times)?;
+        let me = ddc_core::platform::procs::uid();
+        for e in &mut listing.entries {
+            e.uid = Some(if dir.ends_with("node_modules") && e.name == "dep" { me.wrapping_add(1) } else { me });
+        }
+        Ok(listing)
+    }
+}
+
+/// A finding with another user's entries inside is listed, never selected,
+/// and refused before any rename (safety ADR, amendment of 2026-10-31).
+#[test]
+fn another_users_entries_keep_a_finding_unselected_and_unremoved() {
+    if common::unsupported("another_users_entries_keep_a_finding_unselected_and_unremoved") {
+        return;
+    }
+    let fx = Fx::new();
+    let nm = fx.node_project("p");
+    let opts = ScanOptions { walk: WalkOptions { threads: Some(2), ..Default::default() }, ..Default::default() };
+    let scan =
+        report::scan_with_reader(&fx.env(), &opts, &Progress::default(), &report::volumes::SystemStatFs, &TheirsInside)
+            .unwrap();
+    let f = scan.findings.iter().find(|f| f.path == nm).expect("node_modules is a finding");
+    assert_eq!(f.not_selected, Some(ddc_core::model::NotSelected::ForeignOwner));
+    assert!(!f.selected);
+
+    // A plan that names it anyway, confirmed by a person: refused, untouched.
+    let mut plan = fx.plan();
+    for item in plan.items.iter_mut().filter(|i| i.finding.path == nm) {
+        item.finding.not_selected = Some(ddc_core::model::NotSelected::ForeignOwner);
+    }
+    let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs::new(vec![]));
+    assert_eq!(outcome(&r, &nm), &Outcome::Skipped(SkipReason::ForeignOwner));
+    assert!(nm.join("dep/index.js").exists());
 }

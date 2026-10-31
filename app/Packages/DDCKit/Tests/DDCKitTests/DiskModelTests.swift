@@ -73,8 +73,8 @@ struct DiskModelTests {
     func scan() async throws {
         // `ddc disk` sends no `files_expected` today; the model reads it if it does.
         try fake.put("disk-events.jsonl", Data("""
-            {"schema_version":3,"event":"walk","step":"disk","files":40,"dirs":3,"bytes":4096,"files_expected":100}
-            {"schema_version":3,"event":"walk","step":"scan","files":999,"dirs":3,"bytes":1}
+            {"schema_version":4,"event":"walk","step":"disk","files":40,"dirs":3,"bytes":4096,"files_expected":100}
+            {"schema_version":4,"event":"walk","step":"scan","files":999,"dirs":3,"bytes":1}
 
             """.utf8))
         let m = model()

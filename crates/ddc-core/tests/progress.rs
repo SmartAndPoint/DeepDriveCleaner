@@ -19,7 +19,7 @@ fn every_event_has_the_documented_shape_and_reads_back() {
     let cases = [
         (
             line(ProgressEvent::Phase(PhaseEvent { phase: Phase::Cleaning })),
-            json!({"schema_version": 3, "event": "phase", "phase": "cleaning"}),
+            json!({"schema_version": 4, "event": "phase", "phase": "cleaning"}),
         ),
         (
             line(ProgressEvent::Walk(WalkEvent {
@@ -29,7 +29,7 @@ fn every_event_has_the_documented_shape_and_reads_back() {
                 bytes: 4096,
                 files_expected: Some(5),
             })),
-            json!({"schema_version": 3, "event": "walk", "step": "recheck", "files": 3, "dirs": 2, "bytes": 4096,
+            json!({"schema_version": 4, "event": "walk", "step": "recheck", "files": 3, "dirs": 2, "bytes": 4096,
                    "files_expected": 5}),
         ),
         (
@@ -40,7 +40,7 @@ fn every_event_has_the_documented_shape_and_reads_back() {
                 bytes: 0,
                 files_expected: None,
             })),
-            json!({"schema_version": 3, "event": "walk", "step": "scan", "files": 1, "dirs": 1, "bytes": 0}),
+            json!({"schema_version": 4, "event": "walk", "step": "scan", "files": 1, "dirs": 1, "bytes": 0}),
         ),
         (
             line(ProgressEvent::Walk(WalkEvent {
@@ -50,7 +50,7 @@ fn every_event_has_the_documented_shape_and_reads_back() {
                 bytes: 8192,
                 files_expected: None,
             })),
-            json!({"schema_version": 3, "event": "walk", "step": "disk", "files": 7, "dirs": 3, "bytes": 8192}),
+            json!({"schema_version": 4, "event": "walk", "step": "disk", "files": 7, "dirs": 3, "bytes": 8192}),
         ),
         (
             line(ProgressEvent::Items(ItemsEvent {
@@ -66,7 +66,7 @@ fn every_event_has_the_documented_shape_and_reads_back() {
                     tool: Some("uv".into()),
                 }),
             })),
-            json!({"schema_version": 3, "event": "items", "done": 0, "n": 2, "bytes_done": 0, "bytes_total": 10,
+            json!({"schema_version": 4, "event": "items", "done": 0, "n": 2, "bytes_done": 0, "bytes_total": 10,
                    "current": {"i": 1, "path": "/Users/example/.cache/uv", "action": "native", "bytes": 10, "tool": "uv"}}),
         ),
         (
@@ -78,7 +78,7 @@ fn every_event_has_the_documented_shape_and_reads_back() {
                 bytes: 20,
                 outcome: Outcome::Skipped(SkipReason::InUse { pid: 7, name: "node".into() }),
             })),
-            json!({"schema_version": 3, "event": "item", "i": 2, "n": 2, "path": "/Users/example/p/node_modules",
+            json!({"schema_version": 4, "event": "item", "i": 2, "n": 2, "path": "/Users/example/p/node_modules",
                    "action": "delete", "bytes": 20, "outcome": "skipped", "reason": "in-use", "pid": 7, "name": "node"}),
         ),
         (
@@ -98,7 +98,7 @@ fn every_event_has_the_documented_shape_and_reads_back() {
                     }],
                 },
             })),
-            json!({"schema_version": 3, "event": "item", "i": 1, "n": 2, "path": "/Users/example/.cache/uv",
+            json!({"schema_version": 4, "event": "item", "i": 1, "n": 2, "path": "/Users/example/.cache/uv",
                    "action": "native", "bytes": 10, "outcome": "native",
                    "commands": [{"program": "uv", "args": ["cache", "clean"], "success": true, "code": 0}]}),
         ),

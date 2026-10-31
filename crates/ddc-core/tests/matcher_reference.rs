@@ -175,6 +175,7 @@ impl Tree {
             dev: 0,
             ino: 0,
             nlink: 1,
+            uid: None,
             flags: 0,
             alloc: 0,
             private: None,

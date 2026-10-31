@@ -24,6 +24,7 @@ public enum CleanWording {
         case .needsConfirmation: "Needs a confirmation"
         case .actionNotAllowed: "Its rule does not allow this action"
         case .incomplete: "Partly unreadable, or another disk is mounted inside"
+        case .foreignOwner: "Holds another user's files"
         case .nativeUnavailable(let program): "\(program) is not installed"
         case .toolNotReady(_, let detail): detail.prefix(1).uppercased() + detail.dropFirst()
         case .notAnEntry: "No longer a file or folder you can pick in its folder"
@@ -145,6 +146,7 @@ public enum CleanWording {
         case .userData: "Your data · not selected"
         case .activeProject(let days): "\(days == 0 ? "Active today" : "Active \(days) \(days == 1 ? "day" : "days") ago") · not selected"
         case .unknownActivity: "Activity unknown · not selected"
+        case .foreignOwner: "Another user's files · not selected"
         }
     }
 }
@@ -319,7 +321,7 @@ extension CleanWording {
         }
         if row.lock == nil || row.lock == .protected, let reason = finding.notSelected {
             switch reason {
-            case .activeProject, .unknownActivity: parts.append(notSelected(reason))
+            case .activeProject, .unknownActivity, .foreignOwner: parts.append(notSelected(reason))
             case .review, .userData: break
             }
         }

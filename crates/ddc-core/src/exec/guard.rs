@@ -15,6 +15,7 @@ use crate::agents::liveness::{
 };
 use crate::agents::{CURSOR_AGENT, HarnessId, Installs, UnknownReason};
 use crate::env::Env;
+use crate::model::NotSelected;
 use crate::plan::{Action, PlanItem};
 use crate::platform::PLATFORM;
 use crate::platform::fsops::DirFd;
@@ -259,6 +260,10 @@ impl<'a> Guard<'a> {
         if f.incomplete {
             // Unreadable parts or another filesystem mounted inside: never delete blind.
             return Err(SkipReason::Incomplete);
+        }
+        if f.not_selected == Some(NotSelected::ForeignOwner) {
+            // Another user's entries: the rename would succeed and the removal fail halfway.
+            return Err(SkipReason::ForeignOwner);
         }
         if self.protected_paths.contains(&fold(path)) {
             return Err(SkipReason::Protected);
