@@ -498,7 +498,7 @@ make hooks      # git runs .githooks/: lint before a commit, gate-fast before a 
 
 A commit or push that changes only paths on `.config/rust-free-paths` (the app's own sources, the website, the release notes) skips the Rust tiers in the hooks and in CI (`scripts/gate-scope.sh`): a green hook on such a push says nothing about Rust. `make tag` and `make dist` need the Rust jobs to have passed on the release commit itself. The M-size load trees run nightly.
 
-CI also builds and tests the workspace natively on Linux and Windows (the required checks `check-x86_64-unknown-linux-gnu` and `check-x86_64-pc-windows-msvc`). A test of something not ported to that OS yet skips with a printed reason, and the job fails unless those skips match `.config/native-skips/<os>.txt`: a new skip is a reviewed line in the same change.
+CI also builds and tests the workspace natively on Linux and Windows (the required checks `check-x86_64-unknown-linux-gnu` and `check-x86_64-pc-windows-msvc`). A test of something not ported to that OS yet skips with a printed reason, and the job fails unless those skips match `.config/native-skips/<os>.txt`: a new skip is a reviewed line in the same change. `DDC_LINUX_HOST=<ssh host> scripts/native-linux.sh` runs the same Linux leg on a Linux machine with docker in about a minute, instead of a CI round.
 
 `main` takes no direct push. Work on a branch started from `origin/main`, push it, open a pull request and let it merge itself once the Gate passes:
 
