@@ -312,6 +312,37 @@ fn hugging_face_downloads_are_found_and_its_token_is_kept() {
     assert_eq!(s.found.len(), 3, "{:?}", s.summary(&t));
 }
 
+/// The editors' remote servers: the build `lru.json` names first stays, the
+/// other builds and an interrupted install go; in the older `bin` layout the
+/// newest build stays; the CLI's own folders are never findings.
+#[test]
+fn old_editor_server_builds_are_found_and_the_last_used_stays() {
+    if common::unsupported("old_editor_server_builds_are_found_and_the_last_used_stays") {
+        return;
+    }
+    let (a, b) = ("a".repeat(40), "b".repeat(40));
+    let t = TreeBuilder::new();
+    for name in [format!("Stable-{a}"), format!("Stable-{b}"), format!("Stable-{b}.staging")] {
+        t.file(&format!(".vscode-server/cli/servers/{name}/server/node"), 100);
+    }
+    t.write(".vscode-server/cli/servers/lru.json", &format!(r#"["Stable-{b}","Stable-{a}"]"#));
+    for name in [&a, &b, "multiplex-server"] {
+        t.file(&format!(".cursor-server/bin/{name}/node"), 100);
+    }
+    t.age(&format!(".cursor-server/bin/{a}"), OLD);
+    t.age(&format!(".cursor-server/bin/{b}"), OLD + 86_400);
+
+    let s = scan(&t);
+
+    for rel in
+        [format!(".vscode-server/cli/servers/Stable-{a}"), format!(".vscode-server/cli/servers/Stable-{b}.staging")]
+    {
+        s.expect(&t, &rel, "ide.vscode-server", RiskClass::Safe);
+    }
+    s.expect(&t, &format!(".cursor-server/bin/{a}"), "ide.cursor-server", RiskClass::Safe);
+    assert_eq!(s.found.len(), 3, "{:?}", s.summary(&t));
+}
+
 #[test]
 fn global_packages_and_cloud_folders_are_not_findings() {
     if common::unsupported("global_packages_and_cloud_folders_are_not_findings") {
@@ -501,7 +532,7 @@ fn no_safe_agent_rule_names_a_harness_history() {
     for rule in agents {
         let paths: Vec<&str> = match rule.matcher {
             Matcher::KnownPaths(p) => p.to_vec(),
-            Matcher::KnownChildren(parent) => vec![parent],
+            Matcher::KnownChildren(parents) => parents.to_vec(),
             _ => panic!("{}: an agent rule names its paths", rule.id),
         };
         if rule.class == RiskClass::Safe {
@@ -675,23 +706,25 @@ fn excluding_a_cloud_folder_still_never_traverses_it() {
     s.absent(&t, "Library/CloudStorage");
 }
 
-/// Every rule sits in exactly one group of the Types settings. A new rule
-/// without a group fails here. The macOS catalog holds every group's rules,
-/// on every OS the tests run on.
+/// Every rule of every platform sits in exactly one group of the Types
+/// settings. A new rule without a group fails here. Every group has a macOS
+/// rule, on every OS the tests run on.
 #[test]
 fn every_rule_has_a_group() {
     use ddc_core::platform::Platform;
     use ddc_core::rules::listing::{GROUPS, RuleList, group_of};
     use ddc_core::rules::rules_of;
     let macos = rules_of(Platform::Macos);
-    for rule in macos {
+    let every: Vec<_> =
+        [Platform::Macos, Platform::Linux, Platform::Windows].iter().flat_map(|p| rules_of(*p)).collect();
+    for rule in &every {
         let groups = GROUPS.iter().filter(|(_, ids)| ids.contains(&rule.id)).count();
         assert_eq!(groups, 1, "{} is in {groups} groups", rule.id);
     }
     for (label, ids) in GROUPS {
         assert!(!ids.is_empty(), "{label} is empty");
         for id in *ids {
-            assert!(macos.iter().any(|r| r.id == *id), "{label} names an unknown rule {id}");
+            assert!(every.iter().any(|r| r.id == *id), "{label} names an unknown rule {id}");
         }
     }
     let list = RuleList::for_platform(Platform::Macos);

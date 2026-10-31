@@ -1,7 +1,7 @@
 //! Protected toolchain versions (story "Detection rule catalog", section
-//! "Protected toolchain versions") and outdated JetBrains data folders.
-//! Every child of a toolchain directory is claimed during the walk; the ones
-//! that must stay are dropped here.
+//! "Protected toolchain versions"), outdated JetBrains data folders and the
+//! editors' remote servers. Every child of a toolchain directory is claimed
+//! during the walk; the ones that must stay are dropped here.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -15,25 +15,31 @@ use crate::scan::OwnerResult;
 const PINNED: &[&str] = &["toolchain.nvm", "toolchain.pyenv", "toolchain.rustup"];
 /// The rule whose newest sibling is kept: [`Scope::Siblings`](super::Scope::Siblings).
 const NEWEST_KEPT: &str = "ide.jetbrains-old-data";
+/// The rules whose server builds are kept by the editor's own record, also
+/// [`Scope::Siblings`](super::Scope::Siblings).
+const SERVERS: &[&str] = &["ide.vscode-server", "ide.cursor-server"];
 
 /// Paths of claimed toolchain/IDE folders that are not findings.
 pub(crate) fn dropped(owners: &[OwnerResult], catalog: &Catalog, pins: &Pins) -> HashSet<PathBuf> {
-    let mut groups: HashMap<&str, Vec<&OwnerResult>> = HashMap::new();
+    // By rule and parent: a rule with several parents decides in each alone,
+    // as a re-check that walks one parent does.
+    let mut groups: HashMap<(&str, &Path), Vec<&OwnerResult>> = HashMap::new();
     for o in owners {
         let id = catalog.rule(o.tag).id;
-        if PINNED.contains(&id) || id == NEWEST_KEPT {
-            groups.entry(id).or_default().push(o);
+        if PINNED.contains(&id) || id == NEWEST_KEPT || SERVERS.contains(&id) {
+            groups.entry((id, o.path.parent().unwrap_or(&o.path))).or_default().push(o);
         }
     }
     let home = catalog.home();
     let mut drop = HashSet::new();
-    for (id, members) in groups {
+    for ((id, parent), members) in groups {
         let names: Vec<String> = members.iter().map(|o| file_name(&o.path)).collect();
         let keep: Option<HashSet<String>> = match id {
             "toolchain.nvm" => nvm_protected(&names, home, &pins.node),
             "toolchain.pyenv" => pyenv_protected(&names, home, &pins.python),
             "toolchain.rustup" => rustup_protected(&names, home, &pins.rust),
-            _ => Some(jetbrains_current(&names)),
+            NEWEST_KEPT => Some(jetbrains_current(&names)),
+            _ => servers_kept(&names, parent),
         };
         for (o, name) in members.iter().zip(&names) {
             if keep.as_ref().is_none_or(|k| k.contains(name)) {
@@ -178,9 +184,40 @@ fn jetbrains_current(names: &[String]) -> HashSet<String> {
         .collect()
 }
 
+/// `Stable-<commit>` or `Insiders-<commit>` in `cli/servers`, a bare
+/// `<commit>` in `bin`, each also with a `.staging` or `.staging-<id>`
+/// suffix: a build or an install of one, not the CLI's own files.
+fn server_build(name: &str, current_layout: bool) -> Option<&str> {
+    let name = name.split_once(".staging").map_or(name, |(build, _)| build);
+    let commit =
+        if current_layout { name.strip_prefix("Stable-").or_else(|| name.strip_prefix("Insiders-"))? } else { name };
+    (commit.len() == 40 && commit.bytes().all(|b| b.is_ascii_hexdigit())).then_some(commit)
+}
+
+/// The server folders an editor keeps. In `cli/servers`: the head of
+/// `lru.json`, the build its CLI used last, and every folder that is not a
+/// build; a `.staging` folder beside the builds is an install's leftover and
+/// not kept. In `bin`: the newest build and every folder that is not a
+/// build. An `lru.json` that cannot be read keeps everything (`None`).
+/// Builds a client still runs are held back by the in-use check, not here:
+/// two clients of different versions use two builds at once.
+fn servers_kept(names: &[String], parent: &Path) -> Option<HashSet<String>> {
+    if parent.ends_with("cli/servers") {
+        let lru: Vec<String> = serde_json::from_str(&fs::read_to_string(parent.join("lru.json")).ok()?).ok()?;
+        let head = lru.first()?;
+        return Some(names.iter().filter(|n| *n == head || server_build(n, true).is_none()).cloned().collect());
+    }
+    let modified = |n: &String| fs::symlink_metadata(parent.join(n)).and_then(|m| m.modified()).ok();
+    let newest = names.iter().filter(|n| server_build(n, false).is_some()).max_by_key(|n| modified(n));
+    Some(names.iter().filter(|n| Some(*n) == newest || server_build(n, false).is_none()).cloned().collect())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{NEWEST_KEPT, PINNED};
+    use std::collections::HashSet;
+    use std::fs;
+
+    use super::{NEWEST_KEPT, PINNED, SERVERS, servers_kept};
     use crate::platform::Platform;
     use crate::rules::{Matcher, Scope, rules_of};
 
@@ -191,7 +228,7 @@ mod tests {
         let rules = rules_of(Platform::Macos);
         let ids = |scope| rules.iter().filter(|r| r.scope == scope).map(|r| r.id).collect::<Vec<_>>();
         assert_eq!(ids(Scope::Tree), PINNED);
-        assert_eq!(ids(Scope::Siblings), [NEWEST_KEPT]);
+        assert_eq!(ids(Scope::Siblings), [&[NEWEST_KEPT], SERVERS].concat());
         // Every Claude Code project folder is a finding of its own: nothing
         // is decided from its siblings.
         let every_child = ["agent.claude-code-transcripts"];
@@ -202,5 +239,58 @@ mod tests {
             }
             assert_ne!(rule.scope, Scope::Item, "{}: a known-children rule decides from its siblings", rule.id);
         }
+    }
+
+    fn build(c: char) -> String {
+        std::iter::repeat_n(c, 40).collect()
+    }
+
+    fn kept(names: &[&str], parent: &std::path::Path) -> Option<HashSet<String>> {
+        let names: Vec<String> = names.iter().map(|n| (*n).to_owned()).collect();
+        servers_kept(&names, parent)
+    }
+
+    /// In `cli/servers` the head of `lru.json` stays, and every folder that
+    /// is not a build; the other builds and every `.staging` folder go. No
+    /// readable record keeps everything.
+    #[test]
+    fn the_current_layout_keeps_the_build_the_cli_used_last() {
+        let d = tempfile::tempdir().unwrap();
+        let servers = d.path().join(".vscode-server/cli/servers");
+        fs::create_dir_all(&servers).unwrap();
+        let (a, b) = (format!("Stable-{}", build('a')), format!("Stable-{}", build('b')));
+        let staging = format!("{b}.staging");
+        let staging_id = format!("Insiders-{}.staging-1a2b", build('c'));
+        let names = [a.as_str(), b.as_str(), staging.as_str(), staging_id.as_str(), "other"];
+
+        assert_eq!(kept(&names, &servers), None, "no lru.json");
+        fs::write(servers.join("lru.json"), "not json").unwrap();
+        assert_eq!(kept(&names, &servers), None, "an lru.json that is not a list");
+        fs::write(servers.join("lru.json"), "[]").unwrap();
+        assert_eq!(kept(&names, &servers), None, "an empty lru.json");
+
+        fs::write(servers.join("lru.json"), format!(r#"["{b}","{a}"]"#)).unwrap();
+        let want: HashSet<String> = [b.clone(), "other".to_owned()].into();
+        assert_eq!(kept(&names, &servers), Some(want));
+    }
+
+    /// In `bin` the most recently changed build stays, and every folder that
+    /// is not a build (`multiplex-server`).
+    #[test]
+    fn the_older_layout_keeps_its_newest_build() {
+        let d = tempfile::tempdir().unwrap();
+        let bin = d.path().join(".cursor-server/bin");
+        let (old, new) = (build('a'), build('b'));
+        for n in [&old, &new, &"multiplex-server".to_owned(), &"short".to_owned()] {
+            fs::create_dir_all(bin.join(n)).unwrap();
+        }
+        let past = std::time::SystemTime::now() - std::time::Duration::from_secs(86_400);
+        let aged = crate::platform::fsops::set_times(&bin.join(&old), past, past);
+        if crate::platform::skipped_without("the_older_layout_keeps_its_newest_build", aged).is_none() {
+            return;
+        }
+        let names = [old.as_str(), new.as_str(), "multiplex-server", "short"];
+        let want: HashSet<String> = [new.clone(), "multiplex-server".to_owned(), "short".to_owned()].into();
+        assert_eq!(kept(&names, &bin), Some(want));
     }
 }

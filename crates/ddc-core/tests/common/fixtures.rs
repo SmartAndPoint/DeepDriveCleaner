@@ -32,7 +32,8 @@ pub fn rule_fixture(t: &TreeBuilder, rule: &Rule) -> Option<String> {
             t.file(&format!("{}/payload", paths[0]), 100);
             None
         }
-        Matcher::KnownChildren(parent) => {
+        Matcher::KnownChildren(parents) => {
+            let parent = parents[0];
             let (old, new, setup): (&str, &str, &[(&str, &str)]) = match rule.id {
                 "toolchain.nvm" => ("v18.0.0", "v20.0.0", &[(".nvm/alias/default", "20")]),
                 "toolchain.pyenv" => ("3.11.0", "3.12.0", &[(".pyenv/version", "3.12.0")]),
@@ -43,6 +44,23 @@ pub fn rule_fixture(t: &TreeBuilder, rule: &Rule) -> Option<String> {
                 ),
                 "ide.jetbrains-old-data" => ("PyCharm2023.1", "PyCharm2024.1", &[]),
                 "agent.claude-code-transcripts" => ("-Users-example-a", "-Users-example-b", &[]),
+                // The CLI's record names the build it used last; the other goes.
+                "ide.vscode-server" => (
+                    "Stable-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "Stable-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    &[(
+                        ".vscode-server/cli/servers/lru.json",
+                        r#"["Stable-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","Stable-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]"#,
+                    )],
+                ),
+                "ide.cursor-server" => (
+                    "Stable-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "Stable-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    &[(
+                        ".cursor-server/cli/servers/lru.json",
+                        r#"["Stable-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","Stable-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]"#,
+                    )],
+                ),
                 other => panic!("no fixture for KnownChildren rule {other}"),
             };
             for v in [old, new] {

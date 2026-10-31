@@ -13,6 +13,13 @@ pub fn fill(d: &mut Desc, entries: u64, rng: &mut Rng) {
 /// A `Users` folder at `users` until the tree holds `entries`: the home
 /// `<users>/load` and per-user folders around it.
 pub fn users(d: &mut Desc, users: &[u8], entries: u64, rng: &mut Rng) {
+    home(d, users, rng);
+    others(d, users, entries, rng);
+}
+
+/// The home `<users>/load`, with a fixture for every home-anchored rule:
+/// a fixed size, whatever the tree's.
+pub fn home(d: &mut Desc, users: &[u8], rng: &mut Rng) {
     let home = join(users, b"load");
     d.home = Some(home.clone());
     d.dir(&home);
@@ -20,6 +27,10 @@ pub fn users(d: &mut Desc, users: &[u8], entries: u64, rng: &mut Rng) {
         fixtures::home(d, &home, rule, rng);
     }
     home_projects(d, &home, rng);
+}
+
+/// Per-user folders beside the home until the tree holds `entries`.
+pub fn others(d: &mut Desc, users: &[u8], entries: u64, rng: &mut Rng) {
     let mut i = 0;
     while (d.len() as u64) < entries {
         let user = join(users, format!("u{i:05}").as_bytes());

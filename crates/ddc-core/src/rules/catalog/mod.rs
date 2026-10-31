@@ -240,19 +240,15 @@ mod tests {
             sorted.dedup();
             assert_eq!(sorted.len(), rules_of(p).len(), "{p}: an id repeats");
         }
-        let (macos, linux, windows) = (ids(Platform::Macos), ids(Platform::Linux), ids(Platform::Windows));
-        assert_eq!(linux, windows);
-        // The Linux list keeps the macOS order: a subsequence of it.
-        let mut rest = macos.iter();
-        for id in &linux {
-            assert!(rest.any(|m| m == id), "{id} is out of the macOS order");
-        }
-        // ids(linux) ⊆ SHARED_IDS ⊆ ids(macos).
-        for id in &linux {
-            assert!(SHARED_IDS.contains(id), "{id} is on Linux but not shared");
-        }
-        for id in SHARED_IDS {
-            assert!(macos.contains(&id), "{id} is shared but not on macOS");
+        // Windows lists the shared section alone until story "Windows scanner
+        // and rule catalog" adds its own rules.
+        assert_eq!(ids(Platform::Windows), SHARED_IDS);
+        // Every list holds every shared rule, in the macOS order, and ends
+        // with the generic rule, which only claims what no other rule did.
+        for p in ALL {
+            let shared: Vec<_> = ids(p).into_iter().filter(|id| SHARED_IDS.contains(id)).collect();
+            assert_eq!(shared, SHARED_IDS, "{p}: the shared rules, in the macOS order");
+            assert_eq!(ids(p).last(), Some(&"generic.cachedir-tag"), "{p}: the generic rule is last");
         }
         // An id on more than one platform is defined in `shared.rs`, and each
         // list holds that definition resolved for its platform.

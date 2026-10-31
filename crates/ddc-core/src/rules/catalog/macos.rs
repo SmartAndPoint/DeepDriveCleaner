@@ -2,14 +2,14 @@
 //! match wins, and a rule's index is its tag). The shared rules sit in it
 //! where they match, resolved for macOS.
 
+use super::rule;
 use super::shared;
-use super::{DOCKER_PRUNE, JETBRAINS, rule};
 use crate::class::Category::*;
 use crate::class::RiskClass::*;
 use crate::class::{Removal, RiskClass};
 use crate::model::{Origin, OriginHarness, OriginKind};
 use crate::platform::Platform;
-use crate::rules::{Matcher, Rule, Scope};
+use crate::rules::{Matcher, Rule};
 
 /// The folders in the home only macOS protects: `~/Movies`, `~/Library`
 /// and its protected subfolders, the cloud folders among them (safety ADR
@@ -33,7 +33,7 @@ pub(super) static PROTECTED_SYSTEM: [&str; 8] =
     ["/", "/System", "/Applications", "/Library", "/usr", "/opt", "/opt/homebrew", "/Users"];
 
 /// How many rules macOS has.
-const COUNT: usize = 87;
+const COUNT: usize = 89;
 
 /// A named `static`, so the list has one address (its rules' tags are
 /// found by it).
@@ -121,16 +121,7 @@ pub(super) static RULES: [Rule; COUNT] = [
         )
     },
     // ---- VMs and containers: native-only ----------------------------------
-    Rule {
-        hint: "frees space inside Docker.raw; Docker Desktop shrinks the image later",
-        ..rule(
-            "vm.docker-desktop",
-            VmContainer,
-            Review,
-            Removal::NativeOnly(DOCKER_PRUNE),
-            Matcher::KnownPaths(&["Library/Containers/com.docker.docker"]),
-        )
-    },
+    shared::vm_docker_desktop(Platform::Macos),
     shared::VM_PODMAN,
     shared::VM_COLIMA,
     shared::VM_LIMA,
@@ -159,84 +150,14 @@ pub(super) static RULES: [Rule; COUNT] = [
     shared::MODEL_LMSTUDIO,
     shared::MODEL_TORCH,
     // ---- IDEs ------------------------------------------------------------------
-    Rule {
-        owners: JETBRAINS,
-        ..rule("ide.jetbrains-cache", Ide, Safe, Removal::Delete, Matcher::KnownPaths(&["Library/Caches/JetBrains"]))
-    },
-    Rule {
-        hint: "settings of an older IDE version; a newer one exists",
-        scope: Scope::Siblings,
-        ..rule(
-            "ide.jetbrains-old-data",
-            Ide,
-            Review,
-            Removal::Trash,
-            Matcher::KnownChildren("Library/Application Support/JetBrains"),
-        )
-    },
-    // One rule per editor, so a running VS Code does not hold back Cursor's caches.
-    Rule {
-        owners: &["Visual Studio Code"],
-        ..rule(
-            "ide.vscode-cache",
-            Ide,
-            Safe,
-            Removal::Delete,
-            Matcher::KnownPaths(&[
-                "Library/Application Support/Code/Cache",
-                "Library/Application Support/Code/CachedData",
-                "Library/Application Support/Code/CachedExtensionVSIXs",
-                "Library/Application Support/Code/GPUCache",
-                "Library/Application Support/Code/logs",
-            ]),
-        )
-    },
-    Rule {
-        owners: &["Cursor"],
-        ..rule(
-            "ide.cursor-cache",
-            Ide,
-            Safe,
-            Removal::Delete,
-            Matcher::KnownPaths(&[
-                "Library/Application Support/Cursor/Cache",
-                "Library/Application Support/Cursor/CachedData",
-                "Library/Application Support/Cursor/CachedExtensionVSIXs",
-                "Library/Application Support/Cursor/GPUCache",
-                "Library/Application Support/Cursor/logs",
-            ]),
-        )
-    },
-    Rule {
-        owners: &["Windsurf"],
-        ..rule(
-            "ide.windsurf-cache",
-            Ide,
-            Safe,
-            Removal::Delete,
-            Matcher::KnownPaths(&[
-                "Library/Application Support/Windsurf/Cache",
-                "Library/Application Support/Windsurf/CachedData",
-                "Library/Application Support/Windsurf/CachedExtensionVSIXs",
-                "Library/Application Support/Windsurf/GPUCache",
-                "Library/Application Support/Windsurf/logs",
-            ]),
-        )
-    },
-    Rule {
-        hint: "chat history and workspace state",
-        ..rule(
-            "ide.workspace-storage",
-            Ide,
-            UserData,
-            Removal::None,
-            Matcher::KnownPaths(&[
-                "Library/Application Support/Code/User/workspaceStorage",
-                "Library/Application Support/Cursor/User/workspaceStorage",
-                "Library/Application Support/Windsurf/User/workspaceStorage",
-            ]),
-        )
-    },
+    shared::ide_jetbrains_cache(Platform::Macos),
+    shared::ide_jetbrains_old_data(Platform::Macos),
+    shared::ide_vscode_cache(Platform::Macos),
+    shared::ide_cursor_cache(Platform::Macos),
+    shared::ide_windsurf_cache(Platform::Macos),
+    shared::ide_workspace_storage(Platform::Macos),
+    shared::IDE_VSCODE_SERVER,
+    shared::IDE_CURSOR_SERVER,
     // ---- coding agents (ADR "Agent footprint: worktrees, harness data and
     // bounded consent for agents", §3) ---------------------------------------------
     // No owner by process name: §5's in-use check stays, and an owner match
@@ -273,7 +194,7 @@ pub(super) static RULES: [Rule; COUNT] = [
             "agent.claude-code-transcripts",
             Review,
             Removal::None,
-            Matcher::KnownChildren(".claude/projects"),
+            Matcher::KnownChildren(&[".claude/projects"]),
             OriginHarness::ClaudeCode,
             OriginKind::SessionData,
         )

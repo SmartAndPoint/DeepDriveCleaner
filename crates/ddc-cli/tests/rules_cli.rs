@@ -193,6 +193,22 @@ fn the_text_shows_each_platforms_paths() {
     assert_eq!(paths_under(&text_of("macos"), "cache.pip"), ["~/Library/Caches/pip"]);
 }
 
+/// The IDE and Docker folders on Linux are the XDG ones, and the rules only
+/// Linux has are listed for it alone.
+#[test]
+fn the_linux_text_shows_the_xdg_folders_and_its_own_rules() {
+    let linux = text_of("linux");
+    assert_eq!(paths_under(&linux, "ide.jetbrains-cache"), ["~/.cache/JetBrains"]);
+    assert_eq!(paths_under(&linux, "ide.jetbrains-old-data"), ["~/.config/JetBrains/*", "~/.local/share/JetBrains/*"]);
+    assert!(paths_under(&linux, "ide.vscode-cache").contains(&"~/.config/Code/Cache"), "{linux}");
+    assert_eq!(paths_under(&linux, "vm.docker-desktop"), ["~/.docker/desktop"]);
+    assert_eq!(paths_under(&linux, "vm.docker-rootless"), ["~/.local/share/docker"]);
+    assert_eq!(paths_under(&linux, "ide.cursor-server"), ["~/.cursor-server/cli/servers/*", "~/.cursor-server/bin/*"]);
+    for os in ["macos", "windows"] {
+        assert!(!ids_in(&text_of(os)).contains(&"vm.docker-rootless"), "{os}");
+    }
+}
+
 /// Another platform's JSON keeps the contract: valid against the schema and
 /// read back unchanged, with that platform's rules.
 #[test]

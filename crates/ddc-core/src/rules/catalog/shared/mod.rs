@@ -10,15 +10,17 @@
 //! documentation gives its default folder on all three OSes; each `const fn`
 //! cites it. The Windows paths are home-relative placeholders under
 //! `AppData/Local` until story "Windows scanner and rule catalog" reads
-//! `%LOCALAPPDATA%`. Every rule with `owners` is macOS-only: the owners are
-//! macOS app bundle names.
+//! `%LOCALAPPDATA%`. A rule's `owners` are macOS app bundle names, the same on
+//! every platform: no process elsewhere runs from a bundle, so they match
+//! nothing there.
 
 mod caches;
+mod ides;
 mod projects;
 mod tools;
 mod user;
 
-pub(crate) use self::{caches::*, projects::*, tools::*, user::*};
+pub(crate) use self::{caches::*, ides::*, projects::*, tools::*, user::*};
 use crate::platform::Platform;
 use crate::rules::Rule;
 
@@ -58,7 +60,7 @@ impl PerOs {
 }
 
 /// How many rules every platform shares.
-pub(super) const COUNT: usize = 48;
+pub(super) const COUNT: usize = 57;
 
 /// Every shared rule resolved for `p`, in the macOS order.
 pub(super) const fn all(p: Platform) -> [Rule; COUNT] {
@@ -96,6 +98,7 @@ pub(super) const fn all(p: Platform) -> [Rule; COUNT] {
         browsers_playwright(p),
         BROWSERS_PUPPETEER,
         browsers_cypress(p),
+        vm_docker_desktop(p),
         VM_PODMAN,
         VM_COLIMA,
         VM_LIMA,
@@ -106,6 +109,14 @@ pub(super) const fn all(p: Platform) -> [Rule; COUNT] {
         MODEL_HUGGINGFACE,
         MODEL_LMSTUDIO,
         MODEL_TORCH,
+        ide_jetbrains_cache(p),
+        ide_jetbrains_old_data(p),
+        ide_vscode_cache(p),
+        ide_cursor_cache(p),
+        ide_windsurf_cache(p),
+        ide_workspace_storage(p),
+        IDE_VSCODE_SERVER,
+        IDE_CURSOR_SERVER,
         USER_PICTURES,
         user_movies(p),
         USER_MUSIC,

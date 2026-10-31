@@ -561,6 +561,24 @@
       "switchable": false
     },
     {
+      "category": "ide",
+      "class": "safe",
+      "group": "IDE caches",
+      "id": "ide.vscode-server",
+      "listed": true,
+      "removal": "delete",
+      "switchable": true
+    },
+    {
+      "category": "ide",
+      "class": "safe",
+      "group": "IDE caches",
+      "id": "ide.cursor-server",
+      "listed": true,
+      "removal": "delete",
+      "switchable": true
+    },
+    {
       "category": "app-cache",
       "class": "safe",
       "group": "Coding agents",
