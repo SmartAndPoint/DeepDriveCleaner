@@ -114,6 +114,11 @@ struct Task {
     /// The directory's owner as its parent's listing reported it; `None`
     /// for a root and where the reader does not tell.
     uid: Option<u32>,
+    /// The directory's own blocks as its parent's listing reported them (a
+    /// root's from its stat): counted only when the directory cannot be
+    /// read, as `du` still counts an unreadable folder itself. Once read,
+    /// its listing's own count is the one taken.
+    blocks: u64,
 }
 
 /// Walks `roots` (canonicalized; roots nested in other roots are dropped)
@@ -189,6 +194,7 @@ pub fn walk_with_reader(
                         entry: None,
                         uid: None,
                         hooks: true,
+                        blocks: meta::alloc_bytes(md),
                     };
                     let sh = &sh;
                     s.spawn(move |s| visit(s, sh, task));
@@ -249,7 +255,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         sh.pruned.fetch_add(1, Relaxed);
         return;
     }
-    let Task { dir, expect, parent, depth, root, mut owner, entry, mut hooks, uid } = task;
+    let Task { dir, expect, parent, depth, root, mut owner, entry, mut hooks, uid, blocks } = task;
     let foreign_dir = uid.is_some_and(|u| u != sh.me);
     let name = dir.file_name().unwrap_or(dir.as_os_str());
     let mut lists = false;
@@ -290,7 +296,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
     let mut listing = match sh.reader.read(&dir, Some(expect), want_private, times) {
         Ok(listing) => listing,
         Err(err) => {
-            sh.read_failed(dir, err, root, owner.as_deref(), entry.as_deref());
+            sh.read_failed(dir, err, root, owner.as_deref(), entry.as_deref(), blocks);
             return;
         }
     };
@@ -388,6 +394,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
                         entry: within.cloned(),
                         hooks,
                         uid: meta.uid,
+                        blocks: meta.alloc,
                     };
                     s.spawn(move |s| visit(s, sh, task));
                 }
@@ -551,6 +558,7 @@ impl Shared<'_> {
         root: usize,
         owner: Option<&OwnerAcc>,
         entry: Option<&EntryAcc>,
+        blocks: u64,
     ) {
         match err.kind {
             ReadErrorKind::NotFound
@@ -572,16 +580,25 @@ impl Shared<'_> {
                 }
             }
             ReadErrorKind::PermissionDenied | ReadErrorKind::Other => {
-                // The directory exists and is counted; its contents are unknown.
+                // The directory exists and is counted, its own blocks too; its
+                // contents are unknown.
                 self.roots[root].dirs.fetch_add(1, Relaxed);
-                if let Some(o) = owner {
-                    o.dirs.fetch_add(1, Relaxed);
-                    o.errors.fetch_add(1, Relaxed);
+                self.roots[root].bytes.fetch_add(blocks, Relaxed);
+                match owner {
+                    Some(o) => {
+                        o.dirs.fetch_add(1, Relaxed);
+                        o.errors.fetch_add(1, Relaxed);
+                        o.bytes.fetch_add(blocks, Relaxed);
+                    }
+                    None => {
+                        self.unowned.fetch_add(blocks, Relaxed);
+                    }
                 }
                 if let Some(e) = entry {
                     e.errors.fetch_add(1, Relaxed);
+                    e.bytes.fetch_add(blocks, Relaxed);
                 }
-                self.progress.add(0, 1, 0, 1);
+                self.progress.add(0, 1, blocks, 1);
                 self.error(dir, err);
             }
         }

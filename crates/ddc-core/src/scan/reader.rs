@@ -120,7 +120,7 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
             nlink: u32::try_from(meta::link_count(&em)).unwrap_or(u32::MAX),
             uid: meta::owner(&em),
             flags: meta::st_flags(&em),
-            alloc: if kind == EntryKind::Dir { 0 } else { meta::alloc_bytes(&em) },
+            alloc: meta::alloc_bytes(&em),
             private: None,
             error: None,
             modified: times.then(|| meta::mtime(&em)),

@@ -88,7 +88,7 @@ fn entry_meta(dir: &OwnedFd, name: &CStr, times: Times) -> EntryMeta {
             nlink: st.nlink,
             uid: Some(st.uid),
             flags: 0,
-            alloc: if st.kind == EntryKind::Dir { 0 } else { st.blocks * 512 },
+            alloc: st.blocks * 512,
             private: None,
             error: None,
             modified: (times != Times::None).then_some(st.mtime),
@@ -201,7 +201,7 @@ mod tests {
 
     /// The same tree, read by this reader and by `std`'s, lists the same
     /// entries: a symlink as a symlink, a hard link with its count, a
-    /// non-UTF-8 name, a directory with no allocation of its own.
+    /// non-UTF-8 name, a directory with its own blocks.
     #[test]
     fn it_lists_what_the_std_reader_lists() {
         let d = tempfile::tempdir().unwrap();
@@ -222,7 +222,8 @@ mod tests {
         assert_eq!((file.1, file.4, file.5), (EntryKind::File, 2, Some(crate::platform::procs::uid())));
         assert!(file.6 >= 8192, "allocated: {}", file.6);
         assert_eq!(ours.iter().find(|r| r.0 == Path::new("sym")).unwrap().1, EntryKind::Symlink);
-        assert_eq!(ours.iter().find(|r| r.0 == Path::new("dir")).unwrap().6, 0);
+        let dir_blocks = meta::alloc_bytes(&fs::symlink_metadata(d.path().join("dir")).unwrap());
+        assert_eq!(ours.iter().find(|r| r.0 == Path::new("dir")).unwrap().6, dir_blocks, "a folder's own blocks");
     }
 
     /// The birth time stands in for the date added, and only when asked
