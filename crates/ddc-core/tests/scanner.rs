@@ -133,8 +133,8 @@ fn unreadable_directory_is_reported_and_siblings_are_counted() {
     assert_eq!(out.errors_total, 1);
     assert_eq!(out.errors[0].path, locked);
     assert_eq!(out.errors[0].error.kind, ReadErrorKind::PermissionDenied);
-    // The locked folder is never read, so not even its own blocks count.
-    assert_eq!(out.total_bytes, alloc(&sibling) + folders(&[t.root(), &t.path("open")]));
+    // The locked folder is never read; its own blocks count, as du counts them.
+    assert_eq!(out.total_bytes, alloc(&sibling) + folders(&[t.root(), &t.path("open"), &locked]));
 }
 
 #[test]

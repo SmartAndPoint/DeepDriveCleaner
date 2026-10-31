@@ -33,7 +33,9 @@ pub struct EntryMeta {
     pub uid: Option<u32>,
     /// `st_flags` (`SF_DATALESS`, …).
     pub flags: u32,
-    /// Allocated bytes on disk. Directories report 0 (as on APFS).
+    /// Allocated bytes on disk. A directory's are its own blocks (none on
+    /// APFS), which the walk counts from its listing's [`DirListing::alloc`]
+    /// once it reads the directory, and from here only when it cannot.
     pub alloc: u64,
     /// APFS private size: bytes freed immediately if this file alone were
     /// deleted. `None` when not requested or not supported.
@@ -76,8 +78,8 @@ pub struct DirListing {
     pub modified: Option<i64>,
     /// The directory's own allocated bytes, `st_blocks * 512` from the same
     /// stat: what `du` counts for the folder itself. 0 on APFS, which gives a
-    /// directory no blocks; a few KiB on ext4. A listing's directory entries
-    /// carry none, so each folder counts once, when it is read.
+    /// directory no blocks; a few KiB on ext4. Each folder counts once: from
+    /// here when it is read, from its parent's entry when it cannot be.
     pub alloc: u64,
     pub entries: Vec<EntryMeta>,
 }

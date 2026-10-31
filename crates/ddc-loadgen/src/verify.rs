@@ -51,10 +51,11 @@ pub fn diffs(m: &Manifest, layout: &Layout, report: &ScanReport, plan: &Plan) ->
 /// the files' blocks; a folder's own and a long symlink's, which `du` and the
 /// scan count (a few KiB on ext4, none on APFS), depend on the file system,
 /// so they are read from the built tree, apart from the scan: every folder
-/// that can be listed, on the tree's file system, and the symlinks in it,
-/// never followed. Each goes to the totals and to the deepest expected
-/// finding that holds it. A root folder with no blocks of its own says the
-/// file system gives folders none: nothing is read.
+/// on the tree's file system, listed or not (an unreadable one, and one past
+/// `PATH_MAX`, is stat'ed through its parent's entry), and the symlinks in
+/// the listed ones, never followed. Each goes to the totals and to the
+/// deepest expected finding that holds it. A root folder with no blocks of
+/// its own says the file system gives folders none: nothing is read.
 fn with_fs_blocks(m: &Manifest, tree: &Path) -> Manifest {
     use std::collections::HashMap;
 
@@ -63,10 +64,8 @@ fn with_fs_blocks(m: &Manifest, tree: &Path) -> Manifest {
     let Ok(root) = std::fs::symlink_metadata(tree) else { return m };
     let (Ok((dev, _)), true) = (meta::file_id(&root), meta::alloc_bytes(&root) > 0) else { return m };
     let at: HashMap<String, usize> = m.findings.iter().enumerate().map(|(i, f)| (f.path.clone(), i)).collect();
-    let mut stack = vec![tree.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(listing) = std::fs::read_dir(&dir) else { continue };
-        let Ok(md) = std::fs::symlink_metadata(&dir) else { continue };
+    let mut stack = vec![(tree.to_path_buf(), meta::alloc_bytes(&root))];
+    while let Some((dir, own)) = stack.pop() {
         let mut add = |path: &Path, bytes: u64| {
             m.totals.scanned_bytes += bytes;
             let rel = path.strip_prefix(tree).unwrap_or(path);
@@ -74,13 +73,15 @@ fn with_fs_blocks(m: &Manifest, tree: &Path) -> Manifest {
                 m.findings[i].bytes += bytes;
             }
         };
-        add(&dir, meta::alloc_bytes(&md));
+        add(&dir, own);
+        let Ok(listing) = std::fs::read_dir(&dir) else { continue };
         for e in listing.flatten() {
-            let (Ok(kind), Ok(c)) = (e.file_type(), std::fs::symlink_metadata(e.path())) else { continue };
+            // Through the listing's own descriptor: it reaches past `PATH_MAX`.
+            let (Ok(kind), Ok(c)) = (e.file_type(), e.metadata()) else { continue };
             if kind.is_symlink() {
                 add(&e.path(), meta::alloc_bytes(&c));
             } else if kind.is_dir() && meta::file_id(&c).is_ok_and(|(d, _)| d == dev) {
-                stack.push(e.path());
+                stack.push((e.path(), meta::alloc_bytes(&c)));
             }
         }
     }
