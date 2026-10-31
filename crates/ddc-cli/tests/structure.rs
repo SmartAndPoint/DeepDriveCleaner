@@ -353,7 +353,7 @@ fn the_platform_switches_are_literals() {
     for at in features {
         assert!(at.starts_with("feature = \"simulate-unported\")"), "platform/mod.rs: {}", at.lines().next().unwrap());
     }
-    for file in ["macos/mod.rs", "linux.rs", "windows.rs"] {
+    for file in ["macos/mod.rs", "linux/mod.rs", "windows.rs"] {
         let text = code(&dir.join(file));
         let supported: Vec<&str> = text.lines().filter(|l| l.contains("const SUPPORTED")).collect();
         assert!(
