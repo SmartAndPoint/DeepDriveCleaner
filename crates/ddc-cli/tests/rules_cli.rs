@@ -217,6 +217,7 @@ fn another_platforms_json_holds_the_contract() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let list = contract::holds::<RuleList>("rules", &out.stdout);
     assert_eq!(list, RuleList::for_platform(Platform::Linux));
+    assert_eq!(list.platform, Platform::Linux, "the list names the platform asked for");
     assert_eq!(list.rules.len(), rules_of(Platform::Linux).len());
     assert!(list.rules.iter().all(|r| list.groups.contains(&r.group)));
 }

@@ -20,6 +20,13 @@ struct ContractTests {
         #expect(Int(match.1) == RuleList.schemaVersion)
     }
 
+    @Test("the rules list names its platform; a version-1 list is another schema")
+    func rulesPlatform() throws {
+        #expect(try Fixture.rules().platform == .macos)
+        let v1 = Data(#"{"schema_version": 1, "groups": [], "rules": []}"#.utf8)
+        #expect(throws: RuleList.ReadError.otherSchema(1)) { try RuleList.read(v1) }
+    }
+
     @Test("the settings version is the CLI's")
     func settingsVersion() throws {
         let source = try rustSource("crates/ddc-core/src/settings.rs")

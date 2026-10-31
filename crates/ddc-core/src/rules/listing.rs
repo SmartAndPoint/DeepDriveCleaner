@@ -13,7 +13,7 @@ use crate::plan::action_for;
 use crate::platform::{PLATFORM, Platform};
 
 /// Version of [`RuleList`]; the scan report has its own.
-pub const RULES_SCHEMA_VERSION: u32 = 1;
+pub const RULES_SCHEMA_VERSION: u32 = 2;
 
 /// Every rule id in exactly one group, in the order of the Types settings:
 /// the thirteen of the design canvas's revised Settings (artboard 10),
@@ -125,6 +125,9 @@ pub const GROUPS: &[(&str, &[&str])] = &[
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RuleList {
     pub schema_version: u32,
+    /// The platform whose catalog this is: the one the CLI was built for,
+    /// or the one `--platform` names (since schema 2).
+    pub platform: Platform,
     /// Group labels in display order.
     pub groups: Vec<String>,
     pub rules: Vec<RuleInfo>,
@@ -172,6 +175,7 @@ impl RuleList {
         let rules = rules_of(p);
         Self {
             schema_version: RULES_SCHEMA_VERSION,
+            platform: p,
             groups: GROUPS
                 .iter()
                 .filter(|(_, ids)| rules.iter().any(|r| ids.contains(&r.id)))

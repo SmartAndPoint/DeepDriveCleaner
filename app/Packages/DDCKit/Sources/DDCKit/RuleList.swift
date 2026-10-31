@@ -6,13 +6,15 @@ import Foundation
 /// without an app release.
 public struct RuleList: Decodable, Sendable, Equatable {
     /// `RULES_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)
     }
 
     public let schemaVersion: Int
+    /// The platform whose catalog this is.
+    public let platform: Platform
     /// Group labels in display order.
     public let groups: [String]
     public let rules: [Rule]
