@@ -163,7 +163,12 @@ fn deletes(commands: &FakeCommands) -> Vec<String> {
 
 #[test]
 fn a_runtime_is_deleted_with_coresimulators_simctl_alone_and_its_bytes_are_measured() {
-    if common::unsupported("a_runtime_is_deleted_with_coresimulators_simctl_alone_and_its_bytes_are_measured") {
+    if common::unsupported("a_runtime_is_deleted_with_coresimulators_simctl_alone_and_its_bytes_are_measured")
+        || common::lacks(
+            "a_runtime_is_deleted_with_coresimulators_simctl_alone_and_its_bytes_are_measured",
+            Capability::WholeDisk,
+        )
+    {
         return;
     }
     let fx = Fx::new();
@@ -217,7 +222,9 @@ fn the_journal_has_its_own_version_and_the_scan_reports_is_unchanged() {
 
 #[test]
 fn every_runtime_the_probe_cannot_vouch_for_is_refused_before_any_delete() {
-    if common::unsupported("every_runtime_the_probe_cannot_vouch_for_is_refused_before_any_delete") {
+    if common::unsupported("every_runtime_the_probe_cannot_vouch_for_is_refused_before_any_delete")
+        || common::lacks("every_runtime_the_probe_cannot_vouch_for_is_refused_before_any_delete", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -285,7 +292,9 @@ fn every_runtime_the_probe_cannot_vouch_for_is_refused_before_any_delete() {
 
 #[test]
 fn without_ready_developer_tools_nothing_is_listed_or_deleted() {
-    if common::unsupported("without_ready_developer_tools_nothing_is_listed_or_deleted") {
+    if common::unsupported("without_ready_developer_tools_nothing_is_listed_or_deleted")
+        || common::lacks("without_ready_developer_tools_nothing_is_listed_or_deleted", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -302,7 +311,12 @@ fn without_ready_developer_tools_nothing_is_listed_or_deleted() {
 
 #[test]
 fn a_runtime_that_left_the_list_while_its_folder_kept_its_size_is_removed_not_freed() {
-    if common::unsupported("a_runtime_that_left_the_list_while_its_folder_kept_its_size_is_removed_not_freed") {
+    if common::unsupported("a_runtime_that_left_the_list_while_its_folder_kept_its_size_is_removed_not_freed")
+        || common::lacks(
+            "a_runtime_that_left_the_list_while_its_folder_kept_its_size_is_removed_not_freed",
+            Capability::WholeDisk,
+        )
+    {
         return;
     }
     let fx = Fx::new();
@@ -316,7 +330,9 @@ fn a_runtime_that_left_the_list_while_its_folder_kept_its_size_is_removed_not_fr
 
 #[test]
 fn a_runtime_still_listed_at_the_deadline_is_still_deleting() {
-    if common::unsupported("a_runtime_still_listed_at_the_deadline_is_still_deleting") {
+    if common::unsupported("a_runtime_still_listed_at_the_deadline_is_still_deleting")
+        || common::lacks("a_runtime_still_listed_at_the_deadline_is_still_deleting", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -333,7 +349,9 @@ fn a_runtime_still_listed_at_the_deadline_is_still_deleting() {
 
 #[test]
 fn a_stop_during_the_wait_ends_it_as_still_deleting_and_journals_it() {
-    if common::unsupported("a_stop_during_the_wait_ends_it_as_still_deleting_and_journals_it") {
+    if common::unsupported("a_stop_during_the_wait_ends_it_as_still_deleting_and_journals_it")
+        || common::lacks("a_stop_during_the_wait_ends_it_as_still_deleting_and_journals_it", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -371,7 +389,9 @@ fn a_stop_during_the_wait_ends_it_as_still_deleting_and_journals_it() {
 /// killed tool's exit, says what happened.
 #[test]
 fn a_stop_during_the_delete_call_reads_the_list_once() {
-    if common::unsupported("a_stop_during_the_delete_call_reads_the_list_once") {
+    if common::unsupported("a_stop_during_the_delete_call_reads_the_list_once")
+        || common::lacks("a_stop_during_the_delete_call_reads_the_list_once", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -407,7 +427,9 @@ fn a_stop_during_the_delete_call_reads_the_list_once() {
 
 #[test]
 fn brew_cleanup_runs_alone_from_the_areas_brew_with_no_autoremove() {
-    if common::unsupported("brew_cleanup_runs_alone_from_the_areas_brew_with_no_autoremove") {
+    if common::unsupported("brew_cleanup_runs_alone_from_the_areas_brew_with_no_autoremove")
+        || common::lacks("brew_cleanup_runs_alone_from_the_areas_brew_with_no_autoremove", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -487,7 +509,9 @@ fn the_dry_run_runs_each_tools_own_dry_run_and_changes_nothing() {
 
 #[test]
 fn a_homebrew_elsewhere_is_refused() {
-    if common::unsupported("a_homebrew_elsewhere_is_refused") {
+    if common::unsupported("a_homebrew_elsewhere_is_refused")
+        || common::lacks("a_homebrew_elsewhere_is_refused", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -515,7 +539,9 @@ fn a_homebrew_elsewhere_is_refused() {
 
 #[test]
 fn a_missing_cache_folder_is_compared_as_a_path() {
-    if common::unsupported("a_missing_cache_folder_is_compared_as_a_path") {
+    if common::unsupported("a_missing_cache_folder_is_compared_as_a_path")
+        || common::lacks("a_missing_cache_folder_is_compared_as_a_path", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -533,6 +559,9 @@ fn a_missing_cache_folder_is_compared_as_a_path() {
 fn a_failing_tool_carries_its_terminal_command_and_names_an_administrator_only_on_a_permission_error() {
     if common::unsupported(
         "a_failing_tool_carries_its_terminal_command_and_names_an_administrator_only_on_a_permission_error",
+    ) || common::lacks(
+        "a_failing_tool_carries_its_terminal_command_and_names_an_administrator_only_on_a_permission_error",
+        Capability::WholeDisk,
     ) {
         return;
     }
@@ -559,7 +588,9 @@ fn a_failing_tool_carries_its_terminal_command_and_names_an_administrator_only_o
 
 #[test]
 fn a_skipped_folder_is_not_measured_and_the_action_still_runs() {
-    if common::unsupported("a_skipped_folder_is_not_measured_and_the_action_still_runs") {
+    if common::unsupported("a_skipped_folder_is_not_measured_and_the_action_still_runs")
+        || common::lacks("a_skipped_folder_is_not_measured_and_the_action_still_runs", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -852,7 +883,9 @@ fn last_disk_marks_the_areas_that_ran_stale_and_drops_a_runtime_that_left() {
 
 #[test]
 fn after_brew_cleanup_the_homebrew_cache_finding_is_measured_again() {
-    if common::unsupported("after_brew_cleanup_the_homebrew_cache_finding_is_measured_again") {
+    if common::unsupported("after_brew_cleanup_the_homebrew_cache_finding_is_measured_again")
+        || common::lacks("after_brew_cleanup_the_homebrew_cache_finding_is_measured_again", Capability::Homebrew)
+    {
         return;
     }
     let fx = Fx::new();
@@ -986,7 +1019,9 @@ fn removing(fx: &Fx, commands: FakeCommands) -> FakeCommands {
 
 #[test]
 fn an_opt_environment_is_removed_by_its_installs_own_conda_by_path_alone() {
-    if common::unsupported("an_opt_environment_is_removed_by_its_installs_own_conda_by_path_alone") {
+    if common::unsupported("an_opt_environment_is_removed_by_its_installs_own_conda_by_path_alone")
+        || common::lacks("an_opt_environment_is_removed_by_its_installs_own_conda_by_path_alone", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new().with_conda();
@@ -1026,7 +1061,12 @@ fn an_opt_environment_is_removed_by_its_installs_own_conda_by_path_alone() {
 
 #[test]
 fn an_environment_named_through_the_data_volume_is_given_to_conda_as_conda_spells_it() {
-    if common::unsupported("an_environment_named_through_the_data_volume_is_given_to_conda_as_conda_spells_it") {
+    if common::unsupported("an_environment_named_through_the_data_volume_is_given_to_conda_as_conda_spells_it")
+        || common::lacks(
+            "an_environment_named_through_the_data_volume_is_given_to_conda_as_conda_spells_it",
+            Capability::WholeDisk,
+        )
+    {
         return;
     }
     let fx = Fx::new().with_conda();
@@ -1042,7 +1082,12 @@ fn an_environment_named_through_the_data_volume_is_given_to_conda_as_conda_spell
 
 #[test]
 fn every_environment_conda_must_not_remove_is_refused_before_conda_starts() {
-    if common::unsupported("every_environment_conda_must_not_remove_is_refused_before_conda_starts") {
+    if common::unsupported("every_environment_conda_must_not_remove_is_refused_before_conda_starts")
+        || common::lacks(
+            "every_environment_conda_must_not_remove_is_refused_before_conda_starts",
+            Capability::WholeDisk,
+        )
+    {
         return;
     }
     let fx = Fx::new().with_conda();
@@ -1087,7 +1132,12 @@ fn every_environment_conda_must_not_remove_is_refused_before_conda_starts() {
 /// is the Review window's, and conda is not started.
 #[test]
 fn an_opt_install_linked_into_the_home_folder_is_refused_before_conda_starts() {
-    if common::unsupported("an_opt_install_linked_into_the_home_folder_is_refused_before_conda_starts") {
+    if common::unsupported("an_opt_install_linked_into_the_home_folder_is_refused_before_conda_starts")
+        || common::lacks(
+            "an_opt_install_linked_into_the_home_folder_is_refused_before_conda_starts",
+            Capability::WholeDisk,
+        )
+    {
         return;
     }
     let fx = Fx::new();
@@ -1107,7 +1157,12 @@ fn an_opt_install_linked_into_the_home_folder_is_refused_before_conda_starts() {
 
 #[test]
 fn a_folder_the_user_cannot_write_needs_an_administrator_before_conda_starts() {
-    if common::unsupported("a_folder_the_user_cannot_write_needs_an_administrator_before_conda_starts") {
+    if common::unsupported("a_folder_the_user_cannot_write_needs_an_administrator_before_conda_starts")
+        || common::lacks(
+            "a_folder_the_user_cannot_write_needs_an_administrator_before_conda_starts",
+            Capability::WholeDisk,
+        )
+    {
         return;
     }
     let fx = Fx::new().with_conda();
@@ -1128,7 +1183,9 @@ fn a_folder_the_user_cannot_write_needs_an_administrator_before_conda_starts() {
 
 #[test]
 fn what_conda_says_of_an_environment_can_refuse_it_too() {
-    if common::unsupported("what_conda_says_of_an_environment_can_refuse_it_too") {
+    if common::unsupported("what_conda_says_of_an_environment_can_refuse_it_too")
+        || common::lacks("what_conda_says_of_an_environment_can_refuse_it_too", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new().with_conda();
@@ -1156,7 +1213,9 @@ fn what_conda_says_of_an_environment_can_refuse_it_too() {
 
 #[test]
 fn an_environment_still_there_after_conda_exits_0_is_removed_not_freed() {
-    if common::unsupported("an_environment_still_there_after_conda_exits_0_is_removed_not_freed") {
+    if common::unsupported("an_environment_still_there_after_conda_exits_0_is_removed_not_freed")
+        || common::lacks("an_environment_still_there_after_conda_exits_0_is_removed_not_freed", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new().with_conda();
@@ -1174,7 +1233,9 @@ fn an_environment_still_there_after_conda_exits_0_is_removed_not_freed() {
 
 #[test]
 fn conda_clean_runs_once_from_the_install_limited_to_its_package_folder() {
-    if common::unsupported("conda_clean_runs_once_from_the_install_limited_to_its_package_folder") {
+    if common::unsupported("conda_clean_runs_once_from_the_install_limited_to_its_package_folder")
+        || common::lacks("conda_clean_runs_once_from_the_install_limited_to_its_package_folder", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new().with_conda();
@@ -1200,7 +1261,12 @@ fn conda_clean_runs_once_from_the_install_limited_to_its_package_folder() {
 
 #[test]
 fn a_package_folder_conda_could_clean_beyond_is_refused_in_the_dry_run_too() {
-    if common::unsupported("a_package_folder_conda_could_clean_beyond_is_refused_in_the_dry_run_too") {
+    if common::unsupported("a_package_folder_conda_could_clean_beyond_is_refused_in_the_dry_run_too")
+        || common::lacks(
+            "a_package_folder_conda_could_clean_beyond_is_refused_in_the_dry_run_too",
+            Capability::WholeDisk,
+        )
+    {
         return;
     }
     let fx = Fx::new().with_conda();
@@ -1226,7 +1292,9 @@ fn a_package_folder_conda_could_clean_beyond_is_refused_in_the_dry_run_too() {
 
 #[test]
 fn the_conda_dry_runs_ask_the_probe_and_estimate_without_removing() {
-    if common::unsupported("the_conda_dry_runs_ask_the_probe_and_estimate_without_removing") {
+    if common::unsupported("the_conda_dry_runs_ask_the_probe_and_estimate_without_removing")
+        || common::lacks("the_conda_dry_runs_ask_the_probe_and_estimate_without_removing", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new().with_conda();
@@ -1276,7 +1344,9 @@ fn available_offers_each_opt_installs_package_cache_and_environments() {
 
 #[test]
 fn a_stop_before_a_conda_action_reports_the_command_it_would_have_run() {
-    if common::unsupported("a_stop_before_a_conda_action_reports_the_command_it_would_have_run") {
+    if common::unsupported("a_stop_before_a_conda_action_reports_the_command_it_would_have_run")
+        || common::lacks("a_stop_before_a_conda_action_reports_the_command_it_would_have_run", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new().with_conda();
@@ -1294,7 +1364,9 @@ fn a_stop_before_a_conda_action_reports_the_command_it_would_have_run() {
 /// with the command a person can run again.
 #[test]
 fn a_stop_while_conda_runs_reports_it_stopped_with_its_command() {
-    if common::unsupported("a_stop_while_conda_runs_reports_it_stopped_with_its_command") {
+    if common::unsupported("a_stop_while_conda_runs_reports_it_stopped_with_its_command")
+        || common::lacks("a_stop_while_conda_runs_reports_it_stopped_with_its_command", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new().with_conda();

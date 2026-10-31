@@ -147,7 +147,8 @@ fn the_counters_are_visible_to_nm() {
     let out = Command::new("nm").arg(&exe).output().unwrap();
     assert!(out.status.success(), "nm {}: {}", exe.display(), String::from_utf8_lossy(&out.stderr));
     let symbols = String::from_utf8_lossy(&out.stdout);
-    assert!(symbols.contains("_DDC_OP_STATS"), "nm finds no _DDC_OP_STATS in {}", exe.display());
+    // Mach-O prefixes C symbols with an underscore; ELF does not.
+    assert!(symbols.contains("DDC_OP_STATS"), "nm finds no DDC_OP_STATS in {}", exe.display());
 }
 
 #[test]

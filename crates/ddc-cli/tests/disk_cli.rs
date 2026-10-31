@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use ddc_core::disk::{DiskReport, HomeSource};
+use ddc_core::platform::Capability;
 use ddc_loadgen::isolate::ClearEnv as _;
 
 mod common;
@@ -65,7 +66,9 @@ fn report(stdout: &[u8]) -> DiskReport {
 
 #[test]
 fn disk_json_reports_the_areas_and_saves_the_same_report() {
-    if common::unsupported("disk_json_reports_the_areas_and_saves_the_same_report") {
+    if common::unsupported("disk_json_reports_the_areas_and_saves_the_same_report")
+        || common::lacks("disk_json_reports_the_areas_and_saves_the_same_report", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -87,7 +90,9 @@ fn disk_json_reports_the_areas_and_saves_the_same_report() {
 
 #[test]
 fn disk_prints_a_table_with_the_home_row_first() {
-    if common::unsupported("disk_prints_a_table_with_the_home_row_first") {
+    if common::unsupported("disk_prints_a_table_with_the_home_row_first")
+        || common::lacks("disk_prints_a_table_with_the_home_row_first", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -103,7 +108,12 @@ fn disk_prints_a_table_with_the_home_row_first() {
 
 #[test]
 fn disk_with_progress_json_emits_disk_walk_ticks_ending_at_the_report_totals() {
-    if common::unsupported("disk_with_progress_json_emits_disk_walk_ticks_ending_at_the_report_totals") {
+    if common::unsupported("disk_with_progress_json_emits_disk_walk_ticks_ending_at_the_report_totals")
+        || common::lacks(
+            "disk_with_progress_json_emits_disk_walk_ticks_ending_at_the_report_totals",
+            Capability::WholeDisk,
+        )
+    {
         return;
     }
     let fx = Fx::new();
@@ -166,7 +176,12 @@ mod signal {
 
     #[test]
     fn sigterm_while_diskutil_runs_ends_it_and_still_saves_a_partial_report() {
-        if common::unsupported("sigterm_while_diskutil_runs_ends_it_and_still_saves_a_partial_report") {
+        if common::unsupported("sigterm_while_diskutil_runs_ends_it_and_still_saves_a_partial_report")
+            || common::lacks(
+                "sigterm_while_diskutil_runs_ends_it_and_still_saves_a_partial_report",
+                Capability::WholeDisk,
+            )
+        {
             return;
         }
         let fx = Fx::new();

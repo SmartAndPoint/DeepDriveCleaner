@@ -572,7 +572,9 @@ impl Area {
 
 #[test]
 fn the_dry_run_rereads_brew_and_lists_every_keg_it_would_remove() {
-    if common::unsupported("the_dry_run_rereads_brew_and_lists_every_keg_it_would_remove") {
+    if common::unsupported("the_dry_run_rereads_brew_and_lists_every_keg_it_would_remove")
+        || common::lacks("the_dry_run_rereads_brew_and_lists_every_keg_it_would_remove", Capability::Homebrew)
+    {
         return;
     }
     let a = Area::new();
@@ -790,7 +792,12 @@ const UNINSTALL_PYTHON: &str = "brew uninstall --formula --force python@3.13";
 
 #[test]
 fn a_confirmed_formula_is_uninstalled_by_the_areas_brew_and_what_it_freed_is_measured() {
-    if common::unsupported("a_confirmed_formula_is_uninstalled_by_the_areas_brew_and_what_it_freed_is_measured") {
+    if common::unsupported("a_confirmed_formula_is_uninstalled_by_the_areas_brew_and_what_it_freed_is_measured")
+        || common::lacks(
+            "a_confirmed_formula_is_uninstalled_by_the_areas_brew_and_what_it_freed_is_measured",
+            Capability::Homebrew,
+        )
+    {
         return;
     }
     let a = Area::new();
@@ -827,7 +834,12 @@ fn a_confirmed_formula_is_uninstalled_by_the_areas_brew_and_what_it_freed_is_mea
 
 #[test]
 fn brew_exiting_0_with_a_keg_left_has_freed_nothing_and_a_failure_says_why() {
-    if common::unsupported("brew_exiting_0_with_a_keg_left_has_freed_nothing_and_a_failure_says_why") {
+    if common::unsupported("brew_exiting_0_with_a_keg_left_has_freed_nothing_and_a_failure_says_why")
+        || common::lacks(
+            "brew_exiting_0_with_a_keg_left_has_freed_nothing_and_a_failure_says_why",
+            Capability::Homebrew,
+        )
+    {
         return;
     }
     let a = Area::new();
@@ -850,7 +862,9 @@ fn brew_exiting_0_with_a_keg_left_has_freed_nothing_and_a_failure_says_why() {
 
 #[test]
 fn too_little_time_left_after_the_check_starts_nothing() {
-    if common::unsupported("too_little_time_left_after_the_check_starts_nothing") {
+    if common::unsupported("too_little_time_left_after_the_check_starts_nothing")
+        || common::lacks("too_little_time_left_after_the_check_starts_nothing", Capability::Homebrew)
+    {
         return;
     }
     // A 5 s timeout and a 4 s floor: a check over 1 s leaves too little.
@@ -884,7 +898,12 @@ fn too_little_time_left_after_the_check_starts_nothing() {
 
 #[test]
 fn the_orphans_are_uninstalled_together_and_a_refusal_is_journaled_with_what_needs_one() {
-    if common::unsupported("the_orphans_are_uninstalled_together_and_a_refusal_is_journaled_with_what_needs_one") {
+    if common::unsupported("the_orphans_are_uninstalled_together_and_a_refusal_is_journaled_with_what_needs_one")
+        || common::lacks(
+            "the_orphans_are_uninstalled_together_and_a_refusal_is_journaled_with_what_needs_one",
+            Capability::Homebrew,
+        )
+    {
         return;
     }
     let a = Area::new();
@@ -912,7 +931,12 @@ fn the_orphans_are_uninstalled_together_and_a_refusal_is_journaled_with_what_nee
 
 #[test]
 fn two_orphans_one_with_two_kegs_go_in_one_command_journaled_with_every_name() {
-    if common::unsupported("two_orphans_one_with_two_kegs_go_in_one_command_journaled_with_every_name") {
+    if common::unsupported("two_orphans_one_with_two_kegs_go_in_one_command_journaled_with_every_name")
+        || common::lacks(
+            "two_orphans_one_with_two_kegs_go_in_one_command_journaled_with_every_name",
+            Capability::Homebrew,
+        )
+    {
         return;
     }
     let a = Area::new();
@@ -950,7 +974,9 @@ fn two_orphans_one_with_two_kegs_go_in_one_command_journaled_with_every_name() {
 
 #[test]
 fn a_stop_before_the_run_leaves_it_not_run() {
-    if common::unsupported("a_stop_before_the_run_leaves_it_not_run") {
+    if common::unsupported("a_stop_before_the_run_leaves_it_not_run")
+        || common::lacks("a_stop_before_the_run_leaves_it_not_run", Capability::Homebrew)
+    {
         return;
     }
     let a = Area::new();
@@ -988,7 +1014,9 @@ fn tap_leaf_fixture() -> String {
 
 #[test]
 fn a_tap_leaf_is_uninstalled_by_its_full_name_and_nothing_else() {
-    if common::unsupported("a_tap_leaf_is_uninstalled_by_its_full_name_and_nothing_else") {
+    if common::unsupported("a_tap_leaf_is_uninstalled_by_its_full_name_and_nothing_else")
+        || common::lacks("a_tap_leaf_is_uninstalled_by_its_full_name_and_nothing_else", Capability::Homebrew)
+    {
         return;
     }
     let a = Area::new();
@@ -1018,7 +1046,9 @@ fn a_tap_leaf_is_uninstalled_by_its_full_name_and_nothing_else() {
 
 #[test]
 fn a_run_the_rereading_refuses_never_reaches_brew_uninstall() {
-    if common::unsupported("a_run_the_rereading_refuses_never_reaches_brew_uninstall") {
+    if common::unsupported("a_run_the_rereading_refuses_never_reaches_brew_uninstall")
+        || common::lacks("a_run_the_rereading_refuses_never_reaches_brew_uninstall", Capability::Homebrew)
+    {
         return;
     }
     let a = Area::new();
@@ -1054,7 +1084,9 @@ fn a_run_the_rereading_refuses_never_reaches_brew_uninstall() {
 
 #[test]
 fn an_empty_set_of_orphans_is_refused_and_never_a_nameless_uninstall() {
-    if common::unsupported("an_empty_set_of_orphans_is_refused_and_never_a_nameless_uninstall") {
+    if common::unsupported("an_empty_set_of_orphans_is_refused_and_never_a_nameless_uninstall")
+        || common::lacks("an_empty_set_of_orphans_is_refused_and_never_a_nameless_uninstall", Capability::Homebrew)
+    {
         return;
     }
     let a = Area::new();
