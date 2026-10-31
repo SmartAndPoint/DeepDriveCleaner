@@ -23,6 +23,9 @@ thiserror.workspace = true
 libc.workspace = true
 trash.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { workspace = true, features = ["process", "stdio", "termios"] }
+
 [features]
 # The gate builds with both, one at a time: they install a global allocator each.
 # Cost counters on the hot paths and a counting allocator, for the complexity guard

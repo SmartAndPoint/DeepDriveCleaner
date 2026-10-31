@@ -16,3 +16,9 @@ pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
 pub fn name_from_bytes(bytes: &[u8]) -> Option<OsString> {
     Some(OsString::from_vec(bytes.to_vec()))
 }
+
+/// `Ok`: paths here are POSIX-shaped, so a test that spells `/Users/…` or
+/// `/usr/bin/…` as absolute runs.
+pub fn posix_paths() -> io::Result<()> {
+    Ok(())
+}

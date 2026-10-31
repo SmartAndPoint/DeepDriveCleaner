@@ -1,6 +1,6 @@
 //! The OS modules of a platform that is not ported yet (ADR "Platform seam:
 //! one platform module per OS with declared capabilities", §1, §2): one body,
-//! which `linux.rs` and `windows.rs` re-export beside their own literal
+//! which `linux/` and `windows.rs` re-export beside their own literal
 //! switches. Every item keeps the signature pinned in `platform/mod.rs`, so
 //! shared code compiles here, and none of it does anything:
 //!
@@ -13,7 +13,8 @@
 //!   `free::run`, and the CLI refuses at dispatch before them. A port fills
 //!   them before it sets `SUPPORTED`.
 //!
-//! Nothing here reads a directory or the environment.
+//! Nothing here reads a directory or the environment. A module an OS has
+//! ported is compiled out for it, so its own module is the only one.
 
 use std::io;
 
@@ -36,6 +37,7 @@ pub mod bulk {
     }
 }
 
+#[cfg(not(target_os = "linux"))] // ported: `linux/errno.rs`
 pub mod errno {
     //! Placeholders until each OS is ported: the constants are Linux's
     //! numbers for "not found", "denied" and "I/O error", and the mapping goes
@@ -61,6 +63,7 @@ pub mod errno {
     }
 }
 
+#[cfg(not(target_os = "linux"))] // ported: `linux/folders.rs`
 pub mod folders {
     use std::path::{Path, PathBuf};
 
@@ -142,6 +145,7 @@ pub mod iopolicy {
     }
 }
 
+#[cfg(not(target_os = "linux"))] // ported: `linux/meta.rs`
 pub mod meta {
     use std::fs::{Metadata, Permissions};
     use std::io;
@@ -175,6 +179,7 @@ pub mod meta {
     }
 }
 
+#[cfg(not(target_os = "linux"))] // ported: `linux/process.rs`
 pub mod process {
     use std::process::Command;
 
@@ -227,6 +232,7 @@ pub mod procs {
     }
 }
 
+#[cfg(not(target_os = "linux"))] // ported: `linux/rlimit.rs`
 pub mod rlimit {
     use std::io;
 
@@ -285,6 +291,7 @@ pub mod statfs {
     }
 }
 
+#[cfg(not(target_os = "linux"))] // ported: `linux/term.rs`
 pub mod term {
     pub fn stderr_columns() -> Option<u16> {
         None
@@ -328,7 +335,7 @@ pub mod usage {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "linux")))] // ported: `linux/testing.rs`
 pub mod testing {
     use std::ffi::OsString;
     use std::io;
@@ -340,5 +347,10 @@ pub mod testing {
 
     pub fn name_from_bytes(_bytes: &[u8]) -> Option<OsString> {
         None
+    }
+
+    /// Not known to be POSIX-shaped: Windows reads `/Users/…` as relative.
+    pub fn posix_paths() -> io::Result<()> {
+        super::unsupported()
     }
 }

@@ -497,7 +497,12 @@ mod tests {
         use HarnessCause as C;
         use HarnessId as H;
         // Its inputs are macOS paths, which Windows does not read as absolute.
-        if crate::platform::skipped("a_harness_runs_by_its_process_or_a_held_codex_lock") {
+        if crate::platform::skipped_without(
+            "a_harness_runs_by_its_process_or_a_held_codex_lock",
+            crate::platform::testing::posix_paths(),
+        )
+        .is_none()
+        {
             return;
         }
         const RUNNING: HarnessLiveness = HarnessLiveness::Live { by: HarnessBy::Running };

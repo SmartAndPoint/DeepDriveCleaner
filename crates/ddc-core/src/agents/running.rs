@@ -117,7 +117,9 @@ mod tests {
     fn codex_is_a_cli_or_its_app_server() {
         // macOS paths, which are not absolute on Windows: until story "Windows
         // scanner and rule catalog" adds Windows-shaped inputs.
-        if crate::platform::skipped("codex_is_a_cli_or_its_app_server") {
+        if crate::platform::skipped_without("codex_is_a_cli_or_its_app_server", crate::platform::testing::posix_paths())
+            .is_none()
+        {
             return;
         }
         assert_eq!(
@@ -147,7 +149,9 @@ mod tests {
     fn cursor_is_its_main_binary_only() {
         // macOS paths, which are not absolute on Windows: until story "Windows
         // scanner and rule catalog" adds Windows-shaped inputs.
-        if crate::platform::skipped("cursor_is_its_main_binary_only") {
+        if crate::platform::skipped_without("cursor_is_its_main_binary_only", crate::platform::testing::posix_paths())
+            .is_none()
+        {
             return;
         }
         assert_eq!(
@@ -162,7 +166,12 @@ mod tests {
     #[test]
     fn cursor_agent_is_cursors_cli_by_its_install_folder() {
         // Its inputs are macOS paths, which Windows does not read as absolute.
-        if crate::platform::skipped("cursor_agent_is_cursors_cli_by_its_install_folder") {
+        if crate::platform::skipped_without(
+            "cursor_agent_is_cursors_cli_by_its_install_folder",
+            crate::platform::testing::posix_paths(),
+        )
+        .is_none()
+        {
             return;
         }
         // Its launcher `exec`s the bundled `node` under the command's name.

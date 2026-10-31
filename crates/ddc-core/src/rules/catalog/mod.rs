@@ -370,7 +370,7 @@ mod tests {
         assert!(!may_be_supported(Platform::Windows));
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/platform");
         for (p, file) in
-            [(Platform::Macos, "macos/mod.rs"), (Platform::Linux, "linux.rs"), (Platform::Windows, "windows.rs")]
+            [(Platform::Macos, "macos/mod.rs"), (Platform::Linux, "linux/mod.rs"), (Platform::Windows, "windows.rs")]
         {
             let text = std::fs::read_to_string(dir.join(file)).unwrap();
             let line =
