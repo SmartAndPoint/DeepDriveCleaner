@@ -6,6 +6,7 @@
 
 use super::{Capability, Platform};
 
+pub mod bulk;
 pub mod errno;
 pub mod folders;
 pub mod meta;

@@ -22,6 +22,7 @@ fn unsupported<T>() -> io::Result<T> {
     Err(io::Error::new(io::ErrorKind::Unsupported, "not available on this platform yet"))
 }
 
+#[cfg(not(target_os = "linux"))] // ported: `linux/bulk.rs`
 pub mod bulk {
     use std::path::Path;
 
