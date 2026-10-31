@@ -5,17 +5,28 @@ use super::shared;
 use crate::platform::Platform;
 use crate::rules::Rule;
 
-/// The folders in the home only Linux protects: none yet. Story
-/// "Linux scanner and rule catalog" adds them, and its system folders,
-/// before it switches `SUPPORTED` on; a test refuses the switch without them.
-pub(super) const OWN_PROTECTED_IN_HOME: [&str; 0] = [];
+/// The folders in the home only Linux protects (safety ADR "Cleanup safety
+/// model", §6, amendment of 2026-10-31): XDG's data, state and program
+/// folders, the keyrings, the Trash, the NSS certificate store, browser
+/// and mail profiles, and `~/Videos`. The folders themselves, not their
+/// contents: a cache rule still matches inside `~/.local/share`.
+pub(super) const OWN_PROTECTED_IN_HOME: [&str; 9] = [
+    ".local/share",
+    ".local/state",
+    ".local/bin",
+    ".local/share/keyrings",
+    ".local/share/Trash",
+    ".pki",
+    ".mozilla",
+    ".thunderbird",
+    "Videos",
+];
 
 /// The shared protected folders and Linux's own.
-pub(super) static PROTECTED_IN_HOME: [&str; 12] = super::concat(&shared::PROTECTED_IN_HOME, &OWN_PROTECTED_IN_HOME);
+pub(super) static PROTECTED_IN_HOME: [&str; 21] = super::concat(&shared::PROTECTED_IN_HOME, &OWN_PROTECTED_IN_HOME);
 
-/// System folders that are never removed: none yet. While `SUPPORTED` is
-/// false nothing is removed here at all.
-pub(super) static PROTECTED_SYSTEM: [&str; 0] = [];
+/// System folders that are never removed (§6, amendment of 2026-10-31).
+pub(super) static PROTECTED_SYSTEM: [&str; 7] = ["/", "/home", "/usr", "/etc", "/opt", "/var", "/boot"];
 
 /// The shared rules, resolved for Linux: a named `static`, so the list has
 /// one address (its rules' tags are found by it).
