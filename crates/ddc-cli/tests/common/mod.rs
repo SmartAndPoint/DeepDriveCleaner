@@ -19,6 +19,49 @@ pub use ddc_loadgen::unsupported;
 #[allow(unused_imports)] // only the capability tests use it
 pub use ddc_loadgen::lacks;
 
+/// The data folder a CLI started with a clean environment and `HOME` at
+/// `home` uses when nothing names one: `~/Library/Application
+/// Support/DeepDriveCleaner` on macOS, the XDG state folder on Linux.
+pub fn default_data(home: &Path) -> std::path::PathBuf {
+    use ddc_core::platform::{PLATFORM, Platform};
+    match PLATFORM {
+        Platform::Linux => home.join(".local/state/deepdrivecleaner"),
+        _ => home.join("Library/Application Support/DeepDriveCleaner"),
+    }
+}
+
+/// `script`, set to run `program args` on a pseudo-terminal of its own as
+/// its foreground process group, with no record file: BSD's on macOS,
+/// util-linux's on Linux (which passes the exit status on with `-e`).
+/// `Unsupported` where there is no pseudo-terminal driver (Windows), and the
+/// test skips through [`skipped_without`].
+pub fn script(program: &std::ffi::OsStr, args: &[&std::ffi::OsStr]) -> std::io::Result<std::process::Command> {
+    use ddc_core::platform::{PLATFORM, Platform};
+    let mut script = std::process::Command::new("/usr/bin/script");
+    match PLATFORM {
+        Platform::Macos => {
+            script.args(["-q", "/dev/null"]).arg(program).args(args);
+        }
+        Platform::Linux => {
+            let words: Vec<String> =
+                std::iter::once(program).chain(args.iter().copied()).map(|w| sh_quoted(&w.to_string_lossy())).collect();
+            script.args(["-qec", &format!("exec {}", words.join(" ")), "/dev/null"]);
+        }
+        Platform::Windows => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "no pseudo-terminal driver on this platform",
+            ));
+        }
+    }
+    Ok(script)
+}
+
+/// `w` as one word for `sh`.
+pub fn sh_quoted(w: &str) -> String {
+    format!("'{}'", w.replace('\'', r"'\''"))
+}
+
 /// The value of a harness tool (the pseudo-terminal driver), or `None`
 /// after printing why when the tool is missing here
 /// (`io::ErrorKind::Unsupported`), and the test skips (ADR "Platform seam",

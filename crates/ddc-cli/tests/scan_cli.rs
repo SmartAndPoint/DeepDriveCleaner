@@ -268,7 +268,7 @@ fn scan_of_other_roots_into_the_app_data_folder_says_the_app_shows_it() {
     let other = other.to_str().unwrap();
 
     assert!(shows_line(&ddc(&home, &["scan", other])));
-    assert!(home.join("Library/Application Support/DeepDriveCleaner/last-scan.json").is_file());
+    assert!(common::default_data(&home).join("last-scan.json").is_file());
     let inside = home.join("p");
     assert!(shows_line(&ddc(&home, &["scan", inside.to_str().unwrap()])), "a part of the home is other roots too");
 
@@ -295,7 +295,7 @@ fn scan_of_the_settings_roots_by_path_says_nothing() {
     let root = tmp.path().canonicalize().unwrap();
     let other = root.join("other");
     fs::create_dir_all(&other).unwrap();
-    let data = home.join("Library/Application Support/DeepDriveCleaner");
+    let data = common::default_data(&home);
     fs::create_dir_all(&data).unwrap();
     let roots = serde_json::json!({ "schema_version": 1, "roots": [home, other] });
     fs::write(data.join("settings.json"), roots.to_string()).unwrap();

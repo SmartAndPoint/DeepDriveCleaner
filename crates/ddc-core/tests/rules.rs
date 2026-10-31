@@ -351,12 +351,19 @@ fn global_packages_and_cloud_folders_are_not_findings() {
     let t = TreeBuilder::new();
     t.write(".npm-global/lib/package.json", "{}");
     t.file(".npm-global/lib/node_modules/tool/node_modules/dep/i.js", 10);
-    t.file("Library/CloudStorage/GoogleDrive/doc.txt", 10);
+    // The cloud folders, where the catalog has them (macOS).
+    let cloud = common::has_rule("user.cloud");
+    if cloud {
+        t.file("Library/CloudStorage/GoogleDrive/doc.txt", 10);
+    }
 
     let s = scan(&t);
 
     assert!(s.found.is_empty(), "{:?}", s.summary(&t));
-    assert!(s.out.skipped.iter().any(|k| k.path == t.path("Library/CloudStorage") && k.reason == SkipReason::Excluded));
+    if cloud {
+        let skipped = |k: &&ddc_core::scan::Skipped| k.path == t.path("Library/CloudStorage");
+        assert!(s.out.skipped.iter().filter(skipped).any(|k| k.reason == SkipReason::Excluded));
+    }
 }
 
 #[test]
@@ -447,7 +454,7 @@ fn only_outdated_jetbrains_data_is_found() {
         return;
     }
     let t = TreeBuilder::new();
-    let base = "Library/Application Support/JetBrains";
+    let base = common::rule_path("ide.jetbrains-old-data");
     for d in ["PyCharm2023.3", "PyCharm2024.3", "GoLand2024.1", "consentOptions"] {
         t.file(&format!("{base}/{d}/options/x.xml"), 100);
     }
@@ -640,7 +647,9 @@ fn a_tombstone_is_a_tombstone_whatever_it_contains() {
 
 #[test]
 fn rules_never_fire_inside_app_bundles() {
-    if common::unsupported("rules_never_fire_inside_app_bundles") {
+    if common::unsupported("rules_never_fire_inside_app_bundles")
+        || common::no_rule("rules_never_fire_inside_app_bundles", "macos.app-bundle")
+    {
         return;
     }
     let t = TreeBuilder::new();
@@ -694,7 +703,9 @@ fn a_keep_marker_inside_downloads_protects_only_its_finding() {
 
 #[test]
 fn excluding_a_cloud_folder_still_never_traverses_it() {
-    if common::unsupported("excluding_a_cloud_folder_still_never_traverses_it") {
+    if common::unsupported("excluding_a_cloud_folder_still_never_traverses_it")
+        || common::no_rule("excluding_a_cloud_folder_still_never_traverses_it", "user.cloud")
+    {
         return;
     }
     let t = TreeBuilder::new();
@@ -846,21 +857,30 @@ fn a_finding_holds_the_newest_change_inside_it() {
     t.file("linked/node_modules/dep/README", 100);
     t.write("kept/.ddc-keep", "");
     t.file("kept/a", 100);
-    t.file("Tool.app/Contents/MacOS/tool", 100);
+    // An app bundle, where the catalog seals them (macOS).
+    let bundles = common::has_rule("macos.app-bundle");
+    if bundles {
+        t.file("Tool.app/Contents/MacOS/tool", 100);
+    }
     t.file("Downloads/a.zip", 100);
     t.file("Downloads/sub/b", 100);
     t.file("Pictures/one.jpg", 100);
-    t.file("Library/Caches/Homebrew/x.tar.gz", 100);
+    // A known path the walk cannot read: pip's cache, where this platform keeps it.
+    let pip = common::rule_path("cache.pip");
+    t.file(&format!("{pip}/x.tar.gz"), 100);
     t.age("", OLD);
     // Three levels down; a direct child of a root claimed after its listing; a hard link.
     t.touch("proj/.venv/lib/python3.12/site-packages/new.py", OLD + 10);
     t.touch("web/node_modules/.package-lock.json", OLD + 20);
     t.touch("store/index.js", OLD + 30);
-    for rel in ["kept/a", "Tool.app/Contents/MacOS/tool", "Downloads/a.zip", "Downloads/sub", "Pictures/one.jpg"] {
+    for rel in ["kept/a", "Downloads/a.zip", "Downloads/sub", "Pictures/one.jpg"] {
         t.touch(rel, OLD + 40);
     }
-    let brew = t.lock("Library/Caches/Homebrew");
-    let enforced = std::fs::read_dir(&brew).is_err();
+    if bundles {
+        t.touch("Tool.app/Contents/MacOS/tool", OLD + 40);
+    }
+    let locked = t.lock(pip);
+    let enforced = std::fs::read_dir(&locked).is_err();
     let catalog = Catalog::builtin(t.root());
     let visitor = RuleVisitor::new(&catalog, Vec::new());
 
@@ -877,11 +897,11 @@ fn a_finding_holds_the_newest_change_inside_it() {
             assert_eq!(modified("proj/.venv"), on(OLD + 10), "{case}");
             assert_eq!(modified("web/node_modules"), on(OLD + 20), "{case}");
             assert_eq!(modified("linked/node_modules"), on(OLD + 30), "{case}");
-            for none in ["kept", "Tool.app", "Downloads", "Pictures"] {
+            for none in ["kept", "Downloads", "Pictures"].into_iter().chain(bundles.then_some("Tool.app")) {
                 assert_eq!(modified(none), None, "{none}, {case}");
             }
             if enforced {
-                assert_eq!(modified("Library/Caches/Homebrew"), None, "{case}");
+                assert_eq!(modified(pip), None, "{case}");
             }
             let downloads = out.entries.iter().find(|e| e.owner == t.path("Downloads")).expect("Downloads listed");
             let times: Vec<_> = downloads.entries.iter().map(|e| e.modified).collect();

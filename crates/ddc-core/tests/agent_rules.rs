@@ -234,7 +234,7 @@ fn sealed_folders_and_auto_memory_are_never_findings() {
     project(".codex/worktrees/w1");
     t.write(".cursor/worktrees/repo/w2/.git", "gitdir: /Users/example/repo/.git/worktrees/w2\n");
     project(".cursor/worktrees/repo/w2");
-    t.file("Library/Application Support/Cursor/Cache/data_0", 1_000);
+    t.file(&format!("{}/data_0", common::rule_path("ide.cursor-cache")), 1_000);
 
     let (r, entries) = h.scan();
 
@@ -257,7 +257,7 @@ fn sealed_folders_and_auto_memory_are_never_findings() {
         let f = h.finding(&r, modules).unwrap_or_else(|| panic!("no finding at {modules}: {:?}", h.summary(&r)));
         assert_eq!(f.rule, "node.node_modules", "{modules}");
     }
-    assert_eq!(h.finding(&r, "Library/Application Support/Cursor/Cache").unwrap().rule, "ide.cursor-cache");
+    assert_eq!(h.finding(&r, common::rule_path("ide.cursor-cache")).unwrap().rule, "ide.cursor-cache");
     assert!(r.findings.iter().all(|f| f.rule != "python.venv"), "{:?}", h.summary(&r));
     let folder = h.finding(&r, PROJECT).unwrap();
     assert_eq!(folder.rule, "agent.claude-code-transcripts");

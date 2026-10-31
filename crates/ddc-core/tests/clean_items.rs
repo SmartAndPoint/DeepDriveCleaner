@@ -279,8 +279,8 @@ fn the_dry_run_predicts_and_changes_nothing() {
     let fx = Fx::new();
     let cache = fx.pycache("q");
     let modules = fx.review_modules("x");
-    let spotify = fx.t.dir("Library/Caches/com.spotify.client");
-    fx.t.file("Library/Caches/com.spotify.client/data", 1000);
+    let spotify = fx.t.dir(common::rule_path("app.spotify-cache"));
+    fx.t.file(&format!("{}/data", common::rule_path("app.spotify-cache")), 1000);
     let uv = fx.t.dir(".cache/uv");
     fx.t.file(".cache/uv/wheels/a.whl", 1000);
     let reviewed = fx.scan();

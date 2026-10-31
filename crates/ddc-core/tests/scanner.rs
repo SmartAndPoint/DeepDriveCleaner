@@ -217,8 +217,12 @@ fn hard_links_across_findings_are_shared_by_both() {
     let c2 = owner(&out, &t.path("claimme2"));
     assert_eq!((c1.bytes, c1.shared_bytes), (alloc(&only1), alloc(&a)));
     assert_eq!((c2.bytes, c2.shared_bytes), (0, alloc(&a)));
-    assert!(c1.private_bytes.unwrap() <= alloc(&only1), "shared inodes are not in the private size");
-    assert_eq!(c2.private_bytes, Some(0));
+    if ddc_core::platform::CAPABILITIES.contains(&ddc_core::platform::Capability::PrivateSize) {
+        assert!(c1.private_bytes.unwrap() <= alloc(&only1), "shared inodes are not in the private size");
+        assert_eq!(c2.private_bytes, Some(0));
+    } else {
+        assert_eq!((c1.private_bytes, c2.private_bytes), (None, None), "no private size measured");
+    }
     assert_eq!(out.total_bytes, alloc(&only1) + alloc(&a));
 }
 

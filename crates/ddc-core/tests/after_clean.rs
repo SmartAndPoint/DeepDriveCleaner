@@ -169,7 +169,7 @@ fn skipped_failed_and_not_run_items_stay_and_an_item_the_report_does_not_hold_ed
     }
     let home = Home::new();
     home.t.file("q/__pycache__/m.pyc", 10_000);
-    home.t.file(".Trash/old.bin", 4_000);
+    home.t.file(&format!("{}/old.bin", common::rule_path("trash")), 4_000);
     home.t.file("Downloads/kept.bin", 4_000);
     let before = home.scan();
     let path = home.t.path("q/__pycache__");
@@ -260,10 +260,10 @@ fn a_trashed_finding_moves_to_the_trash_of_its_volume_or_counts_as_deleted() {
     }
     let home = Home::new();
     home.t.file("q/__pycache__/m.pyc", 10_000);
-    home.t.file(".Trash/old.bin", 4_000);
+    home.t.file(&format!("{}/old.bin", common::rule_path("trash")), 4_000);
     let before = home.scan();
     let path = home.t.path("q/__pycache__");
-    let trash = home.t.path(".Trash");
+    let trash = home.t.path(common::rule_path("trash"));
     let (f, t) = (finding(&before, &path).clone(), finding(&before, &trash).clone());
 
     let after = home.edited(&before, vec![item(&path, "python.pycache", Some(10_000), Outcome::Trashed)], &[]);
@@ -355,11 +355,11 @@ fn a_picked_folder_leaves_its_folder_with_the_findings_inside_it() {
     home.t.file("Downloads/picked/a.bin", 30_000);
     home.t.file("Downloads/picked/__pycache__/m.pyc", 10_000);
     home.t.file("Downloads/other/c.bin", 20_000);
-    home.t.file(".Trash/old.bin", 4_000);
+    home.t.file(&format!("{}/old.bin", common::rule_path("trash")), 4_000);
     let before = home.scan();
     let (downloads, picked, inner) =
         (home.t.path("Downloads"), home.t.path("Downloads/picked"), home.t.path("Downloads/picked/__pycache__"));
-    let trash = home.t.path(".Trash");
+    let trash = home.t.path(common::rule_path("trash"));
     let e = entry(&before, &downloads, &picked).unwrap().clone();
     assert_eq!(e.findings, 1);
     let inner_bytes = finding(&before, &inner).bytes;

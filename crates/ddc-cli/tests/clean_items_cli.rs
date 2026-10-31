@@ -437,19 +437,17 @@ fn ctrl_c_in_a_terminal_reaches_the_tool_and_stops_the_clean_after_it() {
     let ddc = fx.ddc(&["clean", "--yes"]);
     // A pseudo-terminal: `script` runs ddc as its foreground process group.
     // Its stdin stays an open pipe (end of file would reach ddc as end of input).
-    let mut script = Command::new("/usr/bin/script");
+    let terminal = common::script(ddc.get_program(), &ddc.get_args().collect::<Vec<_>>());
+    let Some(mut script) =
+        common::skipped_without("ctrl_c_in_a_terminal_reaches_the_tool_and_stops_the_clean_after_it", terminal)
+    else {
+        return;
+    };
     script.clear_env();
     for (k, v) in ddc.get_envs() {
         script.env(k, v.unwrap());
     }
-    let mut child = script
-        .args(["-q", "/dev/null", ddc.get_program().to_str().unwrap()])
-        .args(ddc.get_args())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
+    let mut child = script.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
     let tool = wait_for_pid(&pid_file, Duration::from_secs(60));
 
     child.stdin.as_mut().unwrap().write_all(b"\x03").unwrap();

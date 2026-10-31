@@ -295,8 +295,8 @@ fn a_runtime_prunes_while_its_daemon_works_inside_its_finding() {
         return;
     }
     let home = Home::new();
-    home.tree.file("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw", 50_000);
-    let docker = home.path("Library/Containers/com.docker.docker");
+    let docker = home.path(common::rule_path("vm.docker-desktop"));
+    home.tree.file(&format!("{}/Data/vms/0/Docker.raw", common::rule_path("vm.docker-desktop")), 50_000);
     home.tree.write(DOCKER_CONTEXT, "{}");
     let item = home.listed(&docker, ActionKind::NativeOnly, false);
     let daemon = FakeProcs::new(vec![docker_backend(&docker)]);
@@ -316,8 +316,8 @@ fn the_dry_run_predicts_a_docker_desktop_that_cannot_answer_without_running_anyt
         return;
     }
     let home = Home::new();
-    home.tree.file("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw", 50_000);
-    let docker = home.path("Library/Containers/com.docker.docker");
+    let docker = home.path(common::rule_path("vm.docker-desktop"));
+    home.tree.file(&format!("{}/Data/vms/0/Docker.raw", common::rule_path("vm.docker-desktop")), 50_000);
     let item = home.listed(&docker, ActionKind::NativeOnly, false);
     let not_ready = |detail: &str| SkipReason::ToolNotReady { program: "docker".into(), detail: detail.into() };
 

@@ -28,7 +28,8 @@ use crate::rules::entries::has_entries;
 use crate::rules::{Catalog, RuleVisitor};
 use crate::scan::{self, DirCtx, Pre, Progress, Tag, Visitor};
 
-/// The rule of `~/.Trash`, where trashed items on its volume go.
+/// The rule of the home's Trash (`~/.Trash`, `~/.local/share/Trash/files`),
+/// where trashed items on its volume go.
 const TRASH_RULE: &str = "trash";
 
 /// A tool-cleaned item, measured again after the clean.

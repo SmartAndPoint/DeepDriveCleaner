@@ -115,7 +115,8 @@ fn findings_carry_class_project_activity_and_selection() {
 
     let uv = find(&r, t, ".cache/uv");
     assert_eq!((uv.class, uv.selected), (RiskClass::Safe, true));
-    assert!(uv.private_bytes.is_some(), "uv cache is clone-prone: private size measured");
+    let measured = ddc_core::platform::CAPABILITIES.contains(&ddc_core::platform::Capability::PrivateSize);
+    assert_eq!(uv.private_bytes.is_some(), measured, "uv cache is clone-prone: private size measured where it can be");
 
     let pics = find(&r, t, "Pictures");
     assert_eq!((pics.class, pics.not_selected), (RiskClass::UserData, Some(NotSelected::UserData)));
@@ -139,11 +140,11 @@ fn the_trash_is_found_but_never_selected_or_counted_as_reclaimable() {
     }
     let fx = populated();
     let t = &fx.tree;
-    t.file(".Trash/old.zip", 50_000);
+    t.file(&format!("{}/old.zip", common::rule_path("trash")), 50_000);
 
     let r = fx.scan();
 
-    let trash = find(&r, t, ".Trash");
+    let trash = find(&r, t, common::rule_path("trash"));
     assert_eq!(
         (trash.rule.as_str(), trash.class, trash.selected, trash.not_selected),
         ("trash", RiskClass::Review, false, Some(NotSelected::Review))
@@ -317,7 +318,9 @@ fn a_finding_reports_the_newest_change_inside_it() {
     t.file("linked/node_modules/dep/README", 1_000);
     t.file("Downloads/a.zip", 1_000);
     t.file("Pictures/one.jpg", 1_000);
-    t.file("Library/Caches/Homebrew/x.tar.gz", 1_000);
+    // A known path the scan cannot read: pip's cache, where this platform keeps it.
+    let pip = common::rule_path("cache.pip");
+    t.file(&format!("{pip}/x.tar.gz"), 1_000);
     // Kept by a marker at its top, by one deep inside, by an exclusion inside;
     // and one left alone.
     for p in ["a", "b", "c", "g"] {
@@ -336,8 +339,8 @@ fn a_finding_reports_the_newest_change_inside_it() {
     t.touch("store/index.js", OLD + 30);
     t.touch("Downloads/a.zip", OLD + 40);
     t.touch("Pictures/one.jpg", OLD + 40);
-    let brew = t.lock("Library/Caches/Homebrew");
-    let enforced = std::fs::read_dir(&brew).is_err();
+    let locked = t.lock(pip);
+    let enforced = std::fs::read_dir(&locked).is_err();
 
     for claim_times in [true, false] {
         let mut opts = fx.opts();
@@ -360,7 +363,7 @@ fn a_finding_reports_the_newest_change_inside_it() {
         }
         assert_eq!(modified("g/node_modules"), on("2024-01-01T00:00:50Z"), "times {claim_times}");
         if enforced {
-            assert_eq!(modified("Library/Caches/Homebrew"), None, "times {claim_times}");
+            assert_eq!(modified(pip), None, "times {claim_times}");
         }
         for folder in ["Downloads", "Pictures"] {
             let entries = &find(&r, t, folder).contents.as_ref().unwrap().entries;
@@ -525,7 +528,7 @@ fn large_files_inside_findings_are_not_listed_but_region_remainders_are() {
     t.write("p/package.json", "{}");
     t.file("p/node_modules/big.bin", 2 << 20);
     t.file("Downloads/movie.mkv", 2 << 20);
-    t.file("Movies/clip.mov", 2 << 20);
+    t.file(&format!("{}/clip.mov", common::rule_path("user.movies")), 2 << 20);
 
     let r = fx.scan();
 
@@ -587,7 +590,9 @@ fn unreadable_folders_are_reported() {
 
     let r = fx.scan();
 
-    assert!(!r.full_disk_access, "a temp HOME has no TCC.db");
+    // A temp HOME has no TCC.db; without a permission system the access is full.
+    let tcc = ddc_core::platform::CAPABILITIES.contains(&ddc_core::platform::Capability::FullDiskAccess);
+    assert_eq!(r.full_disk_access, !tcc);
     assert_eq!(r.inaccessible.len(), 1);
     assert_eq!(r.inaccessible[0].path, locked);
 }
