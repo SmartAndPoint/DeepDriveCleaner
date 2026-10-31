@@ -76,6 +76,7 @@ pub struct Running {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Folder {
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     /// Lies inside the harness's folder above it; its bytes are in that one's.
     pub nested: bool,
@@ -153,6 +154,7 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "crate::json_path::opt_path")]
     pub cwd: Option<PathBuf>,
 }
 

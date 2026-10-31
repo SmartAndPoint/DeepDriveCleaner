@@ -727,3 +727,39 @@ fn calls<'a>(text: &'a str, names: &[&str]) -> impl Iterator<Item = (usize, &'a 
     found.sort();
     found.into_iter()
 }
+
+/// Every path a JSON output writes goes through `json_path`, so a name that
+/// is not UTF-8 is written lossily instead of failing the whole report (ADR
+/// "Rust core library and CLI with JSON output", amendment of 2026-10-31).
+/// `settings.json` is the exception: its paths come from JSON, so they are
+/// UTF-8 already.
+#[test]
+fn every_serialized_path_is_written_through_json_path() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ddc-core/src");
+    let mut bare = Vec::new();
+    for path in rust_files(&src).into_iter().filter(|p| !p.ends_with("settings.rs")) {
+        let text = std::fs::read_to_string(&path).unwrap();
+        let (mut derive, mut serialized, mut depth, mut previous) = (false, false, 0i32, "");
+        for line in text.lines() {
+            let t = line.trim();
+            if t.starts_with("#[derive(") {
+                derive = t.contains("Serialize");
+            }
+            if depth == 0 && (t.contains("struct ") || t.contains("enum ")) && !t.starts_with("//") {
+                serialized = derive;
+                derive = false;
+            }
+            let field = t.starts_with("pub ")
+                && ["PathBuf,", "Option<PathBuf>,", "Vec<PathBuf>,"].iter().any(|ty| t.ends_with(&format!(": {ty}")));
+            if serialized && depth >= 1 && field && !previous.contains("json_path") {
+                bare.push(format!("{}: {t}", path.display()));
+            }
+            depth += line.matches('{').count() as i32 - line.matches('}').count() as i32;
+            if depth == 0 {
+                serialized = false;
+            }
+            previous = t;
+        }
+    }
+    assert!(bare.is_empty(), "serialized paths without json_path:\n{}", bare.join("\n"));
+}

@@ -94,6 +94,7 @@ pub struct VolumeRow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub used_bytes: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "crate::json_path::opt_path")]
     pub mount_point: Option<PathBuf>,
 }
 
@@ -109,6 +110,7 @@ pub enum HomeSource {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct HomeRow {
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     pub source: HomeSource,
     /// RFC 3339: the last scan's `generated_at`, or this report's.
@@ -164,6 +166,7 @@ pub struct Area {
     /// Stable id from the table in code (`applications`, `homebrew`, …).
     pub id: String,
     /// The paths measured, through `/System/Volumes/Data`.
+    #[serde(serialize_with = "crate::json_path::paths")]
     pub paths: Vec<PathBuf>,
     /// The area inside which this one lies; its bytes are not in that one's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -240,8 +243,10 @@ pub struct Runtime {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size_bytes: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "crate::json_path::opt_path")]
     pub path: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "crate::json_path::opt_path")]
     pub parent_mount_path: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deletable: Option<bool>,
@@ -272,6 +277,7 @@ pub struct Conda {
 pub struct CondaInstall {
     /// Through the firmlink, as conda spells it: `/opt/miniconda3`. The
     /// identifier of its `conda-clean`.
+    #[serde(serialize_with = "crate::json_path::path")]
     pub prefix: PathBuf,
     /// `<prefix>/pkgs`; absent when there is none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -286,6 +292,7 @@ pub struct CondaInstall {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CondaFolder {
     /// Through the firmlink, as conda spells it.
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     /// Allocated bytes of the files whose every link lies inside it: what
     /// removing it alone frees.
@@ -332,6 +339,7 @@ pub enum HeldKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Held {
     pub kind: HeldKind,
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
 }
 

@@ -18,8 +18,10 @@ pub struct BrewPackages {
     pub schema_version: u32,
     pub ddc_version: String,
     /// `brew --prefix`, as brew printed it.
+    #[serde(serialize_with = "crate::json_path::path")]
     pub prefix: PathBuf,
     /// `brew --cellar`: each keg is `<cellar>/<name>/<version>`.
+    #[serde(serialize_with = "crate::json_path::path")]
     pub cellar: PathBuf,
     /// Whether brew's service jobs could be read.
     pub services: ServicesState,
@@ -86,6 +88,7 @@ pub struct Keg {
     /// `installed[].version`, as brew printed it.
     pub version: String,
     /// `<cellar>/<name>/<version>`.
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     /// Allocated bytes, each inode once; absent when a skip of
     /// `settings.json` lies at, above or under it, or it could not be read.

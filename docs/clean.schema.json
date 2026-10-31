@@ -45,6 +45,15 @@
       "format": "uint",
       "minimum": 0
     },
+    "lossy_paths": {
+      "description": "Paths written with U+FFFD because they are not UTF-8 (ADR \"Rust core\nlibrary and CLI with JSON output\", amendment of 2026-10-31); absent\nwhen every path is UTF-8.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
     "platform": {
       "description": "The platform the CLI was built for.",
       "$ref": "#/$defs/Platform"

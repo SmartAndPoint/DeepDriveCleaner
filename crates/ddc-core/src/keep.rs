@@ -33,6 +33,7 @@ pub const KEEP_SCHEMA_VERSION: u32 = 1;
 pub struct KeepReport {
     pub schema_version: u32,
     /// The folder that held the marker, as it was given.
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     /// The folder's device: the one given with `--folder-dev`, else the one
     /// the open found; `null` when neither is known.
