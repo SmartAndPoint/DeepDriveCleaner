@@ -13,6 +13,7 @@ pub mod fsops;
 pub mod meta;
 pub mod process;
 pub mod rlimit;
+pub mod statfs;
 pub mod term;
 #[cfg(test)]
 pub mod testing;
