@@ -306,7 +306,7 @@ fn a_claim_above_the_item_for_each_matcher_kind() {
     // A matcher kind, the files that make the claim, and the root it sits at.
     type Case = (&'static str, &'static [(&'static str, &'static str)], &'static str);
     let cases: &[Case] = &[
-        ("known paths", &[], ".cache/huggingface/p"),
+        ("known paths", &[], ".cache/huggingface/hub/p"),
         (
             "known children",
             &[("Library/Application Support/JetBrains/PyCharm2024.1/f", "")],
@@ -444,7 +444,7 @@ fn the_pruned_recheck_opens_only_the_items_their_ancestors_and_a_siblings_family
     let reviewed = home.review();
     let list = vec![
         home.listed(&reviewed, "one/two/__pycache__"),
-        home.listed(&reviewed, ".cache/huggingface"),
+        home.listed(&reviewed, ".cache/huggingface/hub"),
         home.listed(&reviewed, &old),
         home.pick("Downloads/picked", "user.downloads"),
         home.pick("Pictures/album1", "user.pictures"),
