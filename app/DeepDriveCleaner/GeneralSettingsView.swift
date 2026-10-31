@@ -56,7 +56,8 @@ struct GeneralSettingsView: View {
     }
 }
 
-/// The daily check, the last one, Check Now, and the update line (ADR
+/// The running version and what the last check said, the daily check, the
+/// last one, Check Now, and the update line (ADR
 /// "Updates through Sparkle, alongside the Homebrew cask", §2 and §5).
 private struct UpdatesSection: View {
     let updates: UpdaterSettings
@@ -70,6 +71,14 @@ private struct UpdatesSection: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .foregroundStyle(ReportClassStyle.ink(.review))
+            }
+            LabeledContent {
+                Text(updates.version).monospacedDigit().textSelection(.enabled)
+            } label: {
+                Text("Current version")
+                if let status = updates.model.versionStatus(lastCheck: updates.lastCheck) {
+                    Text(status)
+                }
             }
             Toggle(isOn: Binding(get: { updates.checksDaily }, set: { updates.setChecksDaily($0) })) {
                 Text("Check for updates daily")

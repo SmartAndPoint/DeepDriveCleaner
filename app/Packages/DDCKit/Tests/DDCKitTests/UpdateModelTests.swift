@@ -165,6 +165,31 @@ final class UpdateModelTests {
         #expect(model.canPress)
     }
 
+    @Test func theVersionRowSaysWhatTheLastCheckFound() {
+        let model = model()
+        let checked = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(model.versionStatus(lastCheck: nil) == "Not checked yet")
+        _ = model.send(.checkStarted)
+        #expect(model.versionStatus(lastCheck: nil) == "Checking…")
+        _ = model.send(.notFound)
+        #expect(model.versionStatus(lastCheck: checked) == "Up to date")
+        _ = model.send(.found(item, informationOnly: false))
+        #expect(model.versionStatus(lastCheck: checked) == "0.8.0 is available")
+    }
+
+    @Test func theVersionRowNamesAKeptUpdateAndAFailedCheck() {
+        preferences.setFoundUpdate(UpdateRecord(
+            version: "13", shortVersion: "0.8.0", releaseURL: nil, feedURL: feed, informationOnly: false))
+        #expect(model().versionStatus(lastCheck: nil) == "0.8.0 is available")
+        preferences.setFoundUpdate(nil)
+        let fresh = model()
+        _ = fresh.send(.checkStarted)
+        _ = fresh.send(.error("offline"))
+        #expect(fresh.versionStatus(lastCheck: Date()) == "The last check failed")
+        _ = fresh.send(.startFailed("no feed"))
+        #expect(fresh.versionStatus(lastCheck: Date()) == nil)
+    }
+
     @Test func checkNowWaitsForTheLineToRest() {
         let model = model()
         #expect(model.atRest)
