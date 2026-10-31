@@ -9,6 +9,7 @@ use super::{Capability, Platform};
 pub mod bulk;
 pub mod errno;
 pub mod folders;
+pub mod fsops;
 pub mod meta;
 pub mod process;
 pub mod rlimit;
