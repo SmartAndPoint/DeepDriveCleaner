@@ -16,6 +16,7 @@ pub mod folders;
 pub mod fsops;
 pub mod meta;
 pub mod process;
+pub mod procs;
 pub mod rlimit;
 pub mod signals;
 pub mod statfs;
