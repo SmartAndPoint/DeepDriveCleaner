@@ -265,7 +265,8 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         }
     }
 
-    let want_private = sh.opts.private_everywhere || owner.as_ref().is_some_and(|o| o.want_private);
+    let want_private =
+        sh.opts.private_size && (sh.opts.private_everywhere || owner.as_ref().is_some_and(|o| o.want_private));
     let times = if lists {
         Times::ModifiedAndAdded
     } else if owner.as_ref().is_some_and(|o| o.want_times) {
@@ -440,7 +441,7 @@ impl Shared<'_> {
     /// while [`WalkOptions::claim_times`] is on.
     fn claim_wants(&self, ctx: &DirCtx<'_>, tag: Tag) -> Wants {
         Wants {
-            private: self.visitor.wants_private(ctx, tag),
+            private: self.opts.private_size && self.visitor.wants_private(ctx, tag),
             times: self.opts.claim_times && self.visitor.wants_times(ctx, tag),
         }
     }
@@ -606,8 +607,11 @@ impl Shared<'_> {
             }
         }
 
-        let measure_private =
-            |o: &OwnerAcc| (o.want_private || self.opts.private_everywhere) && o.private_missing.load(Relaxed) == 0;
+        let measure_private = |o: &OwnerAcc| {
+            self.opts.private_size
+                && (o.want_private || self.opts.private_everywhere)
+                && o.private_missing.load(Relaxed) == 0
+        };
         let mut owner_results: Vec<OwnerResult> = owners
             .iter()
             .map(|o| OwnerResult {

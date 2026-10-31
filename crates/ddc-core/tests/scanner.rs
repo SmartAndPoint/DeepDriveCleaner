@@ -363,6 +363,21 @@ fn private_size_is_unknown_when_not_returned() {
     assert_eq!(owner(&bulk, &path).private_bytes, Some(alloc(&t.path("claimme/a"))));
 }
 
+/// Without the `private-size` capability nothing asks for a private size,
+/// even everywhere, so no claim reports one (ADR "Platform seam: one
+/// platform module per OS with declared capabilities", §3).
+#[test]
+fn without_the_private_size_capability_no_claim_reports_one() {
+    if common::unsupported("without_the_private_size_capability_no_claim_reports_one") {
+        return;
+    }
+    let t = TreeBuilder::new();
+    t.file("claimme/a", 50_000);
+    let o = WalkOptions { private_size: false, private_everywhere: true, ..opts(ReaderKind::Bulk) };
+    let out = scan::walk(&[t.root().to_path_buf()], &TestVisitor::default(), &o, &Progress::default()).expect("walk");
+    assert_eq!(owner(&out, &t.path("claimme")).private_bytes, None);
+}
+
 #[test]
 fn bulk_reader_matches_lstat_per_entry_across_batches() {
     // The bulk reader (getattrlistbulk) is not ported off macOS yet.

@@ -407,7 +407,16 @@ pub(crate) fn count_findings(totals: &mut Totals, findings: &[Finding]) {
 /// TCC.db is readable only with Full Disk Access.
 /// Whether this process has Full Disk Access (it can read the TCC database).
 pub fn full_disk_access(env: &Env) -> bool {
-    fs::File::open(env.home().join("Library/Application Support/com.apple.TCC/TCC.db")).is_ok()
+    full_disk_access_with(env, crate::platform::CAPABILITIES)
+}
+
+/// [`full_disk_access`] on a platform that declares `capabilities`: without
+/// `full-disk-access` no permission withholds anything, so it is `true`
+/// (ADR "Platform seam: one platform module per OS with declared
+/// capabilities", §3).
+pub fn full_disk_access_with(env: &Env, capabilities: &[crate::platform::Capability]) -> bool {
+    !capabilities.contains(&crate::platform::Capability::FullDiskAccess)
+        || fs::File::open(env.home().join("Library/Application Support/com.apple.TCC/TCC.db")).is_ok()
 }
 
 /// A file time as RFC 3339, `None` before 1970 or past year 9999: humantime
@@ -427,6 +436,16 @@ pub(crate) fn rfc3339_secs(secs: i64) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Without the `full-disk-access` capability no permission withholds
+    /// anything; with it, an unreadable TCC database means none was given.
+    #[test]
+    fn full_disk_access_is_true_without_the_capability() {
+        let d = tempfile::tempdir().unwrap();
+        let env = Env::with_paths(d.path(), &d.path().join("data"), &d.path().join("logs"), SystemTime::now()).unwrap();
+        assert!(full_disk_access_with(&env, &[]));
+        assert!(!full_disk_access_with(&env, &[crate::platform::Capability::FullDiskAccess]));
+    }
 
     #[test]
     fn rfc3339_secs_is_fixed_width_utc_within_the_years_it_can_write() {

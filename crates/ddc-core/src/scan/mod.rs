@@ -137,6 +137,12 @@ pub struct WalkOptions {
     pub reader: ReaderKind,
     /// Request APFS private size for every file, not only inside claims.
     pub private_everywhere: bool,
+    /// Whether the reader can measure a private size at all: the
+    /// platform's `private-size` capability by default. Without it nothing
+    /// asks for one, so no claim is re-read for it and none reports
+    /// `private_bytes` (ADR "Platform seam: one platform module per OS with
+    /// declared capabilities", §3).
+    pub private_size: bool,
     /// Errors and skips beyond this many are counted but not listed.
     pub max_recorded: usize,
     /// Read the modification times inside the claims whose visitor
@@ -152,6 +158,7 @@ impl Default for WalkOptions {
             threads: None,
             reader: ReaderKind::Bulk,
             private_everywhere: false,
+            private_size: crate::platform::CAPABILITIES.contains(&crate::platform::Capability::PrivateSize),
             max_recorded: 10_000,
             claim_times: true,
         }
