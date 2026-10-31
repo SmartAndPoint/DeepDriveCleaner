@@ -8,7 +8,6 @@
 //! the pinned hashes and `bench/golden/` come from the macOS catalog, not
 //! from the catalog of the platform the generator runs on.
 
-use ddc_core::platform::Platform;
 use ddc_core::rules::{Matcher, Rule, rules_of};
 
 use crate::desc::{Desc, join};
@@ -17,9 +16,11 @@ use crate::rng::Rng;
 /// A valid `CACHEDIR.TAG`.
 pub const TAG: &str = "Signature: 8a477f597d28d172789f06886806bc55\n# cache\n";
 
-/// The catalog the trees are built from and described with: macOS's.
+/// The catalog the trees are built from and described with: the one the
+/// scan of this platform looks with, so each plants what that scan finds.
+/// The pinned hashes are of macOS's trees (`tests/determinism.rs`).
 pub fn catalog() -> &'static [Rule] {
-    rules_of(Platform::Macos)
+    rules_of(ddc_core::platform::PLATFORM)
 }
 
 /// Where a profile builds a rule's fixture.

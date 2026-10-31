@@ -124,9 +124,10 @@ static CLOUD: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
         .collect()
 });
 
-/// The user's own folders, whose entries a list may name.
-static ENTRY_FOLDERS: LazyLock<Vec<&'static str>> =
-    LazyLock::new(|| ENTRY_RULES.iter().map(|id| anchored(rule(id))[0]).collect());
+/// The user's own folders this platform lists, whose entries a list may name.
+static ENTRY_FOLDERS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+    ENTRY_RULES.iter().filter(|id| RULES.iter().any(|r| r.id == **id)).map(|id| anchored(rule(id))[0]).collect()
+});
 
 /// First components of the paths a home rule anchors and of the protected
 /// folders: a fixture at the home itself must not take one.
@@ -165,6 +166,17 @@ fn cachedir_rule() -> &'static Rule {
 }
 
 // ---- the strategy ----------------------------------------------------------
+
+/// A project inside a cloud folder; where the catalog has none (Linux), a
+/// kept project in its place.
+fn cloud() -> BoxedStrategy<Part> {
+    if CLOUD.is_empty() {
+        return project_rule().prop_map(|rule| Part::KeptTop { rule }).boxed();
+    }
+    (select(CLOUD.clone()), project_rule(), any::<bool>())
+        .prop_map(|(folder, rule, lock)| Part::Cloud { folder, rule, lock })
+        .boxed()
+}
 
 /// Where a project rule's fixture goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -240,8 +252,7 @@ fn part(all: bool) -> BoxedStrategy<Part> {
         ),
         2 => (select(HOME.clone()), any::<u64>()).prop_map(|(rule, seed)| Part::Home { rule, seed }),
         1 => (select(VM.clone()), spot).prop_map(|(rule, marker)| Part::Vm { rule, marker }),
-        1 => (select(CLOUD.clone()), project_rule(), any::<bool>())
-            .prop_map(|(folder, rule, lock)| Part::Cloud { folder, rule, lock }),
+        1 => cloud(),
         1 => project_rule().prop_map(|rule| Part::KeptTop { rule }),
         1 => (option::of(project_rule()), target).prop_map(|(inside, to)| Part::Symlink { inside, to }),
         1 => (project_rule(), project_rule(), any::<bool>(), any::<bool>())
@@ -1067,6 +1078,8 @@ fn every_entry_folder_and_vm_rule_has_a_path() {
     if ddc_loadgen::unsupported("every_entry_folder_and_vm_rule_has_a_path") {
         return;
     }
-    assert_eq!(ENTRY_FOLDERS.len(), ENTRY_RULES.len());
-    assert!(!VM.is_empty() && !NATIVE_ONLY.is_empty() && !CLOUD.is_empty());
+    let listed = |id: &str| RULES.iter().any(|r| r.id == id);
+    assert_eq!(ENTRY_FOLDERS.len(), ENTRY_RULES.iter().filter(|id| listed(id)).count());
+    assert!(!ENTRY_FOLDERS.is_empty() && !VM.is_empty() && !NATIVE_ONLY.is_empty());
+    assert_eq!(CLOUD.is_empty(), !listed("user.cloud"), "the cloud folders are the user.cloud rule's");
 }

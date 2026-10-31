@@ -155,7 +155,12 @@ fn scan_home(fx: &Fixture, env: &Env, roots: Vec<PathBuf>, statfs: &dyn StatFs) 
 
 #[test]
 fn every_area_is_reported_with_its_bytes_and_a_folder_reached_twice_counts_once() {
-    if common::unsupported("every_area_is_reported_with_its_bytes_and_a_folder_reached_twice_counts_once") {
+    if common::unsupported("every_area_is_reported_with_its_bytes_and_a_folder_reached_twice_counts_once")
+        || common::lacks(
+            "every_area_is_reported_with_its_bytes_and_a_folder_reached_twice_counts_once",
+            Capability::WholeDisk,
+        )
+    {
         return;
     }
     let fx = Fixture::new();
@@ -216,7 +221,9 @@ fn every_area_is_reported_with_its_bytes_and_a_folder_reached_twice_counts_once(
 
 #[test]
 fn an_area_that_is_another_area_by_dev_and_ino_is_measured_once() {
-    if common::unsupported("an_area_that_is_another_area_by_dev_and_ino_is_measured_once") {
+    if common::unsupported("an_area_that_is_another_area_by_dev_and_ino_is_measured_once")
+        || common::lacks("an_area_that_is_another_area_by_dev_and_ino_is_measured_once", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fixture::new();
@@ -235,7 +242,12 @@ fn an_area_that_is_another_area_by_dev_and_ino_is_measured_once() {
 
 #[test]
 fn the_home_row_comes_from_the_last_scan_only_when_it_still_describes_the_whole_home() {
-    if common::unsupported("the_home_row_comes_from_the_last_scan_only_when_it_still_describes_the_whole_home") {
+    if common::unsupported("the_home_row_comes_from_the_last_scan_only_when_it_still_describes_the_whole_home")
+        || common::lacks(
+            "the_home_row_comes_from_the_last_scan_only_when_it_still_describes_the_whole_home",
+            Capability::WholeDisk,
+        )
+    {
         return;
     }
     let fx = Fixture::new();
@@ -358,7 +370,9 @@ fn without_diskutil_the_volumes_come_from_statfs_and_recovery_is_not_measured() 
 
 #[test]
 fn the_size_only_walk_produces_no_findings() {
-    if common::unsupported("the_size_only_walk_produces_no_findings") {
+    if common::unsupported("the_size_only_walk_produces_no_findings")
+        || common::lacks("the_size_only_walk_produces_no_findings", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fixture::new();
@@ -718,7 +732,12 @@ fn committed_disk_schema_is_current() {
 
 #[test]
 fn a_skip_outside_the_home_folder_is_never_opened_through_the_data_volume() {
-    if common::unsupported("a_skip_outside_the_home_folder_is_never_opened_through_the_data_volume") {
+    if common::unsupported("a_skip_outside_the_home_folder_is_never_opened_through_the_data_volume")
+        || common::lacks(
+            "a_skip_outside_the_home_folder_is_never_opened_through_the_data_volume",
+            Capability::WholeDisk,
+        )
+    {
         return;
     }
     let fx = Fixture::new();
@@ -776,6 +795,10 @@ fn conda_fixture() -> (Fixture, [PathBuf; 4]) {
 #[test]
 fn each_opt_environment_and_the_package_cache_are_measured_and_links_between_them_are_shared() {
     if common::unsupported("each_opt_environment_and_the_package_cache_are_measured_and_links_between_them_are_shared")
+        || common::lacks(
+            "each_opt_environment_and_the_package_cache_are_measured_and_links_between_them_are_shared",
+            Capability::WholeDisk,
+        )
     {
         return;
     }

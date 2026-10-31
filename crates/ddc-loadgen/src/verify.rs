@@ -36,6 +36,7 @@ pub fn scan_and_plan(layout: &Layout, home: &Path) -> anyhow::Result<(ScanReport
 
 /// The differences between a scan and the manifest.
 pub fn diffs(m: &Manifest, layout: &Layout, report: &ScanReport, plan: &Plan) -> Vec<String> {
+    let m = &with_fs_blocks(m, &layout.tree);
     let (totals, found, planned) = scanned(layout, report, plan);
     let mut diffs = Vec::new();
     if totals != m.totals {
@@ -44,6 +45,46 @@ pub fn diffs(m: &Manifest, layout: &Layout, report: &ScanReport, plan: &Plan) ->
     compare(&mut diffs, "finding", &m.findings, &found, |f| &f.path);
     compare(&mut diffs, "plan item", &m.plan, &planned, |p| &p.path);
     diffs
+}
+
+/// The manifest with the blocks of folders and symlinks added. It predicts
+/// the files' blocks; a folder's own and a long symlink's, which `du` and the
+/// scan count (a few KiB on ext4, none on APFS), depend on the file system,
+/// so they are read from the built tree, apart from the scan: every folder
+/// that can be listed, on the tree's file system, and the symlinks in it,
+/// never followed. Each goes to the totals and to the deepest expected
+/// finding that holds it. A root folder with no blocks of its own says the
+/// file system gives folders none: nothing is read.
+fn with_fs_blocks(m: &Manifest, tree: &Path) -> Manifest {
+    use std::collections::HashMap;
+
+    use ddc_core::platform::meta;
+    let mut m = m.clone();
+    let Ok(root) = std::fs::symlink_metadata(tree) else { return m };
+    let (Ok((dev, _)), true) = (meta::file_id(&root), meta::alloc_bytes(&root) > 0) else { return m };
+    let at: HashMap<String, usize> = m.findings.iter().enumerate().map(|(i, f)| (f.path.clone(), i)).collect();
+    let mut stack = vec![tree.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(listing) = std::fs::read_dir(&dir) else { continue };
+        let Ok(md) = std::fs::symlink_metadata(&dir) else { continue };
+        let mut add = |path: &Path, bytes: u64| {
+            m.totals.scanned_bytes += bytes;
+            let rel = path.strip_prefix(tree).unwrap_or(path);
+            if let Some(&i) = rel.ancestors().find_map(|a| at.get(&show(a.as_os_str().as_encoded_bytes()))) {
+                m.findings[i].bytes += bytes;
+            }
+        };
+        add(&dir, meta::alloc_bytes(&md));
+        for e in listing.flatten() {
+            let (Ok(kind), Ok(c)) = (e.file_type(), std::fs::symlink_metadata(e.path())) else { continue };
+            if kind.is_symlink() {
+                add(&e.path(), meta::alloc_bytes(&c));
+            } else if kind.is_dir() && meta::file_id(&c).is_ok_and(|(d, _)| d == dev) {
+                stack.push(e.path());
+            }
+        }
+    }
+    m
 }
 
 /// `clean --items --dry-run` in process over the load run's item list

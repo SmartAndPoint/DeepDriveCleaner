@@ -70,7 +70,7 @@ pub fn list(
     }
     // Counted once the listing is whole; a listing that fails part-way counts nothing.
     crate::stats::add(crate::stats::Counter::DirEntriesRead, entries.len() as u64);
-    Ok(DirListing { dev: me.dev, ino: me.ino, modified: Some(me.mtime), entries })
+    Ok(DirListing { dev: me.dev, ino: me.ino, modified: Some(me.mtime), alloc: me.blocks * 512, entries })
 }
 
 /// One entry, stat'ed relative to `dir` without following a symlink. An
@@ -189,14 +189,14 @@ mod tests {
     /// Name, kind, dev, ino, links, owner, allocated bytes, modified.
     type Row = (PathBuf, EntryKind, u64, u64, u32, Option<u32>, u64, Option<i64>);
 
-    fn sorted(mut l: DirListing) -> (u64, u64, Vec<Row>) {
+    fn sorted(mut l: DirListing) -> (u64, u64, u64, Vec<Row>) {
         l.entries.sort_by(|a, b| a.name.cmp(&b.name));
         let rows = l
             .entries
             .into_iter()
             .map(|e| (PathBuf::from(e.name), e.kind, e.dev, e.ino, e.nlink, e.uid, e.alloc, e.modified))
             .collect();
-        (l.dev, l.ino, rows)
+        (l.dev, l.ino, l.alloc, rows)
     }
 
     /// The same tree, read by this reader and by `std`'s, lists the same
@@ -216,7 +216,7 @@ mod tests {
             let std = sorted(StdReader.read(d.path(), None, false, times).unwrap());
             assert_eq!(ours, std, "times: {times:?}");
         }
-        let ours = sorted(list(d.path(), None, false, Times::None).unwrap()).2;
+        let ours = sorted(list(d.path(), None, false, Times::None).unwrap()).3;
         assert_eq!(ours.len(), 5);
         let file = ours.iter().find(|r| r.0 == Path::new("file")).unwrap();
         assert_eq!((file.1, file.4, file.5), (EntryKind::File, 2, Some(crate::platform::procs::uid())));
