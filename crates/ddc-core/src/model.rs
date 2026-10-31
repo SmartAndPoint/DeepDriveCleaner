@@ -37,7 +37,9 @@ pub struct ScanReport {
     /// RFC 3339, UTC.
     pub generated_at: String,
     pub duration_ms: u64,
+    #[serde(serialize_with = "crate::json_path::path")]
     pub home: PathBuf,
+    #[serde(serialize_with = "crate::json_path::paths")]
     pub scan_roots: Vec<PathBuf>,
     /// True unless a permission system withheld protected data. On macOS,
     /// whether the scanning process could read TCC-protected data: without
@@ -64,7 +66,13 @@ pub struct ScanReport {
     /// at, canonical, never truncated. A skip inside a claimed finding is not
     /// here: the finding was read and is kept whole instead.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(serialize_with = "crate::json_path::paths")]
     pub not_scanned: Vec<PathBuf>,
+    /// Paths written with U+FFFD because they are not UTF-8 (ADR "Rust core
+    /// library and CLI with JSON output", amendment of 2026-10-31); absent
+    /// when every path is UTF-8.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lossy_paths: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -97,9 +105,11 @@ fn is_zero(n: &u64) -> bool {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Volume {
+    #[serde(serialize_with = "crate::json_path::path")]
     pub mount_point: PathBuf,
     /// The scan roots on this volume; the walk never crosses into another,
     /// so every finding under them lies on it.
+    #[serde(serialize_with = "crate::json_path::paths")]
     pub roots: Vec<PathBuf>,
     /// Bytes available to an unprivileged user.
     pub free_bytes: u64,
@@ -140,6 +150,7 @@ impl From<&Removal> for RemovalKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Finding {
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     /// Stable rule id (`python.venv`, `cache.uv`, …).
     pub rule: String,
@@ -258,6 +269,7 @@ pub struct Protection {
 /// A folder holding a `.ddc-keep`, with its identity at scan time.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct MarkerFolder {
+    #[serde(serialize_with = "crate::json_path::path")]
     pub folder: PathBuf,
     pub dev: u64,
     pub ino: u64,
@@ -266,6 +278,7 @@ pub struct MarkerFolder {
 /// An exclusion or a skip that protects a finding, canonical.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Exclusion {
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     pub kind: ExclusionKind,
     pub origin: ExclusionOrigin,
@@ -311,6 +324,7 @@ pub struct Contents {
 /// `<session>/` in `file-history`), with its companions' bytes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct FolderEntry {
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     pub kind: FolderEntryKind,
     /// Allocated bytes, findings inside it included; a session's, its
@@ -366,6 +380,7 @@ impl Finding {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Project {
+    #[serde(serialize_with = "crate::json_path::path")]
     pub root: PathBuf,
     /// Latest activity (RFC 3339): git index/HEAD, manifests, lock files.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -395,18 +410,21 @@ pub enum NotSelected {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct LargeFile {
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     pub bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Inaccessible {
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     pub error: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SkippedPath {
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     pub reason: SkipReason,
 }

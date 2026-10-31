@@ -165,6 +165,7 @@ pub const LISTED_SCHEMA_VERSION: u32 = 1;
 #[serde(deny_unknown_fields)]
 pub struct ListedItem {
     /// Absolute and normalised; compared byte for byte, never resolved.
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     pub dev: u64,
     pub ino: u64,

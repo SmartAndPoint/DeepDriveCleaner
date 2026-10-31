@@ -41,16 +41,23 @@ pub struct CleanReport {
     /// Local Time Machine snapshots keep deleted blocks until macOS thins them.
     pub local_snapshots: usize,
     /// The action journal every started item was recorded in.
+    #[serde(serialize_with = "crate::json_path::path")]
     pub journal: PathBuf,
     /// `last-scan.json` was edited by what this clean did and saved, so no
     /// scan needs to follow (story "Faster clean: re-check only what the
     /// selection needs"). Absent from an older CLI: read as false.
     #[serde(default)]
     pub last_scan_saved: bool,
+    /// Paths written with U+FFFD because they are not UTF-8 (ADR "Rust core
+    /// library and CLI with JSON output", amendment of 2026-10-31); absent
+    /// when every path is UTF-8.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lossy_paths: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CleanItem {
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     pub dev: u64,
     pub ino: u64,
@@ -101,7 +108,7 @@ impl CleanReport {
                 _ => false,
             })
             .count() as u64;
-        Self {
+        let mut report = Self {
             schema_version: CLEAN_SCHEMA_VERSION,
             ddc_version: env!("CARGO_PKG_VERSION").to_owned(),
             platform: crate::platform::PLATFORM,
@@ -113,6 +120,9 @@ impl CleanReport {
             local_snapshots: run.local_snapshots,
             journal,
             last_scan_saved: false,
-        }
+            lossy_paths: None,
+        };
+        report.lossy_paths = crate::json_path::count_lossy(&report);
+        report
     }
 }

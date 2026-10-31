@@ -58,6 +58,15 @@
         "$ref": "#/$defs/LargeFile"
       }
     },
+    "lossy_paths": {
+      "description": "Paths written with U+FFFD because they are not UTF-8 (ADR \"Rust core\nlibrary and CLI with JSON output\", amendment of 2026-10-31); absent\nwhen every path is UTF-8.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
     "min_age_days": {
       "description": "`rebuildable` findings idle at least this long are selected by default.",
       "type": "integer",

@@ -51,6 +51,7 @@ pub enum PreflightLine {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PreflightItem {
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     pub rule: String,
     pub class: RiskClass,

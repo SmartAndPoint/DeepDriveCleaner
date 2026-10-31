@@ -207,6 +207,7 @@ pub struct FreeReport {
     pub actions: Vec<ActionReport>,
     /// `actions.jsonl`; absent from a dry run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "crate::json_path::opt_path")]
     pub journal: Option<PathBuf>,
     /// `last-scan.json` after a `brew-cleanup` that ran.
     pub last_scan: ReportEdit,
@@ -283,6 +284,7 @@ pub struct KegReport {
     pub formula: String,
     pub version: String,
     /// `<cellar>/<name>/<version>`, as brew spells the Cellar.
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     /// Allocated bytes; absent under a skip of `settings.json`.
     #[serde(default, skip_serializing_if = "Option::is_none")]

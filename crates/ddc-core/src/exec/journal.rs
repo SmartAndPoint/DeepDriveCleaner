@@ -41,6 +41,7 @@ pub struct JournalEntry {
     pub schema_version: u32,
     pub kind: JournalKind,
     pub ts: String,
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     pub dev: u64,
     pub ino: u64,
@@ -54,6 +55,7 @@ pub struct JournalEntry {
     /// transcript, the path the item was listed by. Each moved path has a
     /// line of its own, so each can be put back; absent on every other line.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "crate::json_path::opt_path")]
     pub entry: Option<PathBuf>,
     #[serde(flatten)]
     pub outcome: Outcome,
@@ -155,6 +157,7 @@ pub struct KeepRemoveEntry {
     pub schema_version: u32,
     pub kind: JournalKind,
     pub ts: String,
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     pub dev: Option<u64>,
     pub ino: Option<u64>,

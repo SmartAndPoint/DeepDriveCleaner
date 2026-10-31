@@ -237,7 +237,7 @@ pub(crate) fn scan_inner(
     let skipped = out.skipped.iter().map(|s| SkippedPath { path: s.path.clone(), reason: s.reason }).collect();
     let roots: Vec<&Path> = out.roots.iter().map(|r| r.path.as_path()).collect();
 
-    let report = ScanReport {
+    let mut report = ScanReport {
         schema_version: SCHEMA_VERSION,
         ddc_version: env!("CARGO_PKG_VERSION").to_owned(),
         platform: crate::platform::PLATFORM,
@@ -258,7 +258,9 @@ pub(crate) fn scan_inner(
         skipped_total: out.skipped_total,
         cancelled: out.cancelled,
         not_scanned: visitor.not_scanned(),
+        lossy_paths: None,
     };
+    report.lossy_paths = crate::json_path::count_lossy(&report);
     Ok(Scanned { report, index, errors: out.errors })
 }
 

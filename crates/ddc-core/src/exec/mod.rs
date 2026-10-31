@@ -160,6 +160,7 @@ pub struct ExecReport {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct VolumeSpace {
+    #[serde(serialize_with = "crate::json_path::path")]
     pub mount_point: PathBuf,
     /// Bytes available to the user.
     pub free_before: u64,

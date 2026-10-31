@@ -43,6 +43,7 @@ pub struct Decision {
     /// The volume the decision is about: the one under 10 % free with
     /// something selected on it (when the low-disk check is on), also while a
     /// snooze holds the notification back; otherwise the first scan root's.
+    #[serde(serialize_with = "crate::json_path::opt_path")]
     pub volume: Option<PathBuf>,
     /// What the default selection frees on all volumes together (estimate).
     pub reclaimable: u64,

@@ -111,6 +111,7 @@ fn clean(items: Vec<CleanItem>) -> CleanReport {
         local_snapshots: 0,
         journal: PathBuf::from("/nonexistent/actions.jsonl"),
         last_scan_saved: false,
+        lossy_paths: None,
     }
 }
 

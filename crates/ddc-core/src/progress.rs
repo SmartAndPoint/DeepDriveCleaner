@@ -109,6 +109,7 @@ pub struct ItemsEvent {
 pub struct CurrentEvent {
     /// 1-based, of `n`.
     pub i: u64,
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     pub action: ActionKind,
     pub bytes: u64,
@@ -122,6 +123,7 @@ pub struct ItemEvent {
     /// 1-based, of `n`.
     pub i: u64,
     pub n: u64,
+    #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     pub action: ActionKind,
     /// Allocated bytes as the clean's re-check measured them.
