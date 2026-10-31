@@ -334,6 +334,10 @@ mod tests {
     /// `remove` takes a marked folder of this user's and nothing else.
     #[test]
     fn remove_takes_only_a_marked_folder() {
+        // Load runs, and the ownership check of the marker, need a supported platform.
+        if crate::unsupported("remove_takes_only_a_marked_folder") {
+            return;
+        }
         let marked = mktemp().unwrap();
         fs::create_dir_all(marked.join("a/b")).unwrap();
         assert_eq!(remove(&marked).unwrap(), marked, "mktemp gives a canonical path");
