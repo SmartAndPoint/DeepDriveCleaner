@@ -21,6 +21,8 @@ DeepDriveCleaner · scanned ~ in 39.6s · 5.5M files · 544.8 GiB
 
 Status: 0.3.0. macOS 26 on Apple Silicon. The app now schedules scans itself and notifies with Review and Remind Me Tomorrow (Settings → Schedule).
 
+The command-line tool also runs on Linux, x86_64 and aarch64, as one static binary: `scan`, `clean`, `keep`, `rules` and `du`, with the Linux catalog (XDG caches, the editors' remote servers, rootless Docker) and the freedesktop Trash. `disk`, `disk agents`, Homebrew, `schedule` and notifications are macOS's. Install it with the script below or from the release archives.
+
 ## Install
 
 On a Mac with Apple Silicon and macOS 26:
