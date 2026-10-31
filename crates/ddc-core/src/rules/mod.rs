@@ -41,8 +41,8 @@ pub enum Matcher {
     KnownPaths(&'static [&'static str]),
     /// Like `KnownPaths`, but rules keep working inside and the rest belongs here.
     KnownRegion(&'static [&'static str]),
-    /// Every child directory of this home-relative directory.
-    KnownChildren(&'static str),
+    /// Every child directory of these home-relative directories.
+    KnownChildren(&'static [&'static str]),
     /// Never traversed (cloud folders).
     NoTraverse(&'static [&'static str]),
     /// Directory name, optionally with sibling files in the parent and/or
@@ -208,10 +208,10 @@ impl Catalog {
             match rule.matcher {
                 Matcher::KnownPaths(paths) => paths.iter().for_each(|p| anchor(&mut c.known, p, &mut c.ancestors)),
                 Matcher::KnownRegion(paths) => paths.iter().for_each(|p| anchor(&mut c.regions, p, &mut c.ancestors)),
-                Matcher::KnownChildren(parent) => {
-                    anchor(&mut c.children_of, parent, &mut c.ancestors);
-                    c.ancestors.insert(home.join(parent));
-                }
+                Matcher::KnownChildren(parents) => parents.iter().for_each(|p| {
+                    anchor(&mut c.children_of, p, &mut c.ancestors);
+                    c.ancestors.insert(home.join(p));
+                }),
                 Matcher::NoTraverse(paths) => paths.iter().for_each(|p| {
                     c.no_traverse.insert(home.join(p), tag);
                 }),

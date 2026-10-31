@@ -134,13 +134,14 @@ pub fn home(d: &mut Desc, home: &[u8], rule: &'static Rule, rng: &mut Rng) {
             }
         }
         // Every project folder of Claude Code's is a finding of its own.
-        Matcher::KnownChildren(parent) if rule.id == "agent.claude-code-transcripts" => {
+        Matcher::KnownChildren(&[parent]) if rule.id == "agent.claude-code-transcripts" => {
             for p in ["-Users-example-a", "-Users-example-b"] {
                 payload(d, rng, &at(&format!("{parent}/{p}")), 4);
                 d.plant(at(&format!("{parent}/{p}")), rule.id);
             }
         }
-        Matcher::KnownChildren(parent) => {
+        Matcher::KnownChildren(parents) => {
+            let parent = parents[0];
             let (old, new, pins): (&str, &str, &[(&str, &str)]) = match rule.id {
                 "toolchain.nvm" => ("v18.0.0", "v20.0.0", &[(".nvm/alias/default", "20")]),
                 "toolchain.pyenv" => ("3.11.0", "3.12.0", &[(".pyenv/version", "3.12.0")]),
@@ -150,6 +151,23 @@ pub fn home(d: &mut Desc, home: &[u8], rule: &'static Rule, rng: &mut Rng) {
                     &[(".rustup/settings.toml", "default_toolchain = \"stable-aarch64-apple-darwin\"\n")],
                 ),
                 "ide.jetbrains-old-data" => ("PyCharm2023.1", "PyCharm2024.1", &[]),
+                // The CLI's record names the build it used last; the other goes.
+                "ide.vscode-server" => (
+                    "Stable-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "Stable-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    &[(
+                        ".vscode-server/cli/servers/lru.json",
+                        r#"["Stable-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","Stable-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]"#,
+                    )],
+                ),
+                "ide.cursor-server" => (
+                    "Stable-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "Stable-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    &[(
+                        ".cursor-server/cli/servers/lru.json",
+                        r#"["Stable-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","Stable-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]"#,
+                    )],
+                ),
                 other => panic!("no fixture for the KnownChildren rule {other}: add one here"),
             };
             for v in [old, new] {

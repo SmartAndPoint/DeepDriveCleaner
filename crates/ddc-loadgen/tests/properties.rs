@@ -149,7 +149,7 @@ fn rule(id: &str) -> &'static Rule {
 fn anchored(r: &'static Rule) -> Vec<&'static str> {
     match r.matcher {
         Matcher::KnownPaths(p) | Matcher::KnownRegion(p) | Matcher::NoTraverse(p) => p.to_vec(),
-        Matcher::KnownChildren(p) => vec![p],
+        Matcher::KnownChildren(p) => p.to_vec(),
         Matcher::ChildHolding { parents, .. } => parents.to_vec(),
         _ => Vec::new(),
     }

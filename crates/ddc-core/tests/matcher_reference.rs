@@ -285,7 +285,7 @@ fn reference(t: &Tree, rel: &Path) -> Verdict {
     if region.is_none()
         && let Some(r) = RULES
             .iter()
-            .find(|r| matches!(r.matcher, Matcher::KnownChildren(parent) if rel.parent() == Some(Path::new(parent))))
+            .find(|r| matches!(r.matcher, Matcher::KnownChildren(parents) if parents.iter().any(|p| rel.parent() == Some(Path::new(p)))))
     {
         return Verdict::Claim(kept_or(r.id));
     }
@@ -316,7 +316,7 @@ fn holds_known_path(rel: &Path) -> bool {
     !rel.as_os_str().is_empty()
         && RULES.iter().any(|r| match r.matcher {
             Matcher::KnownPaths(paths) | Matcher::KnownRegion(paths) => paths.iter().any(|p| above(p)),
-            Matcher::KnownChildren(parent) => above(parent) || rel == Path::new(parent),
+            Matcher::KnownChildren(parents) => parents.iter().any(|p| above(p) || rel == Path::new(p)),
             _ => false,
         })
 }
@@ -472,7 +472,7 @@ impl Vocab {
                 Matcher::KnownPaths(paths) | Matcher::KnownRegion(paths) | Matcher::NoTraverse(paths) => {
                     paths.iter().for_each(|p| base(p, &mut dir_names));
                 }
-                Matcher::KnownChildren(parent) => base(parent, &mut dir_names),
+                Matcher::KnownChildren(parents) => parents.iter().for_each(|p| base(p, &mut dir_names)),
                 Matcher::Name { names, siblings, children_any } => {
                     dir_names.extend(own(names));
                     dir_names.extend(own(children_any));

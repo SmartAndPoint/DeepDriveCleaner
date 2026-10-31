@@ -63,6 +63,8 @@ pub const GROUPS: &[(&str, &[&str])] = &[
             "ide.vscode-cache",
             "ide.cursor-cache",
             "ide.windsurf-cache",
+            "ide.vscode-server",
+            "ide.cursor-server",
         ],
     ),
     (
@@ -88,6 +90,7 @@ pub const GROUPS: &[(&str, &[&str])] = &[
         "VM and container images",
         &[
             "vm.docker-desktop",
+            "vm.docker-rootless",
             "vm.podman",
             "vm.colima",
             "vm.lima",

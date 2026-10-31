@@ -57,7 +57,7 @@ fn home_paths(rule: &Rule) -> Vec<String> {
         Matcher::KnownPaths(paths) | Matcher::KnownRegion(paths) | Matcher::NoTraverse(paths) => {
             paths.iter().map(|p| format!("~/{p}")).collect()
         }
-        Matcher::KnownChildren(parent) => vec![format!("~/{parent}/*")],
+        Matcher::KnownChildren(parents) => parents.iter().map(|p| format!("~/{p}/*")).collect(),
         Matcher::ChildHolding { parents, .. } => parents.iter().map(|p| format!("~/{p}/*")).collect(),
         Matcher::Under { name, prefixes } => prefixes.iter().map(|p| format!("~/{p}/…/{name}")).collect(),
         Matcher::Name { .. }

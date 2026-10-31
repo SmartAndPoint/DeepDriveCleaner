@@ -27,8 +27,14 @@ const AREAS: &[(&str, u64)] = &[
 ];
 
 pub fn fill(d: &mut Desc, entries: u64, rng: &mut Rng) {
-    let budget = entries.saturating_sub(d.len() as u64);
     let at = |rel: &str| join(DATA, rel.as_bytes());
+    // The home's fixed size comes out of the areas, which take half of the
+    // budget: the other users then fill the same share of every tree, and
+    // their per-user costs grow with it, not faster.
+    let start = d.len() as u64;
+    users::home(d, &at("Users"), rng);
+    let home = d.len() as u64 - start;
+    let budget = entries.saturating_sub(start + 2 * home);
     for (area, parts) in AREAS {
         let n = budget * parts / 100;
         // A few folders per area, so no single one is a flat list.
@@ -47,5 +53,5 @@ pub fn fill(d: &mut Desc, entries: u64, rng: &mut Rng) {
         }
         i += 1;
     }
-    users::users(d, &at("Users"), entries, rng);
+    users::others(d, &at("Users"), entries, rng);
 }

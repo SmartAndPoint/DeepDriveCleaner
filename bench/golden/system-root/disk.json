@@ -1,10 +1,10 @@
 {
   "areas": [
     {
-      "bytes": 2330624,
-      "dirs": 125,
+      "bytes": 1990656,
+      "dirs": 100,
       "explanation": "Apps installed for every user of this Mac.",
-      "files": 680,
+      "files": 569,
       "frees": "Delete an app you no longer use in Finder, or with its own uninstaller.",
       "id": "applications",
       "partial": false,
@@ -17,10 +17,10 @@
       "unreadable": 0
     },
     {
-      "bytes": 1212416,
-      "dirs": 70,
+      "bytes": 917504,
+      "dirs": 58,
       "explanation": "Support files, caches, fonts and plug-ins of apps for every user, and system settings.",
-      "files": 337,
+      "files": 281,
       "frees": "The app that put them there, or its uninstaller.",
       "id": "library",
       "partial": false,
@@ -33,10 +33,10 @@
       "unreadable": 0
     },
     {
-      "bytes": 798720,
-      "dirs": 60,
+      "bytes": 692224,
+      "dirs": 51,
       "explanation": "Data macOS downloads: system assets, language models, voices and update files.",
-      "files": 248,
+      "files": 205,
       "frees": "macOS removes assets it no longer needs on its own.",
       "id": "macos-assets",
       "partial": false,
@@ -64,10 +64,10 @@
       "unreadable": 0
     },
     {
-      "bytes": 528384,
-      "dirs": 42,
+      "bytes": 438272,
+      "dirs": 35,
       "explanation": "Tools installed by hand or by installers.",
-      "files": 164,
+      "files": 135,
       "frees": "The installer's uninstaller.",
       "id": "usr-local",
       "partial": false,
@@ -80,10 +80,10 @@
       "unreadable": 0
     },
     {
-      "bytes": 540672,
-      "dirs": 46,
+      "bytes": 389120,
+      "dirs": 42,
       "explanation": "System databases, logs and other files macOS keeps in /private.",
-      "files": 161,
+      "files": 129,
       "frees": "macOS manages them.",
       "id": "private",
       "partial": false,
@@ -95,10 +95,10 @@
       "unreadable": 0
     },
     {
-      "bytes": 6189056,
-      "dirs": 2264,
+      "bytes": 7426048,
+      "dirs": 2733,
       "explanation": "Home folders of the other users of this Mac. Folders you cannot read are not counted.",
-      "files": 1849,
+      "files": 2222,
       "frees": "Each user cleans their own home folder.",
       "id": "users",
       "partial": false,
@@ -110,10 +110,10 @@
       "unreadable": 0
     },
     {
-      "bytes": 327680,
-      "dirs": 21,
+      "bytes": 208896,
+      "dirs": 18,
       "explanation": "Memory dumps written when a process crashes, if core dumps are on.",
-      "files": 84,
+      "files": 67,
       "frees": "Delete them in Finder; it asks for an administrator's password.",
       "id": "cores",
       "partial": false,
@@ -126,10 +126,10 @@
       "unreadable": 0
     },
     {
-      "bytes": 552960,
-      "dirs": 46,
+      "bytes": 421888,
+      "dirs": 38,
       "explanation": "A macOS update downloaded and waiting to be installed.",
-      "files": 159,
+      "files": 131,
       "frees": "Installing the update.",
       "id": "macos-update",
       "parent": "library",
@@ -144,10 +144,10 @@
     },
     {
       "action": "simctl-runtime-delete",
-      "bytes": 569344,
-      "dirs": 37,
+      "bytes": 462848,
+      "dirs": 34,
       "explanation": "Simulator runtimes of Xcode, with the caches and images CoreSimulator keeps beside them.",
-      "files": 169,
+      "files": 136,
       "frees": "Deleting a runtime you no longer use with simctl.",
       "id": "simulator-runtimes",
       "partial": false,
@@ -161,10 +161,10 @@
     },
     {
       "action": "brew-cleanup",
-      "bytes": 1609728,
-      "dirs": 99,
+      "bytes": 1417216,
+      "dirs": 78,
       "explanation": "Homebrew's formulae, casks and their old versions.",
-      "files": 507,
+      "files": 424,
       "frees": "brew cleanup removes old versions and old downloads.",
       "id": "homebrew",
       "parent": "opt",
@@ -178,11 +178,11 @@
       "unreadable": 0
     },
     {
-      "bytes": 3551232,
-      "dirs": 531,
-      "entries_read": 1608,
+      "bytes": 2846720,
+      "dirs": 462,
+      "entries_read": 1344,
       "explanation": "Per-user temporary files and caches of apps and tools. Large folders are counted up to a limit.",
-      "files": 1078,
+      "files": 883,
       "frees": "Quitting the app that owns them, or restarting the Mac.",
       "id": "temporary-folders",
       "parent": "private",
@@ -195,11 +195,11 @@
       "unreadable": 0
     },
     {
-      "bytes": 491520,
-      "dirs": 47,
-      "entries_read": 204,
+      "bytes": 438272,
+      "dirs": 39,
+      "entries_read": 168,
       "explanation": "The shared temporary folder /tmp.",
-      "files": 158,
+      "files": 130,
       "frees": "Restarting the Mac clears what is older than three days.",
       "id": "tmp",
       "parent": "private",
@@ -228,10 +228,10 @@
       "unreadable": 0
     },
     {
-      "bytes": 552960,
-      "dirs": 40,
+      "bytes": 499712,
+      "dirs": 27,
       "explanation": "The Shared folder every user can write to.",
-      "files": 165,
+      "files": 142,
       "frees": "Delete what you no longer need in Finder.",
       "id": "shared",
       "parent": "users",
@@ -272,7 +272,7 @@
   },
   "not_counted": {
     "bytes": null,
-    "counted_bytes": 19320832,
+    "counted_bytes": 18214912,
     "data_volume_bytes": null,
     "holds": [
       {
@@ -291,8 +291,8 @@
   "schema_version": 3,
   "snapshots": {},
   "walk": {
-    "bytes": 19320832,
-    "dirs": 3430,
-    "files": 5760
+    "bytes": 18214912,
+    "dirs": 3717,
+    "files": 5455
   }
 }

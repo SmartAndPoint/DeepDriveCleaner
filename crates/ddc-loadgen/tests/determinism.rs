@@ -52,12 +52,12 @@ const PINNED: &[(Profile, &str)] = &[
     (Profile::WideRoot, "1277cc49407eed0c"),
     (Profile::Deep, "ff9ec73e270608ca"),
     (Profile::DeepPathMax, "648cd98930695a03"),
-    (Profile::Users, "b7792047387d23c0"),
+    (Profile::Users, "72f8e6cf186a7e13"),
     (Profile::Links, "48fa1a46fe3a8adb"),
     (Profile::Names, "58769f53aca9df23"),
-    (Profile::SystemRoot, "e9ef5908ac1ff60f"),
+    (Profile::SystemRoot, "7936cdf86a065216"),
     (Profile::Hostile, "653c3bec918eead1"),
-    (Profile::Mixed, "4c833bcd1b2b50f9"),
+    (Profile::Mixed, "5160d88da614d858"),
 ];
 
 #[test]
