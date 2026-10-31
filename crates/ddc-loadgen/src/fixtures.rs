@@ -4,9 +4,9 @@
 //! cannot depend on this crate, which depends on the core. A rule with no
 //! way to build it panics here, so a new rule fails the generator's tests.
 //!
-//! The trees are macOS homes on every OS: the fixtures, the manifest and so
-//! the pinned hashes and `bench/golden/` come from the macOS catalog, not
-//! from the catalog of the platform the generator runs on.
+//! The trees are homes of the platform the generator runs on: the fixtures
+//! and the manifest come from its catalog. The pinned hashes and
+//! `bench/golden/` are macOS's, and other platforms skip them.
 
 use ddc_core::rules::{Matcher, Rule, rules_of};
 
