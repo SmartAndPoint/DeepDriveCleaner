@@ -80,6 +80,7 @@ pub mod folders {
     }
 }
 
+#[cfg(not(target_os = "linux"))] // ported: `linux/fsops.rs`
 pub mod fsops {
     use std::convert::Infallible;
     use std::ffi::OsStr;
