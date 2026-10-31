@@ -30,7 +30,7 @@ export PROPTEST_CASES
 # The declared minimum Rust version, read from Cargo.toml so it is set in one place.
 MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
-.PHONY: build fmt fmt-check clippy test check release install tag require-tag dist app app-test app-dist icons \
+.PHONY: build fmt fmt-check clippy test check release install bump tag require-tag dist app app-test app-dist icons \
 	lint gate-fast gate nextest nextest-unit doctest clippy-dhat doc deny machete fuzz-lock msrv release-check unported-check \
 	tools require-tools hooks coverage coverage-ratchet ci-green cross-check golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test script-test leaks asan fuzz ddckit-test ci-green-full
 
@@ -378,6 +378,11 @@ release:
 install:
 	$(CARGO) install --path crates/ddc-cli --locked
 	ln -sf "$(HOME)/.cargo/bin/deepdrivecleaner" "$(HOME)/.cargo/bin/ddc"
+
+# The next version in every file that carries it, from HEAD's (V=major|minor|patch|X.Y.Z).
+# Cargo.toml's version is the source the rest is checked against.
+bump:
+	./scripts/bump-version.sh $(V)
 
 # A release, in this order (story "Build matrix: every target built, tested and
 # packaged from one tag", DDC-007):

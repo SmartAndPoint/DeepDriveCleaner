@@ -71,3 +71,21 @@
   such a push says nothing about Rust. `make tag` and `make dist` need a Gate run that
   ran the Rust jobs on the release commit itself: put the release notes in the commit
   that bumps the version, or start one by hand with `gh workflow run gate.yml --ref main`.
+
+## Versions and releases
+
+- More than one session releases. The version lives in one place: `version` under
+  `[workspace.package]` in `Cargo.toml`. `make tag`, `make dist` and `release.yml` read it;
+  the app's `MARKETING_VERSION` must equal it and its `CURRENT_PROJECT_VERSION` (the build
+  Sparkle compares) must grow past the last tag's. Change them only with
+  `make bump V=major|minor|patch|X.Y.Z`, never by hand: it writes `Cargo.toml`, both lock
+  files and the app's version and build together, and lists what merged since the last tag.
+- Bump from `origin/main` as it is now, never from the version you remember: start the
+  bump's branch fresh. Pick the part by everything merged since the last tag, every
+  session's work: a new capability is minor, fixes alone are patch; no major while 0.x.
+  `docs/releases/X.Y.Z.md` covers all of it, in the bump's commit.
+- A conflict on the version files means another session bumped first: rebase onto
+  `origin/main`, read its version, and decide again; its tag may already be out.
+- Run `make tag`, `make dist` and `scripts/publish-release.sh` back to back. If `main`
+  moves before the publish, the script refuses: leave the unpublished tag and release the
+  next patch (0.11.0 and 0.12.0 went out as 0.11.1 and 0.12.1, the owner, 2026-10-31).
