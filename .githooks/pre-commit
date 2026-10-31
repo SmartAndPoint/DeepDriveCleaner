@@ -1,12 +1,15 @@
 #!/bin/sh
-# The lint tier of the gate (`make lint`: fmt check and clippy) before every commit. Installed once per
-# clone by `make hooks`. Skipped when every staged path is Rust-free
+# Before every commit: scripts/private-scan.sh refuses an added line that holds a value of
+# .env or a string of .local/private-strings, naming it but never printing it; then the
+# lint tier of the gate (`make lint`: fmt check and clippy). Installed once per clone by
+# `make hooks`. The lint is skipped when every staged path is Rust-free
 # (.config/rust-free-paths, scripts/gate-scope.sh); otherwise it checks the working tree,
 # not only what is staged.
 set -eu
 # Homebrew's Rust may sit earlier in PATH; cargo finds rustc through PATH.
 export PATH="$HOME/.cargo/bin:$PATH"
 cd "$(git rev-parse --show-toplevel)"
+scripts/private-scan.sh staged </dev/null
 case "$(scripts/gate-scope.sh staged </dev/null)" in
     skip)
         echo "pre-commit: only Rust-free paths staged (.config/rust-free-paths): lint skipped"

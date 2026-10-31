@@ -1,0 +1,5 @@
+#!/bin/sh
+# Refuses a commit message that holds a value of .env or a string of
+# .local/private-strings (scripts/private-scan.sh), naming it but never printing it.
+set -eu
+exec "$(git rev-parse --show-toplevel)/scripts/private-scan.sh" message "$1"
