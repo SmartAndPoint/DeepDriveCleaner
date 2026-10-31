@@ -23,6 +23,7 @@ pub mod statfs;
 pub mod term;
 #[cfg(test)]
 pub mod testing;
+pub mod trash;
 pub mod usage;
 
 // The OS calls not ported yet: the shared stubs, of which `unported.rs`

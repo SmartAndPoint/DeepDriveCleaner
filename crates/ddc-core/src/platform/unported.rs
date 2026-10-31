@@ -303,6 +303,7 @@ pub mod term {
     }
 }
 
+#[cfg(not(target_os = "linux"))] // ported: `linux/trash.rs`
 pub mod trash {
     use std::io;
     use std::path::Path;
