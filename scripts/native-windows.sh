@@ -24,8 +24,9 @@
 # The host needs what scripts/windows-host-setup.ps1 installs, run once by its owner as
 # administrator. --setup then installs, inside the folder, rustup (--no-modify-path),
 # the toolchain of rust-toolchain.toml and the cargo-nextest of .config/tools.mk; run it
-# again after either pin changes. rustup-init can add an "Apps" entry under the
-# user's registry key; --setup removes it, so nothing is left outside the folder.
+# again after either pin changes. rustup's release adds an "Apps" entry under the user's
+# registry key only when it edits PATH, its development branch always: --setup removes
+# it when it points into the folder, so nothing is left outside.
 set -euo pipefail
 export LC_ALL=C
 
