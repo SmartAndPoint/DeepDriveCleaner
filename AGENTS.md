@@ -63,6 +63,12 @@
   main, which a release needs. For code work the unit tier is the bar; the load tests
   are for a release (the owner, 2026-10-31).
 - Never commit or push with `--no-verify`: fix what the gate names.
+- The pre-commit and commit-msg hooks run `scripts/private-scan.sh`. It refuses an added
+  line, a file name or a commit message that holds a value of `.env` (8 characters or
+  more) or a string of `.local/private-strings` (the owner's machines, their addresses
+  and user names). Both files stay local, and the hook names the variable or the line
+  number, never the value. Add a new private name to that list when you learn it. Never
+  read or print the files themselves.
 - The pre-push tier takes about a minute after a core change and longer cold: run
   `git commit` and `git push` with a 10-minute tool timeout.
 - A commit or push whose every path is on `.config/rust-free-paths` (the app's own
