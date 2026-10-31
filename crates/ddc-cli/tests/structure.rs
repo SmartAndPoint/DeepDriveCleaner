@@ -617,8 +617,8 @@ fn code(path: &Path) -> String {
 /// `skipped {test}: `, never by hand.
 #[test]
 fn every_skip_names_its_own_test() {
-    const SKIPS: [&str; 7] =
-        ["unsupported", "lacks", "no_rule", "skipped", "skipped_without", "skip_unported", "idle_share"];
+    const SKIPS: [&str; 8] =
+        ["unsupported", "lacks", "no_rule", "off_macos", "skipped", "skipped_without", "skip_unported", "idle_share"];
     let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let (mut checked, mut wrong) = (0, Vec::new());
     for entry in std::fs::read_dir(&crates).unwrap() {
