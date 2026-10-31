@@ -561,10 +561,11 @@ fn words(text: &str) -> impl Iterator<Item = &str> {
 
 /// `unsafe_code` is denied everywhere (story "Move OS calls behind the
 /// platform module", AC4): the workspace lints deny it, every crate inherits
-/// them, and only `ddc-core/src/platform/macos/mod.rs` and
-/// `ddc-core/src/platform/op_stats.rs` allow it, so no test does.
+/// them, and only the OS modules `ddc-core/src/platform/macos/mod.rs` and
+/// `ddc-core/src/platform/linux/mod.rs` (seam ADR §2, amended 2026-10-31)
+/// and `ddc-core/src/platform/op_stats.rs` allow it, so no test does.
 #[test]
-fn only_the_macos_module_and_the_counters_allow_unsafe_code() {
+fn only_the_os_modules_and_the_counters_allow_unsafe_code() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let lint = ["unsafe", "_code"].concat();
     let workspace = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
@@ -586,7 +587,14 @@ fn only_the_macos_module_and_the_counters_allow_unsafe_code() {
         }
     }
     allowed.sort();
-    assert_eq!(allowed, ["ddc-core/src/platform/macos/mod.rs", "ddc-core/src/platform/op_stats.rs"]);
+    assert_eq!(
+        allowed,
+        [
+            "ddc-core/src/platform/linux/mod.rs",
+            "ddc-core/src/platform/macos/mod.rs",
+            "ddc-core/src/platform/op_stats.rs"
+        ]
+    );
 }
 
 /// The code of a Rust file: every line but `//` comments.

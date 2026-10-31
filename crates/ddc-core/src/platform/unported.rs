@@ -248,6 +248,7 @@ pub mod rlimit {
     }
 }
 
+#[cfg(not(target_os = "linux"))] // ported: `linux/signals.rs`
 pub mod signals {
     use std::io;
     use std::sync::atomic::AtomicBool;
@@ -310,6 +311,7 @@ pub mod trash {
     }
 }
 
+#[cfg(not(target_os = "linux"))] // ported: `linux/usage.rs`
 pub mod usage {
     use std::io;
     use std::process::ExitStatus;
