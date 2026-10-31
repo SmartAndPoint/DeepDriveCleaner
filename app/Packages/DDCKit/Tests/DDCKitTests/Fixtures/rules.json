@@ -1,5 +1,6 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "platform": "macos",
   "groups": [
     "Python environments",
     "node_modules",
@@ -560,6 +561,24 @@
       "removal": "none",
       "listed": true,
       "switchable": false
+    },
+    {
+      "id": "ide.vscode-server",
+      "group": "IDE caches",
+      "category": "ide",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "ide.cursor-server",
+      "group": "IDE caches",
+      "category": "ide",
+      "class": "safe",
+      "removal": "delete",
+      "listed": true,
+      "switchable": true
     },
     {
       "id": "agent.claude-code-scratch",

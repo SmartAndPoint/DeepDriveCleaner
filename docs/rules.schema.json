@@ -10,6 +10,10 @@
         "type": "string"
       }
     },
+    "platform": {
+      "description": "The platform whose catalog this is: the one the CLI was built for,\nor the one `--platform` names (since schema 2).",
+      "$ref": "#/$defs/Platform"
+    },
     "rules": {
       "type": "array",
       "items": {
@@ -24,6 +28,7 @@
   },
   "required": [
     "schema_version",
+    "platform",
     "groups",
     "rules"
   ],
@@ -50,6 +55,15 @@
           "type": "string",
           "const": "personal"
         }
+      ]
+    },
+    "Platform": {
+      "description": "The operating system a build is for, as `std::env::consts::OS` names it.",
+      "type": "string",
+      "enum": [
+        "macos",
+        "linux",
+        "windows"
       ]
     },
     "RemovalKind": {
