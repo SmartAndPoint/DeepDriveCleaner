@@ -84,8 +84,9 @@
   bump's branch fresh. Pick the part by everything merged since the last tag, every
   session's work: a new capability is minor, fixes alone are patch; no major while 0.x.
   `docs/releases/X.Y.Z.md` covers all of it, in the bump's commit.
-- A conflict on the version files means another session bumped first: rebase onto
-  `origin/main`, read its version, and decide again; its tag may already be out.
+- A conflict on the version files means another session bumped first, and its tag may
+  already be out: `git rebase --abort`, start the branch again from `origin/main` (`git
+  fetch --tags` first), and run `make bump` again. Never resolve the version files by hand.
 - Run `make tag`, `make dist` and `scripts/publish-release.sh` back to back. If `main`
   moves before the publish, the script refuses: leave the unpublished tag and release the
   next patch (0.11.0 and 0.12.0 went out as 0.11.1 and 0.12.1, the owner, 2026-10-31).
