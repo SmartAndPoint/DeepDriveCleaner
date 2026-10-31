@@ -190,6 +190,7 @@ pub mod process {
     }
 }
 
+#[cfg(not(target_os = "linux"))] // ported: `linux/procs.rs`
 pub mod procs {
     //! Empty, which fails open; unreachable (see the module doc).
     use std::path::PathBuf;

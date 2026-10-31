@@ -25,7 +25,7 @@ trash.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc.workspace = true
-rustix = { workspace = true, features = ["process", "stdio", "termios", "time"] }
+rustix = { workspace = true, features = ["param", "process", "stdio", "termios", "time"] }
 
 [features]
 # The gate builds with both, one at a time: they install a global allocator each.
