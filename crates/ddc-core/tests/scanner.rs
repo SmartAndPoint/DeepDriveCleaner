@@ -2,7 +2,7 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use common::{OLD, TreeBuilder, alloc, reference_alloc};
+use common::{OLD, TreeBuilder, alloc, folders, reference_alloc};
 use ddc_core::platform::Capability;
 use ddc_core::scan::{
     self, DirCtx, DirListing, DirReader, EntryKind, EntryResult, NullVisitor, OwnerKind, OwnerResult, Post, Pre,
@@ -110,7 +110,7 @@ fn symlinks_are_not_followed() {
 
     let own = alloc(&t.path("own"));
     let links: u64 = ["to-outside", "loop", "dangling"].iter().map(|l| alloc(&t.path(l))).sum();
-    assert_eq!(out.total_bytes, own + links);
+    assert_eq!(out.total_bytes, own + links + folders(&[t.root()]));
     assert_eq!(out.roots[0].dirs, 1);
 }
 
@@ -133,7 +133,8 @@ fn unreadable_directory_is_reported_and_siblings_are_counted() {
     assert_eq!(out.errors_total, 1);
     assert_eq!(out.errors[0].path, locked);
     assert_eq!(out.errors[0].error.kind, ReadErrorKind::PermissionDenied);
-    assert_eq!(out.total_bytes, alloc(&sibling));
+    // The locked folder is never read, so not even its own blocks count.
+    assert_eq!(out.total_bytes, alloc(&sibling) + folders(&[t.root(), &t.path("open")]));
 }
 
 #[test]
@@ -160,7 +161,7 @@ fn claimed_subtree_is_attributed_to_its_owner() {
     assert_eq!((c.files, c.dirs), (3, 3));
     let k = owner(&out, &known);
     assert_eq!((k.tag, k.bytes), (CLAIM_BY_PATH, reference_alloc(&known)));
-    assert_eq!(out.unowned_bytes, alloc(&t.path("loose")));
+    assert_eq!(out.unowned_bytes, alloc(&t.path("loose")) + folders(&[t.root(), &t.path("proj")]));
     assert_eq!(out.total_bytes, reference_alloc(t.root()));
 }
 
@@ -179,10 +180,10 @@ fn region_keeps_rules_working_inside() {
 
     let r = owner(&out, &region);
     assert_eq!(r.kind, OwnerKind::Region);
-    assert_eq!(r.bytes, alloc(&t.path("downloads/movie")));
+    assert_eq!(r.bytes, alloc(&t.path("downloads/movie")) + folders(&[&region, &t.path("downloads/repo")]));
     assert_eq!(r.private_bytes, None, "regions are not findings; private size is not measured");
     let c = owner(&out, &t.path("downloads/repo/claimme"));
-    assert_eq!(c.bytes, alloc(&t.path("downloads/repo/claimme/dep")));
+    assert_eq!(c.bytes, reference_alloc(&t.path("downloads/repo/claimme")));
 }
 
 #[test]
@@ -197,8 +198,9 @@ fn hard_links_inside_one_finding_are_exclusive() {
     let out = walk(t.root(), &TestVisitor::default());
 
     let c = owner(&out, &t.path("claimme"));
-    assert_eq!((c.bytes, c.shared_bytes), (alloc(&a), 0));
-    assert_eq!(out.total_bytes, alloc(&a), "an inode counts once");
+    let dirs = folders(&[t.path("claimme"), t.path("claimme/sub")]);
+    assert_eq!((c.bytes, c.shared_bytes), (alloc(&a) + dirs, 0));
+    assert_eq!(out.total_bytes, alloc(&a) + dirs + folders(&[t.root()]), "an inode counts once");
 }
 
 #[test]
@@ -215,15 +217,16 @@ fn hard_links_across_findings_are_shared_by_both() {
 
     let c1 = owner(&out, &t.path("claimme1"));
     let c2 = owner(&out, &t.path("claimme2"));
-    assert_eq!((c1.bytes, c1.shared_bytes), (alloc(&only1), alloc(&a)));
-    assert_eq!((c2.bytes, c2.shared_bytes), (0, alloc(&a)));
+    let (d1, d2) = (folders(&[t.path("claimme1")]), folders(&[t.path("claimme2")]));
+    assert_eq!((c1.bytes, c1.shared_bytes), (alloc(&only1) + d1, alloc(&a)));
+    assert_eq!((c2.bytes, c2.shared_bytes), (d2, alloc(&a)));
     if ddc_core::platform::CAPABILITIES.contains(&ddc_core::platform::Capability::PrivateSize) {
         assert!(c1.private_bytes.unwrap() <= alloc(&only1), "shared inodes are not in the private size");
         assert_eq!(c2.private_bytes, Some(0));
     } else {
         assert_eq!((c1.private_bytes, c2.private_bytes), (None, None), "no private size measured");
     }
-    assert_eq!(out.total_bytes, alloc(&only1) + alloc(&a));
+    assert_eq!(out.total_bytes, alloc(&only1) + alloc(&a) + d1 + d2 + folders(&[t.root()]));
 }
 
 #[test]
@@ -247,7 +250,7 @@ fn hard_link_to_a_file_outside_the_scan_is_shared() {
     let out = walk(t.root(), &TestVisitor::default());
 
     let c = owner(&out, &t.path("claimme"));
-    assert_eq!((c.bytes, c.shared_bytes), (0, alloc(&src)));
+    assert_eq!((c.bytes, c.shared_bytes), (folders(&[t.path("claimme")]), alloc(&src)));
 }
 
 #[test]
@@ -545,9 +548,10 @@ fn a_hard_link_counts_for_an_entry_only_when_every_link_is_inside_it() {
 
     let out = walk(t.root(), &visitor);
 
-    assert_eq!(entry(&out, &region, "both").bytes, alloc(&inside));
-    assert_eq!(entry(&out, &region, "left").bytes, 0);
-    assert_eq!(entry(&out, &region, "right").bytes, 0);
+    let dir = |rel: &str| folders(&[t.path(rel)]);
+    assert_eq!(entry(&out, &region, "both").bytes, alloc(&inside) + dir("Downloads/both") + dir("Downloads/both/sub"));
+    assert_eq!(entry(&out, &region, "left").bytes, dir("Downloads/left"));
+    assert_eq!(entry(&out, &region, "right").bytes, dir("Downloads/right"));
 }
 
 #[test]
@@ -630,7 +634,7 @@ fn listed_entries_keep_what_the_reader_could_not_measure() {
     assert_eq!(entry(&out, &region, "volume").other_fs, 1);
     let deep = entry(&out, &region, "deep");
     assert_eq!(deep.other_fs, 1, "a mount point deeper inside");
-    assert_eq!(deep.bytes, alloc(&t.path("Downloads/deep/kept")));
+    assert_eq!(deep.bytes, alloc(&t.path("Downloads/deep/kept")) + folders(&[t.path("Downloads/deep")]));
     let fine = entry(&out, &region, "fine");
     assert_eq!((fine.other_fs, fine.skipped, fine.errors), (0, 0, 0));
     assert_eq!(
@@ -702,7 +706,8 @@ fn a_pruned_directory_inside_a_claim_is_never_opened_and_counts_nowhere() {
     assert_eq!((out.skipped_total, out.errors_total), (0, 0), "pruning is neither a skip nor an error");
     let claimed = owner(&out, &t.path("claimed"));
     assert!(!claimed.incomplete(), "a pruned directory does not make its owner incomplete");
-    assert_eq!((claimed.files, claimed.dirs, claimed.bytes), (1, 2, alloc(&t.path("claimed/kept/a.bin"))));
+    let read = folders(&[t.path("claimed"), t.path("claimed/kept")]);
+    assert_eq!((claimed.files, claimed.dirs, claimed.bytes), (1, 2, alloc(&t.path("claimed/kept/a.bin")) + read));
 }
 
 /// Records the name of every thread that opens a directory.

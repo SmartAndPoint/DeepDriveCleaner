@@ -60,8 +60,21 @@ const PINNED: &[(Profile, &str)] = &[
     (Profile::Mixed, "5160d88da614d858"),
 ];
 
+/// True, after saying why, off macOS: the trees plant what this platform's
+/// catalog looks for, and the pinned ones are macOS's.
+fn off_macos(test: &str) -> bool {
+    let other = ddc_core::platform::PLATFORM != ddc_core::platform::Platform::Macos;
+    if other {
+        eprintln!("skipped {test}: the pinned trees are macOS's");
+    }
+    other
+}
+
 #[test]
 fn the_s_hashes_are_pinned() {
+    if off_macos("the_s_hashes_are_pinned") {
+        return;
+    }
     assert_eq!(PINNED.len(), Profile::ALL.len(), "a profile without a pinned hash");
     for (p, want) in PINNED {
         assert_eq!(hash(*p, 1, APFS), *want, "{}", p.name());

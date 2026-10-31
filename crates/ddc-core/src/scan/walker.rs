@@ -337,7 +337,8 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
     let ctx_owner = owner_ctx(&owner);
     let owner_id = owner.as_ref().map(|o| o.id);
     let root_dev = sh.roots[root].dev;
-    let (mut files, mut bytes, mut private, mut errors) = (0u64, 0u64, 0u64, 0u64);
+    // The folder's own blocks, as `du` counts them (none on APFS).
+    let (mut files, mut bytes, mut private, mut errors) = (0u64, listing.alloc, 0u64, 0u64);
     let (mut linked_bytes, mut skipped, mut private_missing, mut foreign) = (0u64, 0u64, 0u64, 0u64);
     // The directory's own time, then each entry's, which the listing has only
     // when it asked for times.

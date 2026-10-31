@@ -312,13 +312,23 @@ pub fn try_symlink(_target: impl AsRef<Path>, _link: impl AsRef<Path>) -> std::i
     Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "the test harness makes symlinks on Unix only"))
 }
 
-/// Reference size: sum of `blocks * 512` of every non-directory under `root`,
-/// hard links counted once, symlinks not followed.
+/// The folders' own blocks, as `du` counts each folder itself: none on
+/// APFS, a few KiB each on ext4. A test adds them where a size holds folders
+/// the walk read.
+pub fn folders<P: AsRef<Path>>(paths: &[P]) -> u64 {
+    paths.iter().map(|p| meta::alloc_bytes(&fs::symlink_metadata(p).unwrap())).sum()
+}
+
+/// Reference size, as `du -s` counts it: `blocks * 512` of `root`, of every
+/// folder and of every other entry under it, hard links counted once,
+/// symlinks not followed. Folders add nothing on APFS.
 pub fn reference_alloc(root: &Path) -> u64 {
     let mut seen = std::collections::HashSet::new();
     let mut total = 0;
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
+        // Each folder's own blocks, as `du` counts them: none on APFS.
+        total += meta::alloc_bytes(&fs::symlink_metadata(&dir).unwrap());
         for e in fs::read_dir(&dir).unwrap() {
             let e = e.unwrap();
             let md = e.metadata().unwrap();

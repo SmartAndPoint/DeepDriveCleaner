@@ -224,6 +224,18 @@ fn against(path: &Path, got: &Value) -> Option<String> {
     }
 }
 
+/// True, after saying why, off macOS: the goldens are macOS's scans, of trees
+/// built from its catalog with its capabilities; another platform's trees
+/// plant what its own catalog looks for (`ddc_loadgen::fixtures::catalog`),
+/// and its load profiles check them against their manifests.
+fn off_macos(test: &str) -> bool {
+    let other = ddc_core::platform::PLATFORM != ddc_core::platform::Platform::Macos;
+    if other {
+        eprintln!("skipped {test}: the goldens are recorded on macOS");
+    }
+    other
+}
+
 fn assert_golden(diffs: &[String]) {
     assert!(diffs.is_empty(), "differs from bench/golden (`make golden-record` accepts it):\n{}", diffs.join("\n"));
 }
@@ -236,7 +248,7 @@ macro_rules! golden {
         $(
             #[test]
             fn $test() {
-                if common::unsupported(stringify!($test)) {
+                if common::unsupported(stringify!($test)) || off_macos(stringify!($test)) {
                     return;
                 }
                 assert_golden(&check(Profile::$p));
@@ -286,7 +298,9 @@ fn golden_rules() {
 /// its findings are reported as ignored and leave the plan.
 #[test]
 fn a_change_to_one_rule_fails_the_golden_check() {
-    if common::unsupported("a_change_to_one_rule_fails_the_golden_check") {
+    if common::unsupported("a_change_to_one_rule_fails_the_golden_check")
+        || off_macos("a_change_to_one_rule_fails_the_golden_check")
+    {
         return;
     }
     if recording() {

@@ -127,5 +127,5 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
             added: None,
         });
     }
-    Ok(DirListing { dev, ino, modified, entries })
+    Ok(DirListing { dev, ino, modified, alloc: meta::alloc_bytes(&md), entries })
 }

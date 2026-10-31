@@ -153,7 +153,7 @@ pub fn list(dir: &Path, expect: Option<(u64, u64)>, want_private: bool, times: T
     })?;
     // Counted once the listing is whole; a listing that fails part-way counts nothing.
     crate::stats::add(crate::stats::Counter::DirEntriesRead, entries.len() as u64);
-    Ok(DirListing { dev, ino, modified: Some(modified), entries })
+    Ok(DirListing { dev, ino, modified: Some(modified), alloc: st.st_blocks as u64 * 512, entries })
 }
 
 /// Bounds-checked reader over one attribute record.

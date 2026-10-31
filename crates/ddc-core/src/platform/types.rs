@@ -74,6 +74,11 @@ pub struct DirListing {
     /// the open makes anyway, whatever [`Times`] asked. `None` from a
     /// reader that cannot tell.
     pub modified: Option<i64>,
+    /// The directory's own allocated bytes, `st_blocks * 512` from the same
+    /// stat: what `du` counts for the folder itself. 0 on APFS, which gives a
+    /// directory no blocks; a few KiB on ext4. A listing's directory entries
+    /// carry none, so each folder counts once, when it is read.
+    pub alloc: u64,
     pub entries: Vec<EntryMeta>,
 }
 

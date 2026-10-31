@@ -185,7 +185,7 @@ impl Tree {
         };
         let dirs = self.children(dir).map(|d| entry(d, EntryKind::Dir));
         let files = self.files.keys().filter(|f| f.parent() == Some(dir)).map(|f| entry(f, EntryKind::File));
-        DirListing { dev: 0, ino: 0, modified: None, entries: dirs.chain(files).collect() }
+        DirListing { dev: 0, ino: 0, modified: None, alloc: 0, entries: dirs.chain(files).collect() }
     }
 
     fn materialize(&self, home: &Path) {
