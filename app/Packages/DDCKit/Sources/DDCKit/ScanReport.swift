@@ -9,7 +9,7 @@ import Foundation
 /// their defaults, so a report of this version without them still reads.
 public struct ScanReport: Decodable, Sendable, Equatable {
     /// `SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 3
+    public static let schemaVersion = 4
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)
@@ -359,6 +359,8 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         case userData
         case activeProject(idleDays: UInt64)
         case unknownActivity
+        /// Something inside, or the folder itself, belongs to another user.
+        case foreignOwner
 
         private enum CodingKeys: String, CodingKey {
             case reason, idleDays
@@ -371,6 +373,7 @@ public struct ScanReport: Decodable, Sendable, Equatable {
             case "user-data": self = .userData
             case "active-project": self = .activeProject(idleDays: try c.decode(UInt64.self, forKey: .idleDays))
             case "unknown-activity": self = .unknownActivity
+            case "foreign-owner": self = .foreignOwner
             case let other:
                 throw DecodingError.dataCorruptedError(forKey: .reason, in: c, debugDescription: "unknown reason \(other)")
             }

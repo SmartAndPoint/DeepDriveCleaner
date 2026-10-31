@@ -52,10 +52,12 @@ fn remove_tree(path: &Path) -> io::Result<()> {
 
 /// Adds `u+rwx` to every real directory below `root` (Go's module cache is read-only).
 fn make_dirs_writable(root: &Path) {
+    let me = crate::platform::procs::uid();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
         let Ok(md) = fs::symlink_metadata(&dir) else { continue };
-        if !md.is_dir() {
+        // Another user's folder is never changed (safety ADR, amendment of 2026-10-31).
+        if !md.is_dir() || crate::platform::meta::owner(&md).is_some_and(|u| u != me) {
             continue;
         }
         let mut perms = md.permissions();

@@ -50,6 +50,9 @@ struct OwnerAcc {
     skipped: AtomicU64,
     /// Exclusive files whose private size was not returned.
     private_missing: AtomicU64,
+    /// Entries inside, its own directory included, owned by another user
+    /// (safety ADR, amendment of 2026-10-31).
+    foreign: AtomicU64,
 }
 
 /// A direct child of an owner that lists entries; deeper tasks inherit it,
@@ -93,6 +96,8 @@ struct Shared<'a> {
     log: Mutex<Log>,
     unowned: AtomicU64,
     pruned: AtomicU64,
+    /// The scanning user, whose entries are not foreign.
+    me: u32,
 }
 
 struct Task {
@@ -106,6 +111,9 @@ struct Task {
     /// The listed entry this directory lies in.
     entry: Option<Arc<EntryAcc>>,
     hooks: bool,
+    /// The directory's owner as its parent's listing reported it; `None`
+    /// for a root and where the reader does not tell.
+    uid: Option<u32>,
 }
 
 /// Walks `roots` (canonicalized; roots nested in other roots are dropped)
@@ -160,6 +168,7 @@ pub fn walk_with_reader(
         log: Mutex::new(Log::default()),
         unowned: AtomicU64::new(0),
         pruned: AtomicU64::new(0),
+        me: crate::platform::procs::uid(),
     };
 
     pool.install(|| {
@@ -178,6 +187,7 @@ pub fn walk_with_reader(
                         root: i,
                         owner: None,
                         entry: None,
+                        uid: None,
                         hooks: true,
                     };
                     let sh = &sh;
@@ -239,7 +249,8 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         sh.pruned.fetch_add(1, Relaxed);
         return;
     }
-    let Task { dir, expect, parent, depth, root, mut owner, entry, mut hooks } = task;
+    let Task { dir, expect, parent, depth, root, mut owner, entry, mut hooks, uid } = task;
+    let foreign_dir = uid.is_some_and(|u| u != sh.me);
     let name = dir.file_name().unwrap_or(dir.as_os_str());
     let mut lists = false;
 
@@ -254,7 +265,9 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             Pre::Claim(tag) => {
                 let wants = sh.claim_wants(&ctx, tag);
                 lists = sh.visitor.lists_entries(&ctx, tag);
-                owner = Some(sh.new_owner(tag, OwnerKind::Claim, &dir, expect, parent, wants));
+                let claim = sh.new_owner(tag, OwnerKind::Claim, &dir, expect, parent, wants);
+                claim.foreign.fetch_add(u64::from(foreign_dir), Relaxed);
+                owner = Some(claim);
                 hooks = false;
             }
             Pre::Region(tag) => {
@@ -306,6 +319,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
                     Err(_) => {}
                 }
             }
+            claim.foreign.fetch_add(u64::from(foreign_dir), Relaxed);
             owner = Some(claim);
             hooks = false;
             // The region's own directory became another finding: no entries.
@@ -324,7 +338,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
     let owner_id = owner.as_ref().map(|o| o.id);
     let root_dev = sh.roots[root].dev;
     let (mut files, mut bytes, mut private, mut errors) = (0u64, 0u64, 0u64, 0u64);
-    let (mut linked_bytes, mut skipped, mut private_missing) = (0u64, 0u64, 0u64);
+    let (mut linked_bytes, mut skipped, mut private_missing, mut foreign) = (0u64, 0u64, 0u64, 0u64);
     // The directory's own time, then each entry's, which the listing has only
     // when it asked for times.
     let mut newest = listing.modified;
@@ -349,6 +363,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         // of a pnpm or uv tree), a skipped or unreadable directory still tells
         // when it last changed.
         newest = newest.max(meta.modified);
+        foreign += u64::from(meta.uid.is_some_and(|u| u != sh.me));
         match meta.kind {
             EntryKind::Dir => {
                 let child = dir.join(&meta.name);
@@ -371,6 +386,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
                         owner: owner.clone(),
                         entry: within.cloned(),
                         hooks,
+                        uid: meta.uid,
                     };
                     s.spawn(move |s| visit(s, sh, task));
                 }
@@ -410,6 +426,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             o.errors.fetch_add(errors, Relaxed);
             o.skipped.fetch_add(skipped, Relaxed);
             o.private_missing.fetch_add(private_missing, Relaxed);
+            o.foreign.fetch_add(foreign, Relaxed);
             if o.want_times
                 && let Some(t) = newest
             {
@@ -475,6 +492,7 @@ impl Shared<'_> {
             errors: AtomicU64::new(0),
             skipped: AtomicU64::new(0),
             private_missing: AtomicU64::new(0),
+            foreign: AtomicU64::new(0),
         });
         owners.push(Arc::clone(&acc));
         acc
@@ -629,6 +647,7 @@ impl Shared<'_> {
                 dirs: o.dirs.load(Relaxed),
                 errors: o.errors.load(Relaxed),
                 skipped: o.skipped.load(Relaxed),
+                foreign: o.foreign.load(Relaxed),
                 modified: Some(o.modified.load(Relaxed)).filter(|&t| t != NO_TIME),
             })
             .collect();

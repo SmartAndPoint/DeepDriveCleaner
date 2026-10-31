@@ -169,6 +169,10 @@ pub mod meta {
         0
     }
 
+    pub fn owner(_md: &Metadata) -> Option<u32> {
+        None
+    }
+
     pub fn st_flags(_md: &Metadata) -> u32 {
         0
     }

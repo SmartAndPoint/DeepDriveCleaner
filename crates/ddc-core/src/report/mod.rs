@@ -298,6 +298,8 @@ fn finding(
         RiskClass::Review => Some(NotSelected::Review),
         RiskClass::UserData => Some(NotSelected::UserData),
     };
+    // Another user's entries cannot be removed by this one: never planned.
+    let not_selected = if c.owner.foreign > 0 { Some(NotSelected::ForeignOwner) } else { not_selected };
     let ignored = hidden(c.rule.id, c.owner.bytes, opts);
     Finding {
         path: c.owner.path.clone(),

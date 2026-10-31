@@ -248,6 +248,7 @@ fn parse_batch(buf: &[u8], count: usize, want_private: bool, out: &mut Vec<Entry
             dev,
             ino,
             nlink,
+            uid: None,
             flags,
             alloc,
             private,

@@ -23,6 +23,7 @@ struct Stat {
     dev: u64,
     ino: u64,
     nlink: u32,
+    uid: u32,
     blocks: u64,
     mtime: i64,
 }
@@ -79,6 +80,7 @@ fn entry_meta(dir: &OwnedFd, name: &CStr, times: Times) -> EntryMeta {
             dev: st.dev,
             ino: st.ino,
             nlink: st.nlink,
+            uid: Some(st.uid),
             flags: 0,
             alloc: if st.kind == EntryKind::Dir { 0 } else { st.blocks * 512 },
             private: None,
@@ -92,6 +94,7 @@ fn entry_meta(dir: &OwnedFd, name: &CStr, times: Times) -> EntryMeta {
             dev: 0,
             ino: 0,
             nlink: 1,
+            uid: None,
             flags: 0,
             alloc: 0,
             private: None,
@@ -106,13 +109,19 @@ fn entry_meta(dir: &OwnedFd, name: &CStr, times: Times) -> EntryMeta {
 /// `statx` (`ENOSYS`, `EPERM`). `dev` is `makedev` of the major and minor
 /// numbers, which is what std's `MetadataExt::dev` gives.
 fn stat(dir: &impl AsFd, name: &CStr, flags: AtFlags) -> Result<Stat, Errno> {
-    let want = StatxFlags::TYPE | StatxFlags::NLINK | StatxFlags::INO | StatxFlags::BLOCKS | StatxFlags::MTIME;
+    let want = StatxFlags::TYPE
+        | StatxFlags::NLINK
+        | StatxFlags::UID
+        | StatxFlags::INO
+        | StatxFlags::BLOCKS
+        | StatxFlags::MTIME;
     match retry(|| rustix::fs::statx(dir, name, flags, want)) {
         Ok(st) => Ok(Stat {
             kind: kind(FileType::from_raw_mode(u32::from(st.stx_mode))),
             dev: rustix::fs::makedev(st.stx_dev_major, st.stx_dev_minor),
             ino: st.stx_ino,
             nlink: st.stx_nlink,
+            uid: st.stx_uid,
             blocks: st.stx_blocks,
             mtime: st.stx_mtime.tv_sec,
         }),
@@ -123,6 +132,7 @@ fn stat(dir: &impl AsFd, name: &CStr, flags: AtFlags) -> Result<Stat, Errno> {
                 dev: st.st_dev,
                 ino: st.st_ino,
                 nlink: u32::try_from(st.st_nlink).unwrap_or(u32::MAX),
+                uid: st.st_uid,
                 blocks: u64::try_from(st.st_blocks).unwrap_or(0),
                 mtime: st.st_mtime,
             })
@@ -163,15 +173,15 @@ mod tests {
     use crate::platform::{meta, testing};
     use crate::scan::reader::{DirReader as _, StdReader};
 
-    /// Name, kind, dev, ino, links, allocated bytes, modified.
-    type Row = (PathBuf, EntryKind, u64, u64, u32, u64, Option<i64>);
+    /// Name, kind, dev, ino, links, owner, allocated bytes, modified.
+    type Row = (PathBuf, EntryKind, u64, u64, u32, Option<u32>, u64, Option<i64>);
 
     fn sorted(mut l: DirListing) -> (u64, u64, Vec<Row>) {
         l.entries.sort_by(|a, b| a.name.cmp(&b.name));
         let rows = l
             .entries
             .into_iter()
-            .map(|e| (PathBuf::from(e.name), e.kind, e.dev, e.ino, e.nlink, e.alloc, e.modified))
+            .map(|e| (PathBuf::from(e.name), e.kind, e.dev, e.ino, e.nlink, e.uid, e.alloc, e.modified))
             .collect();
         (l.dev, l.ino, rows)
     }
@@ -196,10 +206,10 @@ mod tests {
         let ours = sorted(list(d.path(), None, false, Times::None).unwrap()).2;
         assert_eq!(ours.len(), 5);
         let file = ours.iter().find(|r| r.0 == Path::new("file")).unwrap();
-        assert_eq!((file.1, file.4), (EntryKind::File, 2));
-        assert!(file.5 >= 8192, "allocated: {}", file.5);
+        assert_eq!((file.1, file.4, file.5), (EntryKind::File, 2, Some(crate::platform::procs::uid())));
+        assert!(file.6 >= 8192, "allocated: {}", file.6);
         assert_eq!(ours.iter().find(|r| r.0 == Path::new("sym")).unwrap().1, EntryKind::Symlink);
-        assert_eq!(ours.iter().find(|r| r.0 == Path::new("dir")).unwrap().5, 0);
+        assert_eq!(ours.iter().find(|r| r.0 == Path::new("dir")).unwrap().6, 0);
     }
 
     /// The listing's own identity is the directory's, as `std` reads it.

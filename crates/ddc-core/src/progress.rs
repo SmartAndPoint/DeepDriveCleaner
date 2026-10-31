@@ -16,7 +16,8 @@ use crate::scan::ProgressSnapshot;
 /// Version of [`ProgressLine`]; the reports have their own. 2: the skip
 /// reason `tool-not-ready` in an item's outcome. 3: the skip reason
 /// `agent-live` and the entry locks `live-session` and `liveness-unknown`.
-pub const PROGRESS_SCHEMA_VERSION: u32 = 3;
+/// 4: the skip reason `foreign-owner` (safety ADR, amendment of 2026-10-31).
+pub const PROGRESS_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ProgressLine {

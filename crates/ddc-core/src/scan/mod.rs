@@ -192,6 +192,10 @@ pub struct OwnerResult {
     /// Subdirectories skipped (dataless, other filesystem, changed) or
     /// vanished inside; the size is then incomplete.
     pub skipped: u64,
+    /// Entries inside, its own directory included, owned by another user:
+    /// a finding with any is never selected and never removed (safety ADR,
+    /// amendment of 2026-10-31). 0 where the reader does not tell owners.
+    pub foreign: u64,
     /// The newest modification time inside, Unix seconds: of every entry
     /// listed without an error, each directory itself included. Only for a
     /// claim that [wants times](Visitor::wants_times); `None` when its root

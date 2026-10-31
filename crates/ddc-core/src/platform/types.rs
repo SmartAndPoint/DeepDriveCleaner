@@ -28,6 +28,9 @@ pub struct EntryMeta {
     pub dev: u64,
     pub ino: u64,
     pub nlink: u32,
+    /// The owner's user id; `None` where the reader does not tell (macOS
+    /// does not yet: safety ADR, amendment of 2026-10-31).
+    pub uid: Option<u32>,
     /// `st_flags` (`SF_DATALESS`, …).
     pub flags: u32,
     /// Allocated bytes on disk. Directories report 0 (as on APFS).

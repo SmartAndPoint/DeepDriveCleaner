@@ -24,8 +24,9 @@ extension SkipReason {
         case .changedSinceScan, .parentChanged, .missing, .ruleMismatch, .notAnEntry, .entryLocked, .symlink, .notADirectory,
              .incomplete:
             .rescan
+        // `foreignOwner`: only that user, or root, can remove it.
         case .kept, .protected, .projectRoot, .scanRoot, .outsideScanRoots, .actionNotAllowed, .needsConfirmation,
-             .insideAnotherItem, .nativeUnavailable:
+             .insideAnotherItem, .nativeUnavailable, .foreignOwner:
             .never
         }
     }
