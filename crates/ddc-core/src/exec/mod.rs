@@ -648,6 +648,16 @@ fn volumes_of(chosen: &[&PlanItem], env: &Env) -> BTreeMap<PathBuf, u64> {
 
 /// Number of local Time Machine snapshots (they keep deleted blocks).
 pub fn local_snapshots(commands: &dyn CommandRunner) -> usize {
+    local_snapshots_with(commands, crate::platform::CAPABILITIES)
+}
+
+/// [`local_snapshots`] on a platform that declares `capabilities`: 0, and no
+/// tool run, without `local-snapshots` (ADR "Platform seam: one platform
+/// module per OS with declared capabilities", §3).
+pub fn local_snapshots_with(commands: &dyn CommandRunner, capabilities: &[crate::platform::Capability]) -> usize {
+    if !capabilities.contains(&crate::platform::Capability::LocalSnapshots) {
+        return 0;
+    }
     commands.find("tmutil").and_then(|tmutil| count_local_snapshots(commands, &tmutil)).unwrap_or(0)
 }
 

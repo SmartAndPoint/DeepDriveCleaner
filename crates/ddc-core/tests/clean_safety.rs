@@ -1204,6 +1204,20 @@ fn local_snapshots_counted_by_the_caller_run_no_tmutil() {
     assert!(given.calls.borrow().is_empty(), "{:?}", given.calls.borrow());
 }
 
+/// Without the `local-snapshots` capability no tool is asked and none are
+/// counted (ADR "Platform seam: one platform module per OS with declared
+/// capabilities", §3).
+#[test]
+fn without_the_snapshots_capability_no_tool_runs_and_none_are_counted() {
+    use ddc_core::platform::Capability;
+    let tmutil = || FakeCommands::default().with("tmutil", true, "com.apple.TimeMachine.2026-10-25-000000.local\n");
+    let without = tmutil();
+    assert_eq!(ddc_core::exec::local_snapshots_with(&without, &[]), 0);
+    assert!(without.calls.borrow().is_empty(), "{:?}", without.calls.borrow());
+    let with = tmutil();
+    assert_eq!(ddc_core::exec::local_snapshots_with(&with, &[Capability::LocalSnapshots]), 1);
+}
+
 // Story "CLI: progress events": the hook that writes the lines that must
 // reach stderr in order.
 

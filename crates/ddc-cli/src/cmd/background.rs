@@ -49,16 +49,21 @@ fn background_walk() -> WalkOptions {
 }
 
 /// The dispatcher hands in how to notify and how to read volumes, so this
-/// module never names a way to run a program.
+/// module never names a way to run a program. A platform without the
+/// `notifications` capability decides but shows nothing (ADR "Platform seam:
+/// one platform module per OS with declared capabilities", §3).
 pub fn run(args: &ScanArgs, notifier: &dyn Notifier, statfs: &dyn StatFs) -> anyhow::Result<ExitCode> {
     let env = Env::from_process(args.data_dir.clone())?;
+    let notifier =
+        ddc_core::platform::CAPABILITIES.contains(&ddc_core::platform::Capability::Notifications).then_some(notifier);
     run_with(args, &env, notifier, statfs, &mut std::io::stdout().lock())
 }
 
+/// `notifier` is `None` where the platform cannot show a notification.
 pub fn run_with(
     args: &ScanArgs,
     env: &Env,
-    notifier: &dyn Notifier,
+    notifier: Option<&dyn Notifier>,
     statfs: &dyn StatFs,
     out: &mut dyn Write,
 ) -> anyhow::Result<ExitCode> {
@@ -119,7 +124,7 @@ pub fn run_with(
     if json {
         // The app shows it and records it with `notify ack`; nothing is written here.
         print(out, &NotifyStatus::Scanned(decision.clone()))?;
-    } else if !args.no_notify && decision.notify {
+    } else if let Some(notifier) = notifier.filter(|_| !args.no_notify && decision.notify) {
         match notifier.notify("DeepDriveCleaner", &notify::message(&decision)) {
             Ok(()) => {
                 notified = true;
@@ -248,7 +253,7 @@ mod tests {
         let recorder = Recorder::default();
         let mut out = Vec::new();
 
-        run_with(&args(&["--notify", "json", "--threshold", "1K"]), &env, &recorder, &ROOMY, &mut out).unwrap();
+        run_with(&args(&["--notify", "json", "--threshold", "1K"]), &env, Some(&recorder), &ROOMY, &mut out).unwrap();
 
         let d = decision(&out);
         assert_eq!((d.notify, d.reason), (true, Some(NotifyReason::Threshold)));
@@ -266,13 +271,29 @@ mod tests {
         let recorder = Recorder::default();
         let mut out = Vec::new();
 
-        run_with(&args(&["--threshold", "1K"]), &env, &recorder, &ROOMY, &mut out).unwrap();
-        run_with(&args(&["--threshold", "1K"]), &env, &recorder, &ROOMY, &mut out).unwrap();
-        run_with(&args(&["--threshold", "1K", "--no-notify"]), &env, &recorder, &ROOMY, &mut out).unwrap();
+        run_with(&args(&["--threshold", "1K"]), &env, Some(&recorder), &ROOMY, &mut out).unwrap();
+        run_with(&args(&["--threshold", "1K"]), &env, Some(&recorder), &ROOMY, &mut out).unwrap();
+        run_with(&args(&["--threshold", "1K", "--no-notify"]), &env, Some(&recorder), &ROOMY, &mut out).unwrap();
 
         assert_eq!(recorder.0.borrow().len(), 1, "the same amount again: no repeat");
         assert!(out.is_empty(), "silent");
         assert!(notify::load(&env).last_at.is_some());
+    }
+
+    /// A platform without the `notifications` capability decides, shows
+    /// nothing and records nothing as shown (ADR "Platform seam: one
+    /// platform module per OS with declared capabilities", §3).
+    #[test]
+    fn without_a_notifier_it_decides_and_shows_nothing() {
+        if unsupported("without_a_notifier_it_decides_and_shows_nothing") {
+            return;
+        }
+        let (_tmp, env) = fixture();
+        let mut out = Vec::new();
+        run_with(&args(&["--threshold", "1K"]), &env, None, &ROOMY, &mut out).unwrap();
+        assert!(out.is_empty(), "silent");
+        assert!(notify::load(&env).last_at.is_none(), "nothing was shown");
+        assert!(env.data_dir().join("last-scan.json").exists(), "the scan ran");
     }
 
     #[test]
@@ -284,7 +305,7 @@ mod tests {
         let mut out = Vec::new();
 
         let low = Disk { free: 5, total: 100 };
-        run_with(&args(&["--notify", "json", "--threshold", "100G"]), &env, &Recorder::default(), &low, &mut out)
+        run_with(&args(&["--notify", "json", "--threshold", "100G"]), &env, Some(&Recorder::default()), &low, &mut out)
             .unwrap();
 
         let d = decision(&out);
@@ -304,7 +325,7 @@ mod tests {
         let mut out = Vec::new();
 
         let low = Disk { free: 5, total: 100 };
-        run_with(&args(&["--notify", "json", "--threshold", "100G"]), &env, &Recorder::default(), &low, &mut out)
+        run_with(&args(&["--notify", "json", "--threshold", "100G"]), &env, Some(&Recorder::default()), &low, &mut out)
             .unwrap();
 
         assert!(!decision(&out).notify);
@@ -323,8 +344,14 @@ mod tests {
         };
         let notifies = |extra: &[&str]| {
             let mut out = Vec::new();
-            run_with(&args(&[&["--notify", "json"], extra].concat()), &env, &Recorder::default(), &ROOMY, &mut out)
-                .unwrap();
+            run_with(
+                &args(&[&["--notify", "json"], extra].concat()),
+                &env,
+                Some(&Recorder::default()),
+                &ROOMY,
+                &mut out,
+            )
+            .unwrap();
             decision(&out).notify
         };
 
