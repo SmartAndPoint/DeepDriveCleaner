@@ -206,6 +206,20 @@ pub fn clean() -> io::Result<Vec<PathBuf>> {
     clean_in(&std::env::temp_dir().canonicalize()?)
 }
 
+/// Removes the one marked temporary folder `path` (a load run's, from
+/// [`mktemp`]), by the same rule as the guard; refuses anything else.
+#[allow(clippy::disallowed_methods)] // only a folder the guard accepts as the generator's own
+pub fn remove(path: &Path) -> io::Result<PathBuf> {
+    let tmp = std::env::temp_dir().canonicalize()?;
+    let path = path.canonicalize()?;
+    if !marked_in(&path, &tmp) {
+        return Err(io::Error::other(format!("{} is not a marked temporary folder of this user", path.display())));
+    }
+    unlock(&path);
+    fs::remove_dir_all(&path)?;
+    Ok(path)
+}
+
 /// [`clean`] in the canonical folder `tmp`. A folder that cannot be removed
 /// does not stop the others; the first failure is reported at the end.
 #[allow(clippy::disallowed_methods)] // only folders the guard accepts as the generator's own
@@ -315,5 +329,17 @@ mod tests {
             assert_eq!(p.as_os_str().len(), len, "{len}");
             assert!(p.components().all(|c| !c.as_os_str().is_empty() && c.as_os_str().len() <= 200), "{len}");
         }
+    }
+
+    /// `remove` takes a marked folder of this user's and nothing else.
+    #[test]
+    fn remove_takes_only_a_marked_folder() {
+        let marked = mktemp().unwrap();
+        fs::create_dir_all(marked.join("a/b")).unwrap();
+        assert_eq!(remove(&marked).unwrap(), marked, "mktemp gives a canonical path");
+        assert!(!marked.exists());
+        let plain = tempfile::tempdir().unwrap();
+        assert!(remove(plain.path()).is_err(), "an unmarked folder is refused");
+        assert!(plain.path().exists());
     }
 }
