@@ -360,13 +360,13 @@ mod tests {
     }
 
     /// The guard holds on every OS the tests run on, the required macOS job
-    /// included: macOS has its protected folders, Linux and Windows not yet;
+    /// included: macOS and Linux have their protected folders, Windows not yet;
     /// and no platform module's `SUPPORTED` literal is `true` while the
     /// guard is false for it, so switching one on fails here first.
     #[test]
     fn a_platform_is_supported_only_with_its_own_protected_folders() {
         assert!(may_be_supported(Platform::Macos));
-        assert!(!may_be_supported(Platform::Linux));
+        assert!(may_be_supported(Platform::Linux));
         assert!(!may_be_supported(Platform::Windows));
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/platform");
         for (p, file) in
