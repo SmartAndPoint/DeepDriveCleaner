@@ -315,6 +315,31 @@ fn the_dry_run_predicts_and_changes_nothing() {
     assert!(!fx.trash().0.exists(), "nothing trashed");
 }
 
+/// A process the in-use check could not read in full (non-dumpable, or
+/// gone during the read) is counted, in the dry run's summary and in the
+/// clean report; with none, both leave the count out.
+#[test]
+fn processes_the_check_cannot_read_in_full_are_counted() {
+    if common::unsupported("processes_the_check_cannot_read_in_full_are_counted") {
+        return;
+    }
+    let fx = Fx::new();
+    let cache = fx.pycache("q");
+    let items = vec![listed(&fx.scan(), &cache)];
+    let summary = |procs: &FakeProcs| match fx.preflight(&items, procs, &FakeCommands::default()).pop() {
+        Some(PreflightLine::Summary(s)) => s,
+        other => panic!("no summary last: {other:?}"),
+    };
+    let agent = ddc_core::exec::ProcInfo { pid: 77, name: "ssh-agent".into(), withheld: true, ..Default::default() };
+    assert_eq!(summary(&FakeProcs::new(vec![agent])).unreadable_processes, Some(1));
+    assert_eq!(summary(&FakeProcs::new(vec![])).unreadable_processes, None);
+
+    let run = ExecReport { withheld_processes: 2, ..ExecReport::default() };
+    assert_eq!(CleanReport::new(&items, &[], &run, PathBuf::from("/journal")).unreadable_processes, Some(2));
+    let none = CleanReport::new(&items, &[], &ExecReport::default(), PathBuf::from("/journal"));
+    assert!(serde_json::to_value(&none).unwrap().get("unreadable_processes").is_none(), "absent with none");
+}
+
 #[test]
 fn a_newly_kept_item_and_an_unknown_rule_get_the_same_reason_from_the_dry_run_and_the_clean() {
     if common::unsupported("a_newly_kept_item_and_an_unknown_rule_get_the_same_reason_from_the_dry_run_and_the_clean") {

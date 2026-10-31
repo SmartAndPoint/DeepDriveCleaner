@@ -229,8 +229,17 @@ fn dry_run(
             if args.json {
                 serde_json::to_writer(&mut out, line)?;
                 writeln!(out)?;
-            } else if let preflight::PreflightLine::Item(item) = line {
-                writeln!(out, "{}  {}", prediction_text(&item.prediction), render::tilde(&item.path, &home))?;
+            } else {
+                match line {
+                    preflight::PreflightLine::Item(item) => {
+                        writeln!(out, "{}  {}", prediction_text(&item.prediction), render::tilde(&item.path, &home))?
+                    }
+                    preflight::PreflightLine::Summary(s) => {
+                        if let Some(n) = s.unreadable_processes {
+                            writeln!(out, "{}", prompt::unreadable_processes(n))?;
+                        }
+                    }
+                }
             }
             out.flush()
         },

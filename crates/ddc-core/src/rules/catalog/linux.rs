@@ -29,6 +29,10 @@ pub(super) const OWN_PROTECTED_IN_HOME: [&str; 9] = [
 /// The shared protected folders and Linux's own.
 pub(super) static PROTECTED_IN_HOME: [&str; 21] = super::concat(&shared::PROTECTED_IN_HOME, &OWN_PROTECTED_IN_HOME);
 
+/// Neither removed nor walked (§6, amendment of 2026-10-31): root Docker's
+/// and root Podman's storage.
+pub(super) static NEVER_WALKED: [&str; 2] = ["/var/lib/docker", "/var/lib/containers"];
+
 /// System folders that are never removed (§6, amendment of 2026-10-31).
 pub(super) static PROTECTED_SYSTEM: [&str; 7] = ["/", "/home", "/usr", "/etc", "/opt", "/var", "/boot"];
 

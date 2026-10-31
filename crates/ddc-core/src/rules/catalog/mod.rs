@@ -60,6 +60,17 @@ pub const fn protected_system(p: Platform) -> &'static [&'static str] {
     }
 }
 
+/// System folders that are neither removed nor walked on platform `p`
+/// (safety ADR, §6, amendment of 2026-10-31): the root daemons' container
+/// storage on Linux, which only they read and which can hold a database in
+/// a volume no container uses. Absolute; a scan of `/` reports them skipped.
+pub const fn never_walked(p: Platform) -> &'static [&'static str] {
+    match p {
+        Platform::Linux => &linux::NEVER_WALKED,
+        Platform::Macos | Platform::Windows => &[],
+    }
+}
+
 /// `a` then `b`, as one array of `N`: a section of protected folders after
 /// the shared one. A wrong `N` fails the build.
 const fn concat<const N: usize>(a: &[&'static str], b: &[&'static str]) -> [&'static str; N] {
@@ -340,6 +351,23 @@ mod tests {
             assert_eq!(set(protected_in_home(p)), &shared | &set(own), "{p}: the shared section and its own");
             assert!(protected_in_home(p).iter().all(|f| !std::path::Path::new(f).has_root()), "{p}: relative");
             assert!(protected_system(p).iter().all(|f| std::path::Path::new(f).has_root()), "{p}: absolute");
+        }
+    }
+
+    /// §6's folders neither removed nor walked: root Docker's and Podman's
+    /// storage on Linux, under a protected system folder; and a catalog of
+    /// this platform never opens them.
+    #[test]
+    fn root_container_storage_is_never_walked_on_linux() {
+        assert_eq!(never_walked(Platform::Linux), ["/var/lib/docker", "/var/lib/containers"]);
+        assert!(never_walked(Platform::Macos).is_empty() && never_walked(Platform::Windows).is_empty());
+        for p in never_walked(Platform::Linux) {
+            assert!(protected_system(Platform::Linux).iter().any(|s| *s != "/" && p.starts_with(s)), "{p}");
+        }
+        let catalog = super::super::Catalog::from_rules(RULES, std::path::Path::new("/home/example"));
+        for p in never_walked(PLATFORM) {
+            let never = catalog.never_open(std::path::Path::new(p), &[]);
+            assert_eq!(never, Some(super::super::NeverOpen::NoTraverse), "{p}");
         }
     }
 

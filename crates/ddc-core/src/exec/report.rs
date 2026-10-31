@@ -53,6 +53,12 @@ pub struct CleanReport {
     /// when every path is UTF-8.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lossy_paths: Option<u64>,
+    /// Processes of the user the in-use check could not read in full: a
+    /// non-dumpable one, or one that exited during the read (safety ADR, §5,
+    /// amendment of 2026-10-31). What they use is unknown. Absent when it
+    /// read every one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unreadable_processes: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -121,6 +127,7 @@ impl CleanReport {
             journal,
             last_scan_saved: false,
             lossy_paths: None,
+            unreadable_processes: (run.withheld_processes > 0).then_some(run.withheld_processes),
         };
         report.lossy_paths = crate::json_path::count_lossy(&report);
         report

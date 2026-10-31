@@ -234,6 +234,39 @@ fn listed_items_are_cleaned_and_a_swapped_or_user_data_one_is_refused() {
     assert_eq!(fx.journal().len(), 1, "only the cleaned item is journaled");
 }
 
+/// A selected item whose method is the Trash moves to the home's
+/// freedesktop Trash, with the record that names where it was, and the
+/// journal records it (story "Linux scanner and rule catalog", DDC-007).
+/// Linux only: its Trash is a folder under `HOME`, macOS's is the user's own.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_review_item_moves_to_the_freedesktop_trash_and_the_journal_records_it() {
+    if common::unsupported("a_review_item_moves_to_the_freedesktop_trash_and_the_journal_records_it") {
+        return;
+    }
+    let fx = Fx::new();
+    // No lock file: the project's dependencies are for review, and go to the Trash.
+    fx.write("r/package.json", b"{}");
+    fx.write("r/node_modules/dep/index.js", &[5u8; 20_000]);
+    let list = fx.list(&["r/node_modules"]);
+
+    let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--json"]).output().unwrap();
+
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let r = report(&out.stdout);
+    assert_eq!(outcome(&r, &fx.path("r/node_modules")), &Outcome::Trashed);
+    assert!(!fx.path("r/node_modules").exists());
+    let trash = fx.path(".local/share/Trash");
+    assert!(trash.join("files/node_modules/dep/index.js").exists(), "in the home's Trash");
+    let record = fs::read_to_string(trash.join("info/node_modules.trashinfo")).unwrap();
+    assert!(record.contains(&format!("Path={}", fx.path("r/node_modules").display())), "{record}");
+    let journal = fx.journal();
+    assert_eq!(journal.len(), 1, "{journal:?}");
+    let entry = &journal[0];
+    assert_eq!((entry["rule"].as_str(), entry["method"].as_str()), (Some("node.node_modules"), Some("trash")));
+    assert_eq!(entry["path"].as_str(), fx.path("r/node_modules").to_str());
+}
+
 #[test]
 fn a_listed_item_of_a_switched_off_type_is_still_cleaned() {
     if common::unsupported("a_listed_item_of_a_switched_off_type_is_still_cleaned") {

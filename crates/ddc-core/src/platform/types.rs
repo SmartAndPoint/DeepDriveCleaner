@@ -178,6 +178,11 @@ pub struct ProcInfo {
     /// Paths of the files it has open, as the kernel reports them (see
     /// `procs::open_files`); empty for this process, its children, or when unreadable.
     pub open_files: Vec<PathBuf>,
+    /// Some of the above could not be read: a non-dumpable process
+    /// withholds them, and one that exits during the read leaves them empty
+    /// (safety ADR, §5, amendment of 2026-10-31). The dry run and the clean
+    /// report count such processes.
+    pub withheld: bool,
 }
 
 impl ProcInfo {

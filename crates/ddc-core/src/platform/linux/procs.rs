@@ -75,7 +75,10 @@ fn user_processes(with_files: bool) -> Vec<ProcInfo> {
                 let mut info = describe(pid);
                 // This process and the tools it runs hold the clean's own descriptors.
                 if with_files && pid as u32 != own && status.ppid != own {
-                    info.open_files = files(pid);
+                    match read_files(pid) {
+                        Some(files) => info.open_files = files,
+                        None => info.withheld = true,
+                    }
                 }
                 info
             })
@@ -193,14 +196,18 @@ fn describe(pid: i32) -> ProcInfo {
     // `exe` is the executable after symlinks are resolved (a venv's
     // `bin/python` reads as the base interpreter); `cmdline`'s first
     // argument keeps the path as it was run.
-    let exe = fs::read_link(dir.join("exe")).ok().and_then(|p| file_path(p.as_os_str()));
+    let exe_link = fs::read_link(dir.join("exe"));
+    let exe = exe_link.as_ref().ok().and_then(|p| file_path(p.as_os_str()));
     let mut info = ProcInfo { pid, cwd: fs::read_link(dir.join("cwd")).ok(), ..ProcInfo::default() };
     if let Ok(cmdline) = fs::read(dir.join("cmdline")) {
         info.args = split_nul(&cmdline).map(|a| OsStr::from_bytes(a).to_os_string()).collect();
     }
-    if let Ok(environ) = fs::read(dir.join("environ")) {
-        info.env_prefixes = env_prefixes(&environ);
+    let environ = fs::read(dir.join("environ"));
+    if let Ok(environ) = &environ {
+        info.env_prefixes = env_prefixes(environ);
     }
+    // Non-dumpable, or gone during the read: what is missing could be in use.
+    info.withheld = exe_link.is_err() || info.cwd.is_none() || environ.is_err();
     info.name = exe
         .as_deref()
         .or_else(|| info.args.first().map(Path::new))
@@ -214,19 +221,20 @@ fn describe(pid: i32) -> ProcInfo {
 
 /// The open and the mapped files of `pid`, each path once.
 fn files(pid: i32) -> Vec<PathBuf> {
+    read_files(pid).unwrap_or_default()
+}
+
+/// [`files`], or `None` when the process withholds its descriptors or its
+/// maps, or is gone.
+fn read_files(pid: i32) -> Option<Vec<PathBuf>> {
     let dir = proc(pid);
-    let mut out: Vec<PathBuf> = Vec::new();
-    if let Ok(fds) = crate::stats::read_dir(dir.join("fd")) {
-        out.extend(
-            fds.flatten().filter_map(|fd| fs::read_link(fd.path()).ok()).filter_map(|p| file_path(p.as_os_str())),
-        );
-    }
-    if let Ok(maps) = fs::read(dir.join("maps")) {
-        out.extend(mapped_files(&maps));
-    }
+    let fds = crate::stats::read_dir(dir.join("fd")).ok()?;
+    let mut out: Vec<PathBuf> =
+        fds.flatten().filter_map(|fd| fs::read_link(fd.path()).ok()).filter_map(|p| file_path(p.as_os_str())).collect();
+    out.extend(mapped_files(&fs::read(dir.join("maps")).ok()?));
     out.sort();
     out.dedup();
-    out
+    Some(out)
 }
 
 /// A link target that names a file: absolute, without the kernel's

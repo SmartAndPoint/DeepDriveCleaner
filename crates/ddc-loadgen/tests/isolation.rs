@@ -123,8 +123,15 @@ fn a_trash_clean_on_a_temporary_target_is_refused() {
 
 #[test]
 fn a_clean_whose_dry_run_predicts_a_tool_is_refused() {
-    let summary =
-        |would_run| PreflightSummary { items: 3, would_delete: 1, would_trash: 1, would_run, would_skip: 0, bytes: 0 };
+    let summary = |would_run| PreflightSummary {
+        items: 3,
+        would_delete: 1,
+        would_trash: 1,
+        would_run,
+        would_skip: 0,
+        bytes: 0,
+        unreadable_processes: None,
+    };
     assert_eq!(preflight(&summary(0)), Ok(()));
     assert_eq!(preflight(&summary(1)), Err(Refusal::ToolPredicted(1)));
 }

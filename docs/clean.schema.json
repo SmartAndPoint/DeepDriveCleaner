@@ -63,6 +63,15 @@
       "format": "uint32",
       "minimum": 0
     },
+    "unreadable_processes": {
+      "description": "Processes of the user the in-use check could not read in full: a\nnon-dumpable one, or one that exited during the read (safety ADR, §5,\namendment of 2026-10-31). What they use is unknown. Absent when it\nread every one.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
     "volumes": {
       "type": "array",
       "items": {
@@ -715,6 +724,15 @@
         },
         "items": {
           "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "unreadable_processes": {
+          "description": "Processes the in-use check could not read in full, as in the clean\nreport; absent when it read every one.",
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint64",
           "minimum": 0
         },
