@@ -9218,7 +9218,7 @@
       "dev": "<tree-dev>",
       "dirs": 3,
       "files": 4,
-      "hint": "empty the Trash in Finder",
+      "hint": "empty the Trash",
       "incomplete": false,
       "ino": null,
       "modified": "2024-01-01T00:00:00Z",
