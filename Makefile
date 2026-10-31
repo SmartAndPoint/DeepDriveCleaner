@@ -157,13 +157,15 @@ load-image:
 # The release CLI measured on every profile's tree (story "Memory and CPU under load:
 # peak memory, leaks and CPU time"): wall, user and system time, peak memory and
 # threads per command, in target/load/load-$(LOAD_SIZE).tsv. LOAD_PROFILE defaults to
-# all here. LOAD_LIMITS=enforce fails over bench/load-limits.tsv (CPU only with 3 runs
+# all here. LOAD_LIMITS=enforce fails over $(LOAD_LIMITS_FILE), this OS's (CPU only with 3 runs
 # or more, from a start load average of at most a quarter of the CPUs); record judges
 # nothing. A full enforce run of seed 1 with CPU judged lands in
 # bench/load-<date>-<size>.tsv, never over an existing one, and is compared with the
 # newest earlier table of its size.
 LOAD_REPEAT ?= 3
 LOAD_LIMITS ?= enforce
+# Each OS has its own limits (ddc-loadgen's limits::PATH): Linux has no bulk stat.
+LOAD_LIMITS_FILE := $(if $(filter Linux,$(shell uname)),bench/load-limits-linux.tsv,bench/load-limits.tsv)
 LOAD_DATE := $(shell date -u +%F)
 LOAD_RUN = $(if $(filter command line environment,$(origin LOAD_PROFILE)),$(LOAD_PROFILE),all)
 load:
@@ -185,7 +187,7 @@ load-baseline:
 	$(MAKE) load LOAD_PROFILE=all LOAD_SIZE=S LOAD_SEED=1 LOAD_REPEAT=3 LOAD_LIMITS=record
 	$(MAKE) load LOAD_PROFILE=all LOAD_SIZE=M LOAD_SEED=1 LOAD_REPEAT=3 LOAD_LIMITS=record
 	target/release/ddc-loadgen limits target/load/load-S.tsv target/load/load-M.tsv >target/load/load-limits.tsv
-	cp target/load/load-limits.tsv bench/load-limits.tsv
+	cp target/load/load-limits.tsv $(LOAD_LIMITS_FILE)
 
 # Scaling slopes (story "Complexity guard: operation counts and scaling exponents"):
 # the release CLI on SCALING_PROFILE (all, or names joined by commas) at an eighth, a

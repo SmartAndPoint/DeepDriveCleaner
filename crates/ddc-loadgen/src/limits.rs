@@ -6,11 +6,20 @@
 //! an absolute slack on top ([`RSS_SLACK`], [`CPU_SLACK_MS`]) so allocator
 //! and scheduler noise on a small command cannot trip it; CPU only from
 //! [`CPU_RUNS`] runs or more, so the single clean is judged on memory alone.
-//! They live in `bench/load-limits.tsv`, written by `ddc-loadgen limits`.
+//! They live in [`PATH`], one file per OS (Linux has no bulk stat and another
+//! allocator), written by `ddc-loadgen limits` on that OS.
 
 use std::collections::BTreeMap;
 
 use crate::table::Row;
+
+/// This platform's limits: `bench/load-limits.tsv` for macOS, measured on
+/// the reference Mac; `bench/load-limits-linux.tsv` for Linux, measured on
+/// a hosted Ubuntu runner (story "Linux scanner and rule catalog", DDC-007).
+pub const PATH: &str = match ddc_core::platform::PLATFORM {
+    ddc_core::platform::Platform::Linux => "bench/load-limits-linux.tsv",
+    _ => "bench/load-limits.tsv",
+};
 
 pub const HEADROOM: f64 = 1.25;
 pub const RSS_SLACK: f64 = 1_048_576.0;
