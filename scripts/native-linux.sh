@@ -5,7 +5,8 @@
 #   DDC_LINUX_HOST=<ssh host> scripts/native-linux.sh [nextest filter args...]
 #
 # Copies the working tree's tracked files to ~/$DDC_LINUX_DIR/src on the host (default
-# ddc-native) and deletes the files there that git no longer tracks. Then, in the
+# ddc-native) and deletes the files there that git no longer tracks; untracked files are
+# not copied, so `git add` a new test first. Then, in the
 # rust:<toolchain>-bookworm image, runs what gate.yml's check job runs: clippy, nextest
 # with profile ci, the doc tests and scripts/native-skips.sh linux. With filter
 # arguments it runs only the matching tests, and no clippy, doc tests or skip compare.
@@ -21,6 +22,11 @@ host="${DDC_LINUX_HOST:?set DDC_LINUX_HOST to the ssh host to run on}"
 remote="${DDC_LINUX_DIR:-ddc-native}"
 cd "$(git rev-parse --show-toplevel)"
 toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+
+if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+    echo "native-linux: untracked files are not copied; git add them to test them:" >&2
+    git ls-files --others --exclude-standard | sed 's/^/  /' >&2
+fi
 
 # Tracked files of the working tree, then the remote files git no longer tracks. Both
 # sides sort bytewise: a locale difference makes comm delete files that are tracked.

@@ -72,6 +72,33 @@
   ran the Rust jobs on the release commit itself: put the release notes in the commit
   that bumps the version, or start one by hand with `gh workflow run gate.yml --ref main`.
 
+## Linux and Windows on the owner's machines
+
+- Iterate Linux and Windows work on the owner's own machines over ssh, not through CI
+  rounds: `DDC_LINUX_HOST=<host> scripts/native-linux.sh` and `DDC_WINDOWS_HOST=<host>
+  scripts/native-windows.sh`, with nextest filter arguments to run a few tests. Each runs
+  its OS's Gate leg (clippy, nextest with profile `ci`, the doc tests and
+  `scripts/native-skips.sh`) in minutes. They copy tracked files only: `git add` a new
+  test first. Push once a whole run, not a filtered one, is green: the `check-<target>`
+  jobs stay required on `main`, so CI is the last check, not the loop.
+  The setup and the failures are in the vault's runbook "Native runs: the Linux and
+  Windows legs on the owner's machines".
+- The machines are private (the owner, 2026-10-31): no host name, address, user name,
+  OS build, hardware or measurement that describes one goes into either public repo,
+  commit messages, pull request bodies and release notes included. Write "a Linux
+  machine with docker" or "a Windows machine". Test and skip counts are fine; run
+  times, sizes, the filesystem and what else is installed there are not. The scripts
+  take the host only from the environment, never a default; the ssh alias lives in the
+  developer machine's `~/.ssh/config`. Check a diff for the alias before you push.
+- On the Windows machine everything stays in one folder of its home, `ddc-native`
+  (the owner, 2026-10-31): sources, target, cargo, rustup, the tests' home and temp
+  folder. Nothing goes on its PATH or anywhere else, and the tests' home variables
+  (`HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`) point inside it. What needs an
+  administrator is the owner's, through `scripts/windows-host-setup.ps1`;
+  `native-windows.sh --setup` installs the toolchain and nextest inside the folder and
+  removes the Apps entry rustup-init adds. Never run `ddc` against that machine's real
+  home: nothing but `--version`, `--help` and `rules`.
+
 ## Versions and releases
 
 - More than one session releases. The version lives in one place: `version` under
