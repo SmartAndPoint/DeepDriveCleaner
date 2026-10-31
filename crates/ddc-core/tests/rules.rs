@@ -289,6 +289,29 @@ fn known_paths_only_match_inside_scan_roots_and_home() {
     home.absent(&t, "Projects/app/.cache/uv");
 }
 
+/// The Hugging Face rule finds the downloads, never the sign-in token that
+/// sits at the cache's root beside them.
+#[test]
+fn hugging_face_downloads_are_found_and_its_token_is_kept() {
+    if common::unsupported("hugging_face_downloads_are_found_and_its_token_is_kept") {
+        return;
+    }
+    let t = TreeBuilder::new();
+    t.file(".cache/huggingface/hub/models--org--name/blobs/a", 100);
+    t.file(".cache/huggingface/xet/chunks/b", 100);
+    t.file(".cache/huggingface/datasets/set/c", 100);
+    t.write(".cache/huggingface/token", "hf_x");
+    t.write(".cache/huggingface/stored_tokens", "[x]");
+
+    let s = scan(&t);
+
+    for dir in ["hub", "xet", "datasets"] {
+        s.expect(&t, &format!(".cache/huggingface/{dir}"), "model.huggingface", RiskClass::Review);
+    }
+    s.absent(&t, ".cache/huggingface");
+    assert_eq!(s.found.len(), 3, "{:?}", s.summary(&t));
+}
+
 #[test]
 fn global_packages_and_cloud_folders_are_not_findings() {
     if common::unsupported("global_packages_and_cloud_folders_are_not_findings") {

@@ -77,8 +77,15 @@ pub(crate) const MODEL_OLLAMA: Rule = Rule {
     ..rule("model.ollama", MlModel, Review, Removal::Trash, Matcher::KnownPaths(&[".ollama/models"]))
 };
 
-pub(crate) const MODEL_HUGGINGFACE: Rule =
-    rule("model.huggingface", MlModel, Review, Removal::Trash, Matcher::KnownPaths(&[".cache/huggingface"]));
+// The downloaded models, datasets and Xet chunks only: the sign-in token
+// (`token`, `stored_tokens`) sits beside them at the cache's root.
+pub(crate) const MODEL_HUGGINGFACE: Rule = rule(
+    "model.huggingface",
+    MlModel,
+    Review,
+    Removal::Trash,
+    Matcher::KnownPaths(&[".cache/huggingface/hub", ".cache/huggingface/xet", ".cache/huggingface/datasets"]),
+);
 
 pub(crate) const MODEL_LMSTUDIO: Rule =
     rule("model.lmstudio", MlModel, Review, Removal::Trash, Matcher::KnownPaths(&[".lmstudio/models"]));
