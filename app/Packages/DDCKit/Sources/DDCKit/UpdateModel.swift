@@ -102,6 +102,19 @@ public final class UpdateModel {
         }
     }
 
+    /// Settings → General's version row, beside the running version: what the
+    /// last check said. Nil when the updater did not start.
+    public func versionStatus(lastCheck: Date?) -> String? {
+        switch flow.state {
+        case .unavailable: return nil
+        case .checking: return "Checking…"
+        default: break
+        }
+        if let item { return "\(item.shortVersion) is available" }
+        if flow.state == .failed { return "The last check failed" }
+        return lastCheck == nil ? "Not checked yet" : "Up to date"
+    }
+
     /// The relaunch is held or under way: no scan, clean, free or uninstall starts.
     public var jobsHeld: Bool { flow.state == .waitingForIdle || flow.state == .installing }
 

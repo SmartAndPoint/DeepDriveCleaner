@@ -18,6 +18,13 @@ final class UpdaterSettings {
     let model: UpdateModel
     /// The runner Update and Relaunch waits for.
     let activity: RunnerActivity?
+    /// The running app: "0.11.0 (16)", its short version and its build.
+    let version: String = {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        guard let build = info?["CFBundleVersion"] as? String else { return short }
+        return "\(short) (\(build))"
+    }()
     @ObservationIgnored private let updater: SparkleUpdater
 
     init(updater: SparkleUpdater, model: UpdateModel, activity: RunnerActivity?) {
