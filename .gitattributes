@@ -6,6 +6,8 @@
 
 # Fuzz regression inputs are bytes as the fuzzer found them: never converted.
 fuzz/regressions/** -text
+# Binary property lists made by plutil, for the backups reader's tests.
+crates/ddc-core/src/report/testdata/*.plist -text
 
 *.png binary
 *.jpg binary

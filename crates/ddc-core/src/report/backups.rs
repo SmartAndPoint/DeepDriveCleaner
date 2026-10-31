@@ -290,7 +290,7 @@ mod tests {
     use std::process::Command;
 
     use super::*;
-    use crate::platform::{skipped, skipped_without};
+    use crate::platform::skipped;
 
     const STATUS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -344,15 +344,25 @@ mod tests {
         tempfile::tempdir().expect("temp dir")
     }
 
-    /// Writes `xml` as `name` in `dir`, converted to a binary plist when
-    /// asked: `Unsupported` where there is no `plutil`.
+    /// `xml` in the binary format: `plutil -convert binary1` of each
+    /// constant, committed so the binary reader is tested where there is no
+    /// `plutil`.
+    fn binary_of(xml: &str) -> &'static [u8] {
+        if xml == STATUS.replace("STATE", "finished") {
+            include_bytes!("testdata/status-finished.plist")
+        } else if xml == STATUS.replace("STATE", "new") {
+            include_bytes!("testdata/status-new.plist")
+        } else if xml == INFO {
+            include_bytes!("testdata/info.plist")
+        } else {
+            panic!("no binary fixture for this property list")
+        }
+    }
+
+    /// Writes `xml` as `name` in `dir`, in the binary format when asked.
     fn plist(dir: &Path, name: &str, xml: &str, binary: bool) -> io::Result<PathBuf> {
         let path = dir.join(name);
-        std::fs::write(&path, xml)?;
-        if binary {
-            crate::platform::testing::plutil_to_binary(&path)?;
-            assert!(std::fs::read(&path)?.starts_with(b"bplist00"));
-        }
+        std::fs::write(&path, if binary { binary_of(xml) } else { xml.as_bytes() })?;
         Ok(path)
     }
 
@@ -364,10 +374,7 @@ mod tests {
         }
         for binary in [false, true] {
             let d = dir();
-            let status = plist(d.path(), "Status.plist", &STATUS.replace("STATE", "finished"), binary);
-            if skipped_without("a_finished_backup_reads_as_finished_in_both_formats", status).is_none() {
-                return;
-            }
+            plist(d.path(), "Status.plist", &STATUS.replace("STATE", "finished"), binary).unwrap();
             assert!(finished(d.path()), "binary: {binary}");
             let d = dir();
             plist(d.path(), "Status.plist", &STATUS.replace("STATE", "new"), binary).unwrap();
@@ -383,10 +390,7 @@ mod tests {
         let when = humantime::parse_rfc3339("2026-10-01T12:30:45Z").unwrap();
         for binary in [false, true] {
             let d = dir();
-            let made = plist(d.path(), "Info.plist", INFO, binary);
-            if skipped_without("the_device_and_last_backup_come_from_the_top_level_only", made).is_none() {
-                return;
-            }
+            plist(d.path(), "Info.plist", INFO, binary).unwrap();
             let info = info(d.path());
             assert_eq!(info.device_name.as_deref(), Some("Example's iPhone & more — ✓"), "binary: {binary}");
             assert_eq!(info.last_backup, Some(when), "binary: {binary}");
@@ -399,14 +403,7 @@ mod tests {
         assert!(!finished(d.path()), "missing");
         assert_eq!(info(d.path()), Info::default());
 
-        // The parser is portable; the binary plist comes from plutil.
-        let made = plist(d.path(), "Status.plist", &STATUS.replace("STATE", "finished"), true);
-        let Some(full) =
-            skipped_without("missing_truncated_or_garbage_files_read_as_not_finished_without_a_panic", made)
-        else {
-            return;
-        };
-        let bytes = std::fs::read(&full).unwrap();
+        let bytes = binary_of(&STATUS.replace("STATE", "finished")).to_vec();
         let done = Some(Value::String("finished".to_owned()));
         for cut in 0..bytes.len() {
             assert_ne!(top_level(&bytes[..cut], "SnapshotState"), done, "cut at {cut}");
@@ -418,7 +415,7 @@ mod tests {
         }
         // Every single-bit change of a valid binary plist is read or refused,
         // never a panic: the date's exponent bits too.
-        let info = std::fs::read(plist(d.path(), "Info.plist", INFO, true).unwrap()).unwrap();
+        let info = binary_of(INFO).to_vec();
         for (bytes, key) in [(&bytes, "SnapshotState"), (&info, "Last Backup Date"), (&info, "Device Name")] {
             for i in 0..bytes.len() {
                 for bit in 0..8 {
