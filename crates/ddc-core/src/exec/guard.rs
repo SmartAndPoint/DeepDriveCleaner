@@ -97,6 +97,8 @@ pub struct Guard<'a> {
     /// Per process inside an app bundle: its pid, the bundle name, and the
     /// executable's own name, which still names a renamed bundle (`Chrome.app`
     /// runs `Google Chrome`, `Xcode16.app` runs `Xcode`).
+    /// Processes of the snapshot the check could not read in full.
+    withheld: u64,
     apps: Vec<(i32, String, String)>,
     /// Per process: absolute paths it uses, and first components of relative
     /// paths whose base (cwd) is unknown.
@@ -178,6 +180,7 @@ impl<'a> Guard<'a> {
             uses: table.iter().map(uses).collect(),
             names: table.iter().map(|p| p.name.clone()).collect(),
             apps: table.iter().filter_map(|p| Some((p.pid, p.app_bundle()?, p.name.clone()))).collect(),
+            withheld: table.iter().filter(|p| p.withheld).count() as u64,
             procs,
             skips: Vec::new(),
             reader: &SystemReader,
@@ -194,6 +197,12 @@ impl<'a> Guard<'a> {
     pub fn with_reader(mut self, reader: &'a dyn DirReader) -> Self {
         self.reader = reader;
         self
+    }
+
+    /// Processes of the snapshot whose details the check could not read in
+    /// full: what they use is unknown (safety ADR, §5, amendment of 2026-10-31).
+    pub fn withheld(&self) -> u64 {
+        self.withheld
     }
 
     /// A process named `name` was running at the snapshot.

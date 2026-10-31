@@ -156,6 +156,8 @@ pub struct ExecReport {
     pub local_snapshots: usize,
     /// A cancel stopped the run; the items it left are `NotRun`.
     pub cancelled: bool,
+    /// Processes the in-use check could not read in full.
+    pub withheld_processes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -326,6 +328,7 @@ pub fn execute(
     let mut report = ExecReport { local_snapshots: snapshots, ..ExecReport::default() };
     let markers = keep_markers(chosen.iter().map(|i| i.finding.path.clone()).collect(), opts, progress.walk());
     let guard = guard::Guard::new(env, catalog, &plan.roots, markers, ports.procs).with_skips(opts.skips.to_vec());
+    report.withheld_processes = guard.withheld();
     // Each conda install is asked for its folders once per clean.
     let installs = crate::conda::Installs::new(ports.commands, crate::conda::candidates(env.home(), env.system_root()));
     // Entries that went to the Trash: what lies inside them went with them.

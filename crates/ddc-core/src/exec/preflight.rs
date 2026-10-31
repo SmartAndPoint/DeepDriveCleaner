@@ -82,6 +82,10 @@ pub struct PreflightSummary {
     pub would_skip: u64,
     /// Bytes of the items not predicted as skipped.
     pub bytes: u64,
+    /// Processes the in-use check could not read in full, as in the clean
+    /// report; absent when it read every one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unreadable_processes: Option<u64>,
 }
 
 /// Read-only ports: tools are looked up, never run.
@@ -158,7 +162,9 @@ pub fn preflight_skipping(
         .filter(|(_, e)| matches!(e, Some((_, Prediction::WouldTrash))))
         .map(|(item, _)| item.path.as_path())
         .collect();
-    let mut summary = PreflightSummary::default();
+    let withheld = guard.withheld();
+    let mut summary =
+        PreflightSummary { unreadable_processes: (withheld > 0).then_some(withheld), ..PreflightSummary::default() };
     for (item, entry) in listed.iter().zip(entries) {
         let (bytes, prediction) = match entry {
             Some(predicted) => predicted,

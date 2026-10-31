@@ -368,7 +368,17 @@ pub fn print_result(w: &mut impl Write, r: &ExecReport, home: &Path, journal: &P
             r.local_snapshots
         )?;
     }
+    if r.withheld_processes > 0 {
+        writeln!(w, "{}", unreadable_processes(r.withheld_processes))?;
+    }
     writeln!(w, "Journal: {}", tilde(journal, home))
+}
+
+/// What the dry run and the clean say of the processes the in-use check
+/// could not read in full (safety ADR, §5, amendment of 2026-10-31).
+pub fn unreadable_processes(n: u64) -> String {
+    let what = if n == 1 { "1 process" } else { &format!("{n} processes") };
+    format!("note: {what} of yours could not be read in full; what they use was not checked.")
 }
 
 #[cfg(test)]
