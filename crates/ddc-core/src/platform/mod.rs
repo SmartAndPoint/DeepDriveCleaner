@@ -46,9 +46,9 @@ pub use imp::{
     bulk, errno, folders, fsops, iopolicy, meta, process, procs, rlimit, signals, statfs, term, trash, usage,
 };
 
-/// What in-source tests need from the OS (a symlink, a non-UTF-8 name, a
-/// tool such as `plutil`): `Unsupported` where it is missing, and the test
-/// skips through [`skipped_without`].
+/// What in-source tests need from the OS (a symlink, a non-UTF-8 name):
+/// `Unsupported` where it is missing, and the test skips through
+/// [`skipped_without`].
 #[cfg(test)]
 pub use imp::testing;
 
@@ -145,8 +145,6 @@ mod pins {
     const _: fn(&Path, &Path) -> io::Result<()> = imp::testing::symlink;
     #[cfg(test)]
     const _: fn(&[u8]) -> Option<std::ffi::OsString> = imp::testing::name_from_bytes;
-    #[cfg(test)]
-    const _: fn(&Path) -> io::Result<()> = imp::testing::plutil_to_binary;
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
@@ -311,6 +309,7 @@ pub(crate) fn skipped(test: &str) -> bool {
 /// return `Unsupported`, so nothing skips there.
 #[cfg(test)]
 #[allow(clippy::print_stderr)] // the skip line, as in `skipped`
+#[allow(dead_code)] // no in-crate test needs a tool helper until the Linux story re-gates its path tests
 pub(crate) fn skipped_without<T>(test: &str, made: std::io::Result<T>) -> Option<T> {
     match made {
         Ok(value) => Some(value),
