@@ -25,6 +25,7 @@ trash.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc.workspace = true
+trash.workspace = true
 rustix = { workspace = true, features = ["param", "process", "stdio", "termios", "time"] }
 
 [features]
