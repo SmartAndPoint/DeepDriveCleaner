@@ -12,8 +12,8 @@
 # the toolchain and nextest inside that folder, off the PATH. Running it again installs
 # nothing twice; it restarts sshd at the end, which drops open ssh sessions.
 #
-# The firewall rule OpenSSH adds covers the Private network profile: a network marked
-# Public refuses ssh until it is marked Private.
+# The firewall rule this script adds (and, often, the one the capability created) covers
+# the Private network profile: a network marked Public refuses ssh until it is marked Private.
 
 param(
     [Parameter(Mandatory = $true)][string]$PubKey,

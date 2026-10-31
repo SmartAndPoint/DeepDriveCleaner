@@ -96,7 +96,7 @@
   (`HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`) point inside it. What needs an
   administrator is the owner's, through `scripts/windows-host-setup.ps1`;
   `native-windows.sh --setup` installs the toolchain and nextest inside the folder and
-  removes the Apps entry rustup-init adds. Never run `ddc` against that machine's real
+  removes any Apps entry rustup-init leaves. Never run `ddc` against that machine's real
   home: nothing but `--version`, `--help` and `rules`.
 
 ## Versions and releases
