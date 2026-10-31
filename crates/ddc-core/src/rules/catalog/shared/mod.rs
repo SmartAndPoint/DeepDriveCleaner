@@ -14,13 +14,15 @@
 //! every platform: no process elsewhere runs from a bundle, so they match
 //! nothing there.
 
+mod agents;
+mod apps;
 mod caches;
 mod ides;
 mod projects;
 mod tools;
 mod user;
 
-pub(crate) use self::{caches::*, ides::*, projects::*, tools::*, user::*};
+pub(crate) use self::{agents::*, apps::*, caches::*, ides::*, projects::*, tools::*, user::*};
 use crate::platform::Platform;
 use crate::rules::Rule;
 
@@ -60,7 +62,7 @@ impl PerOs {
 }
 
 /// How many rules every platform shares.
-pub(super) const COUNT: usize = 57;
+pub(super) const COUNT: usize = 73;
 
 /// Every shared rule resolved for `p`, in the macOS order.
 pub(super) const fn all(p: Platform) -> [Rule; COUNT] {
@@ -117,6 +119,22 @@ pub(super) const fn all(p: Platform) -> [Rule; COUNT] {
         ide_workspace_storage(p),
         IDE_VSCODE_SERVER,
         IDE_CURSOR_SERVER,
+        AGENT_CLAUDE_CODE_SCRATCH,
+        AGENT_CLAUDE_CODE_FILE_HISTORY,
+        AGENT_CLAUDE_CODE_TRANSCRIPTS,
+        AGENT_CLAUDE_CODE_HISTORY,
+        AGENT_CODEX_SESSIONS,
+        AGENT_CODEX_RUNTIMES,
+        AGENT_OPENCODE_DATA,
+        AGENT_CURSOR_AGENT_DATA,
+        AGENT_CLAUDE_CODE_SEALED,
+        AGENT_CURSOR_SEALED,
+        app_chrome_cache(p),
+        app_brave_cache(p),
+        app_firefox_cache(p),
+        app_spotify_cache(p),
+        app_slack_cache(p),
+        trash(p),
         USER_PICTURES,
         user_movies(p),
         USER_MUSIC,

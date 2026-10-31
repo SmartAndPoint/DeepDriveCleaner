@@ -402,14 +402,16 @@ fn a_plan_without_a_list_never_holds_a_listed_only_item() {
     assert!(!paste.exists());
 }
 
-/// The rules sit in the macOS catalog only: no other platform lists a
-/// harness folder yet.
+/// Every platform lists the same rules: the harnesses keep their folders
+/// at the same home-relative paths everywhere.
 #[test]
-fn the_agent_rules_are_macos_rows() {
+fn every_platform_lists_the_agent_rules() {
     use ddc_core::platform::Platform;
     use ddc_core::rules::rules_of;
-    let agent = |p: Platform| rules_of(p).iter().filter(|r| r.id.starts_with("agent.")).count();
-    assert_eq!(agent(Platform::Macos), 10);
-    assert_eq!(agent(Platform::Linux), 0);
-    assert_eq!(agent(Platform::Windows), 0);
+    let agent =
+        |p: Platform| rules_of(p).iter().filter(|r| r.id.starts_with("agent.")).map(|r| r.id).collect::<Vec<_>>();
+    assert_eq!(agent(Platform::Macos).len(), 10);
+    for p in [Platform::Linux, Platform::Windows] {
+        assert_eq!(agent(p), agent(Platform::Macos), "{p}");
+    }
 }

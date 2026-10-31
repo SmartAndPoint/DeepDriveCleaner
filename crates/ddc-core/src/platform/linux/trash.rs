@@ -31,7 +31,9 @@ mod tests {
     #[test]
     fn a_file_in_the_home_moves_to_the_home_trash_with_its_origin() {
         let d = tempfile::tempdir_in(folders::home().expect("HOME")).unwrap();
-        let name = format!("ddc-trash-test-{}", std::process::id());
+        // Unique across runs: a home trash outlives them, and a name in it
+        // already gets another one.
+        let name = format!("ddc-trash-test{}", d.path().file_name().unwrap().to_string_lossy());
         let f = d.path().join(&name);
         fs::write(&f, b"x").unwrap();
         move_to_trash(&f).unwrap();
@@ -49,7 +51,7 @@ mod tests {
     #[test]
     fn a_file_on_another_file_system_leaves_it() {
         let d = tempfile::tempdir().unwrap();
-        let name = format!("ddc-trash-other-{}", std::process::id());
+        let name = format!("ddc-trash-other{}", d.path().file_name().unwrap().to_string_lossy());
         let f = d.path().join(&name);
         fs::write(&f, b"x").unwrap();
         let here = meta::file_id(&fs::metadata(d.path()).unwrap()).unwrap().0;

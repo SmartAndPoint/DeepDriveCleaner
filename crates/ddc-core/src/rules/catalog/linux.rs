@@ -108,6 +108,25 @@ pub(super) static RULES: [Rule; COUNT] = [
     shared::ide_workspace_storage(Platform::Linux),
     shared::IDE_VSCODE_SERVER,
     shared::IDE_CURSOR_SERVER,
+    // ---- coding agents (ADR "Agent footprint: worktrees, harness data and
+    // bounded consent for agents", §3) ---------------------------------------------
+    shared::AGENT_CLAUDE_CODE_SCRATCH,
+    shared::AGENT_CLAUDE_CODE_FILE_HISTORY,
+    shared::AGENT_CLAUDE_CODE_TRANSCRIPTS,
+    shared::AGENT_CLAUDE_CODE_HISTORY,
+    shared::AGENT_CODEX_SESSIONS,
+    shared::AGENT_CODEX_RUNTIMES,
+    shared::AGENT_OPENCODE_DATA,
+    shared::AGENT_CURSOR_AGENT_DATA,
+    shared::AGENT_CLAUDE_CODE_SEALED,
+    shared::AGENT_CURSOR_SEALED,
+    // ---- application caches -------------------------------------------------------
+    shared::app_chrome_cache(Platform::Linux),
+    shared::app_brave_cache(Platform::Linux),
+    shared::app_firefox_cache(Platform::Linux),
+    shared::app_spotify_cache(Platform::Linux),
+    shared::app_slack_cache(Platform::Linux),
+    shared::trash(Platform::Linux),
     // ---- user data (report only) --------------------------------------------------
     shared::USER_PICTURES,
     shared::user_movies(Platform::Linux),
