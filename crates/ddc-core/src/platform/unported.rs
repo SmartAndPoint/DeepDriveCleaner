@@ -278,6 +278,7 @@ pub mod signals {
     }
 }
 
+#[cfg(not(target_os = "linux"))] // ported: `linux/statfs.rs`
 pub mod statfs {
     use std::io;
     use std::path::Path;
