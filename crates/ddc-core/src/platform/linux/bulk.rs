@@ -2,7 +2,9 @@
 //! opened without following a symlink, read in batches of names, and each
 //! entry is stat'ed relative to the open directory, never following a
 //! symlink. Linux has no bulk stat, so it is one `statx` per entry. No
-//! private size and no date added: Linux keeps neither.
+//! private size: Linux keeps none. Linux keeps no date added either; the
+//! birth time stands in for it where the filesystem records one (ext4,
+//! btrfs, XFS), so a download's date is when it was written.
 
 use std::ffi::{CStr, OsStr};
 use std::mem::MaybeUninit;
@@ -26,6 +28,9 @@ struct Stat {
     uid: u32,
     blocks: u64,
     mtime: i64,
+    /// Asked for only with [`Times::ModifiedAndAdded`], and `None` where the
+    /// filesystem keeps no birth time.
+    btime: Option<i64>,
 }
 
 pub fn list(
@@ -38,7 +43,7 @@ pub fn list(
         rustix::fs::open(dir, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty())
     })
     .map_err(read_error)?;
-    let me = stat(&fd, c"", AtFlags::EMPTY_PATH).map_err(read_error)?;
+    let me = stat(&fd, c"", AtFlags::EMPTY_PATH, false).map_err(read_error)?;
     if let Some((want_dev, want_ino)) = expect {
         if me.dev != want_dev {
             return Err(ReadError::new(ReadErrorKind::OtherFilesystem, None));
@@ -73,7 +78,8 @@ pub fn list(
 /// its errno, as the reference reader's does.
 fn entry_meta(dir: &OwnedFd, name: &CStr, times: Times) -> EntryMeta {
     let name_os = OsStr::from_bytes(name.to_bytes()).to_owned();
-    match stat(dir, name, AtFlags::SYMLINK_NOFOLLOW | AtFlags::STATX_DONT_SYNC) {
+    let added = times == Times::ModifiedAndAdded;
+    match stat(dir, name, AtFlags::SYMLINK_NOFOLLOW | AtFlags::STATX_DONT_SYNC, added) {
         Ok(st) => EntryMeta {
             name: name_os,
             kind: st.kind,
@@ -86,7 +92,7 @@ fn entry_meta(dir: &OwnedFd, name: &CStr, times: Times) -> EntryMeta {
             private: None,
             error: None,
             modified: (times != Times::None).then_some(st.mtime),
-            added: None,
+            added: st.btime,
         },
         Err(e) => EntryMeta {
             name: name_os,
@@ -107,14 +113,18 @@ fn entry_meta(dir: &OwnedFd, name: &CStr, times: Times) -> EntryMeta {
 
 /// `statx`, or `fstatat` where the kernel or a seccomp filter refuses
 /// `statx` (`ENOSYS`, `EPERM`). `dev` is `makedev` of the major and minor
-/// numbers, which is what std's `MetadataExt::dev` gives.
-fn stat(dir: &impl AsFd, name: &CStr, flags: AtFlags) -> Result<Stat, Errno> {
-    let want = StatxFlags::TYPE
+/// numbers, which is what std's `MetadataExt::dev` gives. The birth time
+/// only when `btime` asks for it and `statx` returns it.
+fn stat(dir: &impl AsFd, name: &CStr, flags: AtFlags, btime: bool) -> Result<Stat, Errno> {
+    let mut want = StatxFlags::TYPE
         | StatxFlags::NLINK
         | StatxFlags::UID
         | StatxFlags::INO
         | StatxFlags::BLOCKS
         | StatxFlags::MTIME;
+    if btime {
+        want |= StatxFlags::BTIME;
+    }
     match retry(|| rustix::fs::statx(dir, name, flags, want)) {
         Ok(st) => Ok(Stat {
             kind: kind(FileType::from_raw_mode(u32::from(st.stx_mode))),
@@ -124,6 +134,8 @@ fn stat(dir: &impl AsFd, name: &CStr, flags: AtFlags) -> Result<Stat, Errno> {
             uid: st.stx_uid,
             blocks: st.stx_blocks,
             mtime: st.stx_mtime.tv_sec,
+            btime: (btime && StatxFlags::from_bits_retain(st.stx_mask).contains(StatxFlags::BTIME))
+                .then_some(st.stx_btime.tv_sec),
         }),
         Err(Errno::NOSYS | Errno::PERM) => {
             let st = retry(|| rustix::fs::statat(dir, name, flags & !AtFlags::STATX_DONT_SYNC))?;
@@ -135,6 +147,7 @@ fn stat(dir: &impl AsFd, name: &CStr, flags: AtFlags) -> Result<Stat, Errno> {
                 uid: st.st_uid,
                 blocks: u64::try_from(st.st_blocks).unwrap_or(0),
                 mtime: st.st_mtime,
+                btime: None,
             })
         }
         Err(e) => Err(e),
@@ -210,6 +223,27 @@ mod tests {
         assert!(file.6 >= 8192, "allocated: {}", file.6);
         assert_eq!(ours.iter().find(|r| r.0 == Path::new("sym")).unwrap().1, EntryKind::Symlink);
         assert_eq!(ours.iter().find(|r| r.0 == Path::new("dir")).unwrap().6, 0);
+    }
+
+    /// The birth time stands in for the date added, and only when asked
+    /// for: within a second of the file's writing, where the filesystem
+    /// keeps one.
+    #[test]
+    fn the_date_added_is_the_birth_time_when_asked_for() {
+        let d = tempfile::tempdir().unwrap();
+        fs::write(d.path().join("f"), b"x").unwrap();
+        let born = fs::metadata(d.path().join("f")).and_then(|m| m.created());
+        for times in [Times::None, Times::Modified] {
+            assert!(list(d.path(), None, false, times).unwrap().entries.iter().all(|e| e.added.is_none()));
+        }
+        let added = list(d.path(), None, false, Times::ModifiedAndAdded).unwrap().entries[0].added;
+        match born {
+            Ok(t) => {
+                let secs = t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+                assert_eq!(added, Some(secs));
+            }
+            Err(_) => assert_eq!(added, None, "no birth time here"),
+        }
     }
 
     /// The listing's own identity is the directory's, as `std` reads it.

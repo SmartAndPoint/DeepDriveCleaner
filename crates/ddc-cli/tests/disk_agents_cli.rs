@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use ddc_core::agents::{AGENTS_SCHEMA_VERSION, AgentsReport, HarnessId, RecordsState, SessionState};
+use ddc_core::platform::Capability;
 use ddc_loadgen::isolate::ClearEnv as _;
 
 mod common;
@@ -59,7 +60,9 @@ fn now_ms() -> u128 {
 
 #[test]
 fn the_report_lists_the_harnesses_and_their_live_sessions() {
-    if common::unsupported("the_report_lists_the_harnesses_and_their_live_sessions") {
+    if common::unsupported("the_report_lists_the_harnesses_and_their_live_sessions")
+        || common::lacks("the_report_lists_the_harnesses_and_their_live_sessions", Capability::CodingAgents)
+    {
         return;
     }
     let fx = Fx::new();
@@ -101,7 +104,9 @@ fn the_report_lists_the_harnesses_and_their_live_sessions() {
 
 #[test]
 fn skips_in_the_settings_bind_the_record_read() {
-    if common::unsupported("skips_in_the_settings_bind_the_record_read") {
+    if common::unsupported("skips_in_the_settings_bind_the_record_read")
+        || common::lacks("skips_in_the_settings_bind_the_record_read", Capability::CodingAgents)
+    {
         return;
     }
     let fx = Fx::new();
@@ -117,7 +122,9 @@ fn skips_in_the_settings_bind_the_record_read() {
 
 #[test]
 fn no_harness_is_an_empty_list_and_a_closed_pipe_is_success() {
-    if common::unsupported("no_harness_is_an_empty_list_and_a_closed_pipe_is_success") {
+    if common::unsupported("no_harness_is_an_empty_list_and_a_closed_pipe_is_success")
+        || common::lacks("no_harness_is_an_empty_list_and_a_closed_pipe_is_success", Capability::CodingAgents)
+    {
         return;
     }
     let fx = Fx::new();

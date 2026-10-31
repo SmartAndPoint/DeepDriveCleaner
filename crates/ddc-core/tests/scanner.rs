@@ -3,6 +3,7 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use common::{OLD, TreeBuilder, alloc, reference_alloc};
+use ddc_core::platform::Capability;
 use ddc_core::scan::{
     self, DirCtx, DirListing, DirReader, EntryKind, EntryResult, NullVisitor, OwnerKind, OwnerResult, Post, Pre,
     Progress, ReadError, ReadErrorKind, ReaderKind, StdReader, Tag, Times, Visitor, WalkOptions, WalkOutput,
@@ -247,7 +248,9 @@ fn hard_link_to_a_file_outside_the_scan_is_shared() {
 
 #[test]
 fn apfs_clone_has_near_zero_private_size() {
-    if common::unsupported("apfs_clone_has_near_zero_private_size") {
+    if common::unsupported("apfs_clone_has_near_zero_private_size")
+        || common::lacks("apfs_clone_has_near_zero_private_size", Capability::PrivateSize)
+    {
         return;
     }
     let t = TreeBuilder::new();
@@ -349,7 +352,9 @@ fn file_root_is_counted() {
 
 #[test]
 fn private_size_is_unknown_when_not_returned() {
-    if common::unsupported("private_size_is_unknown_when_not_returned") {
+    if common::unsupported("private_size_is_unknown_when_not_returned")
+        || common::lacks("private_size_is_unknown_when_not_returned", Capability::PrivateSize)
+    {
         return;
     }
     let t = TreeBuilder::new();
@@ -380,8 +385,11 @@ fn without_the_private_size_capability_no_claim_reports_one() {
 
 #[test]
 fn bulk_reader_matches_lstat_per_entry_across_batches() {
-    // The bulk reader (getattrlistbulk) is not ported off macOS yet.
-    if common::unsupported("bulk_reader_matches_lstat_per_entry_across_batches") {
+    // The getattrlistbulk reader, with its forks, private sizes and added
+    // times; `platform/linux/bulk.rs` tests the Linux reader against std.
+    if common::unsupported("bulk_reader_matches_lstat_per_entry_across_batches")
+        || common::lacks("bulk_reader_matches_lstat_per_entry_across_batches", Capability::PrivateSize)
+    {
         return;
     }
     use std::collections::HashMap;

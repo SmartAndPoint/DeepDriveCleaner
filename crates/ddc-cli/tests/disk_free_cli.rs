@@ -12,6 +12,7 @@ use std::time::SystemTime;
 
 use ddc_core::env::Env;
 use ddc_core::free::{ActionResult, FreeReport, Refusal, ReportEdit};
+use ddc_core::platform::Capability;
 use ddc_core::store::{self, LockMode};
 use ddc_loadgen::isolate::ClearEnv as _;
 
@@ -151,7 +152,9 @@ fn report(out: &Output) -> FreeReport {
 
 #[test]
 fn without_actions_and_without_a_terminal_it_refuses_and_runs_nothing() {
-    if common::unsupported("without_actions_and_without_a_terminal_it_refuses_and_runs_nothing") {
+    if common::unsupported("without_actions_and_without_a_terminal_it_refuses_and_runs_nothing")
+        || common::lacks("without_actions_and_without_a_terminal_it_refuses_and_runs_nothing", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -175,7 +178,9 @@ fn there_is_no_yes() {
 
 #[test]
 fn a_malformed_list_is_refused_whole_before_anything_runs() {
-    if common::unsupported("a_malformed_list_is_refused_whole_before_anything_runs") {
+    if common::unsupported("a_malformed_list_is_refused_whole_before_anything_runs")
+        || common::lacks("a_malformed_list_is_refused_whole_before_anything_runs", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -195,7 +200,12 @@ fn a_malformed_list_is_refused_whole_before_anything_runs() {
 
 #[test]
 fn a_confirmed_runtime_is_deleted_journaled_and_left_out_of_the_saved_disk_report() {
-    if common::unsupported("a_confirmed_runtime_is_deleted_journaled_and_left_out_of_the_saved_disk_report") {
+    if common::unsupported("a_confirmed_runtime_is_deleted_journaled_and_left_out_of_the_saved_disk_report")
+        || common::lacks(
+            "a_confirmed_runtime_is_deleted_journaled_and_left_out_of_the_saved_disk_report",
+            Capability::WholeDisk,
+        )
+    {
         return;
     }
     let fx = Fx::new();
@@ -230,7 +240,12 @@ fn a_confirmed_runtime_is_deleted_journaled_and_left_out_of_the_saved_disk_repor
 
 #[test]
 fn brew_cleanup_runs_alone_with_no_autoremove_and_its_dry_run_changes_nothing() {
-    if common::unsupported("brew_cleanup_runs_alone_with_no_autoremove_and_its_dry_run_changes_nothing") {
+    if common::unsupported("brew_cleanup_runs_alone_with_no_autoremove_and_its_dry_run_changes_nothing")
+        || common::lacks(
+            "brew_cleanup_runs_alone_with_no_autoremove_and_its_dry_run_changes_nothing",
+            Capability::WholeDisk,
+        )
+    {
         return;
     }
     let fx = Fx::new();
@@ -255,7 +270,9 @@ fn brew_cleanup_runs_alone_with_no_autoremove_and_its_dry_run_changes_nothing() 
 
 #[test]
 fn after_brew_cleanup_the_last_scan_is_measured_again() {
-    if common::unsupported("after_brew_cleanup_the_last_scan_is_measured_again") {
+    if common::unsupported("after_brew_cleanup_the_last_scan_is_measured_again")
+        || common::lacks("after_brew_cleanup_the_last_scan_is_measured_again", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -288,7 +305,12 @@ fn after_brew_cleanup_the_last_scan_is_measured_again() {
 
 #[test]
 fn a_permission_error_fails_with_the_terminal_command_and_exits_1_in_text() {
-    if common::unsupported("a_permission_error_fails_with_the_terminal_command_and_exits_1_in_text") {
+    if common::unsupported("a_permission_error_fails_with_the_terminal_command_and_exits_1_in_text")
+        || common::lacks(
+            "a_permission_error_fails_with_the_terminal_command_and_exits_1_in_text",
+            Capability::WholeDisk,
+        )
+    {
         return;
     }
     let fx = Fx::new();
@@ -314,7 +336,9 @@ fn a_permission_error_fails_with_the_terminal_command_and_exits_1_in_text() {
 
 #[test]
 fn a_refused_action_runs_nothing_and_the_run_still_exits_0() {
-    if common::unsupported("a_refused_action_runs_nothing_and_the_run_still_exits_0") {
+    if common::unsupported("a_refused_action_runs_nothing_and_the_run_still_exits_0")
+        || common::lacks("a_refused_action_runs_nothing_and_the_run_still_exits_0", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -329,7 +353,9 @@ fn a_refused_action_runs_nothing_and_the_run_still_exits_0() {
 
 #[test]
 fn a_held_lock_exits_75_and_runs_nothing() {
-    if common::unsupported("a_held_lock_exits_75_and_runs_nothing") {
+    if common::unsupported("a_held_lock_exits_75_and_runs_nothing")
+        || common::lacks("a_held_lock_exits_75_and_runs_nothing", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new();
@@ -405,6 +431,9 @@ esac"#
 fn a_confirmed_opt_environment_is_removed_by_its_own_conda_and_left_out_of_the_saved_disk_report() {
     if common::unsupported(
         "a_confirmed_opt_environment_is_removed_by_its_own_conda_and_left_out_of_the_saved_disk_report",
+    ) || common::lacks(
+        "a_confirmed_opt_environment_is_removed_by_its_own_conda_and_left_out_of_the_saved_disk_report",
+        Capability::WholeDisk,
     ) {
         return;
     }
@@ -440,7 +469,12 @@ fn a_confirmed_opt_environment_is_removed_by_its_own_conda_and_left_out_of_the_s
 
 #[test]
 fn conda_clean_is_limited_to_the_package_folder_and_its_dry_run_changes_nothing() {
-    if common::unsupported("conda_clean_is_limited_to_the_package_folder_and_its_dry_run_changes_nothing") {
+    if common::unsupported("conda_clean_is_limited_to_the_package_folder_and_its_dry_run_changes_nothing")
+        || common::lacks(
+            "conda_clean_is_limited_to_the_package_folder_and_its_dry_run_changes_nothing",
+            Capability::WholeDisk,
+        )
+    {
         return;
     }
     let fx = Fx::new().with_conda();
@@ -468,7 +502,9 @@ fn conda_clean_is_limited_to_the_package_folder_and_its_dry_run_changes_nothing(
 
 #[test]
 fn a_home_environment_is_refused_in_words_and_runs_no_conda() {
-    if common::unsupported("a_home_environment_is_refused_in_words_and_runs_no_conda") {
+    if common::unsupported("a_home_environment_is_refused_in_words_and_runs_no_conda")
+        || common::lacks("a_home_environment_is_refused_in_words_and_runs_no_conda", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new().with_conda();
@@ -483,7 +519,9 @@ fn a_home_environment_is_refused_in_words_and_runs_no_conda() {
 
 #[test]
 fn a_conda_action_under_a_held_lock_exits_75_and_runs_no_conda() {
-    if common::unsupported("a_conda_action_under_a_held_lock_exits_75_and_runs_no_conda") {
+    if common::unsupported("a_conda_action_under_a_held_lock_exits_75_and_runs_no_conda")
+        || common::lacks("a_conda_action_under_a_held_lock_exits_75_and_runs_no_conda", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fx::new().with_conda();
@@ -544,6 +582,10 @@ esac"#
 #[test]
 fn two_runtimes_in_one_list_run_in_order_each_journaled_and_both_leave_the_saved_disk_report() {
     if common::unsupported("two_runtimes_in_one_list_run_in_order_each_journaled_and_both_leave_the_saved_disk_report")
+        || common::lacks(
+            "two_runtimes_in_one_list_run_in_order_each_journaled_and_both_leave_the_saved_disk_report",
+            Capability::WholeDisk,
+        )
     {
         return;
     }

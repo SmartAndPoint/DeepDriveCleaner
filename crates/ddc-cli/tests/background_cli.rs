@@ -8,6 +8,7 @@ use std::time::SystemTime;
 
 use ddc_core::env::Env;
 use ddc_core::notify::{Decision, NotifyReason, NotifyReport, NotifyStatus, SkipCause};
+use ddc_core::platform::Capability;
 use ddc_core::store::{self, LockMode};
 use ddc_loadgen::isolate::ClearEnv as _;
 
@@ -55,7 +56,9 @@ fn snapshot(root: &Path) -> BTreeMap<PathBuf, (u64, fs::FileType)> {
 
 #[test]
 fn background_scan_only_reads_and_saves_the_report() {
-    if common::unsupported("background_scan_only_reads_and_saves_the_report") {
+    if common::unsupported("background_scan_only_reads_and_saves_the_report")
+        || common::lacks("background_scan_only_reads_and_saves_the_report", Capability::FullDiskAccess)
+    {
         return;
     }
     let (_tmp, home, data) = tree();
@@ -79,7 +82,9 @@ fn background_scan_only_reads_and_saves_the_report() {
 
 #[test]
 fn tcc_areas_are_never_opened() {
-    if common::unsupported("tcc_areas_are_never_opened") {
+    if common::unsupported("tcc_areas_are_never_opened")
+        || common::lacks("tcc_areas_are_never_opened", Capability::FullDiskAccess)
+    {
         return;
     }
     let (_tmp, home, data) = tree();

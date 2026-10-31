@@ -21,6 +21,7 @@ use ddc_core::exec::MemoryAreaJournal;
 use ddc_core::free::{
     self, ActionList, ActionReport, ActionResult, FREE_SCHEMA_VERSION, FreeContext, ListedAction, Refusal,
 };
+use ddc_core::platform::Capability;
 use proptest::prelude::*;
 use proptest::sample::select;
 use serde_json::{Value, json};
@@ -209,7 +210,7 @@ proptest! {
 
     #[test]
     fn a_runtime_identifier_takes_exactly_the_runtime_it_names_or_is_refused(case in cases()) {
-        if common::unsupported("a_runtime_identifier_takes_exactly_the_runtime_it_names_or_is_refused") {
+        if common::unsupported("a_runtime_identifier_takes_exactly_the_runtime_it_names_or_is_refused") || common::lacks("a_runtime_identifier_takes_exactly_the_runtime_it_names_or_is_refused", Capability::WholeDisk) {
             return Ok(());
         }
         FX.with(|fx| check(fx, &case))?;

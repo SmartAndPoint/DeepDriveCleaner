@@ -1,5 +1,6 @@
 //! Process setup done by `main` before any filesystem access.
 
+use ddc_core::platform::Capability;
 use ddc_loadgen::isolate::ClearEnv as _;
 use std::process::Command;
 
@@ -7,7 +8,12 @@ mod common;
 
 #[test]
 fn ddc_starts_with_dataless_materialization_off_and_raised_file_limit() {
-    if common::unsupported("ddc_starts_with_dataless_materialization_off_and_raised_file_limit") {
+    if common::unsupported("ddc_starts_with_dataless_materialization_off_and_raised_file_limit")
+        || common::lacks(
+            "ddc_starts_with_dataless_materialization_off_and_raised_file_limit",
+            Capability::DatalessFiles,
+        )
+    {
         return;
     }
     let tmp = tempfile::tempdir().unwrap();

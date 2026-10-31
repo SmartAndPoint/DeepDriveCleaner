@@ -1177,7 +1177,12 @@ impl Journal for ToolAtRecord<'_> {
 
 #[test]
 fn local_snapshots_counted_by_the_caller_run_no_tmutil() {
-    if common::unsupported("local_snapshots_counted_by_the_caller_run_no_tmutil") {
+    if common::unsupported("local_snapshots_counted_by_the_caller_run_no_tmutil")
+        || common::lacks(
+            "local_snapshots_counted_by_the_caller_run_no_tmutil",
+            ddc_core::platform::Capability::LocalSnapshots,
+        )
+    {
         return;
     }
     let fx = Fx::new();

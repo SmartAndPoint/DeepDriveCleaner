@@ -43,10 +43,17 @@ for a in "$@"; do filter+=" $(printf '%q' "$a")"; done
 ssh "$host" bash -s <<EOF
 set -euo pipefail
 mkdir -p ~/$remote/cargo-home ~/$remote/target ~/$remote/home
+# The image's password database does not know the host's uid. The core reads the home
+# folder from it, as a runner's does, so the container gets one that names this user
+# with the mounted home.
+printf 'root:x:0:0::/root:/bin/sh\n%s:x:%s:%s::/work/home:/bin/sh\n' \
+    "\$(id -un)" "\$(id -u)" "\$(id -g)" > ~/$remote/passwd
+printf 'root:x:0:\n%s:x:%s:\n' "\$(id -gn)" "\$(id -g)" > ~/$remote/group
 docker run --rm --user \$(id -u):\$(id -g) \
     -v ~/$remote/src:/work/src -v ~/$remote/target:/work/target \
     -v ~/$remote/cargo-home:/work/cargo-home -v ~/$remote/home:/work/home \
     -v ~/.rustup:/work/rustup -v ~/.cargo/bin:/work/cargo-bin:ro \
+    -v ~/$remote/passwd:/etc/passwd:ro -v ~/$remote/group:/etc/group:ro \
     -e CARGO_HOME=/work/cargo-home -e CARGO_TARGET_DIR=/work/target -e HOME=/work/home \
     -e PATH=/work/cargo-bin:/usr/local/bin:/usr/bin:/bin -e RUSTUP_HOME=/work/rustup \
     -e NEXTEST_PROFILE=ci -e CARGO_TERM_COLOR=never -w /work/src rust:$toolchain-bookworm bash -c '
@@ -54,7 +61,7 @@ set -o pipefail
 if [ -z "$filter" ]; then
     cargo clippy --workspace --all-targets --locked -- -D warnings || exit 1
 fi
-cargo nextest run --workspace --locked $filter 2>&1 | tee /work/target/native-tests.log; t=\$?
+cargo nextest run --workspace --locked --features ddc-core/op-stats $filter 2>&1 | tee /work/target/native-tests.log; t=\$?
 [ -n "$filter" ] && exit \$t
 cargo test --workspace --doc --locked -q || exit 1
 scripts/native-skips.sh linux /work/target/native-tests.log; s=\$?

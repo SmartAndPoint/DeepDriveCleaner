@@ -17,6 +17,7 @@ use ddc_core::disk::{
     SimulatorStatus, Sources,
 };
 use ddc_core::env::Env;
+use ddc_core::platform::Capability;
 use ddc_core::platform::statfs::VolumeStats;
 use ddc_core::report::volumes::StatFs;
 use ddc_core::report::{self, ScanOptions};
@@ -394,7 +395,9 @@ fn the_entry_budget_stops_the_temporary_folders_and_marks_them_partial() {
 
 #[test]
 fn a_folder_with_more_entries_than_the_budget_has_left_is_never_opened() {
-    if common::unsupported("a_folder_with_more_entries_than_the_budget_has_left_is_never_opened") {
+    if common::unsupported("a_folder_with_more_entries_than_the_budget_has_left_is_never_opened")
+        || common::lacks("a_folder_with_more_entries_than_the_budget_has_left_is_never_opened", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fixture::new();
@@ -574,7 +577,9 @@ impl DirReader for Opened {
 
 #[test]
 fn the_home_walk_never_opens_a_skip_or_a_cloud_folder() {
-    if common::unsupported("the_home_walk_never_opens_a_skip_or_a_cloud_folder") {
+    if common::unsupported("the_home_walk_never_opens_a_skip_or_a_cloud_folder")
+        || common::lacks("the_home_walk_never_opens_a_skip_or_a_cloud_folder", Capability::WholeDisk)
+    {
         return;
     }
     let fx = Fixture::new();

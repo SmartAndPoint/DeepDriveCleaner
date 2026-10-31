@@ -182,6 +182,8 @@ jobs:
       # and a passing test's output is shown, so its skip line reaches the log. On
       # Windows, bash sets HOME and the temp folder lies inside it, under AppData,
       # which the test trees' guard refuses; TMP and TEMP move them out of the home.
+      # With the op-stats counters, as `make nextest` runs them: the load profiles
+      # judge their growth by them once a platform is supported.
       - name: Tests
         if: ${{ needs.scope.outputs.scope != 'skip' }}
         id: tests
@@ -189,7 +191,7 @@ jobs:
         env:
           TMP: ${{ runner.temp }}
           TEMP: ${{ runner.temp }}
-        run: cargo nextest run --workspace --locked --target ${{ matrix.target }} 2>&1 | tee "$RUNNER_TEMP/native-tests.log"
+        run: cargo nextest run --workspace --locked --features ddc-core/op-stats --target ${{ matrix.target }} 2>&1 | tee "$RUNNER_TEMP/native-tests.log"
       # nextest runs no doc tests.
       - name: Doc tests
         if: ${{ !cancelled() && needs.scope.outputs.scope != 'skip' && steps.tests.outcome != 'skipped' }}

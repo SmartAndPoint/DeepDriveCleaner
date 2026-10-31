@@ -11,6 +11,7 @@ use std::process::{Command, Output, Stdio};
 
 use ddc_core::brew::{BREW_PACKAGES_SCHEMA_VERSION, BrewPackages, NotOffered, ServicesState};
 use ddc_core::free::{ActionResult, FreeReport, Refusal};
+use ddc_core::platform::Capability;
 use ddc_loadgen::isolate::ClearEnv as _;
 use serde_json::json;
 
@@ -123,7 +124,9 @@ esac"#
 
 #[test]
 fn the_listing_runs_only_brews_read_commands_and_prints_its_json() {
-    if common::unsupported("the_listing_runs_only_brews_read_commands_and_prints_its_json") {
+    if common::unsupported("the_listing_runs_only_brews_read_commands_and_prints_its_json")
+        || common::lacks("the_listing_runs_only_brews_read_commands_and_prints_its_json", Capability::Homebrew)
+    {
         return;
     }
     let fx = Fx::new();
@@ -156,7 +159,9 @@ fn the_listing_runs_only_brews_read_commands_and_prints_its_json() {
 
 #[test]
 fn the_text_listing_names_each_formula_and_why_one_is_not_offered() {
-    if common::unsupported("the_text_listing_names_each_formula_and_why_one_is_not_offered") {
+    if common::unsupported("the_text_listing_names_each_formula_and_why_one_is_not_offered")
+        || common::lacks("the_text_listing_names_each_formula_and_why_one_is_not_offered", Capability::Homebrew)
+    {
         return;
     }
     let fx = Fx::new();
@@ -176,7 +181,9 @@ fn the_text_listing_names_each_formula_and_why_one_is_not_offered() {
 
 #[test]
 fn a_brew_that_cannot_list_exits_1_and_says_why() {
-    if common::unsupported("a_brew_that_cannot_list_exits_1_and_says_why") {
+    if common::unsupported("a_brew_that_cannot_list_exits_1_and_says_why")
+        || common::lacks("a_brew_that_cannot_list_exits_1_and_says_why", Capability::Homebrew)
+    {
         return;
     }
     let fx = Fx::new();
@@ -191,7 +198,9 @@ fn a_brew_that_cannot_list_exits_1_and_says_why() {
 
 #[test]
 fn a_brew_elsewhere_is_not_asked_for_its_packages() {
-    if common::unsupported("a_brew_elsewhere_is_not_asked_for_its_packages") {
+    if common::unsupported("a_brew_elsewhere_is_not_asked_for_its_packages")
+        || common::lacks("a_brew_elsewhere_is_not_asked_for_its_packages", Capability::Homebrew)
+    {
         return;
     }
     let fx = Fx::new();
@@ -218,7 +227,9 @@ fn free_report(out: &Output) -> FreeReport {
 
 #[test]
 fn a_listed_formula_is_uninstalled_by_brew_only_after_the_check() {
-    if common::unsupported("a_listed_formula_is_uninstalled_by_brew_only_after_the_check") {
+    if common::unsupported("a_listed_formula_is_uninstalled_by_brew_only_after_the_check")
+        || common::lacks("a_listed_formula_is_uninstalled_by_brew_only_after_the_check", Capability::Homebrew)
+    {
         return;
     }
     let fx = Fx::new();
@@ -264,7 +275,9 @@ fn a_listed_formula_is_uninstalled_by_brew_only_after_the_check() {
 
 #[test]
 fn a_formula_something_needs_is_refused_with_what_needs_it() {
-    if common::unsupported("a_formula_something_needs_is_refused_with_what_needs_it") {
+    if common::unsupported("a_formula_something_needs_is_refused_with_what_needs_it")
+        || common::lacks("a_formula_something_needs_is_refused_with_what_needs_it", Capability::Homebrew)
+    {
         return;
     }
     let fx = Fx::new();
