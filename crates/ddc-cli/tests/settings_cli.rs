@@ -74,19 +74,12 @@ impl Fx {
     /// `ddc` on a pseudo-terminal answering `answer`; returns what it printed.
     fn in_terminal(&self, args: &[&str], answer: &str) -> String {
         let ddc = self.ddc(args);
-        let mut script = Command::new("/usr/bin/script");
+        let mut script = common::script(ddc.get_program(), &ddc.get_args().collect::<Vec<_>>()).expect("a terminal");
         script.clear_env();
         for (k, v) in ddc.get_envs() {
             script.env(k, v.unwrap());
         }
-        let mut child = script
-            .args(["-q", "/dev/null", ddc.get_program().to_str().unwrap()])
-            .args(ddc.get_args())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
+        let mut child = script.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
         let mut stdin = child.stdin.take().unwrap();
         stdin.write_all(answer.as_bytes()).unwrap();
         let started = Instant::now();

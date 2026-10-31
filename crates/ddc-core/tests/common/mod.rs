@@ -105,11 +105,20 @@ impl TreeBuilder {
 
     /// APFS clone (`cp -c`): shares all blocks with `src`.
     pub fn clone_file(&self, src: impl AsRef<Path>, rel: &str) -> PathBuf {
+        self.try_clone_file(src, rel).expect("cp -c")
+    }
+
+    /// [`Self::clone_file`], or `Unsupported` where the platform makes no
+    /// clones with `cp -c` (the test then skips through [`skipped_without`]).
+    pub fn try_clone_file(&self, src: impl AsRef<Path>, rel: &str) -> std::io::Result<PathBuf> {
+        use ddc_core::platform::{PLATFORM, Platform};
+        if PLATFORM != Platform::Macos {
+            return Err(std::io::Error::new(std::io::ErrorKind::Unsupported, format!("{PLATFORM} has no cp -c")));
+        }
         let p = self.path(rel);
-        fs::create_dir_all(p.parent().unwrap()).unwrap();
-        let ok = Command::new("/bin/cp").arg("-c").arg(src.as_ref()).arg(&p).status().expect("cp -c").success();
-        assert!(ok, "cp -c failed");
-        p
+        fs::create_dir_all(p.parent().unwrap())?;
+        let ok = Command::new("/bin/cp").arg("-c").arg(src.as_ref()).arg(&p).status()?.success();
+        if ok { Ok(p) } else { Err(std::io::Error::other("cp -c failed")) }
     }
 
     /// Sets the modification time (and the date added) of `rel` alone to
@@ -179,6 +188,67 @@ pub fn lacks(test: &str, capability: ddc_core::platform::Capability) -> bool {
             true
         }
     }
+}
+
+/// True, after printing why, when this platform's catalog lists no rule
+/// `id` (ADR "Platform seam: one platform module per OS with declared
+/// capabilities", §9, amended): a test of a rule only some platforms have,
+/// such as Xcode's or the iOS backups', starts with
+/// `if common::no_rule("name", "xcode.derived-data") { return; }`. Never
+/// true on macOS, whose catalog holds every rule a test names.
+pub fn no_rule(test: &str, id: &str) -> bool {
+    use ddc_core::platform::PLATFORM;
+    if ddc_core::rules::RULES.iter().any(|r| r.id == id) {
+        return false;
+    }
+    eprintln!("skipped {test}: {PLATFORM} lists no rule {id}");
+    true
+}
+
+/// Whether this platform's catalog lists rule `id`, for a test that adds a
+/// platform's own rule to what it checks of the shared ones.
+pub fn has_rule(id: &str) -> bool {
+    ddc_core::rules::RULES.iter().any(|r| r.id == id)
+}
+
+/// Sets the user-immutable flag (`chflags uchg`), which macOS lets the owner
+/// set: a delete inside then fails. Elsewhere only root can make a file
+/// immutable, so it is `Unsupported` there and the test skips.
+pub fn user_immutable(path: &Path) -> std::io::Result<()> {
+    use ddc_core::platform::{PLATFORM, Platform};
+    if PLATFORM != Platform::Macos {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            format!("{PLATFORM} has no user-immutable flag"),
+        ));
+    }
+    let ok = std::process::Command::new("/usr/bin/chflags").arg("uchg").arg(path).status()?.success();
+    if ok { Ok(()) } else { Err(std::io::Error::other("chflags uchg failed")) }
+}
+
+/// Clears what [`user_immutable`] set, under `path`.
+pub fn clear_user_immutable(path: &Path) {
+    if ddc_core::platform::PLATFORM == ddc_core::platform::Platform::Macos {
+        let _ = std::process::Command::new("/usr/bin/chflags").arg("-R").arg("nouchg").arg(path).status();
+    }
+}
+
+/// The home-relative folders rule `id` names on this platform, in its
+/// order: a test of a shared rule builds its fixture where the platform's
+/// catalog looks (`Library/Caches/Google/Chrome` on macOS,
+/// `.cache/google-chrome` on Linux).
+pub fn rule_paths(id: &str) -> &'static [&'static str] {
+    use ddc_core::rules::{Matcher, RULES};
+    let rule = RULES.iter().find(|r| r.id == id).unwrap_or_else(|| panic!("no rule {id} here"));
+    match rule.matcher {
+        Matcher::KnownPaths(p) | Matcher::KnownRegion(p) | Matcher::KnownChildren(p) | Matcher::NoTraverse(p) => p,
+        _ => panic!("{id} names no folder"),
+    }
+}
+
+/// [`rule_paths`]'s first folder.
+pub fn rule_path(id: &str) -> &'static str {
+    rule_paths(id)[0]
 }
 
 /// The value of a harness tool (a [`try_symlink`]), or `None` after

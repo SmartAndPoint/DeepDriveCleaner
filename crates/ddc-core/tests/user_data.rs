@@ -225,7 +225,8 @@ fn the_scan_lists_entries_largest_first_with_the_cap_and_the_floor_and_sums_the_
     t.file("Downloads/folder/inside", 100_000);
     t.symlink("a.iso", "Downloads/link");
     t.file("Pictures/Trip/one.jpg", 70_000);
-    t.file("Movies/clip.mov", 90_000);
+    let movies = common::rule_path("user.movies");
+    t.file(&format!("{movies}/clip.mov"), 90_000);
 
     let (r, index) = h.scan();
 
@@ -249,7 +250,7 @@ fn the_scan_lists_entries_largest_first_with_the_cap_and_the_floor_and_sums_the_
     assert_eq!(c.state, EntryState::Pickable);
     assert_eq!(listed(&r, &h.path("Pictures/Trip")).kind, FolderEntryKind::Folder);
     assert_eq!(listed(&r, &h.path("Pictures/Trip")).bytes, reference_alloc(&h.path("Pictures/Trip")));
-    assert!(listed(&r, &h.path("Movies/clip.mov")).lock.is_none());
+    assert!(listed(&r, &h.path(&format!("{movies}/clip.mov"))).lock.is_none());
 }
 
 fn reference_alloc_or_file(path: &Path) -> u64 {
@@ -265,8 +266,14 @@ fn the_default_limits_list_a_hundred_entries_of_at_least_ten_mebibytes() {
     let h = Home { limits: ContentsLimits::default(), ..Home::new() };
     let t = &h.tree;
     let first = t.file("Downloads/c000.bin", 10 << 20);
+    // Clones, so a hundred of them take no space.
     for i in 1..=101 {
-        t.clone_file(&first, &format!("Downloads/c{i:03}.bin"));
+        let made = t.try_clone_file(&first, &format!("Downloads/c{i:03}.bin"));
+        if common::skipped_without("the_default_limits_list_a_hundred_entries_of_at_least_ten_mebibytes", made)
+            .is_none()
+        {
+            return;
+        }
     }
     t.file("Downloads/small.bin", (10 << 20) - 64 * 1024);
 
@@ -357,11 +364,12 @@ fn a_marker_at_the_folders_top_or_an_exclude_inside_still_keeps_the_whole_folder
     assert!(r.findings.iter().all(|f| f.contents.is_none()));
 
     let mut h = Home::new();
-    h.tree.file("Movies/Trip/a.mov", 4_000);
-    h.tree.file("Movies/Other/b.mov", 4_000);
-    h.excludes = vec![h.path("Movies/Trip")];
+    let movies = common::rule_path("user.movies");
+    h.tree.file(&format!("{movies}/Trip/a.mov"), 4_000);
+    h.tree.file(&format!("{movies}/Other/b.mov"), 4_000);
+    h.excludes = vec![h.path(&format!("{movies}/Trip"))];
     let (r, _) = h.scan();
-    assert_eq!(rule_of(&r, &h.path("Movies")).as_deref(), Some("user.kept"));
+    assert_eq!(rule_of(&r, &h.path(movies)).as_deref(), Some("user.kept"));
     assert!(r.findings.iter().all(|f| f.contents.is_none()));
 }
 
@@ -396,7 +404,9 @@ fn a_downloads_folder_holds_findings_with_their_size_and_an_app_is_an_ordinary_e
 
 #[test]
 fn backups_show_their_device_and_lock_until_they_finished() {
-    if common::unsupported("backups_show_their_device_and_lock_until_they_finished") {
+    if common::unsupported("backups_show_their_device_and_lock_until_they_finished")
+        || common::no_rule("backups_show_their_device_and_lock_until_they_finished", "user.ios-backups")
+    {
         return;
     }
     let h = Home::new();
@@ -422,7 +432,12 @@ fn backups_show_their_device_and_lock_until_they_finished() {
 
 #[test]
 fn messengers_imazing_kept_and_the_trash_list_nothing_and_cloud_folders_stay_closed() {
-    if common::unsupported("messengers_imazing_kept_and_the_trash_list_nothing_and_cloud_folders_stay_closed") {
+    if common::unsupported("messengers_imazing_kept_and_the_trash_list_nothing_and_cloud_folders_stay_closed")
+        || common::no_rule(
+            "messengers_imazing_kept_and_the_trash_list_nothing_and_cloud_folders_stay_closed",
+            "user.telegram",
+        )
+    {
         return;
     }
     let h = Home::new();
@@ -430,7 +445,7 @@ fn messengers_imazing_kept_and_the_trash_list_nothing_and_cloud_folders_stay_clo
     t.file("Library/Group Containers/6N38VWS5BX.ru.keepcoder.Telegram/media/a", 8_000);
     t.file("Library/Group Containers/group.net.whatsapp.WhatsApp.shared/Media/a", 8_000);
     t.file("Library/Application Support/iMazing/Backups/0001/Manifest.db", 8_000);
-    t.file(".Trash/old.zip", 8_000);
+    t.file(&format!("{}/old.zip", common::rule_path("trash")), 8_000);
     t.file("Documents/keep/a", 8_000);
     t.write("Documents/keep/.ddc-keep", "");
     t.file("Library/CloudStorage/GoogleDrive-x/doc", 8_000);

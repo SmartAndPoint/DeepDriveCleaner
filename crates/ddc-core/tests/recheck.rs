@@ -304,22 +304,22 @@ fn a_claim_above_the_item_for_each_matcher_kind() {
         return;
     }
     // A matcher kind, the files that make the claim, and the root it sits at.
-    type Case = (&'static str, &'static [(&'static str, &'static str)], &'static str);
-    let cases: &[Case] = &[
-        ("known paths", &[], ".cache/huggingface/hub/p"),
-        (
-            "known children",
-            &[("Library/Application Support/JetBrains/PyCharm2024.1/f", "")],
-            "Library/Application Support/JetBrains/PyCharm2023.1/p",
-        ),
-        ("name with siblings", &[("w/package.json", "{}")], "w/node_modules/dep"),
-        ("contains file", &[("v/.venv/pyvenv.cfg", "")], "v/.venv/lib"),
-        ("CACHEDIR.TAG", &[("c/cache/CACHEDIR.TAG", TAG)], "c/cache/sub"),
-        (".app suffix", &[], "A.app/Contents/p"),
+    type Case = (&'static str, Vec<(String, &'static str)>, String);
+    let jetbrains = common::rule_path("ide.jetbrains-old-data");
+    let mut cases: Vec<Case> = vec![
+        ("known paths", vec![], ".cache/huggingface/hub/p".into()),
+        ("known children", vec![(format!("{jetbrains}/PyCharm2024.1/f"), "")], format!("{jetbrains}/PyCharm2023.1/p")),
+        ("name with siblings", vec![("w/package.json".into(), "{}")], "w/node_modules/dep".into()),
+        ("contains file", vec![("v/.venv/pyvenv.cfg".into(), "")], "v/.venv/lib".into()),
+        ("CACHEDIR.TAG", vec![("c/cache/CACHEDIR.TAG".into(), TAG)], "c/cache/sub".into()),
     ];
-    for (kind, files, root) in cases {
+    // App bundles, where the catalog seals them (macOS).
+    if common::has_rule("macos.app-bundle") {
+        cases.push((".app suffix", vec![], "A.app/Contents/p".into()));
+    }
+    for (kind, files, root) in &cases {
         let mut home = Home::new();
-        for (rel, content) in *files {
+        for (rel, content) in files {
             home.t.write(rel, content);
         }
         home.t.file(&format!("{root}/__pycache__/m.pyc"), 100);
@@ -466,7 +466,8 @@ fn the_pruned_recheck_opens_only_the_items_their_ancestors_and_a_siblings_family
     for unread in ["big", "big/tree3/deep", "Library/Caches/Unrelated", "Downloads/other", "Pictures/album2"] {
         assert!(!opened.contains(&home.t.path(unread)), "{unread} was opened");
     }
-    assert!(opened.contains(&home.t.path("Library/Application Support/JetBrains/PyCharm2024.1")), "the family is read");
+    let newer = format!("{}/PyCharm2024.1", common::rule_path("ide.jetbrains-old-data"));
+    assert!(opened.contains(&home.t.path(&newer)), "the family is read");
 }
 
 #[test]

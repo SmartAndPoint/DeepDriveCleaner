@@ -117,8 +117,9 @@ impl Fx {
 
     /// Docker Desktop's folder with its disk image, as the scan finds it.
     fn docker_desktop(&self) -> PathBuf {
-        self.t.file("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw", 50_000);
-        self.t.path("Library/Containers/com.docker.docker")
+        let docker = common::rule_path("vm.docker-desktop");
+        self.t.file(&format!("{docker}/Data/vms/0/Docker.raw"), 50_000);
+        self.t.path(docker)
     }
 
     fn run_yes(&self, plan: &Plan) -> (ExecReport, MemoryJournal) {
@@ -305,9 +306,9 @@ fn native_only_rules_never_delete_or_trash() {
         return;
     }
     let fx = Fx::new();
-    let docker = fx.t.dir("Library/Containers/com.docker.docker/Data/vms/0");
-    fx.t.file("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw", 50_000);
-    let docker = docker.parent().unwrap().parent().unwrap().parent().unwrap().to_path_buf();
+    let image = format!("{}/Data/vms/0/Docker.raw", common::rule_path("vm.docker-desktop"));
+    fx.t.file(&image, 50_000);
+    let docker = fx.t.path(common::rule_path("vm.docker-desktop"));
     let mut plan = fx.plan();
     select_all(&mut plan);
 
@@ -322,10 +323,7 @@ fn native_only_rules_never_delete_or_trash() {
             && c.args.contains(&"prune".to_owned())
             && c.args.contains(&"desktop-linux".to_owned()))
     );
-    assert!(
-        fx.t.path("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw").exists(),
-        "failure never falls back to deletion"
-    );
+    assert!(fx.t.path(&image).exists(), "failure never falls back to deletion");
 }
 
 // Story "VM images: Docker prune runs only while Docker Desktop answers":
@@ -491,8 +489,11 @@ fn interrupted_deletion_leaves_a_tombstone_found_as_safe() {
     let fx = Fx::new();
     let nm = fx.node_project("p");
     let stuck = fx.t.file("p/node_modules/dep/stuck.js", 100);
-    let ok = Command::new("/usr/bin/chflags").arg("uchg").arg(&stuck).status().unwrap().success();
-    assert!(ok);
+    if common::skipped_without("interrupted_deletion_leaves_a_tombstone_found_as_safe", common::user_immutable(&stuck))
+        .is_none()
+    {
+        return;
+    }
     let plan = fx.plan();
 
     let (r, _) = fx.run_yes(&plan);
@@ -506,7 +507,7 @@ fn interrupted_deletion_leaves_a_tombstone_found_as_safe() {
     let rescan = fx.scan();
     let f = rescan.findings.iter().find(|f| f.path == tomb).expect("tombstone is a finding");
     assert_eq!((f.rule.as_str(), f.class), ("ddc.tombstone", RiskClass::Safe));
-    let _ = Command::new("/usr/bin/chflags").arg("-R").arg("nouchg").arg(&tomb).status();
+    common::clear_user_immutable(&tomb);
 }
 
 struct Spawned(Child);
@@ -583,8 +584,8 @@ fn running_owner_process_skips_its_cache() {
         return;
     }
     let fx = Fx::new();
-    let cache = fx.t.dir("Library/Caches/com.spotify.client");
-    fx.t.file("Library/Caches/com.spotify.client/data", 1000);
+    let cache = fx.t.dir(common::rule_path("app.spotify-cache"));
+    fx.t.file(&format!("{}/data", common::rule_path("app.spotify-cache")), 1000);
     let plan = fx.plan();
     let spotify = app_process(4242, "/Applications/Spotify.app/Contents/MacOS/Spotify");
 
@@ -596,7 +597,10 @@ fn running_owner_process_skips_its_cache() {
 
 #[test]
 fn an_owner_is_an_app_bundle_not_a_process_name() {
-    if common::unsupported("an_owner_is_an_app_bundle_not_a_process_name") {
+    // Xcode owns one of the caches.
+    if common::unsupported("an_owner_is_an_app_bundle_not_a_process_name")
+        || common::no_rule("an_owner_is_an_app_bundle_not_a_process_name", "xcode.derived-data")
+    {
         return;
     }
     let fx = Fx::new();
@@ -632,7 +636,10 @@ fn an_owner_is_an_app_bundle_not_a_process_name() {
 
 #[test]
 fn a_running_editor_holds_back_only_its_own_caches() {
-    if common::unsupported("a_running_editor_holds_back_only_its_own_caches") {
+    // Photoshop owns one of the caches.
+    if common::unsupported("a_running_editor_holds_back_only_its_own_caches")
+        || common::no_rule("a_running_editor_holds_back_only_its_own_caches", "app.adobe-camera-raw-cache")
+    {
         return;
     }
     let fx = Fx::new();
@@ -668,7 +675,10 @@ fn a_running_editor_holds_back_only_its_own_caches() {
 #[test]
 fn no_system_process_owns_a_cache() {
     // The process table is not ported off macOS yet.
-    if common::unsupported("no_system_process_owns_a_cache") {
+    // Real processes run from app bundles only on macOS.
+    if common::unsupported("no_system_process_owns_a_cache")
+        || common::no_rule("no_system_process_owns_a_cache", "macos.app-bundle")
+    {
         return;
     }
     // On the live process table: nothing Apple ships may hold back a cache, the way
@@ -707,7 +717,10 @@ fn no_system_process_owns_a_cache() {
 
 #[test]
 fn a_renamed_bundle_is_recognised_by_its_executable() {
-    if common::unsupported("a_renamed_bundle_is_recognised_by_its_executable") {
+    // Xcode owns one of the caches.
+    if common::unsupported("a_renamed_bundle_is_recognised_by_its_executable")
+        || common::no_rule("a_renamed_bundle_is_recognised_by_its_executable", "xcode.derived-data")
+    {
         return;
     }
     let fx = Fx::new();
@@ -787,7 +800,7 @@ fn user_data_and_report_only_rules_never_enter_a_plan() {
     }
     let fx = Fx::new();
     fx.t.file("Pictures/a.jpg", 100);
-    fx.t.file(".Trash/old.zip", 100);
+    fx.t.file(&format!("{}/old.zip", common::rule_path("trash")), 100);
     fx.t.file(".colima/default/disk.img", 100);
     fx.t.file("Library/Developer/Xcode/Archives/a.xcarchive/x", 100);
 
@@ -813,26 +826,31 @@ fn the_executor_refuses_actions_the_rule_does_not_allow() {
         return;
     }
     let fx = Fx::new();
-    fx.t.file("Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw", 50_000);
-    fx.t.file("Library/Application Support/MobileSync/Backup/device/Manifest.db", 5_000);
-    let docker = fx.t.path("Library/Containers/com.docker.docker");
-    let backups = fx.t.path("Library/Application Support/MobileSync/Backup");
+    let image = format!("{}/Data/vms/0/data/Docker.raw", common::rule_path("vm.docker-desktop"));
+    fx.t.file(&image, 50_000);
+    let docker = fx.t.path(common::rule_path("vm.docker-desktop"));
+    // The iOS backups, report-only user data, where the catalog lists them.
+    let backups = common::has_rule("user.ios-backups").then(|| {
+        fx.t.file("Library/Application Support/MobileSync/Backup/device/Manifest.db", 5_000);
+        fx.t.path("Library/Application Support/MobileSync/Backup")
+    });
     let report = fx.scan();
     let mut plan = build_plan(&report, &Catalog::builtin(fx.t.root()), &PlanOptions::default());
     use ddc_core::plan::Action;
-    plan.items = vec![
-        forged(&plan, &report, &docker, Action::Delete { make_writable: false }),
-        forged(&plan, &report, &backups, Action::Delete { make_writable: false }),
-    ];
+    plan.items = std::iter::once(&docker)
+        .chain(&backups)
+        .map(|p| forged(&plan, &report, p, Action::Delete { make_writable: false }))
+        .collect();
     let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs::new(vec![]));
-    assert_eq!(outcome(&r, &docker), &Outcome::Skipped(SkipReason::ActionNotAllowed));
-    assert_eq!(outcome(&r, &backups), &Outcome::Skipped(SkipReason::ActionNotAllowed));
+    for p in std::iter::once(&docker).chain(&backups) {
+        assert_eq!(outcome(&r, p), &Outcome::Skipped(SkipReason::ActionNotAllowed), "{p:?}");
+    }
 
     plan.items = vec![forged(&plan, &report, &docker, Action::Trash)];
     let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs::new(vec![]));
     assert_eq!(outcome(&r, &docker), &Outcome::Skipped(SkipReason::ActionNotAllowed));
-    assert!(fx.t.path("Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw").exists());
-    assert!(backups.join("device/Manifest.db").exists());
+    assert!(fx.t.path(&image).exists());
+    assert!(backups.is_none_or(|b| b.join("device/Manifest.db").exists()));
 }
 
 #[test]
@@ -969,7 +987,7 @@ fn progress_reaches_the_totals_with_native_only_bytes_left_out() {
     let deleted = fx.node_project("p");
     let kept = fx.node_project("q");
     fx.venv_project("r");
-    fx.t.file("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw", 50_000);
+    fx.t.file(&format!("{}/Data/vms/0/Docker.raw", common::rule_path("vm.docker-desktop")), 50_000);
     let mut plan = fx.plan();
     select_all(&mut plan);
     fx.t.write("q/node_modules/.ddc-keep", "");
@@ -1262,7 +1280,7 @@ fn the_hook_says_cleaning_before_the_first_action_and_each_item_after_its_record
     let fx = Fx::new();
     fx.node_project("p");
     fx.node_project("q");
-    fx.t.file("Library/Containers/com.docker.docker/Data/vms/0/Docker.raw", 50_000);
+    fx.t.file(&format!("{}/Data/vms/0/Docker.raw", common::rule_path("vm.docker-desktop")), 50_000);
     let mut plan = fx.plan();
     select_all(&mut plan);
     let recorder = Recorder::default();
