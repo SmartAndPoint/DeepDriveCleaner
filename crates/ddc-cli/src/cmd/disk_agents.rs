@@ -17,7 +17,10 @@ use crate::render;
 
 pub fn run(args: &AgentsArgs) -> anyhow::Result<ExitCode> {
     let cancel = signals::install().context("cannot install the signal handler")?;
-    let env = Env::from_process(args.data_dir.clone())?;
+    let mut env = Env::from_process(args.data_dir.clone())?;
+    if let Some(root) = &args.system_root {
+        env = env.with_system_root(root);
+    }
     // The skips only: they bind the record read as well as the walk.
     let resolved = super::resolve(&env, ScanFlags { paths: vec![env.home().to_path_buf()], ..ScanFlags::default() })?;
     super::note_missing(&resolved.missing);

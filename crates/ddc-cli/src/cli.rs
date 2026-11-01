@@ -416,6 +416,10 @@ pub struct AgentsArgs {
     /// Worker threads (default: available parallelism).
     #[arg(long)]
     pub threads: Option<usize>,
+    /// Look for Claude Code's temporary folder under this folder instead of
+    /// `/` (tests).
+    #[arg(long, hide = true, value_name = "DIR")]
+    pub system_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

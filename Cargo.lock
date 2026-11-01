@@ -309,7 +309,7 @@ checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 
 [[package]]
 name = "ddc-cli"
-version = "0.13.13"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -325,7 +325,7 @@ dependencies = [
 
 [[package]]
 name = "ddc-core"
-version = "0.13.13"
+version = "0.14.0"
 dependencies = [
  "dhat",
  "humantime",
@@ -343,7 +343,7 @@ dependencies = [
 
 [[package]]
 name = "ddc-loadgen"
-version = "0.13.13"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "clap",

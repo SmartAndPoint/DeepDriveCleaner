@@ -1,10 +1,13 @@
 //! Process environment. This is the only place that reads `$HOME` (through
-//! `platform::folders`), `DDC_DATA_DIR` and `DOCKER_CONFIG`; everything else receives paths through [`Env`], so tests
+//! `platform::folders`), `DDC_DATA_DIR`, `DOCKER_CONFIG`, `CLAUDE_CODE_TMPDIR`
+//! and `TMPDIR`; everything else receives paths through [`Env`], so tests
 //! can point the whole tool at temporary directories.
 
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+
+use crate::platform::Platform;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EnvError {
@@ -31,6 +34,12 @@ pub struct Env {
     /// Where `/opt` and the other system folders are looked up: `/`, or a
     /// fixture root in tests.
     system_root: PathBuf,
+    /// `CLAUDE_CODE_TMPDIR`, where Claude Code puts its temporary folder
+    /// instead of `/tmp`; unset in tests and under a fixture system root.
+    claude_tmpdir: Option<PathBuf>,
+    /// `TMPDIR`, Linux's temporary folder; unset in tests and under a fixture
+    /// system root.
+    tmpdir: Option<PathBuf>,
     /// Neither `--data-dir` nor `DDC_DATA_DIR` was given: the data directory
     /// is the app's, so a scan saved here is the one the app shows.
     default_data_dir: bool,
@@ -56,6 +65,8 @@ impl Env {
         };
         let path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
         let docker_config = std::env::var_os("DOCKER_CONFIG").filter(|v| !v.is_empty()).map(PathBuf::from);
+        let claude_tmpdir = std::env::var_os("CLAUDE_CODE_TMPDIR").filter(|v| !v.is_empty()).map(PathBuf::from);
+        let tmpdir = std::env::var_os("TMPDIR").filter(|v| !v.is_empty()).map(PathBuf::from);
         Ok(Self {
             home,
             data_dir,
@@ -64,6 +75,8 @@ impl Env {
             path,
             docker_config,
             system_root: PathBuf::from("/"),
+            claude_tmpdir,
+            tmpdir,
             default_data_dir,
         })
     }
@@ -78,13 +91,19 @@ impl Env {
             path: Vec::new(),
             docker_config: None,
             system_root: PathBuf::from("/"),
+            claude_tmpdir: None,
+            tmpdir: None,
             default_data_dir: false,
         })
     }
 
-    /// Replaces the system root (tests put `/opt` under a fixture root).
+    /// Replaces the system root (tests put `/opt` under a fixture root). The
+    /// temporary-folder variables are dropped with it: under a fixture root
+    /// nothing outside that root is looked at.
     pub fn with_system_root(mut self, root: &Path) -> Self {
         self.system_root = root.to_path_buf();
+        self.claude_tmpdir = None;
+        self.tmpdir = None;
         self
     }
 
@@ -141,5 +160,86 @@ impl Env {
     /// docker's config folder: `DOCKER_CONFIG`, else `~/.docker`.
     pub fn docker_config(&self) -> PathBuf {
         self.docker_config.clone().unwrap_or_else(|| self.home.join(".docker"))
+    }
+
+    /// Claude Code's temporary folder for the current user, whose
+    /// `<project-slug>/<session>/` folders hold each session's scratchpad,
+    /// tasks and images; `None` where ddc knows no place for it. Not
+    /// canonical, and it may not exist.
+    pub fn claude_temp_base(&self) -> Option<PathBuf> {
+        claude_temp_base(
+            crate::platform::PLATFORM,
+            &self.system_root,
+            self.claude_tmpdir.as_deref(),
+            self.tmpdir.as_deref(),
+            crate::platform::procs::uid(),
+        )
+    }
+}
+
+/// Where Claude Code keeps its temporary folder: `claude-<uid>` under
+/// `CLAUDE_CODE_TMPDIR` when it is set, else under `/private/tmp` on macOS
+/// (Claude Code uses `/tmp`, not the per-user `TMPDIR`, there), else under
+/// `TMPDIR` or `/tmp` on Linux. The system folders are looked up under
+/// `system_root`.
+///
+/// Assumed, not yet confirmed by the research (story "Per-session
+/// footprint: what each agent session keeps in its transcripts, temporary
+/// folders and worktrees"): Claude Code appends `claude-<uid>` under
+/// `CLAUDE_CODE_TMPDIR` as it does under `/tmp`.
+pub(crate) fn claude_temp_base(
+    platform: Platform,
+    system_root: &Path,
+    claude_tmpdir: Option<&Path>,
+    tmpdir: Option<&Path>,
+    uid: u32,
+) -> Option<PathBuf> {
+    let parent = match (claude_tmpdir, platform) {
+        (Some(dir), Platform::Macos | Platform::Linux) => dir.to_path_buf(),
+        (None, Platform::Macos) => system_root.join("private/tmp"),
+        (None, Platform::Linux) => tmpdir.map_or_else(|| system_root.join("tmp"), Path::to_path_buf),
+        (_, Platform::Windows) => return None,
+    };
+    Some(parent.join(format!("claude-{uid}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn claude_temp_base_follows_the_platform_and_the_override() {
+        let root = Path::new("/fixture");
+        let over = Path::new("/scratch");
+        let tmp = Path::new("/var/tmp/me");
+        let base = |platform, claude, tmpdir| claude_temp_base(platform, root, claude, tmpdir, 501);
+        let at = |p: &str| Some(PathBuf::from(p));
+        assert_eq!(base(Platform::Macos, None, Some(tmp)), at("/fixture/private/tmp/claude-501"), "TMPDIR is not it");
+        assert_eq!(base(Platform::Macos, Some(over), None), at("/scratch/claude-501"));
+        assert_eq!(base(Platform::Linux, None, None), at("/fixture/tmp/claude-501"));
+        assert_eq!(base(Platform::Linux, None, Some(tmp)), at("/var/tmp/me/claude-501"));
+        assert_eq!(base(Platform::Linux, Some(over), Some(tmp)), at("/scratch/claude-501"));
+        assert_eq!(base(Platform::Windows, Some(over), Some(tmp)), None);
+    }
+
+    #[test]
+    fn a_fixture_system_root_drops_the_temporary_variables() {
+        let env = Env {
+            home: PathBuf::from("/home"),
+            data_dir: PathBuf::from("/data"),
+            log_dir: PathBuf::from("/data/logs"),
+            now: SystemTime::UNIX_EPOCH,
+            path: Vec::new(),
+            docker_config: None,
+            system_root: PathBuf::from("/"),
+            claude_tmpdir: Some(PathBuf::from("/scratch")),
+            tmpdir: Some(PathBuf::from("/var/tmp/me")),
+            default_data_dir: false,
+        }
+        .with_system_root(Path::new("/fixture"));
+        let base = env.claude_temp_base();
+        if crate::platform::PLATFORM != Platform::Windows {
+            assert!(base.unwrap().starts_with("/fixture"));
+        }
     }
 }

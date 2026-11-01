@@ -79,6 +79,15 @@
         "unreadable"
       ]
     },
+    "FootprintState": {
+      "description": "Whether a session's files are still in use, as the cleanup's session\ncheck would decide now.",
+      "type": "string",
+      "enum": [
+        "live",
+        "not-live",
+        "unknown"
+      ]
+    },
     "Harness": {
       "type": "object",
       "properties": {
@@ -138,6 +147,26 @@
         "codex",
         "cursor",
         "opencode"
+      ]
+    },
+    "LiveBy": {
+      "description": "What shows a session live. The scan report's `live-session` lock\ncarries it as `by`.",
+      "oneOf": [
+        {
+          "description": "A live record names it.",
+          "type": "string",
+          "const": "record"
+        },
+        {
+          "description": "Its transcript or a companion changed within [`entries::RECENT`]\nbefore the check, or later than it.",
+          "type": "string",
+          "const": "recent"
+        },
+        {
+          "description": "A process of the user holds one of its files open.",
+          "type": "string",
+          "const": "open-file"
+        }
       ]
     },
     "RecordsState": {
@@ -251,6 +280,93 @@
         "state"
       ]
     },
+    "SessionFootprint": {
+      "description": "What one Claude Code session keeps on disk, by kind; allocated bytes.",
+      "type": "object",
+      "properties": {
+        "checkpoints": {
+          "description": "`~/.claude/file-history/<id>`.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "id": {
+          "description": "The session id, a UUID.",
+          "type": "string"
+        },
+        "live_by": {
+          "description": "What shows it live; with `live` only.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LiveBy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "modified": {
+          "description": "RFC 3339, UTC: the latest change of its transcript or a companion.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project": {
+          "description": "The project folder's name in `~/.claude/projects` (or in the\ntemporary folder), as Claude Code wrote it; absent when only the\ncheckpoints name the session.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/FootprintState"
+        },
+        "temp": {
+          "description": "`<temp_root>/<project>/<id>`: its scratchpad, tasks and images.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "temp_path": {
+          "description": "Its temporary folder, when it has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "transcript": {
+          "description": "`~/.claude/projects/<project>/<id>.jsonl` and its companions.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "unknown_cause": {
+          "description": "Why its state is not known; with `unknown` only.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnknownCause"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "state",
+        "transcript",
+        "checkpoints",
+        "temp",
+        "total"
+      ]
+    },
     "SessionState": {
       "oneOf": [
         {
@@ -274,6 +390,16 @@
     "Sessions": {
       "type": "object",
       "properties": {
+        "footprints": {
+          "description": "Claude Code only, with sizes: what each session keeps, largest\ntotal first. A session that ended has no record, so this is a list\nof its own, by session id.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/SessionFootprint"
+          }
+        },
         "list": {
           "description": "Live first, then by start, then by id.",
           "type": "array",
@@ -294,6 +420,17 @@
         "records": {
           "$ref": "#/$defs/RecordsState"
         },
+        "temp_root": {
+          "description": "Claude Code only, with sizes: its temporary folder outside the home\nfolder (`/private/tmp/claude-<uid>` on macOS), when it exists. Its\nbytes are in no folder of the harness.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TempRoot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "transcripts": {
           "$ref": "#/$defs/Transcripts"
         }
@@ -302,6 +439,40 @@
         "records",
         "list",
         "transcripts"
+      ]
+    },
+    "TempRoot": {
+      "description": "Claude Code's temporary folder for the current user.",
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Allocated bytes, sessions and the rest (`bash-edit-diff`, …);\nabsent when skipped.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "path": {
+          "description": "Canonical.",
+          "type": "string"
+        },
+        "skipped": {
+          "description": "At or under a skip of `settings.json`: never opened, no bytes.",
+          "type": "boolean"
+        },
+        "unreadable": {
+          "description": "Folders and entries inside that could not be read: `bytes` is then a\nlower bound.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "path",
+        "skipped",
+        "unreadable"
       ]
     },
     "Transcripts": {
@@ -332,6 +503,51 @@
       },
       "required": [
         "skipped"
+      ]
+    },
+    "UnknownCause": {
+      "description": "Why a session's liveness could not be told. Declared from the widest\nto the narrowest: when several apply, the first is reported. The scan\nreport's `liveness-unknown` lock carries it as `cause`.",
+      "oneOf": [
+        {
+          "description": "The records folder does not exist: an older Claude Code, or a\nchanged layout.",
+          "type": "string",
+          "const": "records-missing"
+        },
+        {
+          "description": "The records folder, or an entry of it, could not be read.",
+          "type": "string",
+          "const": "records-unreadable"
+        },
+        {
+          "description": "The records folder lies at or under one of the user's skips, so it\nis never opened.",
+          "type": "string",
+          "const": "records-skipped"
+        },
+        {
+          "description": "A record could not be parsed.",
+          "type": "string",
+          "const": "unparsable-record"
+        },
+        {
+          "description": "A record could not be decided and names no session.",
+          "type": "string",
+          "const": "undecidable-record"
+        },
+        {
+          "description": "A live record names no session.",
+          "type": "string",
+          "const": "live-record-without-session"
+        },
+        {
+          "description": "A record that could not be decided names this session.",
+          "type": "string",
+          "const": "undecidable-session-record"
+        },
+        {
+          "description": "The session was given with no file, so nothing could be checked.",
+          "type": "string",
+          "const": "session-without-files"
+        }
       ]
     },
     "UnknownReason": {

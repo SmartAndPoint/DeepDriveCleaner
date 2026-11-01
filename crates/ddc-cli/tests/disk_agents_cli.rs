@@ -7,8 +7,8 @@ use std::io::Read as _;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-use ddc_core::agents::{AGENTS_SCHEMA_VERSION, AgentsReport, HarnessId, RecordsState, SessionState};
-use ddc_core::platform::Capability;
+use ddc_core::agents::{AGENTS_SCHEMA_VERSION, AgentsReport, FootprintState, HarnessId, RecordsState, SessionState};
+use ddc_core::platform::{Capability, PLATFORM, Platform, procs};
 use ddc_loadgen::isolate::ClearEnv as _;
 
 mod common;
@@ -33,9 +33,25 @@ impl Fx {
         fs::write(path, content).unwrap();
     }
 
+    /// Claude Code's temporary folder under the fixture's system root, from the root.
+    fn temp_rel() -> String {
+        let tmp = if PLATFORM == Platform::Macos { "private/tmp" } else { "tmp" };
+        format!("sys/{tmp}/claude-{}", procs::uid())
+    }
+
+    /// A file of `len` bytes at `rel`, from the root.
+    fn file(&self, rel: &str, len: usize) {
+        let path = self.root.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, vec![b'x'; len]).unwrap();
+    }
+
+    /// Always under a fixture system root: no test reads the real `/tmp`.
     fn ddc(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"));
         cmd.clear_env()
+            .env_remove("CLAUDE_CODE_TMPDIR")
+            .env_remove("TMPDIR")
             .env("HOME", self.root.join("home"))
             .env("PATH", "")
             .env("NO_COLOR", "1")
@@ -43,12 +59,18 @@ impl Fx {
             .args(args)
             .arg("--data-dir")
             .arg(self.root.join("data"))
+            .arg("--system-root")
+            .arg(self.root.join("sys"))
             .stdin(Stdio::null());
         cmd
     }
 
     fn json(&self, args: &[&str]) -> AgentsReport {
-        let out = self.ddc(&[&["--json"], args].concat()).output().unwrap();
+        Self::json_of(self.ddc(&[&["--json"], args].concat()))
+    }
+
+    fn json_of(mut cmd: Command) -> AgentsReport {
+        let out = cmd.output().unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
         contract::holds("agents", &out.stdout)
     }
@@ -100,6 +122,75 @@ fn the_report_lists_the_harnesses_and_their_live_sessions() {
     assert!(out.status.success());
     assert!(text.contains("Claude Code") && text.contains("~/.claude") && text.contains("live"), "{text}");
     assert_eq!(fs::read_dir(fx.root.join("data")).unwrap().count(), 0, "it saved something");
+}
+
+const LIVE: &str = "0a1b2c3d-0000-4000-8000-00000000000a";
+const ENDED: &str = "0a1b2c3d-0000-4000-8000-00000000000b";
+
+/// Story "Per-session footprint: what each agent session keeps in its
+/// transcripts, temporary folders and worktrees": each session's bytes by
+/// kind, valid against the schema, with the temporary folder under the
+/// system root even when `CLAUDE_CODE_TMPDIR` names another.
+#[test]
+fn each_sessions_footprint_and_the_temporary_folder() {
+    if common::unsupported("each_sessions_footprint_and_the_temporary_folder")
+        || common::lacks("each_sessions_footprint_and_the_temporary_folder", Capability::CodingAgents)
+    {
+        return;
+    }
+    let fx = Fx::new();
+    let me = std::process::id();
+    fx.write(".claude/sessions/1.json", &format!(r#"{{"pid":{me},"sessionId":"{LIVE}","startedAt":{}}}"#, now_ms()));
+    fx.write(&format!(".claude/projects/-p/{LIVE}.jsonl"), "{}\n");
+    fx.write(&format!(".claude/file-history/{ENDED}/f"), "x");
+    let temp = Fx::temp_rel();
+    fx.file(&format!("{temp}/-p/{LIVE}/scratchpad/x"), 64 * 1024);
+    fx.file(&format!("{temp}/-p/{ENDED}/tasks/y"), 8 * 1024);
+    // The variable names another folder: the fixture root wins over it.
+    let decoy = "0a1b2c3d-0000-4000-8000-0000000000dd";
+    fx.file(&format!("decoy/claude-{}/-p/{decoy}/x", procs::uid()), 4096);
+
+    let mut cmd = fx.ddc(&["--json"]);
+    cmd.env("CLAUDE_CODE_TMPDIR", fx.root.join("decoy"));
+    let r = Fx::json_of(cmd);
+    let s = r.harnesses[0].sessions.as_ref().unwrap();
+    let list = s.footprints.as_ref().unwrap();
+    let rows: Vec<(&str, FootprintState)> = list.iter().map(|f| (f.id.as_str(), f.state)).collect();
+    assert_eq!(rows, [(LIVE, FootprintState::Live), (ENDED, FootprintState::Unknown)]);
+    assert!(list.iter().all(|f| f.temp > 0 && f.total == f.transcript + f.checkpoints + f.temp));
+    let root = s.temp_root.as_ref().unwrap();
+    assert_eq!(root.path, fx.root.join(&temp));
+    assert!(root.bytes.unwrap() >= list.iter().map(|f| f.temp).sum::<u64>());
+
+    // `--no-sizes`: neither.
+    let fast = fx.json(&["--no-sizes"]);
+    let s = fast.harnesses[0].sessions.as_ref().unwrap();
+    assert!(s.footprints.is_none() && s.temp_root.is_none());
+}
+
+#[test]
+fn the_table_shows_ten_sessions_and_the_rest_in_one_line() {
+    if common::unsupported("the_table_shows_ten_sessions_and_the_rest_in_one_line")
+        || common::lacks("the_table_shows_ten_sessions_and_the_rest_in_one_line", Capability::CodingAgents)
+    {
+        return;
+    }
+    let fx = Fx::new();
+    fs::create_dir_all(fx.root.join("home/.claude/sessions")).unwrap();
+    for i in 0..11 {
+        let id = format!("0a1b2c3d-0000-4000-8000-0000000000{i:02}");
+        fx.file(&format!("home/.claude/projects/-p/{id}.jsonl"), (i + 1) * 16 * 1024);
+        fx.file(&format!("{}/-p/{id}/scratchpad/x", Fx::temp_rel()), 4096);
+    }
+    let out = fx.ddc(&[]).output().unwrap();
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(out.status.success());
+    assert!(text.contains("sessions, largest first") && text.contains("temporary folder"), "{text}");
+    assert_eq!(text.matches("0a1b2c3d ").count(), 10, "{text}");
+    assert!(text.contains("1 more, "), "{text}");
+    for word in ["delete", "trash", "remove"] {
+        assert!(!text.to_lowercase().contains(word), "{text}");
+    }
 }
 
 #[test]

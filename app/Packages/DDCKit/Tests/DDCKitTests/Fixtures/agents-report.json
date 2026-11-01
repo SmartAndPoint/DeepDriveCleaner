@@ -65,6 +65,46 @@
           "count": 42,
           "bytes": 1073741824,
           "skipped": false
+        },
+        "footprints": [
+          {
+            "id": "0a1b2c3d-0000-4000-8000-000000000002",
+            "project": "-Users-example-Projects-old",
+            "state": "not-live",
+            "modified": "2026-10-27T10:12:00Z",
+            "transcript": 52428800,
+            "checkpoints": 1048576,
+            "temp": 3650722201,
+            "total": 3704199577,
+            "temp_path": "/private/tmp/claude-501/-Users-example-Projects-old/0a1b2c3d-0000-4000-8000-000000000002"
+          },
+          {
+            "id": "0a1b2c3d-0000-4000-8000-000000000001",
+            "project": "-Users-example-Projects-acme-web",
+            "state": "live",
+            "live_by": "record",
+            "modified": "2026-10-28T13:59:00Z",
+            "transcript": 10485760,
+            "checkpoints": 0,
+            "temp": 2097152,
+            "total": 12582912,
+            "temp_path": "/private/tmp/claude-501/-Users-example-Projects-acme-web/0a1b2c3d-0000-4000-8000-000000000001"
+          },
+          {
+            "id": "0a1b2c3d-0000-4000-8000-000000000009",
+            "state": "unknown",
+            "unknown_cause": "session-without-files",
+            "transcript": 0,
+            "checkpoints": 4096,
+            "temp": 0,
+            "total": 4096
+          }
+        ],
+        "temp_root": {
+          "path": "/private/tmp/claude-501",
+          "skipped": false,
+          "bytes": 3700000000,
+          "unreadable": 0
         }
       }
     },

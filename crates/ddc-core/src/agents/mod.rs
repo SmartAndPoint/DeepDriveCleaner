@@ -4,10 +4,14 @@
 //! of Claude Code's session records, the names of Codex's lock files and
 //! rollouts, the process list with the open files of the user's processes,
 //! and allocated sizes; never a transcript's content, a `.key` file or a
-//! harness database.
+//! harness database. With sizes it also measures Claude Code's temporary
+//! folder outside the home, and each Claude Code session's bytes (story
+//! "Per-session footprint: what each agent session keeps in its
+//! transcripts, temporary folders and worktrees").
 
 mod claude;
 mod codex;
+mod footprint;
 pub mod liveness;
 mod model;
 mod running;
@@ -140,12 +144,44 @@ pub fn report(env: &Env, opts: &AgentsOptions, procs: &[ProcInfo], cancel: &Atom
         }));
     }
 
-    let measured: Vec<(PathBuf, bool)> =
+    // Claude Code's sessions by id, and its temporary folder: with sizes only.
+    let claude_base = HARNESSES
+        .iter()
+        .zip(&found)
+        .find(|(def, _)| def.id == HarnessId::ClaudeCode)
+        .and_then(|(_, folders)| folders.first())
+        .map(|f| &f.path)
+        .filter(|p| p.ends_with(".claude"));
+    let temp = claude_base
+        .filter(|_| opts.sizes)
+        .and_then(|_| env.claude_temp_base())
+        .filter(|p| p.metadata().is_ok_and(|m| m.is_dir()))
+        .and_then(|p| p.canonicalize().ok())
+        .map(|p| (skipped(&p), p));
+    let walked_temp = temp.as_ref().filter(|(s, _)| !s).map(|(_, p)| p.as_path());
+    let footprints =
+        claude_base.filter(|_| opts.sizes).map(|base| (base, footprint::collect(base, walked_temp, &skipped)));
+
+    let mut measured: Vec<(PathBuf, bool)> =
         found.iter().flatten().filter(|f| !f.skipped).map(|f| (f.path.clone(), f.nested)).collect();
-    let sizes =
-        opts.sizes.then(|| sizes::measure(&measured, &catalog, &opts.user_skips, &transcripts, opts.threads, cancel));
+    // A root of its own, in no harness's folders: the harness bytes stay the home's.
+    let harness_folders = measured.len();
+    measured.extend(walked_temp.map(|p| (p.to_path_buf(), false)));
+    let footprint_bytes = footprints.as_ref().map(|(_, (_, bytes))| bytes);
+    let sizes = opts.sizes.then(|| {
+        sizes::measure(&measured, &catalog, &opts.user_skips, &transcripts, footprint_bytes, opts.threads, cancel)
+    });
+    let temp_root = temp.map(|(skipped, path)| {
+        let size = sizes.as_ref().and_then(|s| s.get(harness_folders)).filter(|_| !skipped);
+        TempRoot { path, skipped, bytes: size.map(|s| s.bytes), unreadable: size.map_or(0, |s| s.unreadable) }
+    });
+    let mut footprints = footprints.map(|(base, (found, bytes))| {
+        let records = base.join("sessions");
+        footprint::assemble(found, &bytes, &records, skipped(&records), &pids, env.now())
+    });
+    let mut temp_root = Some(temp_root);
     let size_of = |path: &Path| {
-        let i = measured.iter().position(|(p, _)| p == path)?;
+        let i = measured[..harness_folders].iter().position(|(p, _)| p == path)?;
         sizes.as_ref().map(|s| s[i])
     };
 
@@ -172,6 +208,10 @@ pub fn report(env: &Env, opts: &AgentsOptions, procs: &[ProcInfo], cancel: &Atom
         let bytes = (opts.sizes && tops().next().is_some()).then(|| tops().sum());
         let sessions = sessions.map(|(mut s, i)| {
             s.transcripts.bytes = i.map(|i| transcripts[i].bytes.load(Relaxed));
+            if def.id == HarnessId::ClaudeCode {
+                s.footprints = footprints.take();
+                s.temp_root = temp_root.take().flatten();
+            }
             s
         });
         harnesses.push(Harness {
@@ -246,7 +286,14 @@ fn finish(
         list.iter().filter(|s| s.state == SessionState::Live).filter_map(|s| s.id.clone()).collect();
     let skipped = names.is_none();
     let count = names.map(|ids| ids.difference(&live).count() as u64);
-    let sessions = Sessions { records, reason, list, transcripts: Transcripts { count, bytes: None, skipped } };
+    let sessions = Sessions {
+        records,
+        reason,
+        list,
+        transcripts: Transcripts { count, bytes: None, skipped },
+        footprints: None,
+        temp_root: None,
+    };
     (sessions, (!skipped).then(|| TranscriptBytes::new(dir, shape, live)))
 }
 

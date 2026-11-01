@@ -4,7 +4,9 @@ use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::Path;
 
-use ddc_core::agents::{AgentsReport, RecordsState, RunningKind, SessionState, UnknownReason};
+use ddc_core::agents::{
+    AgentsReport, FootprintState, RecordsState, RunningKind, SessionFootprint, SessionState, TempRoot, UnknownReason,
+};
 use ddc_core::brew::{BrewPackages, NotOffered, Service, ServicesState};
 use ddc_core::class::{Category, RiskClass};
 use ddc_core::disk::{ActionId, DiskReport, HeldKind, HomeSource, SimulatorStatus};
@@ -16,6 +18,9 @@ use crate::size::{count, human};
 
 /// Findings shown per group unless `--all`.
 const PER_GROUP: usize = 8;
+
+/// Sessions `ddc disk agents` lists per harness; `--json` has them all.
+const TOP_SESSIONS: usize = 10;
 
 pub struct Style {
     pub color: bool,
@@ -465,10 +470,70 @@ pub fn agents(w: &mut impl Write, r: &AgentsReport, home: &Path, style: &Style) 
             }
             (false, None) => {}
         }
+        if let Some(t) = &s.temp_root {
+            temp_root(w, t, home, style)?;
+        }
+        if let Some(f) = &s.footprints {
+            footprints(w, f, home, style)?;
+        }
     }
     if !r.sizes {
         writeln!(w)?;
         writeln!(w, "{}", style.dim("Sizes were not measured (--no-sizes)."))?;
+    }
+    Ok(())
+}
+
+/// Claude Code's temporary folder outside the home.
+fn temp_root(w: &mut impl Write, t: &TempRoot, home: &Path, style: &Style) -> io::Result<()> {
+    let path = format!("  temporary folder {}", tilde(&t.path, home));
+    let (bytes, note) = match t.bytes {
+        _ if t.skipped => (String::new(), "in your skips, not read".to_owned()),
+        Some(b) if t.unreadable > 0 => {
+            (format!("at least {}", human(b)), format!("{} unreadable", count(t.unreadable)))
+        }
+        Some(b) => (human(b), String::new()),
+        None => (String::new(), String::new()),
+    };
+    writeln!(w, "{path:<44} {bytes:>14}  {}", style.dim(&note))
+}
+
+/// The sessions by total, largest first: the top ten, then the rest as one
+/// line. A live or unknown session's files are only described, never
+/// offered; a session that is not live names its temporary folder.
+fn footprints(w: &mut impl Write, list: &[SessionFootprint], home: &Path, style: &Style) -> io::Result<()> {
+    if list.is_empty() {
+        return Ok(());
+    }
+    writeln!(w, "  {}", style.dim("sessions, largest first:"))?;
+    for f in list.iter().take(TOP_SESSIONS) {
+        let state = match f.state {
+            FootprintState::Live => "live",
+            FootprintState::NotLive => "not live",
+            FootprintState::Unknown => "unknown",
+        };
+        let mut parts: Vec<String> = Vec::new();
+        if f.transcript > 0 {
+            parts.push(format!("transcript {}", human(f.transcript)));
+        }
+        if f.checkpoints > 0 {
+            parts.push(format!("checkpoints {}", human(f.checkpoints)));
+        }
+        match (&f.temp_path, f.state) {
+            (Some(p), FootprintState::NotLive) if f.temp > 0 => {
+                parts.push(format!("{} in its temporary folder ({})", human(f.temp), tilde(p, home)));
+            }
+            _ if f.temp > 0 => parts.push(format!("temporary {}", human(f.temp))),
+            _ => {}
+        }
+        let id: String = f.id.chars().take(8).collect();
+        let project = escaped(f.project.as_deref().unwrap_or("?"));
+        writeln!(w, "    {state:<9} {id:<8}  {project:<24} {:>12}  {}", human(f.total), style.dim(&parts.join(" · ")))?;
+    }
+    let rest = &list[list.len().min(TOP_SESSIONS)..];
+    if !rest.is_empty() {
+        let bytes: u64 = rest.iter().map(|f| f.total).sum();
+        writeln!(w, "    {}", style.dim(&format!("{} more, {}", count(rest.len() as u64), human(bytes))))?;
     }
     Ok(())
 }
