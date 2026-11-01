@@ -1126,7 +1126,7 @@ fn the_licences_follow_their_paths() {
     for manifest in ["Cargo.toml", "fuzz/Cargo.toml"] {
         assert!(read(manifest).contains("license = \"AGPL-3.0-only\""), "{manifest} is AGPL-3.0-only");
     }
-    // The app's About text: scripts/tests/test_licences.py (a Rust test reads no Rust-free path).
+    // The app's About text: DDCKit's ContractTests (a Rust test reads no Rust-free path).
     // Every guidance file carries its own notice, so a copy of one file keeps it.
     for file in GUIDANCE {
         assert!(
