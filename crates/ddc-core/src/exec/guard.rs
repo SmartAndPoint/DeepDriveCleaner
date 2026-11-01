@@ -630,7 +630,10 @@ pub(super) fn walk_item(path: &Path, reader: &dyn DirReader) -> Option<Walked> {
         bytes: out.total_bytes,
         kept,
         incomplete: out.errors_total > 0 || out.skipped_total > 0 || out.vanished > 0,
-        other_fs: out.skipped.iter().any(|s| matches!(s.reason, scan::SkipReason::OtherFilesystem)),
+        other_fs: out
+            .skipped
+            .iter()
+            .any(|s| matches!(s.reason, scan::SkipReason::OtherFilesystem | scan::SkipReason::Automount)),
     })
 }
 

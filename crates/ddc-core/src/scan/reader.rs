@@ -6,7 +6,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::platform::meta;
-pub use crate::platform::types::{DirListing, EntryKind, EntryMeta, ReadError, ReadErrorKind, Times};
+pub use crate::platform::types::{Boundary, DirListing, EntryKind, EntryMeta, ReadError, ReadErrorKind, Times};
 
 /// `SF_DATALESS` from `<sys/stat.h>`: the item's content lives in the cloud.
 pub const SF_DATALESS: u32 = 0x4000_0000;
@@ -26,7 +26,26 @@ pub trait DirReader: Sync {
         want_private: bool,
         times: Times,
     ) -> Result<DirListing, ReadError>;
+
+    /// [`Self::read`] of `dir`, a folder at or beneath the scan root that
+    /// `anchor` holds open. The platform's reader opens it relative to that
+    /// descriptor, so a mount or a symlink on the way is refused, never
+    /// crossed (safety ADR, amendment of 2026-11-01). Others read by path.
+    fn read_in(
+        &self,
+        anchor: &Anchor,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: Times,
+    ) -> Result<DirListing, ReadError> {
+        let _ = anchor;
+        self.read(dir, expect, want_private, times)
+    }
 }
+
+/// A scan root held open for [`DirReader::read_in`].
+pub use crate::platform::bulk::Anchor;
 
 /// The platform's own listing (`platform::bulk::list`): on macOS
 /// `getattrlistbulk`, one call per batch of entries, with the APFS private
@@ -43,6 +62,17 @@ impl DirReader for SystemReader {
         times: Times,
     ) -> Result<DirListing, ReadError> {
         crate::platform::bulk::list(dir, expect, want_private, times)
+    }
+
+    fn read_in(
+        &self,
+        anchor: &Anchor,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: Times,
+    ) -> Result<DirListing, ReadError> {
+        crate::platform::bulk::list_in(anchor, dir, expect, want_private, times)
     }
 }
 
@@ -98,6 +128,7 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
                     error: Some(e.raw_os_error().unwrap_or(crate::platform::errno::EIO)),
                     modified: None,
                     added: None,
+                    boundary: None,
                 });
                 continue;
             }
@@ -125,6 +156,7 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
             error: None,
             modified: times.then(|| meta::mtime(&em)),
             added: None,
+            boundary: None,
         });
     }
     Ok(DirListing { dev, ino, modified, alloc: meta::alloc_bytes(&md), entries })

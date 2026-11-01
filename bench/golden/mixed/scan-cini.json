@@ -10031,7 +10031,7 @@
   "scan_roots": [
     "<run>/tree"
   ],
-  "schema_version": 4,
+  "schema_version": 5,
   "skipped": [
     {
       "path": "<run>/tree/Users/load/Library/CloudStorage",

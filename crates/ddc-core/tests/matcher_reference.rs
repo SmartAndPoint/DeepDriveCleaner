@@ -182,6 +182,7 @@ impl Tree {
             error: None,
             modified: None,
             added: None,
+            boundary: None,
         };
         let dirs = self.children(dir).map(|d| entry(d, EntryKind::Dir));
         let files = self.files.keys().filter(|f| f.parent() == Some(dir)).map(|f| entry(f, EntryKind::File));

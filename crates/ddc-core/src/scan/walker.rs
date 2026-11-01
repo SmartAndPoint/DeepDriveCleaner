@@ -11,7 +11,10 @@ use std::time::Instant;
 
 use super::inodes::{Holder, InodeTable};
 use super::reader::EntryMeta;
-use super::reader::{DirReader, EntryKind, ReadError, ReadErrorKind, SF_DATALESS, StdReader, SystemReader, Times};
+use super::reader::{
+    Anchor, Boundary, DirListing, DirReader, EntryKind, ReadError, ReadErrorKind, SF_DATALESS, StdReader, SystemReader,
+    Times,
+};
 use super::{
     DirCtx, EntryResult, OwnerEntries, OwnerKind, OwnerResult, Post, Pre, Progress, ReaderKind, RootResult, SkipReason,
     Skipped, Tag, Visitor, WalkError, WalkOptions, WalkOutput, WalkSetupError,
@@ -71,6 +74,9 @@ struct EntryAcc {
 struct RootAcc {
     path: PathBuf,
     dev: u64,
+    /// The root held open, which every folder of the walk opens beneath;
+    /// `None` when it cannot be opened, and the walk reads by path.
+    anchor: Option<Anchor>,
     bytes: AtomicU64,
     files: AtomicU64,
     dirs: AtomicU64,
@@ -160,9 +166,10 @@ pub fn walk_with_reader(
         opts,
         roots: roots
             .iter()
-            .map(|(path, _, id)| RootAcc {
+            .map(|(path, md, id)| RootAcc {
                 path: path.clone(),
                 dev: id.0,
+                anchor: md.is_dir().then(|| crate::platform::bulk::anchor(path).ok()).flatten(),
                 bytes: AtomicU64::new(0),
                 files: AtomicU64::new(0),
                 dirs: AtomicU64::new(0),
@@ -297,7 +304,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
     } else {
         Times::None
     };
-    let mut listing = match sh.reader.read(&dir, Some(expect), want_private, times) {
+    let mut listing = match sh.read(root, &dir, Some(expect), want_private, times) {
         Ok(listing) => listing,
         Err(err) => {
             sh.read_failed(dir, err, root, owner.as_deref(), entry.as_deref(), blocks);
@@ -317,7 +324,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
                 // The listing was read before we knew this is a finding: re-read
                 // this one directory with what the claim wants.
                 let again_times = if claim.want_times { Times::Modified } else { Times::None };
-                match sh.reader.read(&dir, Some(expect), want_private || claim.want_private, again_times) {
+                match sh.read(root, &dir, Some(expect), want_private || claim.want_private, again_times) {
                     Ok(again) => listing = again,
                     Err(err) if for_private => {
                         // Keep the first listing; its files then count as "private unknown".
@@ -377,6 +384,22 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             }
             continue;
         }
+        // A file bind-mounted here is a mount too: not counted, and its
+        // finding is incomplete, since unlinking it fails (`EBUSY`).
+        if meta.kind != EntryKind::Dir
+            && let Some(edge) = meta.boundary
+        {
+            skipped += 1;
+            if let Some(e) = within {
+                e.other_fs.fetch_add(1, Relaxed);
+            }
+            let why = match edge {
+                Boundary::Automount => SkipReason::Automount,
+                Boundary::Mount => SkipReason::OtherFilesystem,
+            };
+            sh.skip(dir.join(&meta.name), why);
+            continue;
+        }
         // Before the kind decides where the bytes go: a hard-linked file (most
         // of a pnpm or uv tree), a skipped or unreadable directory still tells
         // when it last changed.
@@ -388,6 +411,19 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
                 if meta.flags & SF_DATALESS != 0 {
                     skipped += 1;
                     sh.skip(child, SkipReason::Dataless);
+                } else if let Some(edge) = meta.boundary {
+                    // An automount point or another mount, a bind mount of
+                    // this filesystem included: never opened (safety ADR,
+                    // amendment of 2026-11-01).
+                    skipped += 1;
+                    if let Some(e) = within {
+                        e.other_fs.fetch_add(1, Relaxed);
+                    }
+                    let why = match edge {
+                        Boundary::Automount => SkipReason::Automount,
+                        Boundary::Mount => SkipReason::OtherFilesystem,
+                    };
+                    sh.skip(child, why);
                 } else if meta.dev != root_dev {
                     skipped += 1;
                     if let Some(e) = within {
@@ -473,6 +509,21 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl Shared<'_> {
+    /// Lists `dir` beneath its root's anchor, or by path without one.
+    fn read(
+        &self,
+        root: usize,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: Times,
+    ) -> Result<DirListing, ReadError> {
+        match &self.roots[root].anchor {
+            Some(anchor) => self.reader.read_in(anchor, dir, expect, want_private, times),
+            None => self.reader.read(dir, expect, want_private, times),
+        }
+    }
+
     /// What the visitor asks for a claim of `tag` at `ctx`, the times only
     /// while [`WalkOptions::claim_times`] is on.
     fn claim_wants(&self, ctx: &DirCtx<'_>, tag: Tag) -> Wants {

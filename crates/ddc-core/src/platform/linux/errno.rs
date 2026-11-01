@@ -16,6 +16,9 @@ pub fn read_error_kind(errno: i32) -> ReadErrorKind {
         Errno::ACCESS | Errno::PERM => ReadErrorKind::PermissionDenied,
         Errno::NOENT => ReadErrorKind::NotFound,
         Errno::LOOP | Errno::NOTDIR => ReadErrorKind::Changed,
+        // `openat2` with `RESOLVE_NO_XDEV`: a mount on the way (safety ADR,
+        // amendment of 2026-11-01).
+        Errno::XDEV => ReadErrorKind::OtherFilesystem,
         _ => ReadErrorKind::Other,
     }
 }
@@ -33,5 +36,6 @@ mod tests {
         assert_eq!(read_error_kind(20), ReadErrorKind::Changed, "ENOTDIR");
         assert_eq!(read_error_kind(35), ReadErrorKind::Other, "EDEADLK is no dataless item on Linux");
         assert_eq!(read_error_kind(EIO), ReadErrorKind::Other);
+        assert_eq!(read_error_kind(18), ReadErrorKind::OtherFilesystem, "EXDEV, a mount crossed");
     }
 }

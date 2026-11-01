@@ -20,8 +20,9 @@ use crate::scan::SkipReason;
 /// `liveness-unknown`, on the entries of the coding agents' session folders
 /// (ADR "Agent footprint: worktrees, harness data and bounded consent for
 /// agents", §3). 4: the reason `foreign-owner` in `not_selected` (safety
-/// ADR, amendment of 2026-10-31).
-pub const SCHEMA_VERSION: u32 = 4;
+/// ADR, amendment of 2026-10-31). 5: the skip reason `automount` (safety
+/// ADR, amendment of 2026-11-01).
+pub const SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ScanReport {
