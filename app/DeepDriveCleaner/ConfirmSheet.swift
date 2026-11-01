@@ -74,7 +74,8 @@ private struct ConfirmView: View {
                     CheckBox(state: state, enabled: !model.isCleaning, label: "Delete all permanently") {
                         model.setAllPermanent(state != .on)
                     }
-                    Text("Delete all permanently").font(.system(size: 12))
+                    // The checkbox carries the label for VoiceOver.
+                    Text("Delete all permanently").font(.system(size: 12)).accessibilityHidden(true)
                 }
                 .help("Removed at once instead of moved to the Trash; they cannot be put back. Settings → Automation decides how the sheet starts.")
             }
