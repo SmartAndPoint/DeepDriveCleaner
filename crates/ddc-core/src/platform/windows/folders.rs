@@ -48,6 +48,17 @@ fn data_and_log(home: &Path, local: Option<&Path>) -> (PathBuf, PathBuf) {
     (data, logs)
 }
 
+/// The program of a git probe (story "Worktree findings and provenance",
+/// decision 10).
+pub const GIT_PROGRAM: &str = "git.exe";
+/// Folders whose git is never run: none here.
+pub const GIT_SHIM_DIRS: &[&str] = &[];
+/// Searched for git after the tool folders.
+pub const GIT_SYSTEM_DIRS: &[&str] = &[];
+/// The tool that prints the developer directory, whose `usr/bin/git` runs
+/// when no tool folder has a git: none here.
+pub const DEVELOPER_DIR_TOOL: Option<&str> = None;
+
 #[cfg(test)]
 mod tests {
     use super::*;

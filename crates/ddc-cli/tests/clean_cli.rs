@@ -95,6 +95,36 @@ fn dry_run_changes_nothing_and_writes_no_journal() {
     let _ = &fx.tmp;
 }
 
+/// `clean` takes `--worktree-min-age` as `scan` does. A worktree it selects
+/// is not planned yet: removal through git comes with a later release.
+#[test]
+fn clean_takes_worktree_min_age_and_plans_no_worktree() {
+    if common::unsupported("clean_takes_worktree_min_age_and_plans_no_worktree") {
+        return;
+    }
+    let fx = Fx::new();
+    let main = fx.home.join("proj");
+    fs::create_dir_all(&main).unwrap();
+    let made = common::git(&main, &["init", "-q", "-b", "main"]);
+    let Some(_) = common::skipped_without("clean_takes_worktree_min_age_and_plans_no_worktree", made) else {
+        return;
+    };
+    fx.write("proj/README", b"hello\n");
+    common::git(&main, &["add", "README"]).unwrap();
+    common::git(&main, &["commit", "-q", "-m", "init"]).unwrap();
+    let wt = main.join(".claude/worktrees/x");
+    common::git(&main, &["worktree", "add", "-q", wt.to_str().unwrap()]).unwrap();
+    let before = fx.snapshot();
+
+    let args = ["clean", "--dry-run", "--class", "rebuildable", "--worktree-min-age", "0", "--data-dir", fx.data_arg()];
+    let out = ddc(&fx.home, &args);
+
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(!text.contains(".claude/worktrees/x"), "{text}");
+    assert_eq!(fx.snapshot(), before);
+}
+
 #[test]
 fn yes_cleans_only_safe_items_by_default() {
     if common::unsupported("yes_cleans_only_safe_items_by_default") {

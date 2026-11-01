@@ -99,7 +99,7 @@
     {
       "name": "scan --json is valid against its schema",
       "group": "scan",
-      "args": ["scan", "--json", "--min-age", "0", "--threads", "2", "{home}/Projects"],
+      "args": ["scan", "--json", "--min-age", "0", "--worktree-min-age", "2", "--threads", "2", "{home}/Projects"],
       "expect": {"exit": 0, "roots": ["{home}/Projects"], "schema": "scan"}
     },
     {
@@ -156,7 +156,7 @@
     {
       "name": "clean --dry-run with every filter",
       "group": "clean",
-      "args": ["clean", "--dry-run", "--class", "safe", "--category", "project-artifact", "--min-size", "1K", "--min-age", "0", "--exclude", "{home}/Projects/web", "--skip", "{home}/Projects/kept", "--progress", "json", "{home}/Projects"],
+      "args": ["clean", "--dry-run", "--class", "safe", "--category", "project-artifact", "--min-size", "1K", "--min-age", "0", "--worktree-min-age", "2", "--exclude", "{home}/Projects/web", "--skip", "{home}/Projects/kept", "--progress", "json", "{home}/Projects"],
       "expect": {"exit": 0, "roots": ["{home}/Projects"], "stderr_schema": "progress", "stdout": {"contains": ["python.pycache", "Dry run: nothing was changed."], "not_contains": ["node.node_modules"]}}
     },
     {

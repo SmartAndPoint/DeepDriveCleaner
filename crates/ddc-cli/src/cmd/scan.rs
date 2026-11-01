@@ -24,7 +24,13 @@ pub fn run(args: ScanArgs) -> anyhow::Result<ExitCode> {
     let given_roots = !args.paths.is_empty();
     let resolved = settings.resolve(
         &env,
-        &ScanFlags { paths: args.paths, excludes: args.exclude, skips: args.skip, min_age_days: args.min_age },
+        &ScanFlags {
+            paths: args.paths,
+            excludes: args.exclude,
+            skips: args.skip,
+            min_age_days: args.min_age,
+            worktree_min_age_days: args.worktree_min_age,
+        },
     )?;
     super::note_missing(&resolved.missing);
     // A scan changes nothing: a dropped protection is only worth a warning.

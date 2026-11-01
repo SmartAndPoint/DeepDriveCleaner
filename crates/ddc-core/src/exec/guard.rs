@@ -685,14 +685,30 @@ fn crash_reporter(p: &ProcInfo) -> bool {
 /// cache, with conda"). The process table is read once: reading every
 /// process's open files is the cost.
 pub(crate) fn user_of(targets: &[&Path], procs: &dyn ProcessTable) -> Option<SkipReason> {
-    let uses: Vec<Uses> = procs.processes().iter().map(uses).collect();
-    targets.iter().find_map(|target| {
-        in_use(target, &uses).or_else(|| {
-            uses.iter()
-                .find(|u| u.open.iter().any(|f| f.starts_with(target)))
-                .map(|u| SkipReason::InUse { pid: u.pid, name: u.name.clone() })
+    Users::read(procs).of(targets)
+}
+
+/// The process table read once, for [`user_of`]'s question about many
+/// folders: a scan asks it of every worktree it may select (story
+/// "Worktree findings and provenance").
+pub(crate) struct Users(Vec<Uses>);
+
+impl Users {
+    pub(crate) fn read(procs: &dyn ProcessTable) -> Self {
+        Self(procs.processes().iter().map(uses).collect())
+    }
+
+    /// [`user_of`] against the table as it was read.
+    pub(crate) fn of(&self, targets: &[&Path]) -> Option<SkipReason> {
+        targets.iter().find_map(|target| {
+            in_use(target, &self.0).or_else(|| {
+                self.0
+                    .iter()
+                    .find(|u| u.open.iter().any(|f| f.starts_with(target)))
+                    .map(|u| SkipReason::InUse { pid: u.pid, name: u.name.clone() })
+            })
         })
-    })
+    }
 }
 
 /// A process uses `target` if any of its paths lies inside it; with an

@@ -5,13 +5,22 @@
 //! a folder a region, so the other rules keep working inside it.
 
 use crate::platform::Canonical as _;
+use std::collections::HashMap;
 use std::fs;
 use std::io::{ErrorKind, Read as _};
 use std::path::{Component, Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
-use super::{Matcher, Rule};
-use crate::model::{OriginHarness, WorktreeProbe, WorktreeState};
-use crate::report::project::git_dir;
+use rayon::prelude::*;
+
+use super::{Classified, KEPT, Matcher, Rule};
+use crate::class::{Removal, RiskClass};
+use crate::exec::guard::Users;
+use crate::exec::{CommandRunner, ProcessTable, SkipReason};
+use crate::git::{self, Git};
+use crate::model::{IgnoredContent, OriginHarness, WorktreeProbe, WorktreeState};
+use crate::report::project::{self, git_dir};
+use crate::scan::OwnerKind;
 
 /// What a folder whose `.git` file names a gitdir is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,6 +154,271 @@ pub fn hint(found: &Recognized) -> String {
         Recognized::Linked(Linked { main, .. }) => format!("a linked worktree of {}; {LATER}", main.display()),
     }
 }
+
+/// What the six conditions need besides the walk (ADR "Agent footprint:
+/// worktrees, harness data and bounded consent for agents", §2, "Class").
+pub struct Probing<'a> {
+    pub now: SystemTime,
+    /// `--worktree-min-age`: the idle window of condition 3.
+    pub min_age: Duration,
+    /// Condition 2's in-use check reads it, once per scan.
+    pub processes: &'a dyn ProcessTable,
+    /// Runs the git probes, in parallel across the candidates.
+    pub commands: &'a (dyn CommandRunner + Sync),
+    /// Where [`git::locate`] looks for a git.
+    pub tool_dirs: Vec<PathBuf>,
+    /// Each probe's timeout.
+    pub timeout: Duration,
+}
+
+/// The most ignored paths a worktree's state lists.
+pub const MAX_IGNORED: usize = 20;
+
+/// A worktree that passed conditions 1 to 3, waiting for its probes.
+struct Candidate {
+    index: usize,
+    path: PathBuf,
+    linked: Linked,
+    state: WorktreeState,
+}
+
+/// Where a candidate's probes ended.
+enum Verdict {
+    /// All six conditions hold.
+    Eligible,
+    /// The first condition that failed, in words.
+    Kept(String),
+    /// A probe failed: fail closed.
+    Unknown(String),
+}
+
+/// The six conditions, in the ADR's order, for every linked worktree of a
+/// known harness, stopping at the first failure, which its state records
+/// and its hint names. One that holds them all becomes `rebuildable` and is
+/// selected; any other stays `review`. A worktree copied or moved by hand
+/// and a person's own get no condition and no probe: their hints say why.
+/// Conditions 1 to 3 read files and the process table; the git probes of 4
+/// to 6 run only for the worktrees that passed them, in parallel.
+pub(crate) fn assess(found: &mut [Classified], worktrees: &HashMap<PathBuf, Recognized>, probing: &Probing<'_>) {
+    let mut users: Option<Users> = None;
+    let mut candidates = Vec::new();
+    for (index, c) in found.iter_mut().enumerate() {
+        if !is_worktree_rule(c.rule) {
+            continue;
+        }
+        let Some(Recognized::Linked(linked)) = worktrees.get(&c.owner.path) else { continue };
+        let Some(state) = c.worktree.as_mut() else { continue };
+        if !linked.linked || linked.harness == OriginHarness::Git {
+            continue;
+        }
+        let kept = |reason: &str| Some(kept_hint(&linked.main, reason));
+        // 1. A known harness.
+        if linked.harness != OriginHarness::ClaudeCode {
+            c.hint =
+                kept(&format!("made by {}, whose worktrees ddc does not select yet", harness_name(linked.harness)));
+            continue;
+        }
+        // 2. Unlocked and not in use.
+        if state.locked == Some(true) {
+            c.hint = kept("locked; git worktree unlock releases it when no session needs it");
+            continue;
+        }
+        let users = users.get_or_insert_with(|| Users::read(probing.processes));
+        if let Some(user) = users.of(&[c.owner.path.as_path()]) {
+            state.in_use = Some(true);
+            c.hint = kept(&in_use(&user));
+            continue;
+        }
+        state.in_use = Some(false);
+        // 3. Idle by its own activity.
+        let Some(last) = project::last_activity(&c.owner.path) else {
+            c.hint = kept("nothing tells when it was last used");
+            continue;
+        };
+        let idle = probing.now.duration_since(last).unwrap_or_default();
+        state.idle_days = Some(idle.as_secs() / 86_400);
+        if idle < probing.min_age {
+            let days = idle.as_secs() / 86_400;
+            let window = probing.min_age.as_secs() / 86_400;
+            c.hint = kept(&format!("used {days} days ago, within the {window}-day window (--worktree-min-age)"));
+            continue;
+        }
+        candidates.push(Candidate { index, path: c.owner.path.clone(), linked: linked.clone(), state: state.clone() });
+    }
+    if candidates.is_empty() {
+        return;
+    }
+    let owners = removable_owners(found);
+    let exe = git::locate(probing.commands, &probing.tool_dirs, probing.timeout);
+    let (commands, timeout) = (probing.commands, probing.timeout);
+    let done: Vec<(Candidate, Verdict)> = candidates
+        .into_par_iter()
+        .map(|mut cand| {
+            let verdict = match &exe {
+                None => Verdict::Unknown(NO_GIT.to_owned()),
+                Some(exe) => {
+                    let git = Git::new(commands, exe.clone(), timeout);
+                    match conditions(&git, &cand.path, &cand.linked, &owners, &mut cand.state) {
+                        Ok(None) => Verdict::Eligible,
+                        Ok(Some(reason)) => Verdict::Kept(reason),
+                        Err(why) => Verdict::Unknown(why),
+                    }
+                }
+            };
+            (cand, verdict)
+        })
+        .collect();
+    for (mut cand, verdict) in done {
+        let c = &mut found[cand.index];
+        cand.state.probe =
+            if matches!(verdict, Verdict::Unknown(_)) { WorktreeProbe::Unknown } else { WorktreeProbe::Known };
+        c.hint = Some(match verdict {
+            Verdict::Eligible => {
+                c.class = RiskClass::Rebuildable;
+                format!("a linked worktree of {} that nothing needs any more; {LATER}", cand.linked.main.display())
+            }
+            Verdict::Kept(reason) => kept_hint(&cand.linked.main, &reason),
+            Verdict::Unknown(why) => kept_hint(&cand.linked.main, &format!("git could not tell its state: {why}")),
+        });
+        c.worktree = Some(cand.state);
+    }
+}
+
+/// Conditions 4 to 6 through git; the reason the first failing one gives,
+/// or the probe's failure.
+fn conditions(
+    git: &Git<'_>,
+    path: &Path,
+    linked: &Linked,
+    owners: &[PathBuf],
+    state: &mut WorktreeState,
+) -> Result<Option<String>, String> {
+    // 4. No initialized submodule: `git worktree remove` refuses one, and
+    // ddc never passes `--force`.
+    let modules = crate::stats::read_dir(linked.gitdir.join("modules")).is_ok_and(|mut rd| rd.next().is_some());
+    let initialized = modules || git.submodule_paths(path).known()?.iter().any(|p| exists(&path.join(p).join(".git")));
+    state.submodules = Some(initialized);
+    if initialized {
+        return Ok(Some("a submodule is initialized in it, and git worktree remove refuses that".to_owned()));
+    }
+    // 5. Clean, ignored content included.
+    let status = git.status(path).known()?;
+    state.clean = Some(!status.dirty);
+    if status.dirty {
+        return Ok(Some("it has uncommitted changes or untracked files".to_owned()));
+    }
+    let unaccounted = unaccounted(path, &linked.main, &status.ignored, owners);
+    if let Some(first) = unaccounted.first() {
+        let shown = first.strip_prefix(path).unwrap_or(first).display().to_string();
+        let count = unaccounted.len() as u64;
+        let more = if count > 1 { format!(" and {} more", count - 1) } else { String::new() };
+        state.ignored_content =
+            Some(IgnoredContent { paths: unaccounted.into_iter().take(MAX_IGNORED).collect(), count });
+        return Ok(Some(format!("it holds ignored content no artifact accounts for: {shown}{more}")));
+    }
+    // 6. No commit of its own, against the references that survive it.
+    let head = git.head(path).known()?;
+    let survivors = git.survivors(&linked.main, path, head.branch.as_deref()).known()?;
+    let own = git.own_commits(&linked.main, &head.commit, &survivors).known()?;
+    state.own_commits = Some(own);
+    Ok((own > 0).then(|| {
+        let commits = if own == 1 { "commit" } else { "commits" };
+        format!("{own} {commits} that no branch, tag, remote or other worktree holds")
+    }))
+}
+
+/// The claimed findings ddc removes on its own: `safe` or `rebuildable`
+/// with method `delete`. Sorted; claims never nest.
+fn removable_owners(found: &[Classified]) -> Vec<PathBuf> {
+    let mut owners: Vec<PathBuf> = found
+        .iter()
+        .filter(|c| c.owner.kind == OwnerKind::Claim && c.rule.id != KEPT)
+        .filter(|c| matches!(c.class, RiskClass::Safe | RiskClass::Rebuildable) && c.rule.removal == Removal::Delete)
+        .map(|c| c.owner.path.clone())
+        .collect();
+    owners.sort();
+    owners
+}
+
+/// The ignored paths of the worktree at `path` that nothing accounts for:
+/// neither inside one of `owners` (sorted) nor a byte-identical copy of
+/// the main checkout's file at the same place, which is what
+/// `.worktreeinclude` makes. Absolute, in git's order.
+fn unaccounted(path: &Path, main: &Path, ignored: &[String], owners: &[PathBuf]) -> Vec<PathBuf> {
+    ignored
+        .iter()
+        .filter(|rel| {
+            let at = path.join(rel);
+            !(inside_owner(&at, owners) || same_bytes(&at, &main.join(rel.as_str())))
+        })
+        .map(|rel| path.join(rel.trim_end_matches('/')))
+        .collect()
+}
+
+/// `at` lies in one of `owners`: the greatest owner not after it, since
+/// the owners do not nest and a folder's descendants sort right after it.
+fn inside_owner(at: &Path, owners: &[PathBuf]) -> bool {
+    let i = owners.partition_point(|o| o.as_path() <= at);
+    i > 0 && at.starts_with(&owners[i - 1])
+}
+
+/// Both are regular files with the same bytes.
+fn same_bytes(a: &Path, b: &Path) -> bool {
+    let (Ok(ma), Ok(mb)) = (fs::symlink_metadata(a), fs::symlink_metadata(b)) else { return false };
+    if !ma.is_file() || !mb.is_file() || ma.len() != mb.len() {
+        return false;
+    }
+    let (Ok(mut fa), Ok(mut fb)) = (fs::File::open(a), fs::File::open(b)) else { return false };
+    let (mut ba, mut bb) = (vec![0u8; 64 * 1024], vec![0u8; 64 * 1024]);
+    loop {
+        let (Ok(n), Ok(m)) = (read_full(&mut fa, &mut ba), read_full(&mut fb, &mut bb)) else { return false };
+        if n != m || ba[..n] != bb[..m] {
+            return false;
+        }
+        if n == 0 {
+            return true;
+        }
+    }
+}
+
+/// Fills `buf` as far as the file goes; the bytes read.
+fn read_full(f: &mut fs::File, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut n = 0;
+    while n < buf.len() {
+        match f.read(&mut buf[n..])? {
+            0 => break,
+            k => n += k,
+        }
+    }
+    Ok(n)
+}
+
+fn in_use(user: &SkipReason) -> String {
+    match user {
+        SkipReason::InUse { pid, name } | SkipReason::InUseUnknownCwd { pid, name } => {
+            format!("in use by {name} (pid {pid})")
+        }
+        _ => "in use".to_owned(),
+    }
+}
+
+fn harness_name(harness: OriginHarness) -> &'static str {
+    match harness {
+        OriginHarness::ClaudeCode => "Claude Code",
+        OriginHarness::Codex => "Codex",
+        OriginHarness::Opencode => "opencode",
+        OriginHarness::Cursor => "Cursor",
+        OriginHarness::Git => "git",
+    }
+}
+
+/// A harness's worktree that a condition keeps: the first one, named.
+fn kept_hint(main: &Path, reason: &str) -> String {
+    format!("a linked worktree of {}; kept: {reason}", main.display())
+}
+
+/// Why no probe ran: no git ddc may run.
+const NO_GIT: &str = "no git to ask (the developer tools are not installed)";
 
 /// Removal through git comes with a later release (the story's PR 3).
 const LATER: &str = "ddc removes worktrees through git worktree remove in a later release";

@@ -15,3 +15,14 @@ pub fn home() -> Option<PathBuf> {
 pub fn default_data_and_log(home: &Path) -> (PathBuf, PathBuf) {
     (home.join("Library/Application Support/DeepDriveCleaner"), home.join("Library/Logs/DeepDriveCleaner"))
 }
+
+/// The program of a git probe (story "Worktree findings and provenance",
+/// decision 10).
+pub const GIT_PROGRAM: &str = "git";
+/// Folders whose git is never run: `/usr/bin/git` is the `xcrun` shim that offers to install the developer tools.
+pub const GIT_SHIM_DIRS: &[&str] = &["/usr/bin"];
+/// Searched for git after the tool folders.
+pub const GIT_SYSTEM_DIRS: &[&str] = &[];
+/// The tool that prints the developer directory, whose `usr/bin/git` runs
+/// when no tool folder has a git: `xcode-select -p`, a real binary that exits 2 without a dialog when none is set.
+pub const DEVELOPER_DIR_TOOL: Option<&str> = Some("/usr/bin/xcode-select");

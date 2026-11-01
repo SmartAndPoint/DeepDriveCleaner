@@ -3,12 +3,11 @@
 
 use crate::platform::Canonical as _;
 use std::path::Path;
-use std::time::Duration;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{CommandRunner, ExecOptions, NATIVE_TIMEOUT, READY_TIMEOUT, SkipReason};
+use super::{CommandRunner, ExecOptions, NATIVE_TIMEOUT, PROBE_TIMEOUT, READY_TIMEOUT, SkipReason};
 use crate::class::{CondaFolder, Location, LocationCompare, NativeCommand, ReadyProbe};
 use crate::conda::{self, EnvironmentClaim, Installs};
 
@@ -93,7 +92,7 @@ pub(super) fn run(
     if let Some(probe) = probe {
         let Some(probe_exe) = commands.find(probe.program) else { return Native::Unavailable };
         let args: Vec<String> = probe.args.iter().map(|a| (*a).to_owned()).collect();
-        let Ok(out) = commands.run(&probe_exe, &args, &[], Duration::from_secs(30)) else { return Native::Unavailable };
+        let Ok(out) = commands.run(&probe_exe, &args, &[], PROBE_TIMEOUT) else { return Native::Unavailable };
         let reported = Path::new(out.stdout.trim()).canonical();
         let matches = out.success
             && reported.is_ok_and(|r| match probe.compare {

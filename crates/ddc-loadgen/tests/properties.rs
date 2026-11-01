@@ -769,6 +769,16 @@ impl CommandRunner for NoTools {
     fn run(&self, exe: &Path, _: &[String], _: &[(&str, &str)], _: Duration) -> io::Result<CmdOutput> {
         Err(io::Error::other(format!("no tool runs here: {}", exe.display())))
     }
+    fn run_cleared(
+        &self,
+        exe: &Path,
+        args: &[String],
+        _: &str,
+        env: &[(&str, &str)],
+        t: Duration,
+    ) -> io::Result<CmdOutput> {
+        self.run(exe, args, env, t)
+    }
 }
 
 struct NoProcesses;

@@ -19,7 +19,7 @@ use crate::exec::CommandRunner;
 pub const PREFIXES: [&str; 3] = ["miniconda3", "anaconda3", "miniforge3"];
 
 /// Each question's timeout, as a native command's location probe.
-pub const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
+pub const PROBE_TIMEOUT: Duration = crate::exec::PROBE_TIMEOUT;
 
 /// The settings asked of every install.
 const SHOW: [&str; 8] =
