@@ -17,7 +17,15 @@ pub fn git(dir: &Path, args: &[&str]) -> String {
 
 /// [`git`], or git's stderr when it exits non-zero.
 pub fn try_git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git")
+    let mut cmd = Command::new("git");
+    // A git hook (the pre-push gate) exports GIT_DIR, GIT_INDEX_FILE and the
+    // like; inherited, they point every fixture command at the outer repository.
+    for (key, _) in std::env::vars_os() {
+        if key.to_str().is_some_and(|k| k.starts_with("GIT_")) {
+            cmd.env_remove(key);
+        }
+    }
+    let out = cmd
         .arg("-C")
         .arg(dir)
         .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
