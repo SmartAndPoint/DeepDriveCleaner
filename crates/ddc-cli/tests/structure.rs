@@ -1109,7 +1109,7 @@ fn the_agent_guidance_runs_nothing_that_removes() {
 /// The licences follow their paths (ADR "Licensing: AGPL-3.0 with a
 /// commercial licence for the product, MIT for agent guidance and report
 /// schemas"): the README's MIT block names exactly the guidance and the
-/// schemas, the manifests and the app say AGPL, and PolyForm is history.
+/// schemas, the manifests say AGPL, and PolyForm is history.
 #[test]
 fn the_licences_follow_their_paths() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -1126,7 +1126,7 @@ fn the_licences_follow_their_paths() {
     for manifest in ["Cargo.toml", "fuzz/Cargo.toml"] {
         assert!(read(manifest).contains("license = \"AGPL-3.0-only\""), "{manifest} is AGPL-3.0-only");
     }
-    assert!(read("app/DeepDriveCleaner/Info.plist").contains("GNU Affero General Public License 3.0"));
+    // The app's About text: scripts/tests/test_licences.py (a Rust test reads no Rust-free path).
     // Every guidance file carries its own notice, so a copy of one file keeps it.
     for file in GUIDANCE {
         assert!(
@@ -1149,7 +1149,6 @@ fn the_licences_follow_their_paths() {
         "DISCLAIMER.md",
         "TRADEMARKS.md",
         "agents/README.md",
-        "app/DeepDriveCleaner/Info.plist",
     ] {
         assert!(!read(file).contains("PolyForm"), "{file} still names PolyForm");
     }
