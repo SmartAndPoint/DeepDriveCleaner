@@ -13,7 +13,7 @@ mod contract;
 fn ddc(home: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
-        .env("HOME", home)
+        .home_env(home)
         .env("PATH", "")
         .env("NO_COLOR", "1")
         .args(args)
@@ -184,7 +184,7 @@ fn sigterm_before_the_scan_finishes_leaves_the_saved_scan_untouched() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
-        .env("HOME", &home)
+        .home_env(&home)
         .env("PATH", "")
         .args(["scan", "--json", "--data-dir", data.to_str().unwrap()])
         .stdout(Stdio::null())
@@ -276,7 +276,7 @@ fn scan_of_other_roots_into_the_app_data_folder_says_the_app_shows_it() {
     assert!(!shows_line(&ddc(&home, &["scan", other, "--data-dir", data.to_str().unwrap()])));
     let by_var = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
-        .env("HOME", &home)
+        .home_env(&home)
         .env("PATH", "")
         .env("DDC_DATA_DIR", &data)
         .args(["scan", other])

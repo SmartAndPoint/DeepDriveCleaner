@@ -29,7 +29,7 @@ fn ddc_du_matches_system_du() {
 
     let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
-        .env("HOME", &root)
+        .home_env(&root)
         .env("PATH", "")
         .arg("du")
         .arg(&root)

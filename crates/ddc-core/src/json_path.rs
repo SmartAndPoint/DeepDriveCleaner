@@ -77,15 +77,16 @@ mod tests {
 
     #[test]
     fn a_path_that_is_not_utf8_is_written_lossily_and_counted() {
-        let Some(bad) = crate::platform::testing::name_from_bytes(b"bad-\xff") else {
-            return; // Windows spells no arbitrary bytes (WTF-8): its story decides.
-        };
+        // Windows spells the bad byte as an unpaired surrogate (WTF-8).
+        let bad = crate::platform::testing::name_from_bytes(b"bad-\xff").expect("a name that is not UTF-8");
         let bad = PathBuf::from("/h").join(bad);
+        // The separator `join` puts in: `/` on Unix, `\` on Windows.
+        let lossy = PathBuf::from("/h").join("bad-\u{fffd}").to_string_lossy().into_owned();
         let out = Out { one: bad.clone(), maybe: Some(bad.clone()), many: vec![PathBuf::from("/ok"), bad] };
         let json = serde_json::to_value(&out).unwrap();
-        assert_eq!(json["one"], "/h/bad-\u{fffd}");
-        assert_eq!(json["maybe"], "/h/bad-\u{fffd}");
-        assert_eq!(json["many"], serde_json::json!(["/ok", "/h/bad-\u{fffd}"]));
+        assert_eq!(json["one"], lossy.as_str());
+        assert_eq!(json["maybe"], lossy.as_str());
+        assert_eq!(json["many"], serde_json::json!(["/ok", lossy]));
         assert_eq!(count_lossy(&out), Some(3));
         let fine = Out { one: "/a".into(), maybe: None, many: vec![] };
         assert_eq!(count_lossy(&fine), None);

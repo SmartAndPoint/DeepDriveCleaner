@@ -22,22 +22,44 @@ use crate::target::{self, Layout};
 /// run still reads nothing of the owner's; without it the child writes no
 /// profile and its code counts as never run. Every test and measured run
 /// clears the environment through this (`clippy.toml`).
+///
+/// It also keeps `SystemRoot`, where Windows itself is installed: Windows
+/// libraries a child loads (Winsock, COM, the shell) look up system files
+/// through it. It names no user folder; elsewhere it is not set.
 pub trait ClearEnv {
     fn clear_env(&mut self) -> &mut Self;
+
+    /// Points every variable a platform reads the home from at `home`
+    /// (story "Windows scanner and rule catalog", DDC-007): `HOME` on macOS
+    /// and Linux, `USERPROFILE` and the `AppData` folders on Windows. A test
+    /// that sets only `HOME` would give a Windows child no home, or, without a
+    /// cleared environment, the runner's real profile.
+    fn home_env(&mut self, home: impl AsRef<Path>) -> &mut Self;
 }
 
 impl ClearEnv for Command {
-    #[allow(clippy::disallowed_methods)] // the one clear, and the profile's path, not the user's environment
+    #[allow(clippy::disallowed_methods)] // the one clear, the profile's path and the system folder, not the user's environment
     fn clear_env(&mut self) -> &mut Self {
         self.env_clear();
-        if let Some(profile) = std::env::var_os(PROFILE_FILE) {
-            self.env(PROFILE_FILE, profile);
+        for keep in KEPT {
+            if let Some(value) = std::env::var_os(keep) {
+                self.env(keep, value);
+            }
         }
         self
+    }
+
+    fn home_env(&mut self, home: impl AsRef<Path>) -> &mut Self {
+        let home = home.as_ref();
+        self.env("HOME", home)
+            .env("USERPROFILE", home)
+            .env("APPDATA", home.join("AppData").join("Roaming"))
+            .env("LOCALAPPDATA", home.join("AppData").join("Local"))
     }
 }
 
 const PROFILE_FILE: &str = "LLVM_PROFILE_FILE";
+const KEPT: [&str; 2] = [PROFILE_FILE, "SystemRoot"];
 
 /// A file's identity: device and inode.
 pub type FileId = (u64, u64);

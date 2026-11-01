@@ -19,7 +19,7 @@ fn ddc_starts_with_dataless_materialization_off_and_raised_file_limit() {
     let tmp = tempfile::tempdir().unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
-        .env("HOME", tmp.path())
+        .home_env(tmp.path())
         .current_dir(tmp.path())
         .arg("diag")
         .output()

@@ -12,7 +12,7 @@ fn ddc(data: &Path, args: &[&str]) -> Output {
     let home = data.parent().unwrap();
     Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
-        .env("HOME", home)
+        .home_env(home)
         .env("PATH", "")
         .args(args)
         .arg("--data-dir")
@@ -64,7 +64,7 @@ fn the_app_calls_are_hidden_from_help() {
     let tmp = tempfile::tempdir().unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
-        .env("HOME", tmp.path())
+        .home_env(tmp.path())
         .arg("--help")
         .output()
         .unwrap();

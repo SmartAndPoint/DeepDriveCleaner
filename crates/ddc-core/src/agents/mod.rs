@@ -384,6 +384,12 @@ mod tests {
     #[test]
     fn the_temporary_base_opens_only_as_the_users_own_folder() {
         let d = tempfile::tempdir().unwrap();
+        // A folder's owner, which Windows does not report yet (`meta::uid`).
+        let owner = crate::platform::meta::uid(&std::fs::metadata(d.path()).unwrap())
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Unsupported, "no file owner on this platform"));
+        if skipped_without("the_temporary_base_opens_only_as_the_users_own_folder", owner).is_none() {
+            return;
+        }
         let elsewhere = d.path().join("elsewhere");
         std::fs::create_dir(&elsewhere).unwrap();
         let link = d.path().join("claude-501");

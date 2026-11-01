@@ -17,8 +17,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
-# Only the macOS module calls them (platform/macos/); the other OS modules are
-# stubs until their port (story "Move OS calls behind the platform module").
+# Each OS module's own calls (platform/<os>/).
 [target.'cfg(target_os = "macos")'.dependencies]
 libc.workspace = true
 trash.workspace = true
@@ -27,6 +26,9 @@ trash.workspace = true
 libc.workspace = true
 trash.workspace = true
 rustix = { workspace = true, features = ["param", "process", "stdio", "termios", "time"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Console"] }
 
 [features]
 # The gate builds with both, one at a time: they install a global allocator each.

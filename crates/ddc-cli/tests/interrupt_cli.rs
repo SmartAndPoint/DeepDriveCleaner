@@ -67,7 +67,7 @@ impl Tree {
     fn ddc(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"));
         cmd.clear_env()
-            .env("HOME", &self.g.home)
+            .home_env(&self.g.home)
             .env("PATH", "")
             .env("NO_COLOR", "1")
             .args(args)
@@ -448,7 +448,7 @@ fn a_temp_file_left_by_a_kill_is_ignored_and_the_next_save_replaces_the_file() {
     let scan = || {
         let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
             .clear_env()
-            .env("HOME", &home)
+            .home_env(&home)
             .env("PATH", "")
             .args(["scan", "--json", "--data-dir", data.to_str().unwrap()])
             .output()

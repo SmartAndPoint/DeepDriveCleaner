@@ -18,7 +18,7 @@ mod contract;
 fn ddc(home: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
-        .env("HOME", home)
+        .home_env(home)
         .env("PATH", "")
         .args(args)
         .output()

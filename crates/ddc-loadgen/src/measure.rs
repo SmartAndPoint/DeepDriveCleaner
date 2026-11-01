@@ -42,7 +42,7 @@ pub fn measure(cli: &Path, home: &Path, args: &[OsString], out: &Path) -> io::Re
     let started = Instant::now();
     let child = Command::new(cli)
         .clear_env()
-        .env("HOME", home)
+        .home_env(home)
         .env("PATH", "")
         .env("NO_COLOR", "1")
         .current_dir(home)

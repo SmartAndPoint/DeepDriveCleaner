@@ -15,7 +15,7 @@ fn ddc(args: &[&str]) -> Output {
     let tmp = tempfile::tempdir().unwrap();
     Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
-        .env("HOME", tmp.path())
+        .home_env(tmp.path())
         .env("NO_COLOR", "1")
         .args(args)
         .output()
@@ -49,7 +49,7 @@ fn rules_json_lists_every_rule_with_its_group() {
     let tmp = tempfile::tempdir().unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
-        .env("HOME", tmp.path())
+        .home_env(tmp.path())
         .args(["rules", "--json"])
         .output()
         .unwrap();
