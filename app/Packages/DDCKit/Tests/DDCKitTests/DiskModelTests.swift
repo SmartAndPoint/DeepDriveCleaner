@@ -35,18 +35,30 @@ struct DiskModelTests {
 
     private static let args = "disk --json --progress json"
 
+    private func write(_ fixture: String, schema: Int, modified: Date) throws {
+        try Fixture.edited(fixture) { $0["schema_version"] = schema }.write(to: data.directory.lastDisk)
+        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: data.directory.lastDisk.path)
+    }
+
     // MARK: - The report on disk
 
-    @Test("no file is no report; another schema is unreadable and says so")
+    @Test("no file is no report; an older schema asks for a new scan; a newer one is unreadable and says so")
     func loadStates() async throws {
         let m = model()
         await m.load()
         #expect(m.report == .none)
         #expect(m.summary(scan: nil, summary: nil, included: []) == nil)
 
-        try Fixture.edited("disk-report") { $0["schema_version"] = 1 }.write(to: data.directory.lastDisk)
+        try write("disk-report", schema: 1, modified: Date(timeIntervalSince1970: 1))
         await m.load()
-        #expect(m.report == .unreadable("It was written by another version of ddc (schema 1)."))
+        #expect(m.report == .outdated)
+
+        try write("disk-report", schema: DiskReport.schemaVersion + 1, modified: Date(timeIntervalSince1970: 2))
+        await m.load()
+        #expect(
+            m.report
+                == .unreadable("It was written by a newer version of ddc (schema \(DiskReport.schemaVersion + 1)). Update DeepDriveCleaner to read it.")
+        )
     }
 
     @Test("the file is read again only when its modification date changed")

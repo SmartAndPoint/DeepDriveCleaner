@@ -180,12 +180,25 @@ struct PopoverModelTests {
         #expect(model.attention.isEmpty, "a held lock is no failure: no warning")
     }
 
-    @Test("a report of another schema version could not be read, and Scan now stays")
-    func otherSchema() async throws {
+    @Test("a report of an older schema version is as no report: the first scan replaces it, with no warning")
+    func olderSchema() async throws {
         try data.write(lastScan: try Fixture.data("scan-report-v1"))
         let model = try makeModel(runner: FakeRunner(scan: FakeRunner.done(Data())), data: data, defaults: defaults)
         await model.start()
-        #expect(model.content == .unreadable("It was written by another version of ddc (schema 1)."))
+        #expect(model.content == .firstScan)
+        #expect(model.attention.isEmpty)
+        #expect(model.canScan)
+    }
+
+    @Test("a report of a newer schema version could not be read and says why, and Scan now stays")
+    func newerSchema() async throws {
+        try data.write(lastScan: try Fixture.edited("scan-report") { $0["schema_version"] = ScanReport.schemaVersion + 1 })
+        let model = try makeModel(runner: FakeRunner(scan: FakeRunner.done(Data())), data: data, defaults: defaults)
+        await model.start()
+        #expect(
+            model.content
+                == .unreadable("It was written by a newer version of ddc (schema \(ScanReport.schemaVersion + 1)). Update DeepDriveCleaner to read it.")
+        )
         #expect(model.canScan)
     }
 
