@@ -204,6 +204,39 @@ fn the_table_shows_ten_sessions_and_the_rest_in_one_line() {
 }
 
 #[test]
+fn the_table_says_why_the_temporary_folder_was_not_read() {
+    if common::unsupported("the_table_says_why_the_temporary_folder_was_not_read")
+        || common::lacks("the_table_says_why_the_temporary_folder_was_not_read", Capability::CodingAgents)
+    {
+        return;
+    }
+    let id = "0a1b2c3d-0000-4000-8000-000000000001";
+    let text_of = |fx: &Fx| {
+        let out = fx.ddc(&[]).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap()
+    };
+
+    #[cfg(unix)]
+    {
+        let fx = Fx::new();
+        fx.file(&format!("home/.claude/projects/-p/{id}.jsonl"), 4096);
+        fx.file("elsewhere/-p/x", 4096);
+        let base = fx.root.join(Fx::temp_rel());
+        fs::create_dir_all(base.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(fx.root.join("elsewhere"), &base).unwrap();
+        let text = text_of(&fx);
+        assert!(text.contains("not read: a symbolic link"), "{text}");
+    }
+
+    let fx = Fx::new();
+    fx.file(&format!("home/.claude/projects/-p/{id}.jsonl"), 4096);
+    fx.file(&Fx::temp_rel(), 16);
+    let text = text_of(&fx);
+    assert!(text.contains("not read: not a folder"), "{text}");
+}
+
+#[test]
 fn skips_in_the_settings_bind_the_record_read() {
     if common::unsupported("skips_in_the_settings_bind_the_record_read")
         || common::lacks("skips_in_the_settings_bind_the_record_read", Capability::CodingAgents)
