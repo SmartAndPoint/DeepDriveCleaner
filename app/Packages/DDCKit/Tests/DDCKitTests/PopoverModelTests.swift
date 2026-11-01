@@ -29,7 +29,8 @@ struct PopoverModelTests {
         await model.start()
         let scan = Task { await model.scanNow() }
         try await runner.waitForScan()
-        try await until("the file count") { model.scan?.files == 45600 }
+        // The lines arrive at once; the count is the largest, whatever the order.
+        try await until("the file count") { model.scan?.files == 99999 }
         #expect(await runner.arguments.last == ["scan", "--json", "--progress", "json"])
         await runner.finishScan()
         await scan.value
