@@ -69,8 +69,10 @@ pub fn stat(path: &Path) -> io::Result<FileStat> {
     std::fs::metadata(path).and_then(of)
 }
 
-/// A listed entry's facts, links not followed, read through the listing
-/// (`fstatat` on its directory), so it reaches past `PATH_MAX`.
+/// A listed entry's facts, links not followed, read through the listing:
+/// std's `DirEntry::metadata`, which is `fstatat` on the listing's
+/// descriptor (glibc and macOS) and reaches past `PATH_MAX`; on musl std
+/// stats the path instead.
 pub fn entry(entry: &std::fs::DirEntry) -> io::Result<FileStat> {
     entry.metadata().and_then(of)
 }

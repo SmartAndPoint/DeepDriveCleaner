@@ -112,10 +112,7 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
     for entry in crate::stats::read_dir(dir).map_err(|e| ReadError::from_io(&e))? {
         let entry = entry.map_err(|e| ReadError::from_io(&e))?;
         // `DirEntry::metadata` is `fstatat(.., AT_SYMLINK_NOFOLLOW)` on macOS.
-        let (est, (edev, eino)) = match meta::entry(&entry).map(|st| {
-            let id = st.id();
-            (st, id)
-        }) {
+        let est = match meta::entry(&entry) {
             Ok(found) => found,
             Err(e) => {
                 entries.push(EntryMeta {
@@ -150,8 +147,8 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
         entries.push(EntryMeta {
             name: entry.file_name(),
             kind,
-            dev: edev,
-            ino: eino,
+            dev: est.dev,
+            ino: est.ino,
             nlink: u32::try_from(est.nlink).unwrap_or(u32::MAX),
             uid: meta::owner(em),
             flags: meta::st_flags(em),
