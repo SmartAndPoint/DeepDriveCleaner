@@ -4,6 +4,8 @@
 .DS_Store
 .claude/settings.local.json
 __pycache__/
+# The repository root's scratch folder (the owner's screen recordings).
+/tmp/
 
 # Coverage data from the reference machine lists personal folder names: it stays local.
 /bench/baseline-*.tsv
