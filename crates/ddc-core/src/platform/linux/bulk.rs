@@ -143,6 +143,8 @@ fn stat(dir: &impl AsFd, name: &CStr, flags: AtFlags, btime: bool) -> Result<Sta
                 kind: kind(FileType::from_raw_mode(st.st_mode)),
                 dev: st.st_dev,
                 ino: st.st_ino,
+                // `nlink_t` is 64 bits on x86_64 and 32 on aarch64.
+                #[allow(clippy::useless_conversion)]
                 nlink: u32::try_from(st.st_nlink).unwrap_or(u32::MAX),
                 uid: st.st_uid,
                 blocks: u64::try_from(st.st_blocks).unwrap_or(0),
