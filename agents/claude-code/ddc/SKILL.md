@@ -24,7 +24,7 @@ output parses as it is.
 ```sh
 ddc --version                       # installed? if not, try: deepdrivecleaner --version
 ddc disk agents --json --no-sizes   # harnesses and live sessions, in a fraction of a second
-ddc disk agents --json              # the same, with the size of every harness folder
+ddc disk agents --json              # the same, with folder sizes and each session's bytes
 ddc scan "$PWD" --json              # what can be freed under this project
 ddc rules --json                    # what each rule id means: its class and how it is removed
 ```
@@ -43,10 +43,19 @@ minute: run it only when the person asks. `ddc disk agents` is macOS's for now: 
   - `unknown`: the record does not say. Treat it as live.
 - When `sessions.records` is `unknown`, no session is called stale: treat every one as live.
 - `sessions.transcripts`: how many transcripts the harness keeps, and their `bytes`.
-- When available (newer ddc): `sessions.footprints[]` and `sessions.temp_root`.
-  A footprint row splits one session's bytes into its transcript, its checkpoints and its
-  temporary folder (temp, at temp_path), with their total; the temporary base minus the rows'
-  temp is what no session accounts for. Older builds have neither: work with the fields above.
+- `sessions.footprints[]`: Claude Code only, and only with sizes: absent under `--no-sizes`,
+  so leave that flag out when you want each session's bytes. One row per session, by `id` and
+  `project`, largest first. Its `state`:
+  - `live`: in use now; `live_by` says what shows it. Hands off.
+  - `not-live`: that session has ended.
+  - `unknown`: `unknown_cause` says why it cannot tell. Treat it as live.
+
+  Its bytes: `transcript`, `checkpoints` and `temp` (its temporary folder, at `temp_path`),
+  summed in `total`; `modified` is its last change.
+- `sessions.temp_root`: Claude Code's temporary folder outside the home, at `path`, under the
+  same two conditions. Its `bytes` minus the rows' `temp` is what no session accounts for.
+  When `unreadable` is above 0, `bytes` is a lower bound. When the folder is `skipped` or
+  `refused` (not a folder the user owns), `bytes` is absent and no row counts `temp`.
 
 ## Reading `ddc scan <dir> --json` (docs/scan.schema.json)
 

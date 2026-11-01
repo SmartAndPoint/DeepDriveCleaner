@@ -182,18 +182,36 @@ pub struct SessionFootprint {
 /// Claude Code's temporary folder for the current user.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct TempRoot {
-    /// Canonical.
+    /// Canonical; as found when refused.
     #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
     /// At or under a skip of `settings.json`: never opened, no bytes.
     pub skipped: bool,
+    /// Why it was never opened, though it exists: it is not a folder the
+    /// current user owns. No session's temporary bytes are counted then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<TempRefusal>,
     /// Allocated bytes, sessions and the rest (`bash-edit-diff`, …);
-    /// absent when skipped.
+    /// absent when skipped or refused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bytes: Option<u64>,
     /// Folders and entries inside that could not be read: `bytes` is then a
     /// lower bound.
     pub unreadable: u64,
+}
+
+/// Why Claude Code's temporary folder was not opened. In a shared `/tmp`
+/// anyone may make `claude-<uid>` first, so ddc reads it only when it is
+/// the current user's own folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum TempRefusal {
+    /// A symbolic link, to wherever it points.
+    Symlink,
+    /// Something other than a folder.
+    NotAFolder,
+    /// Another user's folder, or one whose owner is not known.
+    NotOwned,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

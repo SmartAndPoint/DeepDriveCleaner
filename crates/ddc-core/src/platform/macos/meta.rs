@@ -40,6 +40,12 @@ pub fn owner(_md: &Metadata) -> Option<u32> {
     None
 }
 
+/// The owner's user id (`st_uid`), for a folder ddc only reads and must
+/// own before it looks inside, such as Claude Code's temporary folder.
+pub fn uid(md: &Metadata) -> Option<u32> {
+    Some(md.uid())
+}
+
 /// Adds `u+rwx`.
 pub fn add_owner_rwx(perms: &mut Permissions) {
     perms.set_mode(perms.mode() | 0o700);

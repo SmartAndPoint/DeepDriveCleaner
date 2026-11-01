@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use ddc_core::agents::{AGENTS_SCHEMA_VERSION, AgentsReport, FootprintState, HarnessId, RecordsState, SessionState};
-use ddc_core::platform::{Capability, PLATFORM, Platform, procs};
+use ddc_core::platform::{Capability, PLATFORM, Platform, meta, procs};
 use ddc_loadgen::isolate::ClearEnv as _;
 
 mod common;
@@ -143,9 +143,17 @@ fn each_sessions_footprint_and_the_temporary_folder() {
     fx.write(".claude/sessions/1.json", &format!(r#"{{"pid":{me},"sessionId":"{LIVE}","startedAt":{}}}"#, now_ms()));
     fx.write(&format!(".claude/projects/-p/{LIVE}.jsonl"), "{}\n");
     fx.write(&format!(".claude/file-history/{ENDED}/f"), "x");
+    // Ended an hour ago: no record, and its transcript older than a recent write.
+    let ended = fx.root.join(format!("home/.claude/projects/-p/{ENDED}.jsonl"));
+    fx.write(&format!(".claude/projects/-p/{ENDED}.jsonl"), "{}\n");
+    let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    fs::File::options().write(true).open(&ended).unwrap().set_modified(hour_ago).unwrap();
     let temp = Fx::temp_rel();
     fx.file(&format!("{temp}/-p/{LIVE}/scratchpad/x"), 64 * 1024);
     fx.file(&format!("{temp}/-p/{ENDED}/tasks/y"), 8 * 1024);
+    // No session's: the remainder.
+    fx.file(&format!("{temp}/bash-edit-diff/z"), 5000);
+    let stray = meta::alloc_bytes(&fs::symlink_metadata(fx.root.join(&temp).join("bash-edit-diff/z")).unwrap());
     // The variable names another folder: the fixture root wins over it.
     let decoy = "0a1b2c3d-0000-4000-8000-0000000000dd";
     fx.file(&format!("decoy/claude-{}/-p/{decoy}/x", procs::uid()), 4096);
@@ -156,11 +164,13 @@ fn each_sessions_footprint_and_the_temporary_folder() {
     let s = r.harnesses[0].sessions.as_ref().unwrap();
     let list = s.footprints.as_ref().unwrap();
     let rows: Vec<(&str, FootprintState)> = list.iter().map(|f| (f.id.as_str(), f.state)).collect();
-    assert_eq!(rows, [(LIVE, FootprintState::Live), (ENDED, FootprintState::Unknown)]);
+    assert_eq!(rows, [(LIVE, FootprintState::Live), (ENDED, FootprintState::NotLive)]);
     assert!(list.iter().all(|f| f.temp > 0 && f.total == f.transcript + f.checkpoints + f.temp));
+    assert!(list[1].transcript > 0 && list[1].checkpoints > 0);
     let root = s.temp_root.as_ref().unwrap();
     assert_eq!(root.path, fx.root.join(&temp));
-    assert!(root.bytes.unwrap() >= list.iter().map(|f| f.temp).sum::<u64>());
+    let sessions: u64 = list.iter().map(|f| f.temp).sum();
+    assert_eq!(root.bytes.unwrap() - sessions, stray, "the remainder is the folder no session owns");
 
     // `--no-sizes`: neither.
     let fast = fx.json(&["--no-sizes"]);
@@ -228,6 +238,32 @@ fn no_harness_is_an_empty_list_and_a_closed_pipe_is_success() {
     let mut err = String::new();
     child.stderr.take().unwrap().read_to_string(&mut err).unwrap();
     assert!(status.success(), "{status:?}: {err}");
+}
+
+/// The app's agents fixtures, written by hand for DDCKit's tests: each is
+/// valid against the schema and reads back as an `AgentsReport` that writes
+/// the same JSON, so it holds no field the CLI does not write. Except one:
+/// `future_field`, the key DDCKit's test proves the app reads past, taken
+/// out first, and only where it was put.
+#[test]
+fn the_apps_agents_fixtures_are_reports_the_cli_could_write() {
+    fn without_future_fields(v: &mut serde_json::Value) -> usize {
+        match v {
+            serde_json::Value::Object(map) => {
+                let here = usize::from(map.remove("future_field").is_some());
+                here + map.values_mut().map(without_future_fields).sum::<usize>()
+            }
+            serde_json::Value::Array(items) => items.iter_mut().map(without_future_fields).sum(),
+            _ => 0,
+        }
+    }
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../app/Packages/DDCKit/Tests/DDCKitTests/Fixtures");
+    for (name, future) in [("agents-report.json", 1), ("agents-fast.json", 1)] {
+        let mut json: serde_json::Value = serde_json::from_slice(&fs::read(dir.join(name)).unwrap()).unwrap();
+        assert_eq!(without_future_fields(&mut json), future, "{name}: the unknown keys the app reads past");
+        let r: AgentsReport = contract::holds("agents", &serde_json::to_vec(&json).unwrap());
+        assert_eq!(r.schema_version, AGENTS_SCHEMA_VERSION, "{name}");
+    }
 }
 
 #[test]

@@ -5,7 +5,8 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use ddc_core::agents::{
-    AgentsReport, FootprintState, RecordsState, RunningKind, SessionFootprint, SessionState, TempRoot, UnknownReason,
+    AgentsReport, FootprintState, RecordsState, RunningKind, SessionFootprint, SessionState, TempRefusal, TempRoot,
+    UnknownReason,
 };
 use ddc_core::brew::{BrewPackages, NotOffered, Service, ServicesState};
 use ddc_core::class::{Category, RiskClass};
@@ -487,13 +488,19 @@ pub fn agents(w: &mut impl Write, r: &AgentsReport, home: &Path, style: &Style) 
 /// Claude Code's temporary folder outside the home.
 fn temp_root(w: &mut impl Write, t: &TempRoot, home: &Path, style: &Style) -> io::Result<()> {
     let path = format!("  temporary folder {}", tilde(&t.path, home));
-    let (bytes, note) = match t.bytes {
+    let refused = t.refused.map(|why| match why {
+        TempRefusal::Symlink => "not read: a symbolic link",
+        TempRefusal::NotAFolder => "not read: not a folder",
+        TempRefusal::NotOwned => "not read: not your own folder",
+    });
+    let (bytes, note) = match (refused, t.bytes) {
         _ if t.skipped => (String::new(), "in your skips, not read".to_owned()),
-        Some(b) if t.unreadable > 0 => {
+        (Some(why), _) => (String::new(), why.to_owned()),
+        (None, Some(b)) if t.unreadable > 0 => {
             (format!("at least {}", human(b)), format!("{} unreadable", count(t.unreadable)))
         }
-        Some(b) => (human(b), String::new()),
-        None => (String::new(), String::new()),
+        (None, Some(b)) => (human(b), String::new()),
+        (None, None) => (String::new(), String::new()),
     };
     writeln!(w, "{path:<44} {bytes:>14}  {}", style.dim(&note))
 }

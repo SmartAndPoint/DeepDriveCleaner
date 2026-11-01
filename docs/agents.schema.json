@@ -441,12 +441,32 @@
         "transcripts"
       ]
     },
+    "TempRefusal": {
+      "description": "Why Claude Code's temporary folder was not opened. In a shared `/tmp`\nanyone may make `claude-<uid>` first, so ddc reads it only when it is\nthe current user's own folder.",
+      "oneOf": [
+        {
+          "description": "A symbolic link, to wherever it points.",
+          "type": "string",
+          "const": "symlink"
+        },
+        {
+          "description": "Something other than a folder.",
+          "type": "string",
+          "const": "not-a-folder"
+        },
+        {
+          "description": "Another user's folder, or one whose owner is not known.",
+          "type": "string",
+          "const": "not-owned"
+        }
+      ]
+    },
     "TempRoot": {
       "description": "Claude Code's temporary folder for the current user.",
       "type": "object",
       "properties": {
         "bytes": {
-          "description": "Allocated bytes, sessions and the rest (`bash-edit-diff`, …);\nabsent when skipped.",
+          "description": "Allocated bytes, sessions and the rest (`bash-edit-diff`, …);\nabsent when skipped or refused.",
           "type": [
             "integer",
             "null"
@@ -455,8 +475,19 @@
           "minimum": 0
         },
         "path": {
-          "description": "Canonical.",
+          "description": "Canonical; as found when refused.",
           "type": "string"
+        },
+        "refused": {
+          "description": "Why it was never opened, though it exists: it is not a folder the\ncurrent user owns. No session's temporary bytes are counted then.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TempRefusal"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "skipped": {
           "description": "At or under a skip of `settings.json`: never opened, no bytes.",
