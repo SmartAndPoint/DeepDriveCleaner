@@ -11,11 +11,13 @@ use super::{Capability, Platform};
 
 pub mod errno;
 pub mod folders;
+pub mod meta;
 pub mod paths;
 pub mod rlimit;
 pub mod term;
 #[cfg(test)]
 pub mod testing;
+mod wide;
 
 // The OS calls not ported yet: the shared stubs, of which `unported.rs`
 // compiles out every module this folder has.

@@ -123,56 +123,6 @@ pub mod iopolicy {
     }
 }
 
-#[cfg(not(target_os = "linux"))] // ported: `linux/meta.rs`
-pub mod meta {
-    use std::fs::{Metadata, Permissions};
-    use std::io;
-    use std::path::Path;
-
-    use crate::platform::types::FileStat;
-
-    /// Fails closed: no identity is made up.
-    pub fn lstat(_path: &Path) -> io::Result<FileStat> {
-        super::unsupported()
-    }
-
-    /// Fails closed: no identity is made up.
-    pub fn stat(_path: &Path) -> io::Result<FileStat> {
-        super::unsupported()
-    }
-
-    /// Fails closed: no identity is made up.
-    pub fn entry(_entry: &std::fs::DirEntry) -> io::Result<FileStat> {
-        super::unsupported()
-    }
-
-    pub fn mtime(_md: &Metadata) -> i64 {
-        0
-    }
-
-    pub fn owner(_md: &Metadata) -> Option<u32> {
-        None
-    }
-
-    /// The agents report's read gate (see [`owner`] for the removal
-    /// guard's): no owner is made up, so a folder that must be the user's
-    /// is not.
-    pub fn uid(_md: &Metadata) -> Option<u32> {
-        None
-    }
-
-    pub fn st_flags(_md: &Metadata) -> u32 {
-        0
-    }
-
-    pub fn add_owner_rwx(_perms: &mut Permissions) {}
-
-    /// No tool is found.
-    pub fn is_executable(_md: &Metadata) -> bool {
-        false
-    }
-}
-
 #[cfg(not(target_os = "linux"))] // ported: `linux/process.rs`
 pub mod process {
     use std::process::Command;
