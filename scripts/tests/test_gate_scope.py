@@ -178,6 +178,52 @@ class Staged(unittest.TestCase):
         self.assertEqual(self.repo.scope("staged")[0], "rust")
 
 
+class StagedCases(unittest.TestCase):
+    """Whether pre-commit runs `make cases` (story "CLI invocation cases")."""
+
+    def setUp(self):
+        self.repo = Repo(self)
+        self.repo.commit(
+            "crates/a.rs", "app/DeepDriveCleaner/A.swift", "docs/scan.schema.json", "Cargo.toml", "Cargo.lock",
+            message="base",
+        )
+
+    def staged(self, *paths):
+        for p in paths:
+            self.repo.write(p, "changed\n")
+        self.repo.git("add", *paths)
+        return self.repo.scope("staged-cases")[0]
+
+    def test_a_crate_staged_runs_the_cases(self):
+        self.assertEqual(self.staged("app/DeepDriveCleaner/A.swift", "crates/a.rs"), "yes")
+
+    def test_the_manifest_or_the_lock_staged_runs_the_cases(self):
+        self.assertEqual(self.staged("Cargo.toml"), "yes")
+        self.assertEqual(self.staged("Cargo.lock"), "yes")
+
+    def test_app_or_docs_only_skip_the_cases(self):
+        self.assertEqual(self.staged("app/DeepDriveCleaner/A.swift"), "no")
+        self.assertEqual(self.staged("docs/scan.schema.json"), "no")
+
+    def test_an_unstaged_crate_change_is_not_this_commits(self):
+        self.repo.write("crates/a.rs", "changed, not staged\n")
+        self.assertEqual(self.staged("app/DeepDriveCleaner/A.swift"), "no")
+
+    def test_nothing_staged_runs_the_cases(self):
+        self.assertEqual(self.repo.scope("staged-cases")[0], "yes")
+
+    def test_a_crate_moved_out_runs_the_cases(self):
+        self.repo.git("mv", "crates/a.rs", "app/a.rs")
+        self.assertEqual(self.repo.scope("staged-cases")[0], "yes")
+
+    def test_a_usage_error_exits_2(self):
+        self.assertEqual(self.repo.scope("staged-cases", "extra")[1].returncode, 2)
+
+    def test_staged_keeps_its_one_word(self):
+        self.staged("Cargo.lock")
+        self.assertEqual(self.repo.scope("staged")[0], "rust")
+
+
 class Push(unittest.TestCase):
     def setUp(self):
         self.repo = Repo(self)

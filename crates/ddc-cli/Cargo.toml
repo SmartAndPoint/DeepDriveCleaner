@@ -47,6 +47,7 @@ simulate-unported = ["ddc-core/simulate-unported"]
 ddc-loadgen.workspace = true
 jsonschema.workspace = true
 libc.workspace = true
+regex.workspace = true
 tempfile.workspace = true
 
 [lints]

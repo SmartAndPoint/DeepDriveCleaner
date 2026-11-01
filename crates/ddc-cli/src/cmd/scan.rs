@@ -5,13 +5,11 @@ use std::process::ExitCode;
 
 use anyhow::Context as _;
 use ddc_core::env::Env;
-use ddc_core::model::ScanReport;
 use ddc_core::progress::WalkStep;
-use ddc_core::report::recheck::same_roots;
 use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::scan::{Progress, WalkOptions};
-use ddc_core::settings::{self, ScanFlags, Settings};
+use ddc_core::settings::{self, ScanFlags};
 use ddc_core::store::{self, LockMode};
 
 use crate::cli::ScanArgs;
@@ -41,7 +39,7 @@ pub fn run(args: ScanArgs) -> anyhow::Result<ExitCode> {
     let report = reporter.walk(&progress, "scanning", WalkStep::Scan, None, || report::scan(&env, &opts, &progress))?;
     reporter.walk_done(WalkStep::Scan, &report.totals, None);
     store::write_last_scan(&env, &report).context("cannot save the scan report")?;
-    let own_roots = given_roots && !of_settings_roots(&report, &env, &settings);
+    let own_roots = super::own_roots(given_roots, &report, &env, &settings);
     if own_roots && env.data_dir_is_default() {
         eprintln!("ddc: The app will show this report until its next scan.");
     }
@@ -60,13 +58,4 @@ pub fn run(args: ScanArgs) -> anyhow::Result<ExitCode> {
         Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(ExitCode::SUCCESS),
         other => other.map(|()| ExitCode::SUCCESS).map_err(Into::into),
     }
-}
-
-/// Whether `report` is of the roots a scan without paths walks, as a clean
-/// judges it (`same_roots`). A report of other roots in the app's data
-/// directory replaces the app's own until its next scan (story "Review
-/// window: say when the saved scan is not of the home folder"). No Settings
-/// root existing counts as other roots.
-fn of_settings_roots(report: &ScanReport, env: &Env, settings: &Settings) -> bool {
-    settings.resolve(env, &ScanFlags::default()).is_ok_and(|r| same_roots(report, env, &r.options))
 }

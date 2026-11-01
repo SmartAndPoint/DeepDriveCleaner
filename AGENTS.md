@@ -58,10 +58,15 @@
 ## The gate
 
 - Run `make tools` and `make hooks` once per clone. The hooks run `make lint` (fmt and
-  clippy) before every commit and `make gate-fast` (the unit tests, no load trees)
-  before every push. CI runs `gate-fast` on a branch and the whole `make gate` on
-  main, which a release needs. For code work the unit tier is the bar; the load tests
-  are for a release (the owner, 2026-10-31).
+  clippy) and then `make cases` before every commit, and `make gate-fast` (the unit
+  tests, no load trees) before every push. CI runs `gate-fast` on a branch and the
+  whole `make gate` on main, which a release needs. For code work the unit tier is the
+  bar; the load tests are for a release (the owner, 2026-10-31).
+- `make cases` runs every call of `crates/ddc-cli/tests/cases.json` on a synthetic home
+  and then every `ddc …` command the output suggests, which must cover the same roots
+  (the owner, 2026-11-01). A new flag or subcommand needs a case there, or a line in its
+  `uncovered` with the reason; a unit test in `src/cli.rs` fails otherwise. The commit
+  hook runs it when a staged path is under `crates/` or is `Cargo.toml` or `Cargo.lock`.
 - Never commit or push with `--no-verify`: fix what the gate names.
 - The pre-commit and commit-msg hooks run `scripts/private-scan.sh`. It refuses an added
   line, a file name or a commit message that holds a value of `.env` (8 characters or
@@ -69,8 +74,9 @@
   and user names). Both files stay local, and the hook names the variable or the line
   number, never the value. Add a new private name to that list when you learn it. Never
   read or print the files themselves.
-- The pre-push tier takes about a minute after a core change and longer cold: run
-  `git commit` and `git push` with a 10-minute tool timeout.
+- The pre-push tier takes about a minute after a core change and longer cold, and the
+  commit hook now builds the CLI for the cases: run `git commit` and `git push` with a
+  10-minute tool timeout.
 - A commit or push whose every path is on `.config/rust-free-paths` (the app's own
   sources, `website/`, `docs/releases/`) skips the Rust tiers, locally and in CI; a
   push that touches `app/Packages/` runs `make ddckit-test` instead. A green hook on

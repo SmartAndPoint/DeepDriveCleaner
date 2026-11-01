@@ -116,14 +116,16 @@ pub fn decide(f: &Facts, cfg: &Config, state: &NotifyState) -> Decision {
     }
 }
 
-pub fn message(d: &Decision) -> String {
+/// The notification's text; `clean` is the command that reviews what the
+/// scan found (`render::clean_command`).
+pub fn message(d: &Decision, clean: &str) -> String {
     let junk = format!("About {} of developer junk can be freed", human(d.reclaimable));
     match (d.reason, &d.volume, d.free) {
         (Some(NotifyReason::LowDisk), Some(volume), Some(free)) => {
-            format!("{} is almost full ({} free). {junk}. Run `ddc clean` to review.", volume_name(volume), human(free))
+            format!("{} is almost full ({} free). {junk}. Run `{clean}` to review.", volume_name(volume), human(free))
         }
-        (_, _, Some(free)) => format!("{junk} ({} free now). Run `ddc clean` to review.", human(free)),
-        _ => format!("{junk}. Run `ddc clean` to review."),
+        (_, _, Some(free)) => format!("{junk} ({} free now). Run `{clean}` to review.", human(free)),
+        _ => format!("{junk}. Run `{clean}` to review."),
     }
 }
 
@@ -287,9 +289,13 @@ mod tests {
 
     #[test]
     fn message_names_the_size_the_command_and_a_full_volume() {
-        let m = message(&decide(&facts(37 * G, 74 * G, 1000 * G), &ON, &NotifyState::default()));
-        assert!(m.contains("37.0 GiB") && m.contains("ddc clean") && m.contains("startup disk"), "{m}");
-        let threshold = message(&decide(&facts(37 * G, 500 * G, 1000 * G), &ON, &NotifyState::default()));
-        assert!(threshold.contains("500.0 GiB free now"), "{threshold}");
+        let m = message(&decide(&facts(37 * G, 74 * G, 1000 * G), &ON, &NotifyState::default()), "ddc clean");
+        assert!(m.contains("37.0 GiB") && m.contains("Run `ddc clean` to review") && m.contains("startup disk"), "{m}");
+        let threshold =
+            message(&decide(&facts(37 * G, 500 * G, 1000 * G), &ON, &NotifyState::default()), "ddc clean ~/p");
+        assert!(
+            threshold.contains("500.0 GiB free now") && threshold.contains("Run `ddc clean ~/p` to review"),
+            "{threshold}"
+        );
     }
 }
