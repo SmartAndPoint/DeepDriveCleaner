@@ -265,6 +265,26 @@ impl Usage {
     }
 }
 
+/// What `meta::lstat` and `meta::stat` give for one path: its identity
+/// (`dev`, `ino`, as a directory listing gives them), its hard links and the
+/// bytes allocated on disk, which std's portable `Metadata` does not carry
+/// on every OS, beside that `Metadata` for the rest (times, length, kind).
+#[derive(Debug, Clone)]
+pub struct FileStat {
+    pub dev: u64,
+    pub ino: u64,
+    pub nlink: u64,
+    pub alloc: u64,
+    pub md: std::fs::Metadata,
+}
+
+impl FileStat {
+    /// `(dev, ino)`.
+    pub fn id(&self) -> (u64, u64) {
+        (self.dev, self.ino)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,25 +343,5 @@ mod tests {
         assert_eq!(with_cwd.app_bundle().as_deref(), Some("Cursor"));
         let named_only = ProcInfo { name: "Cursor".into(), ..ProcInfo::default() };
         assert_eq!(named_only.app_bundle(), None);
-    }
-}
-
-/// What `meta::lstat` and `meta::stat` give for one path: its identity
-/// (`dev`, `ino`, as a directory listing gives them), its hard links and the
-/// bytes allocated on disk, which std's portable `Metadata` does not carry
-/// on every OS, beside that `Metadata` for the rest (times, length, kind).
-#[derive(Debug, Clone)]
-pub struct FileStat {
-    pub dev: u64,
-    pub ino: u64,
-    pub nlink: u64,
-    pub alloc: u64,
-    pub md: std::fs::Metadata,
-}
-
-impl FileStat {
-    /// `(dev, ino)`.
-    pub fn id(&self) -> (u64, u64) {
-        (self.dev, self.ino)
     }
 }

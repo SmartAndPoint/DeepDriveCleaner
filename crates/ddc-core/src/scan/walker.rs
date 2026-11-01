@@ -187,11 +187,11 @@ pub fn walk_with_reader(
     pool.install(|| {
         rayon::scope(|s| {
             for (i, (path, st)) in roots.iter().enumerate() {
-                let (md, id) = (&st.md, &st.id());
+                let (md, id) = (&st.md, st.id());
                 if md.is_dir() {
                     let task = Task {
                         dir: path.clone(),
-                        expect: *id,
+                        expect: id,
                         parent: path.parent().and_then(|p| meta::lstat(p).ok()).map(|st| st.id()).unwrap_or((0, 0)),
                         depth: 0,
                         root: i,
