@@ -4,6 +4,7 @@
 #
 #   DDC_LINUX_HOST=<ssh host> scripts/native-linux.sh [nextest filter args...]
 #   DDC_LINUX_HOST=<ssh host> scripts/native-linux.sh --setup
+#   DDC_LINUX_HOST=<ssh host> scripts/native-linux.sh --make <target> [VAR=value...]
 #   DDC_LINUX_HOST=<windows host> DDC_LINUX_WSL=<distribution> scripts/native-linux.sh ...
 #
 # With DDC_LINUX_WSL the host is a Windows machine whose ssh lands in Git bash, and every
@@ -19,6 +20,13 @@
 # rust:<toolchain>-bookworm image, runs what gate.yml's check job runs: clippy, nextest
 # with profile ci, the doc tests and scripts/native-skips.sh linux. With filter
 # arguments it runs only the matching tests, and no clippy, doc tests or skip compare.
+# --make runs that make target in the same container instead (`load`, `load-baseline`,
+# `scaling`: the benchmarks), then copies the host's target/load back to the local
+# target/native-linux/load. What it measures describes the host: it stays out of both
+# repositories. DDC_LINUX_LIMITS=<local file> judges a load run against that file (a
+# load-limits.tsv this host recorded with `--make load-baseline`) instead of the
+# repository's, which are a hosted runner's: it replaces the host's copy of
+# bench/load-limits-linux.tsv, which the next run copies back.
 #
 # The container runs as the host user's uid, never root: root reads folders the tests
 # make unreadable, and changes their results. The host needs docker (the user in the
@@ -82,9 +90,20 @@ git ls-files -z | COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --null -T
 on_host "cd $remote/src && find . -type f | sed 's|^\./||' | LC_ALL=C sort" | comm -13 "$list" - |
     on_host "cd $remote/src && xargs -r -d '\n' rm -f --"
 
+if [ -n "${DDC_LINUX_LIMITS:-}" ]; then
+    on_host "cat > $remote/src/bench/load-limits-linux.tsv" <"$DDC_LINUX_LIMITS"
+fi
+
 filter=""
-for a in "$@"; do filter+=" $(printf '%q' "$a")"; done
-on_host <<EOF
+make_args=""
+if [ "${1:-}" = --make ]; then
+    shift
+    [ "$#" -gt 0 ] || { echo "native-linux: --make needs a target" >&2; exit 2; }
+    for a in "$@"; do make_args+=" $(printf '%q' "$a")"; done
+else
+    for a in "$@"; do filter+=" $(printf '%q' "$a")"; done
+fi
+if on_host <<EOF
 set -euo pipefail
 test -x ~/$remote/cargo/bin/cargo-nextest || { echo "native-linux: run --setup first" >&2; exit 1; }
 mkdir -p ~/$remote/cargo-home ~/$remote/target ~/$remote/home
@@ -103,6 +122,12 @@ docker run --rm --user \$(id -u):\$(id -g) \
     -e PATH=/work/cargo-bin:/usr/local/bin:/usr/bin:/bin -e RUSTUP_HOME=/work/rustup \
     -e NEXTEST_PROFILE=ci -e CARGO_TERM_COLOR=never -e CARGO_INCREMENTAL=0 -w /work/src rust:$toolchain-bookworm bash -c '
 set -o pipefail
+if [ -n "$make_args" ]; then
+    # The Makefile reads target/ beside the sources: the build is in the mounted one.
+    ln -sfn /work/target target
+    make $make_args
+    exit
+fi
 if [ -z "$filter" ]; then
     cargo clippy --workspace --all-targets --locked -- -D warnings || exit 1
 fi
@@ -117,3 +142,10 @@ if [ "\$size" -gt 40 ]; then
 fi
 exit \${status:-0}
 EOF
+then status=0; else status=$?; fi
+if [ -n "$make_args" ]; then
+    mkdir -p target/native-linux
+    on_host "test -d $remote/target/load && tar -cf - -C $remote/target load" | tar -xf - -C target/native-linux &&
+        echo "native-linux: the measurements are in target/native-linux/load" >&2
+fi
+exit "$status"
