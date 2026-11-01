@@ -1,5 +1,6 @@
 mod common;
 
+use ddc_core::platform::Canonical as _;
 use std::path::PathBuf;
 
 use common::fixtures::{TAG, rule_fixture};
@@ -16,7 +17,7 @@ struct Scan {
 /// Scans `roots` (relative to the fake home = tree root).
 fn scan_with(t: &TreeBuilder, roots: &[&str], excludes: &[&str]) -> Scan {
     let catalog = Catalog::builtin(t.root());
-    let excludes = excludes.iter().map(|e| t.path(e).canonicalize().unwrap()).collect();
+    let excludes = excludes.iter().map(|e| t.path(e).canonical().unwrap()).collect();
     let visitor = RuleVisitor::new(&catalog, excludes);
     let roots: Vec<PathBuf> = roots.iter().map(|r| t.path(r)).collect();
     let out =

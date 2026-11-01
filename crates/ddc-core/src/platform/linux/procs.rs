@@ -356,7 +356,7 @@ mod tests {
             .spawn()
             .unwrap();
         let (kid, info) = Kid(child).waiting(|i| i.args.first().is_some_and(|a| a == "sleep"));
-        let real = fs::canonicalize(d.path()).unwrap();
+        let real = crate::platform::paths::canonicalize(d.path()).unwrap();
         assert_eq!(info.cwd.as_deref(), Some(real.as_path()));
         assert!(open_files(kid.pid()).contains(&real.join("held")), "{:?}", open_files(kid.pid()));
         let vnode = fs::metadata(&held).unwrap();
@@ -370,7 +370,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let bin = d.path().join(".venv/bin");
         fs::create_dir_all(&bin).unwrap();
-        let sleep = fs::canonicalize("/bin/sleep").unwrap();
+        let sleep = crate::platform::paths::canonicalize(std::path::Path::new("/bin/sleep")).unwrap();
         testing::symlink(&sleep, &bin.join("python")).unwrap();
         let child =
             Command::new(bin.join("python")).arg("30").env("VIRTUAL_ENV", d.path().join(".venv")).spawn().unwrap();

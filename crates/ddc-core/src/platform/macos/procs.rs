@@ -313,6 +313,7 @@ pub(crate) fn parse_procargs(buf: &[u8], info: &mut ProcInfo) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platform::Canonical as _;
 
     #[test]
     fn real_home_is_an_absolute_folder() {
@@ -344,7 +345,7 @@ mod tests {
     #[test]
     fn open_files_of_a_process_are_read_by_pid_and_not_for_children() {
         let dir = tempfile::tempdir().unwrap();
-        let held = dir.path().canonicalize().unwrap().join("held.bin");
+        let held = dir.path().canonical().unwrap().join("held.bin");
         std::fs::write(&held, b"x").unwrap();
         let mut child = std::process::Command::new("/bin/sleep")
             .arg("30")

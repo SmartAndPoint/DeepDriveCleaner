@@ -2,6 +2,7 @@
 //! view"): a temporary HOME and data directory and an empty `PATH`. It
 //! reads, takes no lock and writes nothing.
 
+use ddc_core::platform::Canonical as _;
 use std::fs;
 use std::io::Read as _;
 use std::path::PathBuf;
@@ -22,7 +23,7 @@ struct Fx {
 impl Fx {
     fn new() -> Self {
         let tmp = tempfile::tempdir().unwrap();
-        let fx = Self { root: tmp.path().canonicalize().unwrap(), _tmp: tmp };
+        let fx = Self { root: tmp.path().canonical().unwrap(), _tmp: tmp };
         fs::create_dir_all(fx.root.join("data")).unwrap();
         fx
     }

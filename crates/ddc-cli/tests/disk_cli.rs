@@ -3,6 +3,7 @@
 //! tools under `--system-root`, and an empty `PATH`. The fake `diskutil`
 //! fails, so the volumes come from `statfs`; nothing real is run.
 
+use ddc_core::platform::Canonical as _;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -22,7 +23,7 @@ struct Fx {
 impl Fx {
     fn new() -> Self {
         let tmp = tempfile::tempdir().unwrap();
-        let fx = Self { root: tmp.path().canonicalize().unwrap(), _tmp: tmp };
+        let fx = Self { root: tmp.path().canonical().unwrap(), _tmp: tmp };
         fx.write("sys/System/Volumes/Data/Applications/Tool.app/tool", 40_000);
         fx.write("sys/System/Volumes/Data/opt/homebrew/Cellar/jq/jq", 9000);
         fx.write("home/notes.txt", 5000);

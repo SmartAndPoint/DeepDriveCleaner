@@ -5,6 +5,7 @@
 //! walk: a file linked in an environment and in `pkgs` counts in both
 //! `shared_bytes`, never in what removing the environment frees.
 
+use crate::platform::Canonical as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -33,7 +34,7 @@ pub(super) fn installs(
     let mut regions: Vec<(PathBuf, Tag)> = Vec::new();
     let mut tags: Vec<Option<Tag>> = Vec::new();
     let mut add = |folder: &Path, regions: &mut Vec<(PathBuf, Tag)>| {
-        let tag = folder.canonicalize().ok().map(|canon| {
+        let tag = folder.canonical().ok().map(|canon| {
             let tag = regions.len() as Tag;
             regions.push((canon, tag));
             tag

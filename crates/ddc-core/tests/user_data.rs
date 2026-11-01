@@ -4,6 +4,7 @@
 
 mod common;
 
+use ddc_core::platform::Canonical as _;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -674,7 +675,7 @@ fn a_symlink_above_the_folder_or_a_path_outside_the_roots_is_skipped_as_for_any_
     h.tree.file("Downloads/report.pdf", 40_000);
     h.tree.symlink(h.tree.root(), "alias");
     let outside = tempfile::tempdir().unwrap();
-    let outside = outside.path().canonicalize().unwrap();
+    let outside = outside.path().canonical().unwrap();
     fs::create_dir(outside.join("Downloads")).unwrap();
     fs::write(outside.join("Downloads/x.pdf"), [1u8; 100]).unwrap();
     let mut through_alias = h.pick("Downloads/report.pdf", "user.downloads");

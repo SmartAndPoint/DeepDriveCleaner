@@ -3,6 +3,7 @@
 //! writes it; the CLI reads it and writes it only to clear a stale
 //! `scheduler` record. Schema: `docs/settings.schema.json`.
 
+use crate::platform::Canonical as _;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -211,7 +212,7 @@ impl Settings {
             .map(|s| (s, format!("skips in {origin}"), false))
             .chain(flags.skips.iter().map(|s| (s, "--skip".to_owned(), true)))
         {
-            let canonical = skip.canonicalize().map_err(|e| SettingsError::Skip {
+            let canonical = skip.canonical().map_err(|e| SettingsError::Skip {
                 skip: skip.clone(),
                 origin: origin.clone(),
                 reason: e.to_string(),
@@ -231,7 +232,7 @@ impl Settings {
         excludes.extend(user_skips.iter().cloned());
         let dropped_excludes = dropped_excludes
             .into_iter()
-            .filter(|e| e.canonicalize().map_or(true, |c| !user_skips.iter().any(|s| c.starts_with(s))))
+            .filter(|e| e.canonical().map_or(true, |c| !user_skips.iter().any(|s| c.starts_with(s))))
             .collect();
         let min_age_days = flags.min_age_days.or(self.min_age_days);
         Ok(Resolved {
@@ -259,11 +260,11 @@ impl Settings {
     /// exclude (the walk keeps everything under an exclude), and touch a
     /// scanned folder. Compared canonically, as the scan compares excludes.
     fn dropped(&self, flag_excludes: &[PathBuf], roots: &[PathBuf]) -> Vec<PathBuf> {
-        let flags: Vec<PathBuf> = flag_excludes.iter().filter_map(|p| p.canonicalize().ok()).collect();
-        let roots: Vec<PathBuf> = roots.iter().filter_map(|p| p.canonicalize().ok()).collect();
+        let flags: Vec<PathBuf> = flag_excludes.iter().filter_map(|p| p.canonical().ok()).collect();
+        let roots: Vec<PathBuf> = roots.iter().filter_map(|p| p.canonical().ok()).collect();
         self.excludes
             .iter()
-            .filter(|e| match e.canonicalize() {
+            .filter(|e| match e.canonical() {
                 Ok(c) => {
                     !flags.iter().any(|f| c.starts_with(f))
                         && roots.iter().any(|r| c.starts_with(r) || r.starts_with(&c))

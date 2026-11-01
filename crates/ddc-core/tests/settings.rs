@@ -4,6 +4,7 @@
 
 mod common;
 
+use ddc_core::platform::Canonical as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -149,7 +150,7 @@ fn skips_add_up_protect_and_must_be_folders() {
     {
         return;
     }
-    let canonical = |rel: &str| fx.t.path(rel).canonicalize().unwrap();
+    let canonical = |rel: &str| fx.t.path(rel).canonical().unwrap();
     let s = Settings {
         roots: vec![fx.t.path("r")],
         excludes: vec![fx.t.path("r/kept/deep")],

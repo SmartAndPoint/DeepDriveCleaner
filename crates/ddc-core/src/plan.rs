@@ -1,6 +1,7 @@
 //! Cleanup plan: which findings may be cleaned and how (ADR "Cleanup safety
 //! model", §1 and §5). Building a plan touches nothing.
 
+use crate::platform::Canonical as _;
 use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
@@ -364,7 +365,7 @@ fn entry(
     if !report.scan_roots.iter().any(|r| path.starts_with(r)) {
         return Err(SkipReason::OutsideScanRoots);
     }
-    if parent.canonicalize().ok().as_deref() != Some(parent) {
+    if parent.canonical().ok().as_deref() != Some(parent) {
         return Err(SkipReason::ParentChanged);
     }
     let Some((folder, found)) = index.entry(parent, name) else { return Err(SkipReason::NotAnEntry) };

@@ -9,6 +9,7 @@
 
 mod common;
 
+use ddc_core::platform::Canonical as _;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -128,7 +129,7 @@ impl Fx {
             t.file(&format!("{ASSETS}/r{k}.asset/AssetData/runtime.dmg"), (k + 1) * 16 * 1024);
         }
         let sources = Sources::under(&t.path("sys"));
-        let home = t.path("home").canonicalize().unwrap();
+        let home = t.path("home").canonical().unwrap();
         let sizes = (0..MAX_RUNTIMES).map(|k| reference_alloc(&t.path(&format!("{ASSETS}/r{k}.asset")))).collect();
         Self { t, sources, home, cancel: AtomicBool::new(false), procs: FakeProcs::new(vec![]), sizes }
     }

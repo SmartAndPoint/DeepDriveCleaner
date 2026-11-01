@@ -17,6 +17,7 @@ mod model;
 mod running;
 mod sizes;
 
+use crate::platform::Canonical as _;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
@@ -118,7 +119,7 @@ pub fn report(env: &Env, opts: &AgentsOptions, procs: &[ProcInfo], cancel: &Atom
                 .filter_map(|f| {
                     let path = home.join(f.path);
                     path.metadata().ok().filter(std::fs::Metadata::is_dir)?;
-                    let path = path.canonicalize().ok()?;
+                    let path = path.canonical().ok()?;
                     Some(Found { skipped: skipped(&path), path, nested: f.nested })
                 })
                 .collect()
@@ -361,7 +362,7 @@ fn temp_base(base: &Path, me: u32) -> Option<Result<PathBuf, TempRefusal>> {
     } else if crate::platform::meta::uid(&md) != Some(me) {
         TempRefusal::NotOwned
     } else {
-        return base.canonicalize().ok().map(Ok);
+        return base.canonical().ok().map(Ok);
     };
     Some(Err(why))
 }
@@ -403,7 +404,7 @@ mod tests {
         std::fs::write(&file, "").unwrap();
         assert_eq!(temp_base(&file, me), Some(Err(TempRefusal::NotAFolder)));
         assert_eq!(temp_base(&elsewhere, me.wrapping_add(1)), Some(Err(TempRefusal::NotOwned)));
-        assert_eq!(temp_base(&elsewhere, me), Some(Ok(elsewhere.canonicalize().unwrap())));
+        assert_eq!(temp_base(&elsewhere, me), Some(Ok(elsewhere.canonical().unwrap())));
         assert_eq!(temp_base(&d.path().join("none"), me), None);
     }
 }

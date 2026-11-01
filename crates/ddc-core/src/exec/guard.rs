@@ -1,6 +1,7 @@
 //! Re-check of every plan item right before it is touched (ADR §5): the
 //! scan may be seconds or days old.
 
+use crate::platform::Canonical as _;
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs;
@@ -282,7 +283,7 @@ impl<'a> Guard<'a> {
             return Err(SkipReason::Protected);
         }
         // No symlink anywhere above: the canonical parent is the parent we scanned.
-        if parent.canonicalize().ok().as_deref() != Some(parent) {
+        if parent.canonical().ok().as_deref() != Some(parent) {
             return Err(SkipReason::ParentChanged);
         }
         let parent_fd = DirFd::open(parent).map_err(|_| SkipReason::ParentChanged)?;
@@ -359,7 +360,7 @@ impl<'a> Guard<'a> {
         if self.protected_paths.contains(&fold(path)) {
             return Err(SkipReason::Protected);
         }
-        if parent.canonicalize().ok().as_deref() != Some(parent) {
+        if parent.canonical().ok().as_deref() != Some(parent) {
             return Err(SkipReason::ParentChanged);
         }
         let parent_fd = DirFd::open(parent).map_err(|_| SkipReason::ParentChanged)?;
@@ -633,9 +634,11 @@ pub(super) fn walk_item(path: &Path, reader: &dyn DirReader) -> Option<Walked> {
     })
 }
 
-/// APFS is case-insensitive by default: compare protected paths folded.
+/// APFS and NTFS are case-insensitive by default: compare protected paths
+/// folded, after the platform's key (on Windows it also makes `/` and `\\`
+/// one separator).
 fn fold(p: &Path) -> String {
-    p.to_string_lossy().to_lowercase()
+    crate::platform::paths::key(p).to_string_lossy().to_lowercase()
 }
 
 /// What a process uses: its executable path (as passed to execve), path-like
@@ -715,5 +718,5 @@ fn lexical(p: &Path) -> PathBuf {
 /// `/tmp/x/.venv/bin/python` → `/private/tmp/x/.venv/bin/python`: resolve the
 /// parent, keep the last component unresolved (it may be a symlink out of the venv).
 fn canonical_parent(p: &Path) -> Option<PathBuf> {
-    Some(p.parent()?.canonicalize().ok()?.join(p.file_name()?))
+    Some(p.parent()?.canonical().ok()?.join(p.file_name()?))
 }

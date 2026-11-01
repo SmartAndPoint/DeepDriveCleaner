@@ -3,6 +3,7 @@
 //! a `last-scan.json` the test writes, and the lock held by the test. The
 //! only file removed is a `.ddc-keep` in the temporary home.
 
+use ddc_core::platform::Canonical as _;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
@@ -33,7 +34,7 @@ impl Fx {
     /// file at its top.
     fn new() -> Self {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let fx = Self { home: root.join("home"), data: root.join("data"), _tmp: tmp };
         for p in ["a", "b"] {
             fx.write(&format!("{p}/package.json"), b"{}");

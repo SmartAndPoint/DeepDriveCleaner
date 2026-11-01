@@ -6,6 +6,7 @@
 // (it builds macOS trees, catalog split).
 #![cfg(unix)]
 
+use ddc_core::platform::Canonical as _;
 use std::fs;
 
 use ddc_core::platform::procs;
@@ -139,7 +140,7 @@ fn clean_removes_only_marked_folders() {
     use std::os::unix::fs::PermissionsExt as _;
 
     let tmp = tempfile::tempdir().unwrap();
-    let tmp = tmp.path().canonicalize().unwrap();
+    let tmp = tmp.path().canonical().unwrap();
     let mark = |name: &str, nonce: Option<&str>| {
         let dir = tmp.join(name);
         fs::create_dir_all(dir.join("tree/sealed")).unwrap();

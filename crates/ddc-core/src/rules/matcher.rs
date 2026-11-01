@@ -2,6 +2,7 @@
 //! the directory listing it already has; the executor's re-check matches on
 //! a fresh filesystem view — through the same function.
 
+use crate::platform::Canonical as _;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::Read as _;
@@ -127,7 +128,7 @@ fn cmake_out_of_source(dir: &Path) -> bool {
     let Ok(text) = fs::read_to_string(dir.join("CMakeCache.txt")) else { return false };
     let Some(source) = text.lines().find_map(|l| l.strip_prefix("CMAKE_HOME_DIRECTORY:")) else { return false };
     let source = source.split_once('=').map_or(source, |(_, v)| v).trim();
-    match (Path::new(source).canonicalize(), dir.canonicalize()) {
+    match (Path::new(source).canonical(), dir.canonical()) {
         (Ok(src), Ok(dir)) => !src.starts_with(&dir),
         _ => false, // cannot tell: never a build dir
     }

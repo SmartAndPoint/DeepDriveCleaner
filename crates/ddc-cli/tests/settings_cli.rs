@@ -2,6 +2,7 @@
 //! "CLI: shared settings, types and the notify decision"). Every clean here
 //! deletes `safe` items only; nothing goes to the real Trash.
 
+use ddc_core::platform::Canonical as _;
 use ddc_loadgen::isolate::ClearEnv as _;
 use std::fs;
 use std::io::{Read as _, Write as _};
@@ -21,7 +22,7 @@ struct Fx {
 impl Fx {
     fn new() -> Self {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let fx = Self { home: root.join("home"), data: root.join("data"), root, _tmp: tmp };
         for rel in ["p/__pycache__/a.pyc", "p/x/__pycache__/b.pyc", "q/__pycache__/c.pyc"] {
             fx.write(rel, 10_000);

@@ -12,6 +12,7 @@ pub mod mounts;
 #[allow(unused_imports)] // each test binary uses its own part of `common`
 pub use mounts::{Mount, Prepared, mount, prepared};
 
+use ddc_core::platform::Canonical as _;
 use std::cell::RefCell;
 use std::fs::{self, File};
 use std::io::Write as _;
@@ -34,8 +35,8 @@ impl TreeBuilder {
     #[allow(clippy::disallowed_methods)] // guard against writing into the real HOME
     pub fn new() -> Self {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let root = tmp.path().canonicalize().expect("canonical tempdir");
-        if let Some(home) = std::env::var_os("HOME").and_then(|h| PathBuf::from(h).canonicalize().ok()) {
+        let root = tmp.path().canonical().expect("canonical tempdir");
+        if let Some(home) = std::env::var_os("HOME").and_then(|h| PathBuf::from(h).canonical().ok()) {
             assert!(!root.starts_with(&home), "test tree {root:?} must not live inside the real HOME");
         }
         Self { _tmp: tmp, root, locked: RefCell::new(Vec::new()) }
@@ -46,8 +47,8 @@ impl TreeBuilder {
     #[allow(clippy::disallowed_methods)] // guard against writing into the real HOME
     pub fn new_in(dir: &Path) -> Self {
         let tmp = tempfile::tempdir_in(dir).expect("tempdir");
-        let root = tmp.path().canonicalize().expect("canonical tempdir");
-        if let Some(home) = std::env::var_os("HOME").and_then(|h| PathBuf::from(h).canonicalize().ok()) {
+        let root = tmp.path().canonical().expect("canonical tempdir");
+        if let Some(home) = std::env::var_os("HOME").and_then(|h| PathBuf::from(h).canonical().ok()) {
             assert!(!root.starts_with(&home), "test tree {root:?} must not live inside the real HOME");
         }
         Self { _tmp: tmp, root, locked: RefCell::new(Vec::new()) }

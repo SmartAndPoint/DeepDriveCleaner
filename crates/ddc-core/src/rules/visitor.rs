@@ -204,7 +204,7 @@ impl<'c> RuleVisitor<'c> {
         if let Some((tag, found)) = c.worktree_region(dir.path, dir.depth, has) {
             return Some(Matched::Region(tag, found));
         }
-        if c.ancestors.contains(dir.path) || !c.claimable(dir.path, dir.depth, has) {
+        if c.ancestors.contains_key(dir.path) || !c.claimable(dir.path, dir.depth, has) {
             return None;
         }
         c.specialized

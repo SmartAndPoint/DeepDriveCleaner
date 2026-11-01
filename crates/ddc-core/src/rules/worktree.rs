@@ -4,6 +4,7 @@
 //! running git. The rules `git.worktree` and `git.worktree-orphan` make such
 //! a folder a region, so the other rules keep working inside it.
 
+use crate::platform::Canonical as _;
 use std::fs;
 use std::io::{ErrorKind, Read as _};
 use std::path::{Component, Path, PathBuf};
@@ -57,7 +58,7 @@ pub fn recognize(path: &Path) -> Option<Recognized> {
     }
     let named = git_dir(path)?;
     let gitdir = match fs::metadata(&named) {
-        Ok(md) if md.is_dir() => named.canonicalize().ok()?,
+        Ok(md) if md.is_dir() => named.canonical().ok()?,
         Ok(_) => return None,
         // Only a worktree's gitdir, `…/worktrees/<name>`: a submodule copied
         // out of its superproject names a missing `…/modules/<name>` and is
@@ -73,7 +74,7 @@ pub fn recognize(path: &Path) -> Option<Recognized> {
     // A submodule's gitdir (`.git/modules/<n>`) has no `commondir`: never a worktree.
     let common = resolve(&gitdir, read_line(&gitdir.join("commondir"))?.as_str());
     let main = if common.file_name().is_some_and(|n| n == ".git") { common.parent()?.to_path_buf() } else { common };
-    let main = main.canonicalize().unwrap_or(main);
+    let main = main.canonical().unwrap_or(main);
     let linked = read_line(&gitdir.join("gitdir"))
         .map(|back| resolve(&gitdir, &back))
         .is_some_and(|back| same_file(&back, &dot_git));
@@ -281,7 +282,7 @@ mod tests {
     impl Tree {
         fn new() -> Self {
             let d = tempfile::tempdir().unwrap();
-            let root = d.path().canonicalize().unwrap();
+            let root = d.path().canonical().unwrap();
             Self { _dir: d, root }
         }
         fn dir(&self, rel: &str) -> PathBuf {

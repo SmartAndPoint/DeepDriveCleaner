@@ -1,6 +1,7 @@
 //! `ddc notify ack|snooze`: the app's calls that record a notification
 //! (story "CLI: shared settings, types and the notify decision").
 
+use ddc_core::platform::Canonical as _;
 use ddc_loadgen::isolate::ClearEnv as _;
 use std::fs;
 use std::path::Path;
@@ -31,7 +32,7 @@ fn ack_records_the_notification_and_snooze_clears_it() {
         return;
     }
     let tmp = tempfile::tempdir().unwrap();
-    let data = tmp.path().canonicalize().unwrap().join("data");
+    let data = tmp.path().canonical().unwrap().join("data");
 
     let ack = ddc(&data, &["notify", "ack", "--bytes", "1234"]);
     assert!(ack.status.success() && ack.stdout.is_empty(), "{}", String::from_utf8_lossy(&ack.stderr));
@@ -51,7 +52,7 @@ fn ack_records_the_notification_and_snooze_clears_it() {
 #[test]
 fn a_time_that_is_not_utc_rfc_3339_is_refused() {
     let tmp = tempfile::tempdir().unwrap();
-    let data = tmp.path().canonicalize().unwrap().join("data");
+    let data = tmp.path().canonical().unwrap().join("data");
     for until in ["tomorrow", "2030-01-02T03:04:05+02:00", "2030-01-02"] {
         let out = ddc(&data, &["notify", "snooze", "--until", until]);
         assert_eq!(out.status.code(), Some(2), "{until}");

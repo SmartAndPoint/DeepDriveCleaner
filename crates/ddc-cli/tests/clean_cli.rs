@@ -1,5 +1,6 @@
 //! `ddc clean` end to end with a temporary HOME and data directory.
 
+use ddc_core::platform::Canonical as _;
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
@@ -33,7 +34,7 @@ struct Fx {
 impl Fx {
     fn new() -> Self {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let (home, data) = (root.join("home"), root.join("data"));
         let fx = Self { tmp, home, data };
         let old = SystemTime::now() - Duration::from_secs(90 * 86_400);

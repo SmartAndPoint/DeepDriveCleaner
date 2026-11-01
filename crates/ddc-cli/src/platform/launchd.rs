@@ -1,5 +1,6 @@
 //! The scheduled scan as a per-user LaunchAgent.
 
+use ddc_core::platform::Canonical as _;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -135,7 +136,7 @@ pub fn homebrew_stable_path(exe: &Path) -> Option<PathBuf> {
 
 /// Both paths name the same file once symlinks are resolved.
 pub fn same_binary(a: &Path, b: &Path) -> bool {
-    matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
+    matches!((a.canonical(), b.canonical()), (Ok(x), Ok(y)) if x == y)
 }
 
 /// The path the agent runs: Homebrew's stable link when it leads to this binary,
@@ -417,7 +418,7 @@ mod tests {
     #[test]
     fn a_cask_binary_is_scheduled_through_its_bin_link() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let (exe, link) = cask(&root, "0.1.0");
 
         install(&AgentSpec { exe: exe.clone(), ..spec(&root) }, &root, 501, &FakeLaunchctl::default()).unwrap();
@@ -430,7 +431,7 @@ mod tests {
     #[test]
     fn a_homebrew_keg_is_scheduled_through_its_opt_link() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let exe = keg(&root, "0.1.0");
         let opt = link_opt(&root, "0.1.0");
 
@@ -443,7 +444,7 @@ mod tests {
     #[test]
     fn other_locations_are_scheduled_by_their_own_path() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let no_link = keg(&root.join("a"), "0.1.0");
         let other_version = keg(&root.join("b"), "0.1.0");
         keg(&root.join("b"), "0.0.9");
@@ -476,7 +477,7 @@ mod tests {
     #[test]
     fn status_recognizes_the_opt_path_as_this_binary() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let exe = keg(&root.join("a"), "0.1.0");
         let opt = link_opt(&root.join("a"), "0.1.0");
         let newer = keg(&root.join("b"), "0.1.0");

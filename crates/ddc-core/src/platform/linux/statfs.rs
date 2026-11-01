@@ -22,7 +22,7 @@ pub fn statfs(path: &Path) -> io::Result<VolumeStats> {
     let mounts = parse(&read_mountinfo()?);
     // The mount a path lies on is the one with the longest mount point above
     // it; the canonical path, so a symlinked folder counts where it lands.
-    let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let real = super::paths::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let m = mount_of(&mounts, &real).ok_or_else(|| io::Error::other("no mount above the path in mountinfo"))?;
     Ok(stats(&st, m))
 }
@@ -158,7 +158,7 @@ garbage line
         assert!(root.total_bytes > 0 && root.available_bytes <= root.total_bytes && !root.fs_type.is_empty());
         let d = tempfile::tempdir().unwrap();
         let tmp = statfs(d.path()).unwrap();
-        assert!(std::fs::canonicalize(d.path()).unwrap().starts_with(&tmp.mount_point));
+        assert!(super::super::paths::canonicalize(d.path()).unwrap().starts_with(&tmp.mount_point));
         assert!(mounts().unwrap().iter().any(|m| m.mount_point == Path::new("/")));
     }
 }

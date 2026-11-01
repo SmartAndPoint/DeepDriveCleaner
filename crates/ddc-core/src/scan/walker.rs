@@ -2,6 +2,7 @@
 //! is closed before its children are spawned, so open files stay bounded by
 //! the worker count (launchd agents start with a soft limit of 256).
 
+use crate::platform::Canonical as _;
 use std::fs::Metadata;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering::Relaxed};
@@ -224,7 +225,7 @@ pub fn normalized_roots(roots: &[PathBuf]) -> Result<Vec<PathBuf>, WalkSetupErro
 fn normalize_roots(roots: &[PathBuf]) -> Result<Vec<(PathBuf, Metadata, (u64, u64))>, WalkSetupError> {
     let mut canon = Vec::with_capacity(roots.len());
     for root in roots {
-        let path = root.canonicalize().map_err(|source| WalkSetupError::Root { path: root.clone(), source })?;
+        let path = root.canonical().map_err(|source| WalkSetupError::Root { path: root.clone(), source })?;
         canon.push(path);
     }
     canon.sort();
