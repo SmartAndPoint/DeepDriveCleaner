@@ -32,13 +32,16 @@ pub fn st_flags(_md: &Metadata) -> u32 {
     0
 }
 
-/// The owner's user id (`st_uid`).
+/// The owner's user id (`st_uid`), for the removal guard and the scan's
+/// findings; [`uid`] is the agents report's read gate.
 pub fn owner(md: &Metadata) -> Option<u32> {
     Some(md.uid())
 }
 
-/// The owner's user id (`st_uid`), for a folder ddc only reads and must
-/// own before it looks inside; the same as [`owner`] here.
+/// The owner's user id (`st_uid`), only as a read gate: the agents report
+/// opens Claude Code's temporary folder only when the user owns it. The
+/// same value as [`owner`] here, but never fed to the removal guard or a
+/// finding, which use [`owner`].
 pub fn uid(md: &Metadata) -> Option<u32> {
     Some(md.uid())
 }

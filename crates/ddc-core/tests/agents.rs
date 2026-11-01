@@ -349,10 +349,11 @@ fn a_symlinked_temporary_folder_is_refused_and_never_followed() {
     assert_eq!(json["harnesses"][0]["sessions"]["temp_root"]["refused"], "symlink");
 }
 
-/// `--no-sizes` never lists Claude Code's temporary folder: a run reads as
-/// many entries with 400 files in it as with none, while a run with sizes
-/// reads them all. The counters are the process's, and nextest runs each
-/// test in a process of its own.
+/// `--no-sizes` walks no folder for its size: a run reads as many entries
+/// with 400 files in Claude Code's temporary folder and 400 in a harness
+/// folder (its checkpoints) as with none, while a run with sizes reads them
+/// all. The counters are the process's, and nextest runs each test in a
+/// process of its own.
 #[cfg(feature = "op-stats")]
 #[test]
 fn no_sizes_never_lists_the_temporary_folder() {
@@ -369,13 +370,18 @@ fn no_sizes_never_lists_the_temporary_folder() {
         fx.report_of(sizes, Vec::new(), &procs);
         stats::snapshot().delta(&before).get(Counter::DirEntriesRead)
     };
+    fx.dir(&format!(".claude/file-history/{A}"));
     let without = read(false);
     let temp = fx.temp_rel();
     for i in 0..400 {
         fx.t.write(&format!("{temp}/-Users-example-p/{A}/scratchpad/{i}"), "");
     }
     assert_eq!(read(false), without, "--no-sizes listed the temporary folder");
-    assert!(read(true) >= without + 400, "a walk of the folder is counted: {without}");
+    for i in 0..400 {
+        fx.write(&format!(".claude/file-history/{A}/{i}"), "");
+    }
+    assert_eq!(read(false), without, "--no-sizes walked a harness folder");
+    assert!(read(true) >= without + 800, "a walk of both folders is counted: {without}");
 }
 
 // MARK: - Codex

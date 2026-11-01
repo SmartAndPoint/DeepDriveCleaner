@@ -95,7 +95,7 @@ cd "\$d/src"
 if [ -z "$filter" ]; then
     cargo clippy --workspace --all-targets --locked --target $target -- -D warnings || exit 1
 fi
-cargo nextest run --workspace --locked --target $target $filter 2>&1 | tee "\$d/target/native-tests.log"; t=\$?
+cargo nextest run --workspace --locked --features ddc-core/op-stats --target $target $filter 2>&1 | tee "\$d/target/native-tests.log"; t=\$?
 [ -n "$filter" ] && exit \$t
 cargo test --workspace --doc --locked --target $target -q || exit 1
 scripts/native-skips.sh windows "\$d/target/native-tests.log"; s=\$?

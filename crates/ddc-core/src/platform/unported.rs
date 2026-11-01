@@ -173,7 +173,9 @@ pub mod meta {
         None
     }
 
-    /// No owner is made up: a folder that must be the user's is not.
+    /// The agents report's read gate (see [`owner`] for the removal
+    /// guard's): no owner is made up, so a folder that must be the user's
+    /// is not.
     pub fn uid(_md: &Metadata) -> Option<u32> {
         None
     }
