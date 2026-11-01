@@ -6,7 +6,7 @@ resolver = "3"
 version = "0.15.2"
 edition = "2024"
 rust-version = "1.89"
-license = "PolyForm-Noncommercial-1.0.0"
+license = "AGPL-3.0-only"
 repository = "https://github.com/SmartAndPoint/DeepDriveCleaner"
 publish = false
 

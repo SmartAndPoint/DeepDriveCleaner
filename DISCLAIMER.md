@@ -8,4 +8,4 @@ It checks every item again right before it touches it, and it refuses many thing
 
 To the fullest extent the law allows, nobody who made DeepDriveCleaner is responsible for what it removes or changes: not SmartAndPoint, not the maintainer, not any developer or contributor. This holds for any loss of data, time or money, and for any other damage. It holds whether you ran DeepDriveCleaner yourself, or a person, a script or an agent ran it for you or on your instructions.
 
-This disclaimer adds to the "No Liability" section of the license ([LICENSE.md](LICENSE.md)). It never narrows the license, and the license still governs. It is not legal advice.
+This disclaimer adds to the Disclaimer of Warranty and the Limitation of Liability of the license (sections 15 and 16 of the GNU AGPL, [LICENSE.md](LICENSE.md)), as its section 7(a) allows. It never narrows the license, and the license still governs. It is not legal advice.

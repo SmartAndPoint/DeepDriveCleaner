@@ -14,6 +14,9 @@ the cleaning to you. It is read-only: the agent runs `ddc disk agents --json`, `
 
 `ddc` itself must be installed: see [Install](../README.md#install).
 
+Everything in this folder is under the [MIT license](../LICENSE-MIT.md), unlike the rest of the
+repository (AGPL-3.0): copy it into any project.
+
 ## Install by hand
 
 Claude Code, for every project (or into one project's `.claude/skills/` instead):

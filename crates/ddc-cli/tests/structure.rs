@@ -1105,3 +1105,53 @@ fn the_agent_guidance_runs_nothing_that_removes() {
     );
     assert_eq!(snippet.matches("<!-- ddc:").count(), 2, "one begin and one end marker");
 }
+
+/// The licences follow their paths (ADR "Licensing: AGPL-3.0 with a
+/// commercial licence for the product, MIT for agent guidance and report
+/// schemas"): the README's MIT block names exactly the guidance and the
+/// schemas, the manifests and the app say AGPL, and PolyForm is history.
+#[test]
+fn the_licences_follow_their_paths() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let read = |p: &str| std::fs::read_to_string(root.join(p)).unwrap_or_else(|e| panic!("{p}: {e}"));
+    let readme = read("README.md");
+    let license = &readme[readme.find("\n## License\n").expect("a License section")..];
+    let mit: Vec<&str> = code_blocks(license).into_iter().find(|(lang, _)| lang == "text").expect("the MIT paths").1;
+    assert_eq!(mit, ["agents/**", "docs/*.schema.json"]);
+    for name in ["LICENSE.md", "LICENSE-MIT.md", "legal@smartandpoint.com"] {
+        assert!(license.contains(name), "the License section names {name}");
+    }
+    assert!(read("LICENSE.md").contains("GNU AFFERO GENERAL PUBLIC LICENSE\nVersion 3, 19 November 2007"));
+    assert!(read("LICENSE-MIT.md").starts_with("Copyright 2026 SmartAndPoint\n\nMIT License\n"));
+    for manifest in ["Cargo.toml", "fuzz/Cargo.toml"] {
+        assert!(read(manifest).contains("license = \"AGPL-3.0-only\""), "{manifest} is AGPL-3.0-only");
+    }
+    assert!(read("app/DeepDriveCleaner/Info.plist").contains("GNU Affero General Public License 3.0"));
+    // Every guidance file carries its own notice, so a copy of one file keeps it.
+    for file in GUIDANCE {
+        assert!(
+            read(file).contains("MIT (Copyright 2026 SmartAndPoint; text in LICENSE-MIT.md"),
+            "{file} carries the MIT notice"
+        );
+    }
+    let schemas = std::fs::read_dir(root.join("docs"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".schema.json"))
+        .count();
+    assert!(schemas >= 10, "the docs folder holds the report schemas the MIT block names");
+    // PolyForm only as the README's line about earlier releases.
+    for file in [
+        "Cargo.toml",
+        "fuzz/Cargo.toml",
+        "deny.toml",
+        "LICENSE.md",
+        "DISCLAIMER.md",
+        "TRADEMARKS.md",
+        "agents/README.md",
+        "app/DeepDriveCleaner/Info.plist",
+    ] {
+        assert!(!read(file).contains("PolyForm"), "{file} still names PolyForm");
+    }
+    assert_eq!(readme.matches("PolyForm").count(), 1, "the README names PolyForm once, for earlier releases");
+}

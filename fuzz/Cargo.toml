@@ -6,7 +6,7 @@
 name = "ddc-fuzz"
 version = "0.0.0"
 edition = "2024"
-license = "PolyForm-Noncommercial-1.0.0"
+license = "AGPL-3.0-only"
 publish = false
 
 [package.metadata]
