@@ -51,7 +51,7 @@ loop() {
     mine "$base/$name"
 }
 
-packages=(btrfs-progs xfsprogs zfsutils-linux nfs-kernel-server nfs-common samba cifs-utils exfatprogs e2fsprogs)
+packages=(btrfs-progs xfsprogs zfsutils-linux nfs-kernel-server nfs-common samba cifs-utils exfatprogs e2fsprogs autofs)
 sudo -n apt-get update -qq >&2 || { sleep 10; sudo -n apt-get update -qq >&2; }
 sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${packages[@]}" >/dev/null
 
@@ -135,6 +135,22 @@ echo data >"$base/bind-source/file"
 sudo -n mount --bind "$base/bind-source" "$base/bind-root/inner"
 say DDC_MOUNT_BIND "$base/bind-root"
 
+# An autofs direct map: its trigger is an autofs mount that binds a folder of this
+# filesystem when opened. stat -f and statfs(2) trigger it, so it stays out of the
+# table below, and the tests tell it by /proc/self/mountinfo (story "Linux mount
+# boundaries: automounts, bind mounts and the Trash across filesystems", DDC-010).
+mkdir -p "$base/autofs-source" "$base/autofs"
+echo data >"$base/autofs-source/file"
+echo "/- /etc/auto.ddcmounts" | sudo -n tee -a /etc/auto.master >/dev/null
+echo "$base/autofs/trigger -fstype=bind :$base/autofs-source" | sudo -n tee /etc/auto.ddcmounts >/dev/null
+sudo -n systemctl restart autofs
+for _ in $(seq 50); do
+    awk -v p="$base/autofs/trigger" '$5 == p && / - autofs /' /proc/self/mountinfo | grep -q . && break
+    sleep 0.2
+done
+awk -v p="$base/autofs/trigger" '$5 == p && / - autofs /' /proc/self/mountinfo | grep -q . || fail "autofs did not set up $base/autofs/trigger"
+say DDC_MOUNT_AUTOFS "$base/autofs/trigger"
+
 # Files only root can make, each in a folder of its own, so a test that breaks one
 # breaks no other: a device node, an immutable file, an append-only file.
 mkdir -p "$base/fixtures/device" "$base/fixtures/immutable" "$base/fixtures/append-only"
@@ -150,7 +166,7 @@ say DDC_MOUNTS "$base"
 
 table="$(for m in btrfs xfs casefold exfat tmpfs tmpfs-root-top zfs zfs/child nfs nfs-squash cifs bind-root/inner; do
     printf '| %s | %s |\n' "$m" "$(stat -f -c %T "$base/$m")"
-done)"
+done; printf '| autofs/trigger | autofs (from mountinfo, never stat'"'"'ed) |\n')"
 printf '%s\n' "$table" >&2
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     { echo "### CI mounts"; echo; echo "| mount | filesystem |"; echo "|---|---|"; printf '%s\n' "$table"; } >>"$GITHUB_STEP_SUMMARY"

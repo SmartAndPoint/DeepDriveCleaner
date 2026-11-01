@@ -12,6 +12,8 @@ pub use crate::platform::types::VolumeStats;
 /// One line of `mountinfo`: what `statvfs` leaves out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Mount {
+    /// Field 1, the mount id `statx` gives as `stx_mnt_id`.
+    id: u64,
     mount_point: PathBuf,
     fs_type: String,
     source: String,
@@ -32,6 +34,18 @@ pub fn statfs(path: &Path) -> io::Result<VolumeStats> {
 pub fn mounts() -> io::Result<Vec<VolumeStats>> {
     let mounts = parse(&read_mountinfo()?);
     Ok(mounts.iter().filter_map(|m| rustix::fs::statvfs(&m.mount_point).ok().map(|st| stats(&st, m))).collect())
+}
+
+/// The file system type of each mount, by mount id: what tells an autofs
+/// mount root from another mount (safety ADR, amendment of 2026-11-01).
+pub(crate) fn types_by_id() -> io::Result<std::collections::HashMap<u64, String>> {
+    Ok(parse(&read_mountinfo()?).into_iter().map(|m| (m.id, m.fs_type)).collect())
+}
+
+/// Every mount point, with its type: below kernel 5.8, which tells no mount
+/// root, the walk's only way to see one.
+pub(crate) fn points() -> io::Result<std::collections::HashMap<PathBuf, String>> {
+    Ok(parse(&read_mountinfo()?).into_iter().map(|m| (m.mount_point, m.fs_type)).collect())
 }
 
 fn read_mountinfo() -> io::Result<Vec<u8>> {
@@ -74,7 +88,9 @@ fn parse(text: &[u8]) -> Vec<Mount> {
             let mount_point = fields.get(4).filter(|_| dash > 5)?;
             let fs_type = fields.get(dash + 1)?;
             let source = fields.get(dash + 2)?;
+            let id = std::str::from_utf8(fields.first()?).ok()?.parse().ok()?;
             Some(Mount {
+                id,
                 mount_point: PathBuf::from(OsStr::from_bytes(&unescape(mount_point))),
                 fs_type: String::from_utf8_lossy(&unescape(fs_type)).into_owned(),
                 source: String::from_utf8_lossy(&unescape(source)).into_owned(),
@@ -124,7 +140,11 @@ garbage line
     fn mountinfo_is_read_with_its_optional_fields_and_escapes() {
         let m = parse(MOUNTINFO);
         assert_eq!(m.len(), 7, "the garbage line is skipped");
-        assert_eq!(m[0], Mount { mount_point: "/".into(), fs_type: "ext4".into(), source: "/dev/nvme0n1p2".into() });
+        assert_eq!(
+            m[0],
+            Mount { id: 22, mount_point: "/".into(), fs_type: "ext4".into(), source: "/dev/nvme0n1p2".into() }
+        );
+        assert_eq!(m[6].id, 61, "field 1, the mount id");
         assert_eq!(
             (m[2].mount_point.as_path(), m[2].fs_type.as_str()),
             (Path::new("/home"), "btrfs"),

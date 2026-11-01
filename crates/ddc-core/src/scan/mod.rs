@@ -14,7 +14,8 @@ use std::time::Duration;
 
 pub use progress::{Progress, ProgressSnapshot};
 pub use reader::{
-    DirListing, DirReader, EntryKind, EntryMeta, ReadError, ReadErrorKind, StdReader, SystemReader, Times,
+    Anchor, Boundary, DirListing, DirReader, EntryKind, EntryMeta, ReadError, ReadErrorKind, StdReader, SystemReader,
+    Times,
 };
 pub use walker::{normalized_roots, walk, walk_with_reader};
 
@@ -38,10 +39,14 @@ pub enum SkipReason {
     Excluded,
     /// Evicted cloud content; reading it would download it.
     Dataless,
-    /// Another filesystem is mounted here.
+    /// Another filesystem is mounted here, or another mount of this one (a
+    /// bind mount, on Linux).
     OtherFilesystem,
     /// The directory changed between listing its parent and opening it.
     Changed,
+    /// An automount point (an autofs map, an NFS or SMB referral): opening
+    /// it would mount it, so the walk never does (Linux).
+    Automount,
 }
 
 /// Decision taken before a directory is read.
@@ -249,7 +254,9 @@ pub struct OwnerEntries {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RootResult {
     pub path: PathBuf,
-    /// Allocated bytes under this root, each inode counted once (like `du -skx`).
+    /// Allocated bytes under this root, each inode counted once (like `du -skx`,
+    /// except that a bind mount of the same filesystem is not entered, where
+    /// `du -x` enters it: safety ADR, amendment of 2026-11-01).
     pub bytes: u64,
     pub files: u64,
     pub dirs: u64,

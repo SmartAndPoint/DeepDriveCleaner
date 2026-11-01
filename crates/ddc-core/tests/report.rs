@@ -291,7 +291,7 @@ fn a_report_without_the_new_fields_still_decodes_and_they_stay_optional() {
     assert_eq!(schema["$defs"]["Finding"]["properties"]["modified"]["type"], serde_json::json!(["string", "null"]));
     let totals = required(&schema["$defs"]["Totals"]);
     assert!(!totals.contains(&"ignored_count".to_owned()) && !totals.contains(&"ignored_bytes".to_owned()));
-    assert_eq!(ddc_core::model::SCHEMA_VERSION, 4);
+    assert_eq!(ddc_core::model::SCHEMA_VERSION, 5);
 }
 
 /// Story "Review window: sort a group's rows by name, size or last change":
@@ -572,7 +572,7 @@ fn a_skipped_folder_is_never_opened_and_is_listed_as_not_scanned() {
     let mut json = serde_json::to_value(&r).unwrap();
     json.as_object_mut().unwrap().remove("not_scanned");
     assert!(serde_json::from_value::<ScanReport>(json).unwrap().not_scanned.is_empty(), "optional");
-    assert_eq!(ddc_core::model::SCHEMA_VERSION, 4);
+    assert_eq!(ddc_core::model::SCHEMA_VERSION, 5);
 }
 
 #[test]

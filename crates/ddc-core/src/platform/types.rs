@@ -49,6 +49,21 @@ pub struct EntryMeta {
     /// Unix seconds. Only for [`Times::ModifiedAndAdded`], where the
     /// filesystem keeps it.
     pub added: Option<i64>,
+    /// A mount the walk must not open, where the reader tells one apart
+    /// from its folder by more than the device (Linux: safety ADR,
+    /// amendment of 2026-11-01). `None` on macOS, whose volumes the device
+    /// alone tells apart.
+    pub boundary: Option<Boundary>,
+}
+
+/// Why an entry is the edge of the walk although its device may be its
+/// folder's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Boundary {
+    /// An automount point: opening it would mount it.
+    Automount,
+    /// Another mount: a bind mount of the same filesystem keeps its device.
+    Mount,
 }
 
 /// The times a listing reads for each entry. Each one adds bytes to every

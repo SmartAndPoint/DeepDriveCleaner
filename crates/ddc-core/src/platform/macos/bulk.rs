@@ -72,6 +72,32 @@ impl Drop for Fd {
     }
 }
 
+/// A scan root, which [`list_in`] lists beneath. On macOS a volume is a
+/// device, so the `dev` check of the walk is the mount boundary, and a
+/// folder still opens by its path.
+#[derive(Debug)]
+pub struct Anchor {
+    path: std::path::PathBuf,
+}
+
+pub fn anchor(root: &Path) -> std::io::Result<Anchor> {
+    Ok(Anchor { path: root.to_path_buf() })
+}
+
+/// [`list`] of `dir`, which must lie at or beneath `anchor`'s root.
+pub fn list_in(
+    anchor: &Anchor,
+    dir: &Path,
+    expect: Option<(u64, u64)>,
+    want_private: bool,
+    times: Times,
+) -> Result<DirListing, ReadError> {
+    if !dir.starts_with(&anchor.path) {
+        return Err(ReadError::new(crate::platform::types::ReadErrorKind::Changed, None));
+    }
+    list(dir, expect, want_private, times)
+}
+
 /// Lists `dir` by `getattrlistbulk` (macOS, APFS/HFS+), as
 /// `scan::reader::SystemReader` asks: without following a symlink, nothing
 /// read when the directory is not `expect`, the private size with
@@ -255,6 +281,7 @@ fn parse_batch(buf: &[u8], count: usize, want_private: bool, out: &mut Vec<Entry
             error: (error != 0).then_some(error),
             modified,
             added,
+            boundary: None,
         });
         start += len;
     }

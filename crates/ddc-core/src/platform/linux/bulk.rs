@@ -5,19 +5,30 @@
 //! private size: Linux keeps none. Linux keeps no date added either; the
 //! birth time stands in for it where the filesystem records one (ext4,
 //! btrfs, XFS), so a download's date is when it was written.
+//!
+//! The walk stays on one mount (safety ADR, amendment of 2026-11-01): each
+//! entry is stat'ed without triggering an automount and marked as a
+//! [`Boundary`] when it is an automount point or another mount, a bind
+//! mount of the same filesystem included; and [`list_in`] opens a folder
+//! beneath its scan root's descriptor with `openat2`, which refuses to
+//! cross a mount or follow a symlink on the way.
 
+use std::collections::HashMap;
 use std::ffi::{CStr, OsStr};
 use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use rustix::fs::{AtFlags, FileType, Mode, OFlags, RawDir, StatxFlags};
+use rustix::fs::{AtFlags, FileType, Mode, OFlags, RawDir, ResolveFlags, StatxAttributes, StatxFlags};
 use rustix::io::Errno;
 
-use crate::platform::types::{DirListing, EntryKind, EntryMeta, ReadError, ReadErrorKind, Times};
+use crate::platform::types::{Boundary, DirListing, EntryKind, EntryMeta, ReadError, ReadErrorKind, Times};
 
 const BUF_LEN: usize = 64 * 1024;
+
+/// Linux's `PATH_MAX`, the terminating NUL included.
+const PATH_MAX: usize = 4096;
 
 /// What one `statx` (or the `fstatat` fallback) says of an entry.
 struct Stat {
@@ -31,19 +42,130 @@ struct Stat {
     /// Asked for only with [`Times::ModifiedAndAdded`], and `None` where the
     /// filesystem keeps no birth time.
     btime: Option<i64>,
+    /// `stx_mnt_id`, where the kernel gives it (5.8 and later).
+    mnt_id: Option<u64>,
+    /// `STATX_ATTR_AUTOMOUNT` and `STATX_ATTR_MOUNT_ROOT`, each `None` where
+    /// the kernel does not tell (`stx_attributes_mask`, or `fstatat`).
+    automount: Option<bool>,
+    mount_root: Option<bool>,
 }
 
-pub fn list(
+/// A scan root's open descriptor, which [`list_in`] opens folders beneath.
+#[derive(Debug)]
+pub struct Anchor {
+    path: PathBuf,
+    fd: OwnedFd,
+    /// `openat2` works here; without it (`ENOSYS`, or `EPERM` from a
+    /// seccomp filter) a folder opens by path and its mount is checked.
+    beneath: bool,
+    mnt_id: Option<u64>,
+    /// mountinfo, read at most once for the whole walk under this root.
+    mounts: std::sync::Mutex<Mounts>,
+}
+
+/// Opens `root` (canonical) as the anchor of a walk.
+pub fn anchor(root: &Path) -> std::io::Result<Anchor> {
+    let fd = retry(|| {
+        rustix::fs::open(root, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty())
+    })?;
+    // `ENOSYS`, `EPERM` from a seccomp filter, or anything else a sandbox
+    // gives: open by path and check the mount instead.
+    let beneath = openat2(&fd, c".").is_ok();
+    let mnt_id = stat(&fd, c"", AtFlags::EMPTY_PATH, false)?.mnt_id;
+    Ok(Anchor { path: root.to_path_buf(), fd, beneath, mnt_id, mounts: std::sync::Mutex::default() })
+}
+
+/// [`anchor`] as a kernel without `openat2` gives it: each folder opens by
+/// path and its mount id is checked. The walk's fallback, which a test on a
+/// real mount checks too.
+pub fn anchor_by_path(root: &Path) -> std::io::Result<Anchor> {
+    Ok(Anchor { beneath: false, ..anchor(root)? })
+}
+
+/// [`list`] of `dir`, a folder at or beneath `anchor`'s root, opened
+/// relative to the root's descriptor: a mount or a symlink on the way is
+/// refused (`EXDEV`, `ELOOP`), never crossed.
+pub fn list_in(
+    anchor: &Anchor,
     dir: &Path,
     expect: Option<(u64, u64)>,
-    _want_private: bool,
+    want_private: bool,
     times: Times,
 ) -> Result<DirListing, ReadError> {
+    let Ok(rel) = dir.strip_prefix(&anchor.path) else {
+        return Err(ReadError::new(ReadErrorKind::Changed, None));
+    };
+    // A folder whose whole path is past `PATH_MAX` stays unreadable, as it
+    // is by path: its finding is incomplete, which the guard refuses, since
+    // the clean removes by path (story "Linux file kinds: special files,
+    // immutable flags, sparse files and odd names" takes such paths on).
+    if dir.as_os_str().len() >= PATH_MAX {
+        return Err(read_error(Errno::NAMETOOLONG));
+    }
+    let rel = rustix::ffi::CString::new(if rel.as_os_str().is_empty() {
+        b".".to_vec()
+    } else {
+        rel.as_os_str().as_bytes().to_vec()
+    })
+    .map_err(|_| ReadError::new(ReadErrorKind::Other, None))?;
+    let fd = if anchor.beneath {
+        // `EAGAIN`: a rename raced the lookup; the kernel asks for a retry.
+        let mut tries = 0;
+        loop {
+            match openat2(&anchor.fd, &rel) {
+                Err(Errno::AGAIN) if tries < 3 => tries += 1,
+                done => break done.map_err(read_error)?,
+            }
+        }
+    } else {
+        let fd = retry(|| {
+            rustix::fs::open(
+                dir,
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+        })
+        .map_err(read_error)?;
+        let me = stat(&fd, c"", AtFlags::EMPTY_PATH, false).map_err(read_error)?;
+        let crossed = (anchor.mnt_id.is_some() && me.mnt_id != anchor.mnt_id)
+            || (dir != anchor.path && me.mount_root == Some(true));
+        if crossed {
+            return Err(ReadError::new(ReadErrorKind::OtherFilesystem, None));
+        }
+        fd
+    };
+    list_fd(&fd, dir, expect, want_private, times, &anchor.mounts)
+}
+
+fn openat2(dir: &OwnedFd, rel: &CStr) -> Result<OwnedFd, Errno> {
+    retry(|| {
+        rustix::fs::openat2(
+            dir,
+            rel,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+            ResolveFlags::BENEATH | ResolveFlags::NO_XDEV | ResolveFlags::NO_SYMLINKS,
+        )
+    })
+}
+
+pub fn list(dir: &Path, expect: Option<(u64, u64)>, want_private: bool, times: Times) -> Result<DirListing, ReadError> {
     let fd = retry(|| {
         rustix::fs::open(dir, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty())
     })
     .map_err(read_error)?;
-    let me = stat(&fd, c"", AtFlags::EMPTY_PATH, false).map_err(read_error)?;
+    list_fd(&fd, dir, expect, want_private, times, &std::sync::Mutex::default())
+}
+
+fn list_fd(
+    fd: &OwnedFd,
+    dir: &Path,
+    expect: Option<(u64, u64)>,
+    _want_private: bool,
+    times: Times,
+    mounts: &std::sync::Mutex<Mounts>,
+) -> Result<DirListing, ReadError> {
+    let me = stat(fd, c"", AtFlags::EMPTY_PATH, false).map_err(read_error)?;
     if let Some((want_dev, want_ino)) = expect {
         if me.dev != want_dev {
             return Err(ReadError::new(ReadErrorKind::OtherFilesystem, None));
@@ -55,7 +177,7 @@ pub fn list(
 
     let mut entries = Vec::new();
     let mut buf = vec![MaybeUninit::<u8>::uninit(); BUF_LEN];
-    let mut names = RawDir::new(&fd, &mut buf);
+    let mut names = RawDir::new(fd, &mut buf);
     while let Some(entry) = names.next() {
         let entry = match entry {
             Ok(entry) => entry,
@@ -66,48 +188,120 @@ pub fn list(
         if name == c"." || name == c".." {
             continue;
         }
-        entries.push(entry_meta(&fd, name, times));
+        let (mut entry, seen) = entry_meta(fd, name, times, me.mnt_id);
+        if entry.kind == EntryKind::Dir {
+            let mut mounts = mounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            entry.boundary = mounts.boundary(entry.boundary, seen, dir, &entry.name);
+        }
+        entries.push(entry);
     }
     // Counted once the listing is whole; a listing that fails part-way counts nothing.
     crate::stats::add(crate::stats::Counter::DirEntriesRead, entries.len() as u64);
     Ok(DirListing { dev: me.dev, ino: me.ino, modified: Some(me.mtime), alloc: me.blocks * 512, entries })
 }
 
-/// One entry, stat'ed relative to `dir` without following a symlink. An
-/// entry that cannot be stat'ed (gone since the listing, or refused) carries
-/// its errno, as the reference reader's does.
-fn entry_meta(dir: &OwnedFd, name: &CStr, times: Times) -> EntryMeta {
+/// One entry, stat'ed relative to `dir` without following a symlink or
+/// triggering an automount. An entry that cannot be stat'ed (gone since the
+/// listing, or refused) carries its errno, as the reference reader's does.
+/// `dir_mnt` is the folder's own mount id.
+fn entry_meta(dir: &OwnedFd, name: &CStr, times: Times, dir_mnt: Option<u64>) -> (EntryMeta, Seen) {
     let name_os = OsStr::from_bytes(name.to_bytes()).to_owned();
     let added = times == Times::ModifiedAndAdded;
-    match stat(dir, name, AtFlags::SYMLINK_NOFOLLOW | AtFlags::STATX_DONT_SYNC, added) {
-        Ok(st) => EntryMeta {
-            name: name_os,
-            kind: st.kind,
-            dev: st.dev,
-            ino: st.ino,
-            nlink: st.nlink,
-            uid: Some(st.uid),
-            flags: 0,
-            alloc: st.blocks * 512,
-            private: None,
-            error: None,
-            modified: (times != Times::None).then_some(st.mtime),
-            added: st.btime,
-        },
-        Err(e) => EntryMeta {
-            name: name_os,
-            kind: EntryKind::Other,
-            dev: 0,
-            ino: 0,
-            nlink: 1,
-            uid: None,
-            flags: 0,
-            alloc: 0,
-            private: None,
-            error: Some(e.raw_os_error()),
-            modified: None,
-            added: None,
-        },
+    let flags = AtFlags::SYMLINK_NOFOLLOW | AtFlags::STATX_DONT_SYNC | AtFlags::NO_AUTOMOUNT;
+    match stat(dir, name, flags, added) {
+        Ok(st) => {
+            let seen = Seen { mnt_id: st.mnt_id, told: st.mount_root.is_some() };
+            let meta = EntryMeta {
+                name: name_os,
+                kind: st.kind,
+                dev: st.dev,
+                ino: st.ino,
+                nlink: st.nlink,
+                uid: Some(st.uid),
+                flags: 0,
+                alloc: st.blocks * 512,
+                private: None,
+                error: None,
+                modified: (times != Times::None).then_some(st.mtime),
+                added: st.btime,
+                boundary: boundary(st.automount, st.mount_root, st.mnt_id, dir_mnt),
+            };
+            (meta, seen)
+        }
+        Err(e) => {
+            let meta = EntryMeta {
+                name: name_os,
+                kind: EntryKind::Other,
+                dev: 0,
+                ino: 0,
+                nlink: 1,
+                uid: None,
+                flags: 0,
+                alloc: 0,
+                private: None,
+                error: Some(e.raw_os_error()),
+                modified: None,
+                added: None,
+                boundary: None,
+            };
+            (meta, Seen { mnt_id: None, told: false })
+        }
+    }
+}
+
+/// What the entry's own stat told of its mount.
+#[derive(Clone, Copy)]
+struct Seen {
+    mnt_id: Option<u64>,
+    /// The kernel said whether it is a mount root (5.8 and later, `statx`).
+    told: bool,
+}
+
+/// The edge of the walk an entry is, from its stat alone: an automount
+/// point the kernel marks (NFS and SMB referrals, AFS, FUSE submounts), a
+/// mount root, or a mount other than its folder's. An autofs mount root is
+/// told apart from another mount only by mountinfo ([`Mounts`]).
+fn boundary(
+    automount: Option<bool>,
+    mount_root: Option<bool>,
+    mnt_id: Option<u64>,
+    dir_mnt: Option<u64>,
+) -> Option<Boundary> {
+    if automount == Some(true) {
+        Some(Boundary::Automount)
+    } else if mount_root == Some(true) || matches!((mnt_id, dir_mnt), (Some(a), Some(b)) if a != b) {
+        Some(Boundary::Mount)
+    } else {
+        None
+    }
+}
+
+/// `/proc/self/mountinfo`, read only when a listing meets a mount root (to
+/// tell autofs) or a kernel that tells no mount root (below 5.8, or
+/// `fstatat`): once per walk under an [`Anchor`], and again only for a mount
+/// id it has not seen, one made during the walk.
+#[derive(Debug, Default)]
+struct Mounts {
+    by_id: Option<HashMap<u64, String>>,
+    points: Option<HashMap<PathBuf, String>>,
+}
+
+impl Mounts {
+    fn boundary(&mut self, found: Option<Boundary>, seen: Seen, dir: &Path, name: &OsStr) -> Option<Boundary> {
+        let autofs = |t: &str| if t == "autofs" { Boundary::Automount } else { Boundary::Mount };
+        match (found, seen) {
+            (Some(Boundary::Mount), Seen { mnt_id: Some(id), .. }) => {
+                if self.by_id.as_ref().is_none_or(|m| !m.contains_key(&id)) {
+                    self.by_id = Some(super::statfs::types_by_id().unwrap_or_default());
+                }
+                Some(self.by_id.as_ref().and_then(|m| m.get(&id)).map_or(Boundary::Mount, |t| autofs(t)))
+            }
+            (None, Seen { told: false, .. }) => {
+                let points = self.points.get_or_insert_with(|| super::statfs::points().unwrap_or_default());
+                points.get(&dir.join(name)).map(|t| autofs(t))
+            }
+            (found, _) => found,
+        }
     }
 }
 
@@ -121,7 +315,8 @@ fn stat(dir: &impl AsFd, name: &CStr, flags: AtFlags, btime: bool) -> Result<Sta
         | StatxFlags::UID
         | StatxFlags::INO
         | StatxFlags::BLOCKS
-        | StatxFlags::MTIME;
+        | StatxFlags::MTIME
+        | StatxFlags::MNT_ID;
     if btime {
         want |= StatxFlags::BTIME;
     }
@@ -136,6 +331,15 @@ fn stat(dir: &impl AsFd, name: &CStr, flags: AtFlags, btime: bool) -> Result<Sta
             mtime: st.stx_mtime.tv_sec,
             btime: (btime && StatxFlags::from_bits_retain(st.stx_mask).contains(StatxFlags::BTIME))
                 .then_some(st.stx_btime.tv_sec),
+            mnt_id: StatxFlags::from_bits_retain(st.stx_mask).contains(StatxFlags::MNT_ID).then_some(st.stx_mnt_id),
+            // Kernels before 5.13 set the bit without adding it to the
+            // mask; a set bit is never wrong.
+            automount: if st.stx_attributes.contains(StatxAttributes::AUTOMOUNT) {
+                Some(true)
+            } else {
+                attribute(&st, StatxAttributes::AUTOMOUNT)
+            },
+            mount_root: attribute(&st, StatxAttributes::MOUNT_ROOT),
         }),
         Err(Errno::NOSYS | Errno::PERM) => {
             let st = retry(|| rustix::fs::statat(dir, name, flags & !AtFlags::STATX_DONT_SYNC))?;
@@ -150,10 +354,18 @@ fn stat(dir: &impl AsFd, name: &CStr, flags: AtFlags, btime: bool) -> Result<Sta
                 blocks: u64::try_from(st.st_blocks).unwrap_or(0),
                 mtime: st.st_mtime,
                 btime: None,
+                mnt_id: None,
+                automount: None,
+                mount_root: None,
             })
         }
         Err(e) => Err(e),
     }
+}
+
+/// One `stx_attributes` bit, or `None` when the kernel does not report it.
+fn attribute(st: &rustix::fs::Statx, bit: StatxAttributes) -> Option<bool> {
+    st.stx_attributes_mask.contains(bit).then(|| st.stx_attributes.contains(bit))
 }
 
 fn kind(ft: FileType) -> EntryKind {
@@ -279,6 +491,81 @@ mod tests {
         fs::rename(&a, d.path().join("newer")).unwrap();
         testing::symlink(&d.path().join("old"), &a).unwrap();
         assert_eq!(list(&a, None, false, Times::None).unwrap_err().kind, ReadErrorKind::Changed);
+    }
+
+    /// Safety ADR, amendment of 2026-11-01: what one entry's stat makes it.
+    #[test]
+    fn an_automount_point_or_another_mount_is_the_edge_of_the_walk() {
+        assert_eq!(boundary(Some(true), Some(false), Some(30), Some(30)), Some(Boundary::Automount));
+        assert_eq!(boundary(Some(false), Some(true), Some(30), Some(30)), Some(Boundary::Mount), "a mount root");
+        assert_eq!(boundary(Some(false), Some(false), Some(31), Some(30)), Some(Boundary::Mount), "another mount");
+        assert_eq!(boundary(Some(false), Some(false), Some(30), Some(30)), None, "a folder of this mount");
+        assert_eq!(boundary(None, None, None, None), None, "a kernel that tells nothing");
+        assert_eq!(boundary(None, None, Some(31), None), None, "no folder mount to compare with");
+        assert_eq!(boundary(Some(true), None, None, None), Some(Boundary::Automount), "the bit alone, before 5.13");
+    }
+
+    /// autofs marks its dentries, not the inode, so its mount root is told
+    /// by mountinfo; and where the kernel tells no mount root (below 5.8,
+    /// or `fstatat`), the mount points of mountinfo do.
+    #[test]
+    fn mountinfo_tells_an_autofs_root_and_a_mount_the_kernel_did_not_mark() {
+        let mut m = Mounts {
+            by_id: Some(HashMap::from([(40, "autofs".to_owned()), (41, "nfs4".to_owned())])),
+            points: Some(HashMap::from([
+                (PathBuf::from("/r/auto"), "autofs".to_owned()),
+                (PathBuf::from("/r/bind"), "ext4".to_owned()),
+            ])),
+        };
+        let marked = |id| Seen { mnt_id: Some(id), told: true };
+        assert_eq!(
+            m.boundary(Some(Boundary::Mount), marked(40), Path::new("/r"), OsStr::new("x")),
+            Some(Boundary::Automount)
+        );
+        assert_eq!(
+            m.boundary(Some(Boundary::Mount), marked(41), Path::new("/r"), OsStr::new("x")),
+            Some(Boundary::Mount)
+        );
+        assert_eq!(
+            m.boundary(None, marked(30), Path::new("/r"), OsStr::new("bind")),
+            None,
+            "the kernel said: no mount"
+        );
+        let untold = Seen { mnt_id: None, told: false };
+        assert_eq!(m.boundary(None, untold, Path::new("/r"), OsStr::new("auto")), Some(Boundary::Automount));
+        assert_eq!(m.boundary(None, untold, Path::new("/r"), OsStr::new("bind")), Some(Boundary::Mount));
+        assert_eq!(m.boundary(None, untold, Path::new("/r"), OsStr::new("plain")), None);
+    }
+
+    /// A folder opens beneath its root, with `openat2` and without: the same
+    /// listing; a symlink on the way, or a path outside the root, is
+    /// `changed`, never followed.
+    #[test]
+    fn a_folder_opens_beneath_its_root_and_never_through_a_symlink() {
+        let d = tempfile::tempdir().unwrap();
+        let root = crate::platform::Canonical::canonical(d.path()).unwrap();
+        fs::create_dir_all(root.join("a/b")).unwrap();
+        fs::write(root.join("a/b/f"), b"x").unwrap();
+        testing::symlink(&root.join("a"), &root.join("via")).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+
+        let opened = anchor(&root).unwrap();
+        let by_path = anchor_by_path(&root).unwrap();
+        for a in [&opened, &by_path] {
+            let names = |dir: &Path| {
+                let mut n: Vec<_> =
+                    list_in(a, dir, None, false, Times::None).unwrap().entries.into_iter().map(|e| e.name).collect();
+                n.sort();
+                n
+            };
+            assert_eq!(names(&root.join("a/b")), vec![OsStr::new("f").to_owned()], "beneath: {}", a.beneath);
+            assert_eq!(names(&root).len(), 2);
+            let err = |dir: &Path| list_in(a, dir, None, false, Times::None).unwrap_err().kind;
+            assert_eq!(err(outside.path()), ReadErrorKind::Changed, "outside the root");
+            if a.beneath {
+                assert_eq!(err(&root.join("via/b")), ReadErrorKind::Changed, "a symlink on the way");
+            }
+        }
     }
 
     #[test]

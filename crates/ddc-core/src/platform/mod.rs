@@ -87,6 +87,8 @@ mod pins {
     type Waited = Option<(ExitStatus, Usage)>;
 
     const _: fn(&Path, Identity, bool, Times) -> Result<DirListing, ReadError> = imp::bulk::list;
+    const _: fn(&Path) -> io::Result<imp::bulk::Anchor> = imp::bulk::anchor;
+    const _: fn(&imp::bulk::Anchor, &Path, Identity, bool, Times) -> Result<DirListing, ReadError> = imp::bulk::list_in;
 
     const _: fn(i32) -> ReadErrorKind = imp::errno::read_error_kind;
     const _: i32 = imp::errno::ENOENT;

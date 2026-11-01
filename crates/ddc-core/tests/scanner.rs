@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use common::{OLD, TreeBuilder, alloc, folders, reference_alloc};
 use ddc_core::platform::Capability;
 use ddc_core::scan::{
-    self, DirCtx, DirListing, DirReader, EntryKind, EntryResult, NullVisitor, OwnerKind, OwnerResult, Post, Pre,
-    Progress, ReadError, ReadErrorKind, ReaderKind, StdReader, Tag, Times, Visitor, WalkOptions, WalkOutput,
+    self, Boundary, DirCtx, DirListing, DirReader, EntryKind, EntryResult, NullVisitor, OwnerKind, OwnerResult, Post,
+    Pre, Progress, ReadError, ReadErrorKind, ReaderKind, StdReader, Tag, Times, Visitor, WalkOptions, WalkOutput,
 };
 
 const CLAIM_BY_NAME: Tag = 1;
@@ -708,6 +708,75 @@ fn a_pruned_directory_inside_a_claim_is_never_opened_and_counts_nowhere() {
     assert!(!claimed.incomplete(), "a pruned directory does not make its owner incomplete");
     let read = folders(&[t.path("claimed"), t.path("claimed/kept")]);
     assert_eq!((claimed.files, claimed.dirs, claimed.bytes), (1, 2, alloc(&t.path("claimed/kept/a.bin")) + read));
+}
+
+/// Marks the entries named `mount-*` as another mount and `auto-*` as an
+/// automount point, as the Linux reader does, and records every folder read.
+#[derive(Default)]
+struct Mounts(std::sync::Mutex<Vec<PathBuf>>);
+
+impl DirReader for Mounts {
+    fn read(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: Times,
+    ) -> Result<DirListing, ReadError> {
+        self.0.lock().unwrap().push(dir.to_path_buf());
+        let mut listing = StdReader.read(dir, expect, want_private, times)?;
+        for e in &mut listing.entries {
+            let name = e.name.to_string_lossy();
+            if name.starts_with("mount-") {
+                e.boundary = Some(Boundary::Mount);
+            } else if name.starts_with("auto-") {
+                e.boundary = Some(Boundary::Automount);
+            }
+        }
+        Ok(listing)
+    }
+}
+
+/// Safety ADR, amendment of 2026-11-01: a mount the device does not tell
+/// apart (a bind mount) and an automount point are never opened, are
+/// skipped with their reasons, and leave the finding around them incomplete,
+/// which the guard refuses.
+#[test]
+fn a_mount_or_an_automount_point_is_never_opened_and_leaves_its_finding_incomplete() {
+    if common::unsupported("a_mount_or_an_automount_point_is_never_opened_and_leaves_its_finding_incomplete") {
+        return;
+    }
+    let t = TreeBuilder::new();
+    t.file("claimed/mount-data/a.bin", 4096);
+    t.file("claimed/kept.bin", 4096);
+    t.file("auto-share/b.bin", 4096);
+    t.file("claimed/mount-file.bin", 4096);
+    let visitor = TestVisitor { claim_paths: vec![t.path("claimed")], ..TestVisitor::default() };
+    let reader = Mounts::default();
+    let out = scan::walk_with_reader(
+        &[t.root().to_path_buf()],
+        &visitor,
+        &opts(ReaderKind::Std),
+        &Progress::default(),
+        &reader,
+    )
+    .unwrap();
+
+    let opened = reader.0.into_inner().unwrap();
+    assert!(!opened.iter().any(|d| d.starts_with(t.path("claimed/mount-data")) || d.starts_with(t.path("auto-share"))));
+    let mut skipped: Vec<_> = out.skipped.iter().map(|s| (s.path.clone(), s.reason)).collect();
+    skipped.sort();
+    assert_eq!(
+        skipped,
+        vec![
+            (t.path("auto-share"), scan::SkipReason::Automount),
+            (t.path("claimed/mount-data"), scan::SkipReason::OtherFilesystem),
+            (t.path("claimed/mount-file.bin"), scan::SkipReason::OtherFilesystem),
+        ]
+    );
+    let claimed = owner(&out, &t.path("claimed"));
+    assert!(claimed.incomplete(), "a mount inside makes the finding incomplete");
+    assert_eq!(claimed.files, 1, "neither the mount's file nor a bind-mounted file is counted");
 }
 
 /// Records the name of every thread that opens a directory.

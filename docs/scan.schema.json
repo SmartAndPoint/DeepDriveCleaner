@@ -1147,7 +1147,7 @@
           "const": "dataless"
         },
         {
-          "description": "Another filesystem is mounted here.",
+          "description": "Another filesystem is mounted here, or another mount of this one (a\nbind mount, on Linux).",
           "type": "string",
           "const": "other-filesystem"
         },
@@ -1155,6 +1155,11 @@
           "description": "The directory changed between listing its parent and opening it.",
           "type": "string",
           "const": "changed"
+        },
+        {
+          "description": "An automount point (an autofs map, an NFS or SMB referral): opening\nit would mount it, so the walk never does (Linux).",
+          "type": "string",
+          "const": "automount"
         }
       ]
     },

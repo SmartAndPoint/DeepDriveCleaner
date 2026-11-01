@@ -35,6 +35,10 @@ pub enum Mount {
     /// A test root on the runner's disk, with a bind mount of that disk at
     /// `inner`.
     Bind,
+    /// The trigger of an autofs direct map, which binds a folder of the
+    /// runner's disk when opened. `statfs` would trigger it, so it is told
+    /// by `/proc/self/mountinfo` alone, and only one test touches it.
+    Autofs,
 }
 
 impl Mount {
@@ -55,6 +59,7 @@ impl Mount {
             Mount::NfsSquash => "DDC_MOUNT_NFS_SQUASH",
             Mount::Cifs => "DDC_MOUNT_CIFS",
             Mount::Bind => "DDC_MOUNT_BIND",
+            Mount::Autofs => "DDC_MOUNT_AUTOFS",
         }
     }
 
@@ -75,6 +80,7 @@ impl Mount {
             Mount::NfsSquash => "squashed nfs",
             Mount::Cifs => "cifs",
             Mount::Bind => "bind",
+            Mount::Autofs => "autofs",
         }
     }
 
@@ -90,6 +96,7 @@ impl Mount {
             Mount::Zfs | Mount::ZfsChild => 0x2FC1_2FC1,
             Mount::Nfs | Mount::NfsSquash => 0x6969,
             Mount::Cifs => 0xFE53_4D42,
+            Mount::Autofs => 0x0187,
         }
     }
 }
@@ -102,8 +109,29 @@ pub fn magic_of(path: &std::path::Path) -> u32 {
     magic
 }
 
+/// The type of every mount whose mount point is `path`, oldest first, from
+/// `/proc/self/mountinfo`: read without touching `path`, so an automount
+/// point stays untriggered.
+pub fn mounted_at(path: &std::path::Path) -> Vec<String> {
+    let text = std::fs::read_to_string("/proc/self/mountinfo").expect("mountinfo");
+    text.lines()
+        .filter_map(|line| {
+            let (left, right) = line.split_once(" - ")?;
+            let point = left.split(' ').nth(4)?.replace("\\040", " ");
+            (std::path::Path::new(&point) == path).then(|| right.split(' ').next().unwrap_or("").to_owned())
+        })
+        .collect()
+}
+
 /// Where the job made `kind`, or `None` after printing why the test skips.
 pub fn mount(test: &str, kind: Mount) -> Option<PathBuf> {
+    if kind == Mount::Autofs {
+        // Not even `symlink_metadata`: std's `statx` passes no
+        // `AT_NO_AUTOMOUNT`, so it would mount the map.
+        let dir = variable(test, kind.var(), &format!("no {} mount", kind.name()))?;
+        assert!(mounted_at(&dir).iter().any(|t| t == "autofs"), "{test}: {dir:?} is no autofs mount point");
+        return Some(dir);
+    }
     let dir = given(test, kind.var(), &format!("no {} mount", kind.name()))?;
     let magic = magic_of(&dir);
     assert_eq!(
@@ -150,17 +178,19 @@ pub fn prepared(test: &str, what: Prepared) -> Option<PathBuf> {
     given(test, what.var(), &format!("no {} fixture", what.name()))
 }
 
-#[allow(clippy::disallowed_methods)] // a switch of the test harness, not of the scanner
 fn given(test: &str, var: &str, missing: &str) -> Option<PathBuf> {
+    let path = variable(test, var, missing)?;
+    assert!(std::fs::symlink_metadata(&path).is_ok(), "{test}: {var} = {path:?} does not exist");
+    Some(path)
+}
+
+#[allow(clippy::disallowed_methods)] // a switch of the test harness, not of the scanner
+fn variable(test: &str, var: &str, missing: &str) -> Option<PathBuf> {
     match std::env::var_os(var).filter(|v| !v.is_empty()) {
         None => {
             eprintln!("skipped {test}: {missing} ({var} unset)");
             None
         }
-        Some(v) => {
-            let path = PathBuf::from(v);
-            assert!(std::fs::symlink_metadata(&path).is_ok(), "{test}: {var} = {path:?} does not exist");
-            Some(path)
-        }
+        Some(v) => Some(PathBuf::from(v)),
     }
 }

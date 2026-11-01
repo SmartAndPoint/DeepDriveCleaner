@@ -1,4 +1,6 @@
-//! `ddc du`: allocated size per root, comparable with `du -skx`.
+//! `ddc du`: allocated size per root, comparable with `du -skx`. One
+//! difference on purpose: a bind mount of the same filesystem is not
+//! entered, where `du -x` enters it (safety ADR, amendment of 2026-11-01).
 
 use std::io::Write as _;
 use std::path::PathBuf;
