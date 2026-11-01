@@ -13,10 +13,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use common::{TreeBuilder, alloc, reference_alloc};
 use ddc_core::agents::liveness::{LiveBy, UnknownCause};
 use ddc_core::agents::{
-    self, AgentsOptions, AgentsReport, FootprintState, Harness, HarnessId, RecordsState, SessionState, UnknownReason,
-    utc_ctime,
+    self, AgentsOptions, AgentsReport, FootprintState, Harness, HarnessId, RecordsState, SessionState, TempRefusal,
+    UnknownReason, utc_ctime,
 };
 use ddc_core::env::Env;
+use ddc_core::platform::types::ProcInfo;
 use ddc_core::platform::{Capability, PLATFORM, Platform, procs};
 
 const A: &str = "0a1b2c3d-0000-4000-8000-00000000000a";
@@ -58,13 +59,18 @@ impl Fixture {
     }
 
     fn report_with(&self, sizes: bool, user_skips: Vec<PathBuf>) -> AgentsReport {
+        self.report_of(sizes, user_skips, &procs::current_user_processes_unopened())
+    }
+
+    /// With the process list given: listing it reads nothing the report counts.
+    fn report_of(&self, sizes: bool, user_skips: Vec<PathBuf>, procs: &[ProcInfo]) -> AgentsReport {
         // A fixture system root: no test reads the real `/tmp`.
         let env =
             Env::with_paths(&self.t.path("home"), &self.t.path("data"), &self.t.path("data/logs"), SystemTime::now())
                 .unwrap()
                 .with_system_root(&self.t.dir("sys"));
         let opts = AgentsOptions { sizes, threads: Some(2), user_skips };
-        agents::report(&env, &opts, &procs::current_user_processes_unopened(), &AtomicBool::new(false))
+        agents::report(&env, &opts, procs, &AtomicBool::new(false))
     }
 
     fn report(&self) -> AgentsReport {
@@ -313,6 +319,63 @@ fn footprint_without_a_transcript_and_under_a_skip() {
     let list = s.footprints.unwrap();
     assert_eq!(list.len(), 1, "the checkpoints still name the session");
     assert_eq!((list[0].temp, list[0].temp_path.as_ref(), list[0].checkpoints), (0, None, alloc(&c_hist)));
+}
+
+/// Anyone may make `claude-<uid>` first in a shared `/tmp`: a link there is
+/// refused, never followed, so the folder it points to adds no bytes and
+/// names no session.
+#[test]
+fn a_symlinked_temporary_folder_is_refused_and_never_followed() {
+    if common::lacks("a_symlinked_temporary_folder_is_refused_and_never_followed", Capability::CodingAgents) {
+        return;
+    }
+    let fx = Fixture::new();
+    fx.dir(".claude/sessions");
+    fx.file(&format!(".claude/projects/-Users-example-p/{A}.jsonl"), 4096);
+    fx.t.file(&format!("elsewhere/-Users-example-p/{A}/scratchpad/x"), 16_384);
+    fx.t.file(&format!("elsewhere/-Users-example-q/{C}/tasks/y"), 8192);
+    let link = fx.t.symlink(fx.t.path("elsewhere"), &fx.temp_rel());
+
+    let report = fx.report();
+    let s = harness(&report, HarnessId::ClaudeCode).sessions.clone().unwrap();
+    let root = s.temp_root.unwrap();
+    assert_eq!((root.refused, root.bytes, root.skipped, root.unreadable), (Some(TempRefusal::Symlink), None, false, 0));
+    assert_eq!(root.path, link, "as found, not followed");
+    let list = s.footprints.unwrap();
+    let ids: Vec<&str> = list.iter().map(|f| f.id.as_str()).collect();
+    assert_eq!(ids, [A], "the folder the link points to names no session");
+    assert_eq!((list[0].temp, list[0].temp_path.as_ref()), (0, None));
+    let json = serde_json::to_value(&report).unwrap();
+    assert_eq!(json["harnesses"][0]["sessions"]["temp_root"]["refused"], "symlink");
+}
+
+/// `--no-sizes` never lists Claude Code's temporary folder: a run reads as
+/// many entries with 400 files in it as with none, while a run with sizes
+/// reads them all. The counters are the process's, and nextest runs each
+/// test in a process of its own.
+#[cfg(feature = "op-stats")]
+#[test]
+fn no_sizes_never_lists_the_temporary_folder() {
+    use ddc_core::stats::{self, Counter};
+    if common::lacks("no_sizes_never_lists_the_temporary_folder", Capability::CodingAgents) {
+        return;
+    }
+    let fx = Fixture::new();
+    fx.dir(".claude/sessions");
+    fx.file(&format!(".claude/projects/-Users-example-p/{A}.jsonl"), 4096);
+    let procs = procs::current_user_processes_unopened();
+    let read = |sizes| {
+        let before = stats::snapshot();
+        fx.report_of(sizes, Vec::new(), &procs);
+        stats::snapshot().delta(&before).get(Counter::DirEntriesRead)
+    };
+    let without = read(false);
+    let temp = fx.temp_rel();
+    for i in 0..400 {
+        fx.t.write(&format!("{temp}/-Users-example-p/{A}/scratchpad/{i}"), "");
+    }
+    assert_eq!(read(false), without, "--no-sizes listed the temporary folder");
+    assert!(read(true) >= without + 400, "a walk of the folder is counted: {without}");
 }
 
 // MARK: - Codex

@@ -1,5 +1,7 @@
 # DeepDriveCleaner™
 
+> **Challenge entry:** this project was submitted to the [DEV Hacktoberfest Open-Source AI Challenge, Week 4](https://dev.to/evgeniikonev/ghostbusters-for-coding-agents-12-gib-of-ghosts-on-my-mac-and-15-gib-more-i-didnt-know-about-1ok7) at commit c606a8d (v0.14.0). Commits after 2026-10-31 were made after the submission.
+
 Find and safely clean what development leaves on a Mac's disk: Python virtual environments, `node_modules`, build outputs, package and toolchain caches, Xcode data, local ML models and VM images. Everything it finds is grouped by risk. Nothing is removed until you have seen the plan and confirmed it.
 
 It is a menu bar app with the command-line tool inside: the same engine, a window or a terminal, whichever you prefer.
@@ -286,7 +288,7 @@ ddc disk --json | jq '.areas[] | {id, bytes}'      # area sizes
 
 `ddc disk agents` shows what coding-agent harnesses keep under your home folder: Claude Code, Codex, Cursor and opencode, with each one's folders and sizes, what of it runs, its live sessions and how many other transcripts it keeps. A Claude Code session is live while the process that wrote its record runs; a Codex thread is open while a process holds its lock file. It reads only the session records' named fields, the names of lock files and transcripts, the process list and sizes: never a transcript's content or a harness database. Its output shows project folders and session names. `--no-sizes` lists the sessions without measuring the folders, in a fraction of a second; `--json` follows [`docs/agents.schema.json`](docs/agents.schema.json). It saves nothing and removes nothing.
 
-With sizes it also shows what each Claude Code session keeps, largest first: its transcript, its checkpoints (`~/.claude/file-history/<session>`) and its temporary folder, which Claude Code keeps outside the home folder (`/private/tmp/claude-<uid>/<project>/<session>` on macOS, under `CLAUDE_CODE_TMPDIR` when that is set), with whether the session is live. The text lists the ten largest and sums the rest in one line; `--json` lists them all. A live session's files are only described. A row marked `not live` says what its temporary folder holds ("3.4 GB in its temporary folder"), and `--json` gives the folder's path (`temp_path`). Nothing removes it yet; the folder is yours to clear once its session has ended.
+With sizes it also shows what each Claude Code session keeps, largest first: its transcript, its checkpoints (`~/.claude/file-history/<session>`) and its temporary folder, which Claude Code keeps outside the home folder (`/private/tmp/claude-<uid>/<project>/<session>` on macOS, under `CLAUDE_CODE_TMPDIR` when that is set), with whether the session is live. The text lists the ten largest and sums the rest in one line; `--json` lists them all. A live session's files are only described. A row marked `not live` says what its temporary folder holds ("3.4 GB in its temporary folder"), and `--json` gives the folder's path (`temp_path`). Nothing removes it yet; the folder is yours to clear once its session has ended. `claude-<uid>` is read only when it is a folder you own, not a link: in a shared `/tmp` anyone could make it first, and the report then says it was not read.
 
 ```
 ddc disk agents [--json] [--no-sizes] [--threads N] [--data-dir DIR]

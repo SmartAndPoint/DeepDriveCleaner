@@ -789,6 +789,26 @@ const AGENTS_NAMES: &[Cited] = &[
     ("state", "harnesses[].sessions.list[].state", &["live", "stale", "unknown"]),
     ("sessions.records", "harnesses[].sessions.records", &["unknown"]),
     ("sessions.transcripts", "harnesses[].sessions.transcripts", &[]),
+    // The per-session footprint (story "Per-session footprint: what each agent
+    // session keeps in its transcripts, temporary folders and worktrees").
+    ("sessions.footprints[]", "harnesses[].sessions.footprints[]", &[]),
+    ("id", "harnesses[].sessions.footprints[].id", &[]),
+    ("project", "harnesses[].sessions.footprints[].project", &[]),
+    ("state", "harnesses[].sessions.footprints[].state", &["live", "not-live", "unknown"]),
+    ("live_by", "harnesses[].sessions.footprints[].live_by", &[]),
+    ("unknown_cause", "harnesses[].sessions.footprints[].unknown_cause", &[]),
+    ("modified", "harnesses[].sessions.footprints[].modified", &[]),
+    ("transcript", "harnesses[].sessions.footprints[].transcript", &[]),
+    ("checkpoints", "harnesses[].sessions.footprints[].checkpoints", &[]),
+    ("temp", "harnesses[].sessions.footprints[].temp", &[]),
+    ("total", "harnesses[].sessions.footprints[].total", &[]),
+    ("temp_path", "harnesses[].sessions.footprints[].temp_path", &[]),
+    ("sessions.temp_root", "harnesses[].sessions.temp_root", &[]),
+    ("path", "harnesses[].sessions.temp_root.path", &[]),
+    ("bytes", "harnesses[].sessions.temp_root.bytes", &[]),
+    ("unreadable", "harnesses[].sessions.temp_root.unreadable", &[]),
+    ("skipped", "harnesses[].sessions.temp_root.skipped", &[]),
+    ("refused", "harnesses[].sessions.temp_root.refused", &[]),
 ];
 
 /// What the guidance cites of `ddc scan --json`, the risk classes included.
@@ -815,10 +835,10 @@ const SCAN_NAMES: &[Cited] = &[
     ("lock", "findings[].contents.entries[].lock", &["live-session"]),
 ];
 
-/// The per-session footprint's fields (story "Per-session footprint: what
-/// each agent session keeps in its transcripts, temporary folders and
-/// worktrees"): named only on a line that says "when available".
-const FUTURE_NAMES: &[&str] = &["sessions.footprints[]", "sessions.temp_root"];
+/// Fields the guidance names before a released ddc writes them: named only
+/// on a line that says "when available". None now: the per-session
+/// footprint shipped in 0.14.0 and its names are checked above.
+const FUTURE_NAMES: &[&str] = &[];
 
 /// Backticked words of the guidance that are no report's names.
 const OTHER_WORDS: &[&str] = &["ddc", "deepdrivecleaner", "du", "node_modules"];

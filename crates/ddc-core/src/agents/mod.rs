@@ -152,12 +152,15 @@ pub fn report(env: &Env, opts: &AgentsOptions, procs: &[ProcInfo], cancel: &Atom
         .and_then(|(_, folders)| folders.first())
         .map(|f| &f.path)
         .filter(|p| p.ends_with(".claude"));
-    let temp = claude_base
-        .filter(|_| opts.sizes)
-        .and_then(|_| env.claude_temp_base())
-        .filter(|p| p.metadata().is_ok_and(|m| m.is_dir()))
-        .and_then(|p| p.canonicalize().ok())
-        .map(|p| (skipped(&p), p));
+    // Opened only when it is the current user's own folder; refused, it is never listed.
+    let (temp, refused) = match claude_base.filter(|_| opts.sizes).and_then(|_| env.claude_temp_base()) {
+        Some(base) => match temp_base(&base, procs::uid()) {
+            Some(Ok(p)) => (Some((skipped(&p), p)), None),
+            Some(Err(why)) => (None, Some((base, why))),
+            None => (None, None),
+        },
+        None => (None, None),
+    };
     let walked_temp = temp.as_ref().filter(|(s, _)| !s).map(|(_, p)| p.as_path());
     let footprints =
         claude_base.filter(|_| opts.sizes).map(|base| (base, footprint::collect(base, walked_temp, &skipped)));
@@ -173,7 +176,22 @@ pub fn report(env: &Env, opts: &AgentsOptions, procs: &[ProcInfo], cancel: &Atom
     });
     let temp_root = temp.map(|(skipped, path)| {
         let size = sizes.as_ref().and_then(|s| s.get(harness_folders)).filter(|_| !skipped);
-        TempRoot { path, skipped, bytes: size.map(|s| s.bytes), unreadable: size.map_or(0, |s| s.unreadable) }
+        TempRoot {
+            path,
+            skipped,
+            refused: None,
+            bytes: size.map(|s| s.bytes),
+            unreadable: size.map_or(0, |s| s.unreadable),
+        }
+    });
+    let temp_root = temp_root.or_else(|| {
+        refused.map(|(path, why)| TempRoot {
+            skipped: skipped(&path),
+            path,
+            refused: Some(why),
+            bytes: None,
+            unreadable: 0,
+        })
     });
     let mut footprints = footprints.map(|(base, (found, bytes))| {
         let records = base.join("sessions");
@@ -330,10 +348,56 @@ fn claude_transcripts(projects: &Path, skipped: &dyn Fn(&Path) -> bool) -> Optio
     Some(ids)
 }
 
+/// Claude Code's temporary folder at `base`, canonical, when it is a folder
+/// that `me` owns; why not otherwise, from `base`'s own metadata, never
+/// followed; `None` when nothing is there. In a shared `/tmp` anyone may
+/// make `claude-<uid>` first: a link or another user's folder is not opened.
+fn temp_base(base: &Path, me: u32) -> Option<Result<PathBuf, TempRefusal>> {
+    let md = std::fs::symlink_metadata(base).ok()?;
+    let why = if md.file_type().is_symlink() {
+        TempRefusal::Symlink
+    } else if !md.is_dir() {
+        TempRefusal::NotAFolder
+    } else if crate::platform::meta::uid(&md) != Some(me) {
+        TempRefusal::NotOwned
+    } else {
+        return base.canonicalize().ok().map(Ok);
+    };
+    Some(Err(why))
+}
+
 /// `8-4-4-4-12` hexadecimal digits.
 fn is_uuid(s: &str) -> bool {
     s.len() == 36
         && s.bytes()
             .enumerate()
             .all(|(i, b)| if matches!(i, 8 | 13 | 18 | 23) { b == b'-' } else { b.is_ascii_hexdigit() })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::platform::{skipped_without, testing};
+
+    /// A link to a folder elsewhere, a file and another user's folder are
+    /// refused from their own metadata; only the user's own folder opens.
+    #[test]
+    fn the_temporary_base_opens_only_as_the_users_own_folder() {
+        let d = tempfile::tempdir().unwrap();
+        let elsewhere = d.path().join("elsewhere");
+        std::fs::create_dir(&elsewhere).unwrap();
+        let link = d.path().join("claude-501");
+        let made = testing::symlink(&elsewhere, &link);
+        if skipped_without("the_temporary_base_opens_only_as_the_users_own_folder", made).is_none() {
+            return;
+        }
+        let me = procs::uid();
+        assert_eq!(temp_base(&link, me), Some(Err(TempRefusal::Symlink)));
+        let file = d.path().join("claude-file");
+        std::fs::write(&file, "").unwrap();
+        assert_eq!(temp_base(&file, me), Some(Err(TempRefusal::NotAFolder)));
+        assert_eq!(temp_base(&elsewhere, me.wrapping_add(1)), Some(Err(TempRefusal::NotOwned)));
+        assert_eq!(temp_base(&elsewhere, me), Some(Ok(elsewhere.canonicalize().unwrap())));
+        assert_eq!(temp_base(&d.path().join("none"), me), None);
+    }
 }

@@ -173,6 +173,11 @@ pub mod meta {
         None
     }
 
+    /// No owner is made up: a folder that must be the user's is not.
+    pub fn uid(_md: &Metadata) -> Option<u32> {
+        None
+    }
+
     pub fn st_flags(_md: &Metadata) -> u32 {
         0
     }

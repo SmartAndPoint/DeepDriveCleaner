@@ -19,7 +19,11 @@ ddc rules --json                    # what each rule id means
 **How to read it.** `ddc disk agents` (docs/agents.schema.json): `harnesses[]`, and per
 session in `sessions.list[]` its `cwd` and `state`: `live` is hands off, `stale` has ended,
 `unknown` counts as live.
-When available (newer ddc): `sessions.footprints[]` and `sessions.temp_root`, per session.
+Each session's bytes (Claude Code only, and absent under `--no-sizes`, so drop that flag for
+them): `sessions.footprints[]`, one row per session with its `state` (`live`, `not-live`, or
+`unknown`, which counts as live) and its `transcript`, `checkpoints`, `temp` and `total`. The
+`bytes` of `sessions.temp_root` minus the rows' `temp` is what no session owns; a lower bound
+when its `unreadable` is above 0.
 `ddc scan` (docs/scan.schema.json): `volumes[]` with `free_bytes`; `findings[]` with `path`,
 `bytes`, `rule`, `class`, `selected`, `not_selected`, `project.root` and `origin.kind`
 (`worktree`, `session-data`, `runtime-cache`). Classes: `safe` caches refill themselves;
