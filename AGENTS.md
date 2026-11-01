@@ -90,7 +90,10 @@
   rounds: `DDC_LINUX_HOST=<host> scripts/native-linux.sh` and `DDC_WINDOWS_HOST=<host>
   scripts/native-windows.sh`, with nextest filter arguments to run a few tests. Each
   runs its OS's Gate leg (clippy, nextest with profile `ci`, the doc tests and
-  `scripts/native-skips.sh`) in minutes. They copy tracked files only: `git add` a new
+  `scripts/native-skips.sh`) in minutes. A Windows machine with WSL runs the Linux leg too:
+  `DDC_LINUX_WSL=<distribution>` beside `DDC_LINUX_HOST=<the Windows host>` sends every
+  command through `wsl.exe` into that distribution, which needs docker and the user in
+  its `docker` group. They copy tracked files only: `git add` a new
   test first. Push once a whole run, not a filtered one, is green: the `check-<target>`
   jobs stay required on `main`, so CI is the last check, not the loop. The setup and the
   failures are in the vault's runbook "Native runs: the Linux and Windows legs on the
