@@ -84,6 +84,7 @@ fn rules_json_groups_follow_the_settings_types() {
             "Browser and app caches",
             "IDE caches",
             "Coding agents",
+            "Git worktrees",
             "Xcode builds",
             "Xcode device support",
             "Old toolchains",

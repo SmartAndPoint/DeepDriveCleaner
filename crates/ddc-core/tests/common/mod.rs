@@ -4,6 +4,7 @@
 
 pub mod fakes;
 pub mod fixtures;
+pub mod git;
 
 use std::cell::RefCell;
 use std::fs::{self, File};

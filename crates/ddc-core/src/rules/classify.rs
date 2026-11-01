@@ -7,9 +7,12 @@ use std::path::{Path, PathBuf};
 
 use super::entries::has_entries;
 use super::matcher::glob_match;
+use super::worktree::{self, Recognized};
 use super::{KEPT, Rule, RuleVisitor, toolchain};
 use crate::class::{Category, RiskClass};
-use crate::model::{Exclusion, ExclusionKind, ExclusionOrigin, MarkerFolder, Protection};
+use crate::model::{
+    Exclusion, ExclusionKind, ExclusionOrigin, MarkerFolder, Origin, OriginKind, Protection, WorktreeState,
+};
 use crate::scan::{OwnerKind, OwnerResult, WalkOutput};
 use crate::stats::{self, Counter};
 
@@ -36,12 +39,22 @@ pub struct Classified {
     pub class: RiskClass,
     pub notes: Vec<Note>,
     /// Project artifacts: nearest ancestor with `.git` (dir or worktree file)
-    /// within the scan root, else the artifact's parent.
+    /// within the scan root, else the artifact's parent. A linked
+    /// worktree's is its main checkout; an orphan worktree has none.
     pub project_root: Option<PathBuf>,
     /// Lock-gated rules: whether a lock file was found.
     pub has_lockfile: Option<bool>,
     /// What keeps a `user.kept` finding; `None` on every other.
     pub protection: Option<Protection>,
+    /// The finding's own provenance, where it differs from the rule's: a
+    /// worktree's harness.
+    pub origin: Option<Origin>,
+    /// A `git.worktree` finding's state.
+    pub worktree: Option<WorktreeState>,
+    /// The main checkout, when `project_root` is a linked worktree of it.
+    pub worktree_of: Option<PathBuf>,
+    /// The finding's own hint, where it differs from the rule's.
+    pub hint: Option<String>,
 }
 
 pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> {
@@ -53,6 +66,7 @@ pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> 
     let claims = visitor.kept_claims();
     let mut locks = LockFiles::default();
     let dropped = toolchain::dropped(&out.owners, catalog, &visitor.pins());
+    let worktrees = visitor.worktrees();
 
     let mut found = Vec::new();
     for owner in &out.owners {
@@ -102,10 +116,48 @@ pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> 
             rule: displaced.filter(|r| r.listed).map(|r| r.id.to_owned()),
         });
         let roots: Vec<&Path> = out.roots.iter().map(|r| r.path.as_path()).collect();
-        let (class, project_root, has_lockfile) = downgraded(rule, &owner.path, &roots, home, &mut locks, &mut notes);
-        found.push(Classified { rule, owner: owner.clone(), class, notes, project_root, has_lockfile, protection });
+        let inside = !worktrees.is_empty() && owner.path.ancestors().skip(1).any(|dir| worktrees.contains_key(dir));
+        let (class, project_root, has_lockfile) =
+            downgraded(rule, &owner.path, &roots, home, inside, &mut locks, &mut notes);
+        let mut c = Classified {
+            rule,
+            owner: owner.clone(),
+            class,
+            notes,
+            project_root,
+            has_lockfile,
+            protection,
+            origin: None,
+            worktree: None,
+            worktree_of: None,
+            hint: None,
+        };
+        match worktrees.get(&owner.path).filter(|_| worktree::is_worktree_rule(rule)) {
+            Some(wt) => worktree_finding(&mut c, wt),
+            // An artifact whose project is a linked worktree: grouped under its main checkout.
+            None => {
+                c.worktree_of = c.project_root.as_ref().and_then(|root| match worktrees.get(root) {
+                    Some(Recognized::Linked(linked)) => Some(linked.main.clone()),
+                    _ => None,
+                })
+            }
+        }
+        found.push(c);
     }
     found
+}
+
+/// A worktree's own finding: its harness, its state and its hint. Its
+/// project is its main checkout; an orphan's repository is gone.
+fn worktree_finding(c: &mut Classified, wt: &Recognized) {
+    let (harness, main, state) = match wt {
+        Recognized::Linked(linked) => (linked.harness, Some(linked.main.clone()), Some(worktree::state(linked))),
+        Recognized::Orphan { harness } => (*harness, None, None),
+    };
+    c.project_root = main;
+    c.origin = Some(Origin { harness, kind: OriginKind::Worktree });
+    c.worktree = state;
+    c.hint = Some(worktree::hint(wt));
 }
 
 /// The marker folders at or under a finding, from all of them sorted by
@@ -154,7 +206,8 @@ fn exclusions_of(path: &Path, visitor: &RuleVisitor<'_>) -> Vec<Exclusion> {
 /// markers need the walk (story "CLI: clean an explicit item list": the dry run).
 /// `locks` is shared by the items of one list.
 pub fn effective_class(rule: &Rule, path: &Path, roots: &[&Path], home: &Path, locks: &mut LockFiles) -> RiskClass {
-    downgraded(rule, path, roots, home, locks, &mut Vec::new()).0
+    let inside = worktree::inside(path, roots, home);
+    downgraded(rule, path, roots, home, inside, locks, &mut Vec::new()).0
 }
 
 /// Whether a folder holds a file of a lock list, read once per folder and
@@ -202,12 +255,16 @@ impl AtOrAbove {
 }
 
 /// The rule's class after the downgrades, the project root and whether a
-/// lock file was found; the notes explain each downgrade.
+/// lock file was found; the notes explain each downgrade. The app-owned
+/// downgrade spares the two worktree rules and whatever lies `inside` a
+/// worktree: an agent's worktree under `~/.codex` is a project like any
+/// other (decision 5 of story "Worktree findings and provenance").
 fn downgraded(
     rule: &Rule,
     path: &Path,
     roots: &[&Path],
     home: &Path,
+    inside: bool,
     locks: &mut LockFiles,
     notes: &mut Vec<Note>,
 ) -> (RiskClass, Option<PathBuf>, Option<bool>) {
@@ -218,7 +275,7 @@ fn downgraded(
         let parent = path.parent();
         [parent, project_root.as_deref()].into_iter().flatten().any(|dir| locks.any(dir, patterns))
     });
-    if class == RiskClass::Rebuildable && app_owned(path, home) {
+    if class == RiskClass::Rebuildable && !inside && !worktree::is_worktree_rule(rule) && app_owned(path, home) {
         class = RiskClass::Review;
         notes.push(Note::AppOwned);
     }

@@ -60,6 +60,9 @@ pub(super) static RULES: [Rule; COUNT] = [
     shared::GRADLE_PROJECT_CACHE,
     shared::CMAKE_BUILD,
     shared::COCOAPODS_PODS,
+    // ---- linked git worktrees: regions, matched before the `.git` refusal ----
+    shared::GIT_WORKTREE,
+    shared::GIT_WORKTREE_ORPHAN,
     // ---- package caches ---------------------------------------------------
     shared::cache_npm(Platform::Linux),
     shared::cache_yarn(Platform::Linux),

@@ -10,6 +10,7 @@ pub mod listing;
 mod matcher;
 mod toolchain;
 mod visitor;
+pub mod worktree;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -65,6 +66,14 @@ pub enum Matcher {
     /// `file`, a path relative to it (`conda-meta/history`: a conda
     /// environment). Never the folder itself, nor anything deeper.
     ChildHolding { parents: &'static [&'static str], file: &'static str },
+    /// A linked git worktree: `.git` is a file whose `gitdir:` names a
+    /// folder with a `commondir` ([`worktree::recognize`]). A region: rules
+    /// keep working inside. Checked before [`Catalog::claimable`], which
+    /// refuses every folder holding `.git`.
+    Worktree,
+    /// A folder whose `.git` file names a gitdir that does not exist. A
+    /// region, as [`Matcher::Worktree`].
+    WorktreeOrphan,
     /// Assigned by the visitor (exclusions, `.ddc-keep`).
     Synthetic,
 }
@@ -172,6 +181,10 @@ pub struct Catalog {
     specialized: Vec<Tag>,
     cachedir: Tag,
     kept: Tag,
+    /// The rules of [`Matcher::Worktree`] and [`Matcher::WorktreeOrphan`];
+    /// `Tag::MAX` in a catalog without them.
+    worktree: Tag,
+    worktree_orphan: Tag,
 }
 
 impl Catalog {
@@ -192,6 +205,8 @@ impl Catalog {
             specialized: Vec::new(),
             cachedir: Tag::MAX,
             kept: Tag::MAX,
+            worktree: Tag::MAX,
+            worktree_orphan: Tag::MAX,
         };
         for (i, rule) in rules.iter().enumerate() {
             let tag = i as Tag;
@@ -216,6 +231,8 @@ impl Catalog {
                     c.no_traverse.insert(home.join(p), tag);
                 }),
                 Matcher::CacheDirTag => c.cachedir = tag,
+                Matcher::Worktree => c.worktree = tag,
+                Matcher::WorktreeOrphan => c.worktree_orphan = tag,
                 Matcher::Synthetic if rule.id == KEPT => c.kept = tag,
                 Matcher::Synthetic => {}
                 _ => c.specialized.push(tag),
@@ -274,6 +291,27 @@ impl Catalog {
         depth > 0 && path != self.home && !self.protected.contains(path) && !has_child(".git")
     }
 
+    /// The worktree rule that makes `path` a region, and what it found:
+    /// [`Self::claimable`]'s one carve-out for `.git`, a **file** naming a
+    /// gitdir (story "Worktree findings and provenance"). Never a scan root,
+    /// `$HOME` or a protected folder; a folder without `.git` is not read.
+    pub(crate) fn worktree_region(
+        &self,
+        path: &Path,
+        depth: u32,
+        has_child: impl Fn(&str) -> bool,
+    ) -> Option<(Tag, worktree::Recognized)> {
+        if depth == 0 || path == self.home || self.protected.contains(path) || !has_child(".git") {
+            return None;
+        }
+        let found = worktree::recognize(path)?;
+        let tag = match found {
+            worktree::Recognized::Linked(_) => self.worktree,
+            worktree::Recognized::Orphan { .. } => self.worktree_orphan,
+        };
+        (tag != Tag::MAX).then_some((tag, found))
+    }
+
     /// Matchers that recognize a directory only by a file inside it
     /// (`pyvenv.cfg`, `CMakeCache.txt`, `CACHEDIR.TAG`) never claim a directory
     /// holding a project manifest (`python -m venv .` inside a project). Name
@@ -293,7 +331,9 @@ impl Catalog {
             Matcher::KnownPaths(_) => self.known.get(path) == Some(&tag),
             Matcher::KnownRegion(_) => self.regions.get(path) == Some(&tag),
             Matcher::KnownChildren(_) => path.parent().and_then(|p| self.children_of.get(p)) == Some(&tag),
-            Matcher::NoTraverse(_) | Matcher::Synthetic => false,
+            // A worktree is removed through git alone, which re-derives it
+            // (the story's PR 3); until then nothing verifies one.
+            Matcher::NoTraverse(_) | Matcher::Synthetic | Matcher::Worktree | Matcher::WorktreeOrphan => false,
             _ => match matcher::FsView::open(path) {
                 Some(view) => {
                     let has = |n: &str| matcher::DirView::has_child(&view, n);

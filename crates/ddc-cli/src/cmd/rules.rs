@@ -66,6 +66,8 @@ fn home_paths(rule: &Rule) -> Vec<String> {
         | Matcher::CmakeBuild
         | Matcher::NameContains(_)
         | Matcher::CacheDirTag
+        | Matcher::Worktree
+        | Matcher::WorktreeOrphan
         | Matcher::Synthetic => Vec::new(),
     }
 }

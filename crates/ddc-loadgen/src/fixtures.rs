@@ -34,6 +34,9 @@ pub enum Place {
     Synthetic,
     /// Not listed: it only stops other rules inside it.
     Unlisted,
+    /// A linked git worktree, which only a real repository makes: built by
+    /// `ddc-core/tests/worktrees.rs` with git, never planted in a load tree.
+    Git,
 }
 
 /// Every matcher kind is placed here, with no catch-all: a new kind fails
@@ -51,6 +54,7 @@ pub fn place(rule: &Rule) -> Place {
         | Matcher::NoTraverse(_)
         | Matcher::ChildHolding { .. } => Place::Home,
         Matcher::Synthetic => Place::Synthetic,
+        Matcher::Worktree | Matcher::WorktreeOrphan => Place::Git,
         Matcher::NameSuffix(_) | Matcher::Under { .. } => Place::Unlisted,
     };
     match (rule.listed, place) {
@@ -219,7 +223,7 @@ mod tests {
         for rule in catalog().iter().filter(|r| r.listed) {
             let placed = place(rule);
             assert!(
-                matches!(placed, Place::Project | Place::Home) || rule.id == KEPT,
+                matches!(placed, Place::Project | Place::Home | Place::Git) || rule.id == KEPT,
                 "{} is placed {placed:?}",
                 rule.id
             );
