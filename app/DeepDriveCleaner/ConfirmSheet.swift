@@ -68,6 +68,17 @@ private struct ConfirmView: View {
 
             warningsLine
 
+            if confirmation.showsAllPermanent {
+                HStack(spacing: 6) {
+                    let state = confirmation.permanentState
+                    CheckBox(state: state, enabled: !model.isCleaning, label: "Delete all permanently") {
+                        model.setAllPermanent(state != .on)
+                    }
+                    Text("Delete all permanently").font(.system(size: 12))
+                }
+                .help("Removed at once instead of moved to the Trash; they cannot be put back. Settings → Automation decides how the sheet starts.")
+            }
+
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
                     ForEach(confirmation.items) { item in
