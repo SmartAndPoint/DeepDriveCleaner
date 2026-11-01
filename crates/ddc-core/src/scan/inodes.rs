@@ -1,4 +1,6 @@
-//! Deferred accounting for hard-linked files (`nlink > 1`). During the walk
+//! Deferred accounting for hard-linked files (`nlink > 1`, or 0 where the
+//! reader cannot tell, as the Windows listing cannot: such a file is counted
+//! once wherever it is seen and resolves complete). During the walk
 //! every sighting is only recorded; after the walk each inode is resolved
 //! once, independent of thread timing.
 

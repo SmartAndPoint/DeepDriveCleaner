@@ -443,7 +443,9 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             _ => {
                 files += 1;
                 sh.visitor.on_file(&dir, here, meta, ctx_owner);
-                if meta.nlink > 1 && meta.kind == EntryKind::File {
+                // `nlink` 0 is "unknown" (the Windows listing gives no link
+                // count): the table counts the file once wherever it is seen.
+                if meta.nlink != 1 && meta.kind == EntryKind::File {
                     let holder = Holder { root, owner: owner_id, entry: within.map(|e| e.id) };
                     sh.inodes.record(meta.dev, meta.ino, meta.alloc, meta.private, meta.nlink, holder);
                     linked_bytes += meta.alloc;
