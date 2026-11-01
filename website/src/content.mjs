@@ -1,23 +1,27 @@
 "use strict";
 
 export const product = {
-  name: "DeepDriveCleaner", command: "ddc", version: "0.3.0", checked: "2026-10-28",
+  name: "DeepDriveCleaner", command: "ddc", version: "0.17.0", checked: "2026-11-02",
   origins: { product: "https://deepdrivecleaner.app", cli: "https://ddc.sh" },
   code: "https://github.com/SmartAndPoint/DeepDriveCleaner",
   vault: "https://github.com/SmartAndPoint/DeepDriveCleaner-projectstore",
   releases: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases",
-  release: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/tag/v0.3.0",
+  release: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/tag/v0.17.0",
   artifact: "https://claude.ai/artifact/1mdoyc7asMbj2qbtkDG2PV",
   license: "https://github.com/SmartAndPoint/DeepDriveCleaner/blob/main/LICENSE.md",
   disclaimer: "https://github.com/SmartAndPoint/DeepDriveCleaner/blob/main/DISCLAIMER.md",
   app: { os: "macos", architecture: "Apple Silicon", minimumOS: "macOS 26" },
   cli: {
-    macos: { label: "macOS", available: true, architecture: "Apple Silicon · ARM64", filename: "deepdrivecleaner-0.3.0-aarch64-apple-darwin.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.3.0/deepdrivecleaner-0.3.0-aarch64-apple-darwin.tar.gz" },
+    macos: { label: "macOS", available: true, architecture: "Apple Silicon · ARM64", filename: "deepdrivecleaner-0.17.0-aarch64-apple-darwin.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.17.0/deepdrivecleaner-0.17.0-aarch64-apple-darwin.tar.gz" },
     windows: { label: "Windows", available: false },
-    linux: { label: "Linux", available: false }
+    linux: { label: "Linux", available: true, architecture: "x86_64 · ARM64 · static (musl)", archives: [
+      { filename: "deepdrivecleaner-0.17.0-x86_64-unknown-linux-musl.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.17.0/deepdrivecleaner-0.17.0-x86_64-unknown-linux-musl.tar.gz" },
+      { filename: "deepdrivecleaner-0.17.0-aarch64-unknown-linux-musl.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.17.0/deepdrivecleaner-0.17.0-aarch64-unknown-linux-musl.tar.gz" }
+    ], sums: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.17.0/SHA256SUMS" }
   },
   commands: {
     install: "brew install --cask smartandpoint/tap/deepdrivecleaner",
+    script: "curl -fsSL https://ddc.sh/install.sh | sh",
     scan: "ddc scan", json: "ddc scan --json", preview: "ddc clean --dry-run", clean: "ddc clean",
     rules: "ddc rules --json", selectedPreview: "ddc clean --items selection.json --dry-run",
     setup: "git clone https://github.com/SmartAndPoint/DeepDriveCleaner.git\ngit clone https://github.com/SmartAndPoint/DeepDriveCleaner-projectstore.git\ncd DeepDriveCleaner\nnpx projectstore setup --vault ../DeepDriveCleaner-projectstore"
@@ -229,7 +233,7 @@ export const translations = {
     "comparisonTitle": "Which way should the utility feel?",
     "comparisonIntro": "Open a version and try the instructions. The current classic page remains the default.",
     "comparePlatform": "Preview a platform state:",
-    "shippingTruth": "macOS released · Windows and Linux not released",
+    "shippingTruth": "macOS and Linux released · Windows not released",
     "classicName": "Classic utility",
     "classicPitch": "A familiar window, table and inspector.",
     "classicFit": "Most character; more reference text.",
@@ -252,7 +256,7 @@ export const translations = {
     "copyStep": "Copy the current instruction command",
     "osCopyUnavailable": "No command copied: no release is available for this platform.",
     "availabilityTitle": "{platform} availability",
-    "unavailableInstruction": "Choose macOS to see instructions for the released version."
+    "unavailableInstruction": "Choose macOS or Linux to see instructions for the released version."
   },
   "zh": {
     "skip": "跳至主要内容",
@@ -451,7 +455,7 @@ export const translations = {
     "comparisonTitle": "实用工具应该是什么样？",
     "comparisonIntro": "打开一个方案，试用其中的说明。当前经典方案仍为默认页面。",
     "comparePlatform": "预览平台状态：",
-    "shippingTruth": "macOS 已发布 · Windows 与 Linux 尚未发布",
+    "shippingTruth": "macOS 与 Linux 已发布 · Windows 尚未发布",
     "classicName": "经典实用工具",
     "classicPitch": "熟悉的窗口、表格与分类说明。",
     "classicFit": "风格鲜明，参考文字较多。",
@@ -474,7 +478,7 @@ export const translations = {
     "copyStep": "复制当前步骤的命令",
     "osCopyUnavailable": "未复制命令：此平台目前没有可用版本。",
     "availabilityTitle": "{platform} 版本状态",
-    "unavailableInstruction": "选择 macOS 可查看已发布版本的操作说明。"
+    "unavailableInstruction": "选择 macOS 或 Linux 可查看已发布版本的操作说明。"
   }
 };
 

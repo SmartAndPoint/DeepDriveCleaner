@@ -37,6 +37,7 @@
     document.querySelectorAll('[data-os]').forEach(button => { button.disabled = false; button.setAttribute('aria-pressed',String(button.dataset.os === os)); });
     document.querySelectorAll('[data-platform-label]').forEach(el => { el.textContent = release.label; });
     document.querySelectorAll('[data-macos-only]').forEach(el => { el.hidden = !release.available; });
+    document.querySelectorAll('[data-os-block]').forEach(el => { el.hidden = el.dataset.osBlock !== os || !release.available; });
     document.querySelectorAll('[data-unavailable]').forEach(el => { el.hidden = release.available; });
     document.querySelectorAll('[data-copy]').forEach(button => { button.disabled = !!button.closest('[data-platform-command]') && !release.available; });
   }
