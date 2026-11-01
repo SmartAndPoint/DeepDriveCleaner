@@ -56,60 +56,6 @@ pub mod bulk {
     }
 }
 
-#[cfg(not(target_os = "linux"))] // ported: `linux/fsops.rs`
-pub mod fsops {
-    use std::convert::Infallible;
-    use std::ffi::OsStr;
-    use std::fs::File;
-    use std::io;
-    use std::path::Path;
-    use std::time::SystemTime;
-
-    use crate::platform::types::EntryStat;
-
-    pub fn set_times(_path: &Path, _modified: SystemTime, _added: SystemTime) -> io::Result<()> {
-        super::unsupported()
-    }
-
-    pub fn open_nofollow_nonblock(_path: &Path) -> io::Result<File> {
-        super::unsupported()
-    }
-
-    pub fn can_write(_path: &Path) -> bool {
-        false
-    }
-
-    /// Never made: [`DirFd::open`] fails, so no verified-parent operation runs.
-    #[derive(Debug)]
-    pub struct DirFd(Infallible);
-
-    impl DirFd {
-        pub fn open(_path: &Path) -> io::Result<Self> {
-            super::unsupported()
-        }
-
-        pub fn identity(&self) -> io::Result<(u64, u64)> {
-            match self.0 {}
-        }
-
-        pub fn stat_child(&self, _name: &OsStr) -> io::Result<EntryStat> {
-            match self.0 {}
-        }
-
-        pub fn child_times(&self, _name: &OsStr) -> io::Result<(Option<i64>, Option<i64>)> {
-            match self.0 {}
-        }
-
-        pub fn rename_child(&self, _from: &OsStr, _to: &OsStr) -> io::Result<()> {
-            match self.0 {}
-        }
-
-        pub fn unlink_child(&self, _name: &OsStr) -> io::Result<()> {
-            match self.0 {}
-        }
-    }
-}
-
 pub mod iopolicy {
     use std::io;
 

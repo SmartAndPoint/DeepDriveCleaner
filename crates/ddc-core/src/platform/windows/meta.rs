@@ -20,9 +20,10 @@ use std::time::UNIX_EPOCH;
 
 use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO,
-    FILE_INFO_BY_HANDLE_CLASS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    FILE_STANDARD_INFO, FileIdInfo, FileStandardInfo, GetFileInformationByHandleEx, OPEN_EXISTING,
+    CreateFileW, FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL,
+    FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO, FILE_INFO_BY_HANDLE_CLASS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO, FileAttributeTagInfo, FileBasicInfo, FileIdInfo,
+    FileStandardInfo, GetFileInformationByHandleEx, OPEN_EXISTING,
 };
 
 use super::wide;
@@ -91,7 +92,7 @@ fn stat_of(handle: OwnedHandle) -> io::Result<FileStat> {
 /// a 128-bit id (upper 64 bits set, ReFS) does not fit and is never
 /// truncated; 0 and all ones (`FILE_INVALID_FILE_ID`, and what some
 /// redirectors give every file) would make every file the same one.
-fn id_of(info: &FILE_ID_INFO) -> io::Result<(u64, u64)> {
+pub(super) fn id_of(info: &FILE_ID_INFO) -> io::Result<(u64, u64)> {
     let (low, high) = info.FileId.Identifier.split_at(8);
     if high.iter().any(|b| *b != 0) {
         return Err(io::Error::new(io::ErrorKind::Unsupported, "a 128-bit file id does not fit (dev, ino)"));
@@ -105,7 +106,7 @@ fn id_of(info: &FILE_ID_INFO) -> io::Result<(u64, u64)> {
 
 /// A `GetFileInformationByHandleEx` class and the struct it fills, tied
 /// together so a class can never be read into the wrong struct.
-trait Class: Copy {
+pub(super) trait Class: Copy {
     const CLASS: FILE_INFO_BY_HANDLE_CLASS;
 }
 
@@ -117,7 +118,15 @@ impl Class for FILE_STANDARD_INFO {
     const CLASS: FILE_INFO_BY_HANDLE_CLASS = FileStandardInfo;
 }
 
-fn info<T: Class>(handle: &OwnedHandle) -> io::Result<T> {
+impl Class for FILE_ATTRIBUTE_TAG_INFO {
+    const CLASS: FILE_INFO_BY_HANDLE_CLASS = FileAttributeTagInfo;
+}
+
+impl Class for FILE_BASIC_INFO {
+    const CLASS: FILE_INFO_BY_HANDLE_CLASS = FileBasicInfo;
+}
+
+pub(super) fn info<T: Class>(handle: &OwnedHandle) -> io::Result<T> {
     let mut out = std::mem::MaybeUninit::<T>::zeroed();
     let size = u32::try_from(std::mem::size_of::<T>()).expect("a small struct");
     // SAFETY: `out` is a writable buffer of exactly `size` bytes for `T`,
