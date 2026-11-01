@@ -4,6 +4,11 @@
 #
 #   DDC_LINUX_HOST=<ssh host> scripts/native-linux.sh [nextest filter args...]
 #   DDC_LINUX_HOST=<ssh host> scripts/native-linux.sh --setup
+#   DDC_LINUX_HOST=<windows host> DDC_LINUX_WSL=<distribution> scripts/native-linux.sh ...
+#
+# With DDC_LINUX_WSL the host is a Windows machine whose ssh lands in Git bash, and every
+# command runs in that WSL distribution through wsl.exe, from its home: the same folder,
+# docker and tests as on a Linux machine.
 #
 # Everything stays in one folder of the host's home, ~/$DDC_LINUX_DIR (default
 # ddc-native): src, target, cargo, rustup, cargo-home and home. The host's own ~/.rustup
@@ -30,9 +35,21 @@ remote="${DDC_LINUX_DIR:-ddc-native}"
 cd "$(git rev-parse --show-toplevel)"
 toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
 
+# Runs `$1` on the host, or with no argument the script on stdin.
+on_host() {
+    local wsl
+    if [ -z "${DDC_LINUX_WSL:-}" ]; then
+        if [ "$#" -eq 0 ]; then ssh "$host" bash -s; else ssh "$host" "$1"; fi
+        return
+    fi
+    # Git bash would turn ~ and /paths into Windows paths: no conversion, ~ quoted.
+    wsl="MSYS_NO_PATHCONV=1 wsl.exe -d $(printf %q "$DDC_LINUX_WSL") --cd '~' -e bash"
+    if [ "$#" -eq 0 ]; then ssh "$host" "$wsl -s"; else ssh "$host" "$wsl -c $(printf %q "$1")"; fi
+}
+
 if [ "${1:-}" = --setup ]; then
     nextest="$(sed -n 's/^NEXTEST_VERSION := //p' .config/tools.mk)"
-    ssh "$host" bash -s <<EOF
+    on_host <<EOF
 set -euo pipefail
 d=~/$remote
 mkdir -p "\$d/cargo/bin" "\$d/rustup"
@@ -61,13 +78,13 @@ list="$(mktemp)"
 trap 'rm -f "$list"' EXIT
 git ls-files | sort > "$list"
 git ls-files -z | COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --null -T - -cf - |
-    ssh "$host" "mkdir -p $remote/src && tar -xf - -C $remote/src"
-ssh "$host" "cd $remote/src && find . -type f | sed 's|^\./||' | LC_ALL=C sort" | comm -13 "$list" - |
-    ssh "$host" "cd $remote/src && xargs -r -d '\n' rm -f --"
+    on_host "mkdir -p $remote/src && tar -xf - -C $remote/src"
+on_host "cd $remote/src && find . -type f | sed 's|^\./||' | LC_ALL=C sort" | comm -13 "$list" - |
+    on_host "cd $remote/src && xargs -r -d '\n' rm -f --"
 
 filter=""
 for a in "$@"; do filter+=" $(printf '%q' "$a")"; done
-ssh "$host" bash -s <<EOF
+on_host <<EOF
 set -euo pipefail
 test -x ~/$remote/cargo/bin/cargo-nextest || { echo "native-linux: run --setup first" >&2; exit 1; }
 mkdir -p ~/$remote/cargo-home ~/$remote/target ~/$remote/home
