@@ -288,12 +288,12 @@ pub fn skipped_without<T>(test: &str, made: std::io::Result<T>) -> Option<T> {
 
 /// Allocated bytes of one path, without following symlinks.
 pub fn alloc(path: &Path) -> u64 {
-    meta::alloc_bytes(&fs::symlink_metadata(path).unwrap())
+    meta::lstat(path).unwrap().alloc
 }
 
 /// `(dev, ino)` of one path, without following symlinks.
 pub fn id(path: &Path) -> (u64, u64) {
-    meta::file_id(&fs::symlink_metadata(path).unwrap()).unwrap()
+    meta::lstat(path).unwrap().id()
 }
 
 /// Sets the Unix permission bits of `path`. The harness's Unix-only helpers
@@ -336,7 +336,7 @@ pub fn try_symlink(_target: impl AsRef<Path>, _link: impl AsRef<Path>) -> std::i
 /// APFS, a few KiB each on ext4. A test adds them where a size holds folders
 /// the walk read.
 pub fn folders<P: AsRef<Path>>(paths: &[P]) -> u64 {
-    paths.iter().map(|p| meta::alloc_bytes(&fs::symlink_metadata(p).unwrap())).sum()
+    paths.iter().map(|p| meta::lstat(p.as_ref()).unwrap().alloc).sum()
 }
 
 /// Reference size, as `du -s` counts it: `blocks * 512` of `root`, of every
@@ -348,14 +348,14 @@ pub fn reference_alloc(root: &Path) -> u64 {
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
         // Each folder's own blocks, as `du` counts them: none on APFS.
-        total += meta::alloc_bytes(&fs::symlink_metadata(&dir).unwrap());
+        total += meta::lstat(&dir).unwrap().alloc;
         for e in fs::read_dir(&dir).unwrap() {
             let e = e.unwrap();
-            let md = e.metadata().unwrap();
-            if md.is_dir() {
+            let st = meta::entry(&e).unwrap();
+            if st.md.is_dir() {
                 stack.push(e.path());
-            } else if meta::link_count(&md) <= 1 || seen.insert(meta::file_id(&md).unwrap()) {
-                total += meta::alloc_bytes(&md);
+            } else if st.nlink <= 1 || seen.insert(st.id()) {
+                total += st.alloc;
             }
         }
     }

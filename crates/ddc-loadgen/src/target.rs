@@ -126,7 +126,7 @@ pub fn decide(f: &Facts) -> Result<(), Refusal> {
 pub fn facts(target: &Path, device: Option<&str>, entries: u64) -> io::Result<Facts> {
     let target = target.canonical()?;
     let home = procs::real_home().ok_or_else(|| io::Error::other("the password database names no home folder"))?;
-    let dev = |p: &Path| fs::metadata(p).and_then(|m| meta::file_id(&m)).map(|(dev, _)| dev);
+    let dev = |p: &Path| meta::stat(p).map(|st| st.dev);
     let image = match device {
         Some(d) => {
             let st = statfs::statfs(&target)?;

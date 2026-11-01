@@ -61,14 +61,14 @@ pub struct Measure {
 /// subtree claimed at its top, APFS private sizes where the rule expects
 /// clones. No rule applies inside, as in the scan.
 pub fn remeasure(catalog: &Catalog, rule: &str, path: &Path, opts: &scan::WalkOptions) -> Remeasured {
-    let md = match fs::symlink_metadata(path) {
-        Ok(md) => md,
+    let st = match crate::platform::meta::lstat(path) {
+        Ok(st) => st,
         Err(e) if e.kind() == ErrorKind::NotFound => return Remeasured::Gone,
         Err(_) => return Remeasured::Unknown,
     };
-    if !md.is_dir() {
-        let bytes = crate::platform::meta::alloc_bytes(&md);
-        let shared = if crate::platform::meta::link_count(&md) > 1 { bytes } else { 0 };
+    if !st.md.is_dir() {
+        let bytes = st.alloc;
+        let shared = if st.nlink > 1 { bytes } else { 0 };
         return Remeasured::Measured(Measure {
             bytes: bytes - shared,
             shared_bytes: shared,
@@ -77,7 +77,7 @@ pub fn remeasure(catalog: &Catalog, rule: &str, path: &Path, opts: &scan::WalkOp
             dirs: 0,
             incomplete: false,
             // As the walk reads it: only with the claim times on.
-            modified: opts.claim_times.then(|| crate::platform::meta::mtime(&md)),
+            modified: opts.claim_times.then(|| crate::platform::meta::mtime(&st.md)),
         });
     }
     let Some(tag) = catalog.by_id(rule).and_then(|r| catalog.tag_of(r)) else { return Remeasured::Unknown };

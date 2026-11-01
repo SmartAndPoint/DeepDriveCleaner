@@ -3,22 +3,25 @@
 //! `st_flags`.
 
 use std::fs::{Metadata, Permissions};
+
+use crate::platform::types::FileStat;
 use std::io;
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+use std::path::Path;
 
 /// `(dev, ino)`, as `stat` gives them, so the pair compares with a
 /// directory listing's.
-pub fn file_id(md: &Metadata) -> io::Result<(u64, u64)> {
+pub(super) fn file_id(md: &Metadata) -> io::Result<(u64, u64)> {
     Ok((md.dev(), md.ino()))
 }
 
 /// Hard links to the file (`st_nlink`).
-pub fn link_count(md: &Metadata) -> u64 {
+pub(super) fn link_count(md: &Metadata) -> u64 {
     md.nlink()
 }
 
 /// Bytes allocated on disk, `st_blocks * 512`.
-pub fn alloc_bytes(md: &Metadata) -> u64 {
+pub(super) fn alloc_bytes(md: &Metadata) -> u64 {
     md.blocks() * 512
 }
 
@@ -54,4 +57,25 @@ pub fn add_owner_rwx(perms: &mut Permissions) {
 /// Whether someone may execute it: any of the `x` bits.
 pub fn is_executable(md: &Metadata) -> bool {
     md.permissions().mode() & 0o111 != 0
+}
+
+/// The path's own facts, links not followed (`lstat`).
+pub fn lstat(path: &Path) -> io::Result<FileStat> {
+    std::fs::symlink_metadata(path).and_then(of)
+}
+
+/// The facts of what the path names, links followed (`stat`).
+pub fn stat(path: &Path) -> io::Result<FileStat> {
+    std::fs::metadata(path).and_then(of)
+}
+
+/// A listed entry's facts, links not followed, read through the listing
+/// (`fstatat` on its directory), so it reaches past `PATH_MAX`.
+pub fn entry(entry: &std::fs::DirEntry) -> io::Result<FileStat> {
+    entry.metadata().and_then(of)
+}
+
+fn of(md: Metadata) -> io::Result<FileStat> {
+    let (dev, ino) = file_id(&md)?;
+    Ok(FileStat { dev, ino, nlink: link_count(&md), alloc: alloc_bytes(&md), md })
 }

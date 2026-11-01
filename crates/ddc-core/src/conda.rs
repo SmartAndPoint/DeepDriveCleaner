@@ -229,17 +229,15 @@ pub fn package_folder<'i>(installs: &'i [Install], folder: &Path) -> Result<&'i 
 /// `(dev, ino)` of what `path` names, following symlinks; `None` when it
 /// does not exist.
 pub fn identity(path: &Path) -> Option<(u64, u64)> {
-    std::fs::metadata(path).ok().and_then(|m| crate::platform::meta::file_id(&m).ok())
+    crate::platform::meta::stat(path).ok().map(|st| st.id())
 }
 
 /// Both are folders and the same one, by `(dev, ino)`: `/opt` and
 /// `/System/Volumes/Data/opt` spell one folder through a firmlink.
 pub fn same_folder(a: &Path, b: &Path) -> bool {
-    match (std::fs::metadata(a), std::fs::metadata(b)) {
-        (Ok(a), Ok(b)) => {
-            use crate::platform::meta::file_id;
-            a.is_dir() && b.is_dir() && matches!((file_id(&a), file_id(&b)), (Ok(x), Ok(y)) if x == y)
-        }
+    use crate::platform::meta::stat;
+    match (stat(a), stat(b)) {
+        (Ok(a), Ok(b)) => a.md.is_dir() && b.md.is_dir() && a.id() == b.id(),
         _ => false,
     }
 }

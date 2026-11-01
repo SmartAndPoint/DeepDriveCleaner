@@ -78,7 +78,8 @@ mod pins {
 
     use super::imp;
     use super::types::{
-        DirListing, EntryStat, OpenVnode, ProcInfo, ProcStart, ReadError, ReadErrorKind, Times, Usage, VolumeStats,
+        DirListing, EntryStat, FileStat, OpenVnode, ProcInfo, ProcStart, ReadError, ReadErrorKind, Times, Usage,
+        VolumeStats,
     };
 
     type DirFd = imp::fsops::DirFd;
@@ -114,9 +115,9 @@ mod pins {
     const _: fn() -> io::Result<()> = imp::iopolicy::disable_dataless_materialization;
     const _: fn() -> io::Result<bool> = imp::iopolicy::dataless_materialization_disabled;
 
-    const _: fn(&Metadata) -> io::Result<(u64, u64)> = imp::meta::file_id;
-    const _: fn(&Metadata) -> u64 = imp::meta::link_count;
-    const _: fn(&Metadata) -> u64 = imp::meta::alloc_bytes;
+    const _: fn(&Path) -> io::Result<FileStat> = imp::meta::lstat;
+    const _: fn(&Path) -> io::Result<FileStat> = imp::meta::stat;
+    const _: fn(&std::fs::DirEntry) -> io::Result<FileStat> = imp::meta::entry;
     const _: fn(&Metadata) -> i64 = imp::meta::mtime;
     const _: fn(&Metadata) -> u32 = imp::meta::st_flags;
     const _: fn(&Metadata) -> Option<u32> = imp::meta::owner;

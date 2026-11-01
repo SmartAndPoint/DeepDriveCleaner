@@ -3,7 +3,6 @@
 //! the worker count (launchd agents start with a soft limit of 256).
 
 use crate::platform::Canonical as _;
-use std::fs::Metadata;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
@@ -20,6 +19,7 @@ use super::{
     Skipped, Tag, Visitor, WalkError, WalkOptions, WalkOutput, WalkSetupError,
 };
 use crate::platform::meta;
+use crate::platform::types::FileStat;
 
 /// [`OwnerAcc::modified`] before any time is folded in.
 const NO_TIME: i64 = i64::MIN;
@@ -166,10 +166,10 @@ pub fn walk_with_reader(
         opts,
         roots: roots
             .iter()
-            .map(|(path, md, id)| RootAcc {
+            .map(|(path, st)| RootAcc {
                 path: path.clone(),
-                dev: id.0,
-                anchor: md.is_dir().then(|| crate::platform::bulk::anchor(path).ok()).flatten(),
+                dev: st.dev,
+                anchor: st.md.is_dir().then(|| crate::platform::bulk::anchor(path).ok()).flatten(),
                 bytes: AtomicU64::new(0),
                 files: AtomicU64::new(0),
                 dirs: AtomicU64::new(0),
@@ -186,29 +186,26 @@ pub fn walk_with_reader(
 
     pool.install(|| {
         rayon::scope(|s| {
-            for (i, (path, md, id)) in roots.iter().enumerate() {
+            for (i, (path, st)) in roots.iter().enumerate() {
+                let (md, id) = (&st.md, &st.id());
                 if md.is_dir() {
                     let task = Task {
                         dir: path.clone(),
                         expect: *id,
-                        parent: path
-                            .parent()
-                            .and_then(|p| std::fs::symlink_metadata(p).ok())
-                            .and_then(|m| meta::file_id(&m).ok())
-                            .unwrap_or((0, 0)),
+                        parent: path.parent().and_then(|p| meta::lstat(p).ok()).map(|st| st.id()).unwrap_or((0, 0)),
                         depth: 0,
                         root: i,
                         owner: None,
                         entry: None,
                         uid: None,
                         hooks: true,
-                        blocks: meta::alloc_bytes(md),
+                        blocks: st.alloc,
                     };
                     let sh = &sh;
                     s.spawn(move |s| visit(s, sh, task));
                 } else {
                     // A file given as a root is counted like `du` does.
-                    let bytes = meta::alloc_bytes(md);
+                    let bytes = st.alloc;
                     sh.roots[i].bytes.fetch_add(bytes, Relaxed);
                     sh.roots[i].files.fetch_add(1, Relaxed);
                     sh.unowned.fetch_add(bytes, Relaxed);
@@ -223,13 +220,13 @@ pub fn walk_with_reader(
 /// `roots` as [`walk`] takes them: canonicalized, sorted, roots nested in
 /// others dropped.
 pub fn normalized_roots(roots: &[PathBuf]) -> Result<Vec<PathBuf>, WalkSetupError> {
-    normalize_roots(roots).map(|roots| roots.into_iter().map(|(path, _, _)| path).collect())
+    normalize_roots(roots).map(|roots| roots.into_iter().map(|(path, _)| path).collect())
 }
 
 /// Each root with its metadata and its `(dev, ino)`; a root whose identity
 /// cannot be told is refused, never walked under a made-up one.
 #[allow(clippy::type_complexity)]
-fn normalize_roots(roots: &[PathBuf]) -> Result<Vec<(PathBuf, Metadata, (u64, u64))>, WalkSetupError> {
+fn normalize_roots(roots: &[PathBuf]) -> Result<Vec<(PathBuf, FileStat)>, WalkSetupError> {
     let mut canon = Vec::with_capacity(roots.len());
     for root in roots {
         let path = root.canonical().map_err(|source| WalkSetupError::Root { path: root.clone(), source })?;
@@ -244,12 +241,9 @@ fn normalize_roots(roots: &[PathBuf]) -> Result<Vec<(PathBuf, Metadata, (u64, u6
         }
     }
     kept.into_iter()
-        .map(|path| {
-            let found = std::fs::symlink_metadata(&path).and_then(|md| meta::file_id(&md).map(|id| (md, id)));
-            match found {
-                Ok((md, id)) => Ok((path, md, id)),
-                Err(source) => Err(WalkSetupError::Root { path, source }),
-            }
+        .map(|path| match meta::lstat(&path) {
+            Ok(st) => Ok((path, st)),
+            Err(source) => Err(WalkSetupError::Root { path, source }),
         })
         .collect()
 }

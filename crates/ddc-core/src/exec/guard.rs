@@ -165,11 +165,8 @@ impl<'a> Guard<'a> {
         let mut paths: Vec<PathBuf> = protected_in_home(PLATFORM).iter().map(|rel| env.home().join(rel)).collect();
         paths.extend(protected_system(PLATFORM).iter().map(PathBuf::from));
         paths.extend(roots.iter().cloned());
-        let protected_ids = paths
-            .iter()
-            .filter_map(|p| fs::symlink_metadata(p).ok())
-            .filter_map(|m| crate::platform::meta::file_id(&m).ok())
-            .collect();
+        let protected_ids =
+            paths.iter().filter_map(|p| crate::platform::meta::lstat(p).ok()).map(|st| st.id()).collect();
         Self {
             catalog,
             home: env.home().to_path_buf(),

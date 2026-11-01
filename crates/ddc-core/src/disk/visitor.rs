@@ -99,8 +99,7 @@ impl DiskVisitor<'_> {
             return false;
         }
         let left = self.budget.saturating_sub(self.entries[i].load(Relaxed)).min(LISTING_LIMIT);
-        std::fs::symlink_metadata(dir)
-            .is_ok_and(|md| entries_of(crate::platform::meta::link_count(&md), md.len()) > left)
+        crate::platform::meta::lstat(dir).is_ok_and(|st| entries_of(st.nlink, st.md.len()) > left)
     }
 
     fn area_of(&self, dir: &Path) -> Option<Tag> {

@@ -6,7 +6,6 @@
 //! goes only to an attached image, whose `.Trashes` leaves with the detach.
 
 use std::ffi::{OsStr, OsString};
-use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
@@ -160,7 +159,7 @@ pub fn facts<'a>(
     on: &Target,
     trashes: bool,
 ) -> io::Result<Facts<'a>> {
-    let id = |p: &Path| fs::metadata(p).ok().and_then(|m| ddc_core::platform::meta::file_id(&m).ok());
+    let id = |p: &Path| ddc_core::platform::meta::stat(p).ok().map(|st| st.id());
     let target = target::decide(&target::facts(&on.dir, on.device.as_deref(), on.entries)?);
     Ok(Facts {
         args,

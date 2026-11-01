@@ -280,9 +280,7 @@ mod place {
         /// A platform that cannot read the identity refuses the command
         /// before it would read it.
         fn file_id(&self, rel: &str) -> (u64, u64) {
-            fs::symlink_metadata(self.root.join(rel))
-                .and_then(|md| ddc_core::platform::meta::file_id(&md))
-                .unwrap_or((0, 0))
+            ddc_core::platform::meta::lstat(&self.root.join(rel)).map(|st| st.id()).unwrap_or((0, 0))
         }
 
         pub fn inside(&self, p: &Path) -> bool {
