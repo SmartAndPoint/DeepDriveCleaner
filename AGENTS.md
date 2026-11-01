@@ -93,7 +93,9 @@
   `scripts/native-skips.sh`) in minutes. A Windows machine with WSL runs the Linux leg too:
   `DDC_LINUX_WSL=<distribution>` beside `DDC_LINUX_HOST=<the Windows host>` sends every
   command through `wsl.exe` into that distribution, which needs docker and the user in
-  its `docker` group. They copy tracked files only: `git add` a new
+  its `docker` group. `--make <target>` runs a make target in the same container instead
+  of the tests (`load`, `load-baseline`, `scaling`) and copies `target/load` back to the
+  local `target/native-linux/load`; those numbers describe the machine and stay local. They copy tracked files only: `git add` a new
   test first. Push once a whole run, not a filtered one, is green: the `check-<target>`
   jobs stay required on `main`, so CI is the last check, not the loop. The setup and the
   failures are in the vault's runbook "Native runs: the Linux and Windows legs on the
