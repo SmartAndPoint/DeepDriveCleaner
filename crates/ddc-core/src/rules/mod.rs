@@ -68,7 +68,7 @@ pub enum Matcher {
     ChildHolding { parents: &'static [&'static str], file: &'static str },
     /// A linked git worktree: `.git` is a file whose `gitdir:` names a
     /// folder with a `commondir` ([`worktree::recognize`]). A region: rules
-    /// keep working inside. Checked before [`Catalog::claimable`], which
+    /// keep working inside. Checked before `Catalog::claimable`, which
     /// refuses every folder holding `.git`.
     Worktree,
     /// A folder whose `.git` file names a gitdir that does not exist. A
