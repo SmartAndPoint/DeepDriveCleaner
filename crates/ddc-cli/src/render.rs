@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ddc_core::agents::{
     AgentsReport, FootprintState, RecordsState, RunningKind, SessionFootprint, SessionState, TempRefusal, TempRoot,
@@ -70,6 +70,26 @@ pub fn tilde(path: &Path, home: &Path) -> String {
     escaped(&shown)
 }
 
+/// `ddc clean` over `roots`, each one shell word, so it can be pasted as is.
+fn clean_command(roots: &[PathBuf], home: &Path) -> String {
+    let mut command = "ddc clean".to_owned();
+    for root in roots {
+        command.push(' ');
+        command.push_str(&match root.strip_prefix(home) {
+            Ok(rel) if rel.as_os_str().is_empty() => "~".to_owned(),
+            Ok(rel) => format!("~/{}", quoted(&rel.to_string_lossy())),
+            Err(_) => quoted(&root.to_string_lossy()),
+        });
+    }
+    escaped(&command)
+}
+
+/// One word for a POSIX shell: as is when it is plain, else in single quotes.
+fn quoted(word: &str) -> String {
+    let plain = !word.is_empty() && word.chars().all(|c| c.is_ascii_alphanumeric() || "_./=:@%+-,".contains(c));
+    if plain { word.to_owned() } else { format!("'{}'", word.replace('\'', r"'\''")) }
+}
+
 /// `text` with control and bidirectional format characters escaped, as
 /// [`tilde`] shows a path: for text another program wrote.
 pub fn escaped(text: &str) -> String {
@@ -122,7 +142,9 @@ fn status(f: &Finding) -> String {
     parts.join(" · ")
 }
 
-pub fn report(w: &mut impl Write, r: &ScanReport, style: &Style) -> io::Result<()> {
+/// `own_roots`: the scan was given paths other than the default ones, so the
+/// `ddc clean` it suggests names them, or that would review the home instead.
+pub fn report(w: &mut impl Write, r: &ScanReport, style: &Style, own_roots: bool) -> io::Result<()> {
     let home = r.home.as_path();
     let roots: Vec<String> = r.scan_roots.iter().map(|p| tilde(p, home)).collect();
     writeln!(
@@ -155,10 +177,11 @@ pub fn report(w: &mut impl Write, r: &ScanReport, style: &Style) -> io::Result<(
     writeln!(w)?;
     writeln!(
         w,
-        "  {} {} selected by default, frees ~{} → run `ddc clean` to review and confirm",
+        "  {} {} selected by default, frees ~{} → run `{}` to review and confirm",
         style.bold("Can free now:"),
         human(r.totals.selected_bytes),
-        human(r.totals.selected_reclaimable_bytes)
+        human(r.totals.selected_reclaimable_bytes),
+        clean_command(if own_roots { &r.scan_roots } else { &[] }, home)
     )?;
 
     for class in RiskClass::ALL {
@@ -765,6 +788,19 @@ pub fn refusal(r: Refusal) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_clean_command_names_the_paths_the_scan_was_given() {
+        let home = Path::new("/h");
+        assert_eq!(clean_command(&[], home), "ddc clean");
+        assert_eq!(clean_command(&[PathBuf::from("/h/Projects")], home), "ddc clean ~/Projects");
+        assert_eq!(clean_command(&[PathBuf::from("/h")], home), "ddc clean ~");
+        assert_eq!(
+            clean_command(&[PathBuf::from("/h/My Code"), PathBuf::from("/Volumes/it's")], home),
+            r"ddc clean ~/'My Code' '/Volumes/it'\''s'"
+        );
+        assert_eq!(clean_command(&[PathBuf::from("/h/a\u{1b}[2J")], home), r"ddc clean ~/'a\u{1b}[2J'");
+    }
 
     #[test]
     fn control_characters_are_escaped() {

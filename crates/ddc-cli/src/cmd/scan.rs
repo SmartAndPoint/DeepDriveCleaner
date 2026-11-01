@@ -41,7 +41,8 @@ pub fn run(args: ScanArgs) -> anyhow::Result<ExitCode> {
     let report = reporter.walk(&progress, "scanning", WalkStep::Scan, None, || report::scan(&env, &opts, &progress))?;
     reporter.walk_done(WalkStep::Scan, &report.totals, None);
     store::write_last_scan(&env, &report).context("cannot save the scan report")?;
-    if given_roots && env.data_dir_is_default() && !of_settings_roots(&report, &env, &settings) {
+    let own_roots = given_roots && !of_settings_roots(&report, &env, &settings);
+    if own_roots && env.data_dir_is_default() {
         eprintln!("ddc: The app will show this report until its next scan.");
     }
     for root in report.scan_roots.iter().filter(|r| !report.volumes.iter().any(|v| v.roots.contains(r))) {
@@ -53,7 +54,7 @@ pub fn run(args: ScanArgs) -> anyhow::Result<ExitCode> {
         serde_json::to_writer_pretty(&mut stdout, &report).map_err(std::io::Error::from).and_then(|()| writeln!(stdout))
     } else {
         let color = render::use_color(std::io::stdout().is_terminal(), Env::no_color());
-        render::report(&mut stdout, &report, &render::Style { color, all: args.all })
+        render::report(&mut stdout, &report, &render::Style { color, all: args.all }, own_roots)
     };
     match written {
         Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(ExitCode::SUCCESS),
