@@ -1,6 +1,7 @@
 ---
 name: ddc
 description: Ask DeepDriveCleaner (ddc) what is on the disk before guessing. Use when the person asks about disk space or what fills the disk, when a command fails with ENOSPC or "No space left on device", when the person asks what coding-agent sessions (yours included) left behind, and before installing dependencies into a new worktree or a fresh checkout. Read-only questions with JSON answers; the person does the cleaning.
+license: MIT (Copyright 2026 SmartAndPoint; text in LICENSE-MIT.md of the DeepDriveCleaner repository)
 ---
 
 # ddc: ask the disk before guessing

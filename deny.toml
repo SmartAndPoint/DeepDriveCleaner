@@ -7,13 +7,15 @@
 yanked = "deny"
 
 [licenses]
-# Permissive licenses only, compatible with distributing the workspace under
-# PolyForm Noncommercial. Anything else, copyleft included, is refused.
+# Permissive licenses only: the workspace is AGPL-3.0-only and also offered
+# under a commercial licence, which needs every dependency to allow closed
+# redistribution. Anything else, copyleft included, is refused.
 allow = ["MIT", "Apache-2.0", "Unicode-3.0"]
 confidence-threshold = 0.8
 
 [licenses.private]
-# The workspace's own crates (PolyForm Noncommercial, publish = false).
+# The workspace's own crates (AGPL-3.0-only, publish = false): ignoring them
+# keeps their licence out of the allow list above, which is for dependencies.
 ignore = true
 
 [bans]

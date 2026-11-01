@@ -543,10 +543,26 @@ Links: [ProjectStore on GitHub](https://github.com/SmartAndPoint/ProjectStore) Â
 
 ## Disclaimer
 
-DeepDriveCleaner deletes files and folders, and it can remove almost anything it is told to: by you, by a script, or by an AI agent acting for you. You use it entirely at your own risk. To the fullest extent the law allows, nobody who made it is responsible for what it removes: not SmartAndPoint, not the maintainer, not any developer or contributor. The full text is in [DISCLAIMER.md](DISCLAIMER.md); it adds to the license's "No Liability" section and never narrows it.
+DeepDriveCleaner deletes files and folders, and it can remove almost anything it is told to: by you, by a script, or by an AI agent acting for you. You use it entirely at your own risk. To the fullest extent the law allows, nobody who made it is responsible for what it removes: not SmartAndPoint, not the maintainer, not any developer or contributor. The full text is in [DISCLAIMER.md](DISCLAIMER.md); it adds to the license's Disclaimer of Warranty and Limitation of Liability and never narrows them.
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE.md). You may read, use, change and share this code for any noncommercial purpose: personal use, research, education, nonprofits. You may not use it commercially, including selling an app built on it. Strictly speaking this makes the project source-available rather than "open source" in the OSI sense: the code is open so that you can see what a tool that deletes files on your disk actually does.
+DeepDriveCleaner is open source under the [GNU Affero General Public License 3.0](LICENSE.md) (`AGPL-3.0-only`). A commercial licence is available from SmartAndPoint for anyone who wants to use it without the AGPL's obligations: write to legal@smartandpoint.com.
 
-The name and the icon are not covered by the license: see [TRADEMARKS.md](TRADEMARKS.md).
+The agent guidance and the report schemas are under the [MIT license](LICENSE-MIT.md), so you can copy them into any project:
+
+```text
+agents/**
+docs/*.schema.json
+```
+
+Can Iâ€¦
+
+- use `ddc` and the app, personally or at work? Yes.
+- change it and share it? Yes, under the AGPL: give those you share it with the changed source, and do the same for people who use a changed `ddc` over a network.
+- ship the unchanged `ddc` beside my own product and call it as a separate program? Yes: keep its licence and point to its source. Your product stays yours.
+- link `ddc-core`, change `ddc` or build my product on its code, and keep that closed? Only with a commercial licence.
+- copy the skill, the `AGENTS.md` snippet or a schema into my project? Yes, under MIT.
+- use the name or the icon? Not for your own build: see [TRADEMARKS.md](TRADEMARKS.md).
+
+Releases before 0.16.0 were published under PolyForm Noncommercial 1.0.0 and stay under it.

@@ -40,4 +40,6 @@ list an agent writes carries no person's consent): run `ddc clean --yes`, or `dd
 with a list you wrote, or `ddc disk free --actions` with a list you wrote (it removes through
 simctl, brew and conda); delete a finding with `rm -rf` or any other way; remove a worktree with
 `git worktree remove --force`; touch a live session's files, yours included.
+
+<!-- License: MIT (Copyright 2026 SmartAndPoint; text in LICENSE-MIT.md of the DeepDriveCleaner repository) -->
 <!-- ddc:end -->

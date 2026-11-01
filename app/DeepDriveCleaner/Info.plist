@@ -27,7 +27,7 @@
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2026 SmartAndPoint. PolyForm Noncommercial License 1.0.0.</string>
+	<string>Copyright © 2026 SmartAndPoint. GNU Affero General Public License 3.0.</string>
 	<!-- Sparkle (ADR "Updates through Sparkle, alongside the Homebrew cask", §1): a
 	     check at most daily, on by default; install only on Update and Relaunch.
 	     System profiling and Sparkle's XPC services stay off (keys not set).
