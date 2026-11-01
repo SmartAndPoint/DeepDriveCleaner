@@ -19,14 +19,16 @@ pub use ddc_loadgen::unsupported;
 #[allow(unused_imports)] // only the capability tests use it
 pub use ddc_loadgen::lacks;
 
-/// The data folder a CLI started with a clean environment and `HOME` at
-/// `home` uses when nothing names one: `~/Library/Application
-/// Support/DeepDriveCleaner` on macOS, the XDG state folder on Linux.
+/// The data folder a CLI started with a clean environment and its home at
+/// `home` (`ClearEnv::home_env`) uses when nothing names one:
+/// `~/Library/Application Support/DeepDriveCleaner` on macOS, the XDG state
+/// folder on Linux, `%LOCALAPPDATA%\DeepDriveCleaner` on Windows.
 pub fn default_data(home: &Path) -> std::path::PathBuf {
     use ddc_core::platform::{PLATFORM, Platform};
     match PLATFORM {
         Platform::Linux => home.join(".local/state/deepdrivecleaner"),
-        _ => home.join("Library/Application Support/DeepDriveCleaner"),
+        Platform::Windows => home.join("AppData").join("Local").join("DeepDriveCleaner"),
+        Platform::Macos => home.join("Library/Application Support/DeepDriveCleaner"),
     }
 }
 

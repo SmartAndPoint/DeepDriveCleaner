@@ -57,7 +57,7 @@ impl Fx {
     fn ddc(&self, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
             .clear_env()
-            .env("HOME", &self.home)
+            .home_env(&self.home)
             .env("PATH", "")
             .env("NO_COLOR", "1")
             .args(args)

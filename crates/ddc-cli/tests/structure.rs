@@ -354,7 +354,7 @@ fn the_platform_switches_are_literals() {
     for at in features {
         assert!(at.starts_with("feature = \"simulate-unported\")"), "platform/mod.rs: {}", at.lines().next().unwrap());
     }
-    for file in ["macos/mod.rs", "linux/mod.rs", "windows.rs"] {
+    for file in ["macos/mod.rs", "linux/mod.rs", "windows/mod.rs"] {
         let text = code(&dir.join(file));
         let supported: Vec<&str> = text.lines().filter(|l| l.contains("const SUPPORTED")).collect();
         assert!(
@@ -562,9 +562,11 @@ fn words(text: &str) -> impl Iterator<Item = &str> {
 
 /// `unsafe_code` is denied everywhere (story "Move OS calls behind the
 /// platform module", AC4): the workspace lints deny it, every crate inherits
-/// them, and only the OS modules `ddc-core/src/platform/macos/mod.rs` and
-/// `ddc-core/src/platform/linux/mod.rs` (seam ADR §2, amended 2026-10-31)
-/// and `ddc-core/src/platform/op_stats.rs` allow it, so no test does.
+/// them, and only the OS modules `ddc-core/src/platform/macos/mod.rs`,
+/// `ddc-core/src/platform/linux/mod.rs` (seam ADR §2, amended 2026-10-31) and
+/// `ddc-core/src/platform/windows/mod.rs` (story "Windows scanner and rule
+/// catalog", DDC-007) and `ddc-core/src/platform/op_stats.rs` allow it, so no
+/// test does.
 #[test]
 fn only_the_os_modules_and_the_counters_allow_unsafe_code() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -593,7 +595,8 @@ fn only_the_os_modules_and_the_counters_allow_unsafe_code() {
         [
             "ddc-core/src/platform/linux/mod.rs",
             "ddc-core/src/platform/macos/mod.rs",
-            "ddc-core/src/platform/op_stats.rs"
+            "ddc-core/src/platform/op_stats.rs",
+            "ddc-core/src/platform/windows/mod.rs"
         ]
     );
 }

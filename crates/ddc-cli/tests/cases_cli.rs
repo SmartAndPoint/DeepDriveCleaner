@@ -584,7 +584,7 @@ mod follow {
 fn spawn(sb: &Sandbox, cwd: &Path, argv: &[String]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
-        .env("HOME", &sb.home)
+        .home_env(&sb.home)
         .env("USERPROFILE", &sb.home)
         .env("APPDATA", sb.home.join("AppData/Roaming"))
         .env("LOCALAPPDATA", sb.home.join("AppData/Local"))

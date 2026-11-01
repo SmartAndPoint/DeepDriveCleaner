@@ -52,7 +52,7 @@ impl Fx {
         cmd.clear_env()
             .env_remove("CLAUDE_CODE_TMPDIR")
             .env_remove("TMPDIR")
-            .env("HOME", self.root.join("home"))
+            .home_env(self.root.join("home"))
             .env("PATH", "")
             .env("NO_COLOR", "1")
             .args(["disk", "agents"])
@@ -304,7 +304,7 @@ fn disk_options_do_not_mix_with_the_subcommand() {
     let fx = Fx::new();
     let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
-        .env("HOME", fx.root.join("home"))
+        .home_env(fx.root.join("home"))
         .args(["disk", "--json", "agents"])
         .output()
         .unwrap();

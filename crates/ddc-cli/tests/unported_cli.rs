@@ -22,7 +22,7 @@ const UNSUPPORTED: i32 = 69;
 fn ddc(home: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
-        .env("HOME", home)
+        .home_env(home)
         .env("PATH", "")
         .env("NO_COLOR", "1")
         .args(args)

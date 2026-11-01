@@ -92,7 +92,7 @@ esac"#
     fn ddc(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"));
         cmd.clear_env()
-            .env("HOME", self.root.join("home"))
+            .home_env(self.root.join("home"))
             .env("PATH", "")
             .env("NO_COLOR", "1")
             .arg("disk")
@@ -281,7 +281,7 @@ fn after_brew_cleanup_the_last_scan_is_measured_again() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"));
     let scanned = cmd
         .clear_env()
-        .env("HOME", fx.root.join("home"))
+        .home_env(fx.root.join("home"))
         .env("PATH", "")
         .args(["scan", "--json", "--data-dir"])
         .arg(fx.root.join("data"))

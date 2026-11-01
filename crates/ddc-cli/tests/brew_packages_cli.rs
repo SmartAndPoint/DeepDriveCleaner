@@ -81,7 +81,7 @@ esac"#
     fn run(&self, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
             .clear_env()
-            .env("HOME", self.root.join("home"))
+            .home_env(self.root.join("home"))
             .env("PATH", "")
             .env("NO_COLOR", "1")
             .args(["disk", "brew-packages"])
@@ -99,7 +99,7 @@ esac"#
     fn free(&self, list: &str, args: &[&str]) -> Output {
         let mut child = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
             .clear_env()
-            .env("HOME", self.root.join("home"))
+            .home_env(self.root.join("home"))
             .env("PATH", "")
             .env("NO_COLOR", "1")
             .args(["disk", "free", "--actions", "-"])

@@ -1,12 +1,13 @@
 //! The OS modules of a platform that is not ported yet (ADR "Platform seam:
 //! one platform module per OS with declared capabilities", §1, §2): one body,
-//! which `linux/` and `windows.rs` re-export beside their own literal
+//! which `linux/` and `windows/` re-export beside their own literal
 //! switches. Every item keeps the signature pinned in `platform/mod.rs`, so
 //! shared code compiles here, and none of it does anything:
 //!
 //! - an item returning `io::Result` returns `ErrorKind::Unsupported`;
-//! - the two setters `init_process` calls return `Ok`, so `rules`, the one
-//!   command an unsupported platform runs, stays quiet;
+//! - the I/O policy setter `init_process` calls returns `Ok`, so `rules`,
+//!   the one command an unsupported platform runs, stays quiet (the
+//!   open-file limit, the other one, is ported on both OSes this serves);
 //! - a plain value is neutral (`None`, empty, `false`, 0);
 //! - the in-use checks (`procs`) are empty, which fails open. They are never
 //!   reached: `require_supported` refuses in `execute`, `preflight` and
@@ -35,48 +36,6 @@ pub mod bulk {
         _times: Times,
     ) -> Result<DirListing, ReadError> {
         Err(ReadError::new(ReadErrorKind::Other, None))
-    }
-}
-
-#[cfg(not(target_os = "linux"))] // ported: `linux/errno.rs`
-pub mod errno {
-    //! Placeholders until each OS is ported: the constants are Linux's
-    //! numbers for "not found", "denied" and "I/O error", and the mapping goes
-    //! through `io::ErrorKind`. Unreachable while `SUPPORTED` is false. They
-    //! are wrong on Windows (raw 5 is `ERROR_ACCESS_DENIED` there), so the
-    //! port to each OS gives its own module with raw matches.
-    use std::io;
-
-    use crate::platform::types::ReadErrorKind;
-
-    pub const ENOENT: i32 = 2;
-    pub const EACCES: i32 = 13;
-    pub const EIO: i32 = 5;
-
-    /// What a directory read makes of `errno`, by the kind std gives it.
-    pub fn read_error_kind(errno: i32) -> ReadErrorKind {
-        match io::Error::from_raw_os_error(errno).kind() {
-            io::ErrorKind::PermissionDenied => ReadErrorKind::PermissionDenied,
-            io::ErrorKind::NotFound => ReadErrorKind::NotFound,
-            io::ErrorKind::NotADirectory => ReadErrorKind::Changed,
-            _ => ReadErrorKind::Other,
-        }
-    }
-}
-
-#[cfg(not(target_os = "linux"))] // ported: `linux/folders.rs`
-pub mod folders {
-    use std::path::{Path, PathBuf};
-
-    /// Never read: `Env` reports "HOME is not set". Only `rules` runs here,
-    /// and it needs no `Env`.
-    pub fn home() -> Option<PathBuf> {
-        None
-    }
-
-    /// Unreachable while [`home`] is `None`.
-    pub fn default_data_and_log(home: &Path) -> (PathBuf, PathBuf) {
-        (home.join(".deepdrivecleaner"), home.join(".deepdrivecleaner/logs"))
     }
 }
 
@@ -246,20 +205,6 @@ pub mod procs {
     }
 }
 
-#[cfg(not(target_os = "linux"))] // ported: `linux/rlimit.rs`
-pub mod rlimit {
-    use std::io;
-
-    pub fn nofile_limit() -> io::Result<u64> {
-        super::unsupported()
-    }
-
-    /// A setter `init_process` calls: `Ok`, so `rules` stays quiet.
-    pub fn raise_nofile_limit() -> io::Result<u64> {
-        Ok(0)
-    }
-}
-
 #[cfg(not(target_os = "linux"))] // ported: `linux/signals.rs`
 pub mod signals {
     use std::io;
@@ -307,13 +252,6 @@ pub mod statfs {
     }
 }
 
-#[cfg(not(target_os = "linux"))] // ported: `linux/term.rs`
-pub mod term {
-    pub fn stderr_columns() -> Option<u16> {
-        None
-    }
-}
-
 #[cfg(not(target_os = "linux"))] // ported: `linux/trash.rs`
 pub mod trash {
     use std::io;
@@ -350,25 +288,5 @@ pub mod usage {
 
     pub fn machine_model() -> Option<String> {
         None
-    }
-}
-
-#[cfg(all(test, not(target_os = "linux")))] // ported: `linux/testing.rs`
-pub mod testing {
-    use std::ffi::OsString;
-    use std::io;
-    use std::path::Path;
-
-    pub fn symlink(_target: &Path, _link: &Path) -> io::Result<()> {
-        super::unsupported()
-    }
-
-    pub fn name_from_bytes(_bytes: &[u8]) -> Option<OsString> {
-        None
-    }
-
-    /// Not known to be POSIX-shaped: Windows reads `/Users/…` as relative.
-    pub fn posix_paths() -> io::Result<()> {
-        super::unsupported()
     }
 }
