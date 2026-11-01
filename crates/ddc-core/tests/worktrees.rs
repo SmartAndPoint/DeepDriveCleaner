@@ -202,10 +202,44 @@ fn a_submodule_is_not_a_worktree() {
     let main = git::repo(&h.t, "proj");
     git::git(&main, &["submodule", "add", "-q", lib.to_str().unwrap(), "libs/lib"]);
     assert!(fs::symlink_metadata(main.join("libs/lib/.git")).unwrap().is_file(), "a submodule's .git is a file");
+    // The same submodule copied out of its superproject, into an app's hidden
+    // folder: its `.git` names a `modules/` gitdir that is not there.
+    copy_tree(&main.join("libs/lib"), &h.t.path(".app/vendor/lib"));
+    h.t.write(".app/vendor/lib/package.json", "{}");
+    h.t.write(".app/vendor/lib/package-lock.json", "{}");
+    h.t.file(".app/vendor/lib/node_modules/dep/index.js", 1_000);
 
     let r = h.scan();
 
     assert!(r.findings.iter().all(|f| !f.rule.starts_with("git.")), "{:?}", h.summary(&r));
+    let modules = h.finding(&r, &h.t.path(".app/vendor/lib/node_modules"));
+    assert_eq!(modules.rule, "node.node_modules");
+    assert_eq!(
+        (modules.class, modules.notes.as_slice()),
+        (RiskClass::Review, &[Note::AppOwned][..]),
+        "no region lifts it"
+    );
+}
+
+/// An orphan worktree is a region, but nothing tells whose project it is:
+/// what lies inside keeps the app-owned downgrade.
+#[test]
+fn an_orphans_artifacts_keep_their_downgrades() {
+    let Some(h) = Home::ready("an_orphans_artifacts_keep_their_downgrades") else { return };
+    h.t.write(".codex/worktrees/w/.git", &format!("gitdir: {}\n", h.t.path("gone/.git/worktrees/w").display()));
+    h.t.write(".codex/worktrees/w/uv.lock", "");
+    h.t.write(".codex/worktrees/w/.venv/pyvenv.cfg", "");
+
+    let r = h.scan();
+
+    assert_eq!(h.finding(&r, &h.t.path(".codex/worktrees/w")).rule, "git.worktree-orphan");
+    let venv = h.finding(&r, &h.t.path(".codex/worktrees/w/.venv"));
+    assert_eq!((venv.class, venv.notes.as_slice()), (RiskClass::Review, &[Note::AppOwned][..]));
+    assert_eq!(venv.project.as_ref().unwrap().worktree_of, None);
+    let rule = RULES.iter().find(|r| r.id == "python.venv").unwrap();
+    let path = h.t.path(".codex/worktrees/w/.venv");
+    let class = effective_class(rule, &path, &[h.t.root()], h.t.root(), &mut LockFiles::default());
+    assert_eq!(class, RiskClass::Review, "a listed item's class is the scan's");
 }
 
 #[test]
@@ -246,6 +280,7 @@ fn a_worktrees_activity_is_its_own() {
     }
     h.t.write(&format!("{}/uv.lock", h.rel(&wt)), "");
     h.t.touch(&format!("{}/uv.lock", h.rel(&wt)), OLD);
+    h.t.write(&format!("{}/.venv/pyvenv.cfg", h.rel(&wt)), "home = /usr/bin\n");
     h.t.touch(h.rel(&main.join(".git/index")), OLD + 86_400 * 365 * 2);
 
     let r = h.scan();
@@ -254,6 +289,10 @@ fn a_worktrees_activity_is_its_own() {
     let project = f.project.as_ref().unwrap();
     assert_eq!(project.root, main);
     assert_eq!(project.last_activity.as_deref(), Some("2024-01-01T00:00:00Z"), "its gitdir's, not the main checkout's");
+    // AC 2: an artifact inside reads the worktree's gitdir too, never the main checkout's.
+    let venv = h.finding(&r, &wt.join(".venv")).project.clone().unwrap();
+    assert_eq!((venv.root.as_path(), venv.worktree_of.as_deref()), (wt.as_path(), Some(main.as_path())));
+    assert_eq!(venv.last_activity.as_deref(), Some("2024-01-01T00:00:00Z"));
 }
 
 #[test]

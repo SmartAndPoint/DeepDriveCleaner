@@ -116,7 +116,9 @@ pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> 
             rule: displaced.filter(|r| r.listed).map(|r| r.id.to_owned()),
         });
         let roots: Vec<&Path> = out.roots.iter().map(|r| r.path.as_path()).collect();
-        let inside = !worktrees.is_empty() && owner.path.ancestors().skip(1).any(|dir| worktrees.contains_key(dir));
+        // Inside a linked worktree's region; an orphan's says nothing of whose it is.
+        let inside = !worktrees.is_empty()
+            && owner.path.ancestors().skip(1).any(|dir| matches!(worktrees.get(dir), Some(Recognized::Linked(_))));
         let (class, project_root, has_lockfile) =
             downgraded(rule, &owner.path, &roots, home, inside, &mut locks, &mut notes);
         let mut c = Classified {
@@ -257,8 +259,8 @@ impl AtOrAbove {
 /// The rule's class after the downgrades, the project root and whether a
 /// lock file was found; the notes explain each downgrade. The app-owned
 /// downgrade spares the two worktree rules and whatever lies `inside` a
-/// worktree: an agent's worktree under `~/.codex` is a project like any
-/// other (decision 5 of story "Worktree findings and provenance").
+/// linked worktree: an agent's worktree under `~/.codex` is a project like
+/// any other (decision 5 of story "Worktree findings and provenance").
 fn downgraded(
     rule: &Rule,
     path: &Path,
