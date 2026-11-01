@@ -190,9 +190,14 @@ impl DirFd {
         }
     }
 
+    /// The folder's handle, for the walker's listing (`bulk`).
+    pub(super) fn handle(&self) -> &OwnedHandle {
+        &self.0
+    }
+
     /// Opens the child `name` by name relative to this folder's handle, the
     /// link itself if it is one.
-    fn child(&self, name: &OsStr, access: u32, options: u32) -> io::Result<OwnedHandle> {
+    pub(super) fn child(&self, name: &OsStr, access: u32, options: u32) -> io::Result<OwnedHandle> {
         single_name(name)?;
         let mut wide: Vec<u16> = name.encode_wide().collect();
         let bytes = u16::try_from(wide.len() * 2).map_err(|_| io::Error::from_raw_os_error(206))?;
@@ -248,8 +253,12 @@ fn nt(status: i32) -> io::Result<()> {
 /// A name surrogate: a symlink, a junction or a mount point. Cloud
 /// placeholders, WOF-compressed files and other tags are not links.
 fn is_link(tag: &FILE_ATTRIBUTE_TAG_INFO) -> bool {
-    // `IsReparseTagNameSurrogate`: bit 29 of the tag.
-    tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 && tag.ReparseTag & 0x2000_0000 != 0
+    name_surrogate(tag.FileAttributes, tag.ReparseTag)
+}
+
+/// `IsReparseTagNameSurrogate` on a reparse point: bit 29 of the tag.
+pub(super) fn name_surrogate(attributes: u32, tag: u32) -> bool {
+    attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 && tag & 0x2000_0000 != 0
 }
 
 /// One name, never a path: no separator, not `.` or `..`, not empty, and
@@ -330,7 +339,7 @@ fn set_info<T>(handle: &OwnedHandle, class: FILE_INFO_BY_HANDLE_CLASS, value: &T
 }
 
 /// A FILETIME (100 ns since 1601) as Unix seconds, floored.
-fn unix_seconds(filetime: i64) -> i64 {
+pub(super) fn unix_seconds(filetime: i64) -> i64 {
     const SECONDS_1601_TO_1970: i64 = 11_644_473_600;
     filetime.div_euclid(10_000_000) - SECONDS_1601_TO_1970
 }

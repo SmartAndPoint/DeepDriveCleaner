@@ -23,39 +23,6 @@ fn unsupported<T>() -> io::Result<T> {
     Err(io::Error::new(io::ErrorKind::Unsupported, "not available on this platform yet"))
 }
 
-#[cfg(not(target_os = "linux"))] // ported: `linux/bulk.rs`
-pub mod bulk {
-    use std::path::Path;
-
-    use crate::platform::types::{DirListing, ReadError, ReadErrorKind, Times};
-
-    pub fn list(
-        _dir: &Path,
-        _expect: Option<(u64, u64)>,
-        _private: bool,
-        _times: Times,
-    ) -> Result<DirListing, ReadError> {
-        Err(ReadError::new(ReadErrorKind::Other, None))
-    }
-
-    #[derive(Debug)]
-    pub struct Anchor;
-
-    pub fn anchor(_root: &Path) -> std::io::Result<Anchor> {
-        Err(std::io::ErrorKind::Unsupported.into())
-    }
-
-    pub fn list_in(
-        _anchor: &Anchor,
-        _dir: &Path,
-        _expect: Option<(u64, u64)>,
-        _private: bool,
-        _times: Times,
-    ) -> Result<DirListing, ReadError> {
-        Err(ReadError::new(ReadErrorKind::Other, None))
-    }
-}
-
 pub mod iopolicy {
     use std::io;
 
