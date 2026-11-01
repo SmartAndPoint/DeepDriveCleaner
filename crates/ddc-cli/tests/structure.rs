@@ -1,6 +1,7 @@
 //! The background path cannot reach the cleanup executor (ADR "Cleanup safety
 //! model", §8): its sources do not mention it.
 
+use ddc_loadgen::isolate::ClearEnv as _;
 use std::path::Path;
 
 #[test]
@@ -763,4 +764,324 @@ fn every_serialized_path_is_written_through_json_path() {
         }
     }
     assert!(bare.is_empty(), "serialized paths without json_path:\n{}", bare.join("\n"));
+}
+
+/// The agent guidance in the top-level `agents/` folder (story "Agent skill
+/// v0: ask ddc before guessing about the disk", DDC-003). Text, not the
+/// `ddc-core/src/agents` module the disk report's test reads.
+const GUIDANCE: [&str; 2] = ["agents/claude-code/ddc/SKILL.md", "agents/AGENTS.snippet.md"];
+
+/// One name the guidance cites of a report: as the guidance writes it, its
+/// path from the report's root (`[]` steps into an array's items), and the
+/// values of it the guidance names.
+type Cited = (&'static str, &'static str, &'static [&'static str]);
+
+/// What the guidance cites of `ddc disk agents --json`.
+const AGENTS_NAMES: &[Cited] = &[
+    ("harnesses[]", "harnesses[]", &[]),
+    ("id", "harnesses[].id", &["claude-code", "codex", "cursor", "opencode"]),
+    ("folders[]", "harnesses[].folders[]", &[]),
+    ("bytes", "harnesses[].folders[].bytes", &[]),
+    ("running", "harnesses[].running", &[]),
+    ("sessions.list[]", "harnesses[].sessions.list[]", &[]),
+    ("cwd", "harnesses[].sessions.list[].cwd", &[]),
+    ("name", "harnesses[].sessions.list[].name", &[]),
+    ("state", "harnesses[].sessions.list[].state", &["live", "stale", "unknown"]),
+    ("sessions.records", "harnesses[].sessions.records", &["unknown"]),
+    ("sessions.transcripts", "harnesses[].sessions.transcripts", &[]),
+];
+
+/// What the guidance cites of `ddc scan --json`, the risk classes included.
+const SCAN_NAMES: &[Cited] = &[
+    ("capabilities", "capabilities", &["coding-agents"]),
+    ("volumes[]", "volumes[]", &[]),
+    ("free_bytes", "volumes[].free_bytes", &[]),
+    ("total_bytes", "volumes[].total_bytes", &[]),
+    ("totals.classes[]", "totals.classes[]", &[]),
+    ("class", "totals.classes[].class", &["safe", "rebuildable", "review", "user-data"]),
+    ("selected_bytes", "totals.classes[].selected_bytes", &[]),
+    ("totals.selected_reclaimable_bytes", "totals.selected_reclaimable_bytes", &[]),
+    ("findings[]", "findings[]", &[]),
+    ("path", "findings[].path", &[]),
+    ("rule", "findings[].rule", &[]),
+    ("selected", "findings[].selected", &[]),
+    ("not_selected", "findings[].not_selected", &["active-project", "review"]),
+    ("project.root", "findings[].project.root", &[]),
+    ("project.idle_days", "findings[].project.idle_days", &[]),
+    ("hint", "findings[].hint", &[]),
+    ("origin", "findings[].origin", &[]),
+    ("origin.kind", "findings[].origin.kind", &["worktree", "session-data", "runtime-cache"]),
+    ("contents.entries[]", "findings[].contents.entries[]", &[]),
+    ("lock", "findings[].contents.entries[].lock", &["live-session"]),
+];
+
+/// The per-session footprint's fields (story "Per-session footprint: what
+/// each agent session keeps in its transcripts, temporary folders and
+/// worktrees"): named only on a line that says "when available".
+const FUTURE_NAMES: &[&str] = &["sessions.footprints[]", "sessions.temp_root"];
+
+/// Backticked words of the guidance that are no report's names.
+const OTHER_WORDS: &[&str] = &["ddc", "deepdrivecleaner", "du", "node_modules"];
+
+/// Every word in backticks that reads like a report's name: lowercase,
+/// without a space, a slash or a leading `-` or `.`.
+fn backticked_names(text: &str) -> Vec<&str> {
+    text.split('`')
+        .skip(1)
+        .step_by(2)
+        .filter(|w| {
+            w.starts_with(|c: char| c.is_ascii_lowercase())
+                && w.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_.-[]".contains(c))
+        })
+        .collect()
+}
+
+/// The fenced code blocks of a Markdown text: (language, lines).
+fn code_blocks(text: &str) -> Vec<(String, Vec<&str>)> {
+    let mut blocks = Vec::new();
+    let mut open: Option<(String, Vec<&str>)> = None;
+    for line in text.lines() {
+        let t = line.trim_start();
+        match (t.strip_prefix("```"), open.take()) {
+            (Some(_), Some(block)) => blocks.push(block),
+            (Some(lang), None) => open = Some((lang.trim().to_owned(), Vec::new())),
+            (None, Some((lang, mut lines))) => {
+                lines.push(t);
+                open = Some((lang, lines));
+            }
+            (None, None) => {}
+        }
+    }
+    assert!(open.is_none(), "a code block is not closed");
+    blocks
+}
+
+/// `word` as a whole name in `text`: not part of a longer one such as
+/// `--json` of `--json-lines`.
+fn names_whole(text: &str, word: &str) -> bool {
+    let part_of_name = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    text.match_indices(word)
+        .any(|(i, _)| !text[..i].ends_with(part_of_name) && !text[i + word.len()..].starts_with(part_of_name))
+}
+
+/// The schema node `node` stands for: a `$ref` to `$defs` followed.
+fn deref<'a>(schema: &'a serde_json::Value, node: &'a serde_json::Value) -> &'a serde_json::Value {
+    match node.get("$ref").and_then(|r| r.as_str()).and_then(|r| r.strip_prefix("#/$defs/")) {
+        Some(name) => deref(schema, &schema["$defs"][name]),
+        None => node,
+    }
+}
+
+/// The node one step down from `node`: its property `key`, or with `[]` its
+/// array's items, through any `anyOf`, `oneOf` or `allOf` variant that has it.
+fn step<'a>(schema: &'a serde_json::Value, node: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Value> {
+    let node = deref(schema, node);
+    let here = match key {
+        "[]" => node.get("items"),
+        _ => node.get("properties").and_then(|p| p.get(key)),
+    };
+    here.or_else(|| {
+        ["anyOf", "oneOf", "allOf"]
+            .iter()
+            .filter_map(|k| node.get(*k).and_then(|v| v.as_array()))
+            .flatten()
+            .find_map(|variant| step(schema, variant, key))
+    })
+}
+
+/// Every string a node or anything below it allows by `const` or `enum`.
+fn allowed_values(schema: &serde_json::Value, node: &serde_json::Value, depth: usize, out: &mut Vec<String>) {
+    let node = deref(schema, node);
+    if depth == 0 {
+        return;
+    }
+    out.extend(node.get("const").and_then(|c| c.as_str()).map(str::to_owned));
+    for value in node.get("enum").and_then(|e| e.as_array()).into_iter().flatten() {
+        out.extend(value.as_str().map(str::to_owned));
+    }
+    for key in ["anyOf", "oneOf", "allOf"] {
+        for variant in node.get(key).and_then(|v| v.as_array()).into_iter().flatten() {
+            allowed_values(schema, variant, depth - 1, out);
+        }
+    }
+    if let Some(items) = node.get("items") {
+        allowed_values(schema, items, depth - 1, out);
+    }
+    for property in node.get("properties").and_then(|p| p.as_object()).into_iter().flat_map(|p| p.values()) {
+        allowed_values(schema, property, depth - 1, out);
+    }
+}
+
+/// Every schema name the skill cites resolves along its path in the schema it
+/// cites, with the values the guidance names, and the guidance names no other:
+/// a field renamed or moved in a report fails here, not in an agent's reading.
+#[test]
+fn the_agent_guidance_names_only_schema_fields() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for (file, names) in [("docs/agents.schema.json", AGENTS_NAMES), ("docs/scan.schema.json", SCAN_NAMES)] {
+        let schema: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(root.join(file)).unwrap()).unwrap();
+        for (name, path, values) in names {
+            let mut node = &schema;
+            for part in path.split('.') {
+                let (key, array) = match part.strip_suffix("[]") {
+                    Some(key) => (key, true),
+                    None => (part, false),
+                };
+                node = step(&schema, node, key).unwrap_or_else(|| panic!("{file} has no {path} (`{name}`)"));
+                if array {
+                    node = step(&schema, node, "[]").unwrap_or_else(|| panic!("{file}: {path} is no array (`{name}`)"));
+                }
+            }
+            let mut allowed = Vec::new();
+            allowed_values(&schema, node, 6, &mut allowed);
+            for value in *values {
+                assert!(allowed.iter().any(|a| a == value), "{file}: {path} allows no {value:?}: {allowed:?}");
+            }
+        }
+    }
+    let skill = std::fs::read_to_string(root.join(GUIDANCE[0])).unwrap();
+    let cited = || AGENTS_NAMES.iter().chain(SCAN_NAMES);
+    for name in cited().flat_map(|(name, _, values)| std::iter::once(name).chain(values.iter())) {
+        assert!(skill.contains(&format!("`{name}`")), "{} does not name `{name}`", GUIDANCE[0]);
+    }
+    for file in GUIDANCE {
+        let text = std::fs::read_to_string(root.join(file)).unwrap();
+        for name in backticked_names(&text) {
+            let declared = cited().any(|(n, _, values)| *n == name || values.contains(&name))
+                || FUTURE_NAMES.contains(&name)
+                || OTHER_WORDS.contains(&name);
+            assert!(declared, "{file} names `{name}`, which no list of this test declares");
+        }
+        for line in text.lines().filter(|l| FUTURE_NAMES.iter().any(|n| l.contains(&format!("`{n}`")))) {
+            assert!(
+                line.to_lowercase().contains("when available"),
+                "{file}: a future field without \"when available\": {line}"
+            );
+        }
+    }
+    assert!(FUTURE_NAMES.iter().all(|n| skill.contains(&format!("`{n}`"))));
+}
+
+/// Every `ddc` line of the guidance's code blocks parses, the ones it runs and
+/// the ones it shows the person: its subcommand's `--help` succeeds and names
+/// each option the line passes. Only `--help` runs. The skill asks the three
+/// read-only questions of the story, each with `--json`.
+#[test]
+fn every_ddc_line_of_the_agent_guidance_parses() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut asked = Vec::new();
+    for file in GUIDANCE {
+        let text = std::fs::read_to_string(root.join(file)).unwrap();
+        for (lang, lines) in code_blocks(&text) {
+            assert!(["sh", "bash", "text", "json"].contains(&lang.as_str()), "{file}: a code block in {lang:?}");
+            // A `text` block's lines are for the person: checked by `--help` alone, like the rest.
+            if lang == "json" {
+                continue;
+            }
+            let runnable = lang == "sh" || lang == "bash";
+            for line in lines {
+                let command = line.split(" #").next().unwrap();
+                for segment in command.split(['|', ';', '&']) {
+                    let words: Vec<&str> = segment.split_whitespace().collect();
+                    if words.first() != Some(&"ddc") {
+                        continue;
+                    }
+                    let path: Vec<&str> = words[1..]
+                        .iter()
+                        .take_while(|w| w.starts_with(|c: char| c.is_ascii_lowercase()))
+                        .copied()
+                        .collect();
+                    let out = std::process::Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
+                        .clear_env()
+                        .args(&path)
+                        .arg("--help")
+                        .output()
+                        .unwrap();
+                    assert!(out.status.success(), "{file}: `{line}`: {}", String::from_utf8_lossy(&out.stderr));
+                    let help = String::from_utf8(out.stdout).unwrap();
+                    for option in words.iter().filter(|w| w.starts_with("--")) {
+                        let option = option.split('=').next().unwrap();
+                        assert!(
+                            names_whole(&help, option),
+                            "{file}: `{line}`: `ddc {}` has no {option}",
+                            path.join(" ")
+                        );
+                    }
+                    if runnable && file == GUIDANCE[0] && words.contains(&"--json") {
+                        asked.push(path.join(" "));
+                    }
+                }
+            }
+        }
+    }
+    for question in ["disk agents", "scan", "rules"] {
+        assert!(asked.iter().any(|a| a == question), "the skill does not run `ddc {question} --json`");
+    }
+}
+
+/// The guidance runs nothing that removes a file (ADR "Agent footprint:
+/// worktrees, harness data and bounded consent for agents", §5): no
+/// `ddc clean`, `ddc disk free`, `--yes`, `--items`, `--actions`, `rm`, `mv`,
+/// the Trash or `git worktree` in a runnable block. Those appear only as text, for the person or in what never to do,
+/// and that list cites §5 and names each of them.
+#[test]
+fn the_agent_guidance_runs_nothing_that_removes() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for file in GUIDANCE {
+        let text = std::fs::read_to_string(root.join(file)).unwrap();
+        for (lang, lines) in code_blocks(&text).into_iter().filter(|(l, _)| l == "sh" || l == "bash") {
+            for line in lines {
+                let lower = line.to_lowercase();
+                for forbidden in [
+                    "ddc clean",
+                    "deepdrivecleaner clean",
+                    "disk free",
+                    "--actions",
+                    "--yes",
+                    "--items",
+                    "git worktree",
+                    "--force",
+                    "-delete",
+                    " mv ",
+                    "trash",
+                ] {
+                    assert!(!lower.contains(forbidden), "{file}: a {lang} block runs {forbidden}: {line}");
+                }
+                for word in line.split(|c: char| c.is_whitespace() || "|;&()".contains(c)) {
+                    assert!(
+                        !["rm", "rmdir", "unlink", "shred", "mv"].contains(&word),
+                        "{file}: a {lang} block runs {word}: {line}"
+                    );
+                }
+            }
+        }
+        assert!(
+            text.contains("Agent footprint: worktrees, harness data and bounded consent for agents")
+                && text.contains("§5"),
+            "{file} does not cite the ADR's §5"
+        );
+        for never in [
+            "`ddc clean --yes`",
+            "`ddc clean --items`",
+            "`ddc disk free --actions`",
+            "`rm -rf`",
+            "`git worktree remove --force`",
+        ] {
+            assert!(text.contains(never), "{file} does not forbid {never}");
+        }
+    }
+    let skill = std::fs::read_to_string(root.join(GUIDANCE[0])).unwrap();
+    let front = skill.strip_prefix("---\n").and_then(|s| s.split_once("\n---\n")).map(|(f, _)| f).unwrap();
+    assert!(front.lines().any(|l| l == "name: ddc"), "{front}");
+    let description = front.lines().find_map(|l| l.strip_prefix("description: ")).unwrap();
+    for trigger in ["disk space", "ENOSPC", "No space left on device", "worktree", "left behind"] {
+        assert!(description.contains(trigger), "the skill's description does not say {trigger:?}");
+    }
+    let snippet = std::fs::read_to_string(root.join(GUIDANCE[1])).unwrap();
+    assert!(
+        snippet.starts_with("<!-- ddc:begin -->\n") && snippet.ends_with("<!-- ddc:end -->\n"),
+        "the snippet's markers"
+    );
+    assert_eq!(snippet.matches("<!-- ddc:").count(), 2, "one begin and one end marker");
 }
