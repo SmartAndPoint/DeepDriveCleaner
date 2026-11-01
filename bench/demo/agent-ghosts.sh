@@ -26,12 +26,33 @@ export LC_ALL=C
 die() { echo "agent-ghosts: $*" >&2; exit 1; }
 
 [ $# -ge 1 ] || die "usage: $0 <dir> [stop]"
-mkdir -p "$1"
-DIR=$(cd "$1" && pwd -P)
 REAL_HOME=$(cd ~ && pwd -P)
-case "$DIR/" in
-    "$REAL_HOME"/*) die "$DIR is inside the real home; pick a folder outside it" ;;
+inside_home() {
+    case "$1/" in
+        "$REAL_HOME"/* | "${HOME:-$REAL_HOME}"/*) return 0 ;;
+    esac
+    return 1
+}
+# Refused before anything is made: a refused <dir> leaves nothing behind. Decided on the
+# path as given, made absolute, and on its nearest existing parent with symlinks resolved;
+# a `..` would let the part not yet made climb back, so it is refused too.
+case "/$1/" in
+    */../*) die "$1: give <dir> without '..'" ;;
 esac
+case "$1" in
+    /*) GIVEN=$1 ;;
+    *) GIVEN="$PWD/$1" ;;
+esac
+PARENT=$GIVEN
+while [ ! -d "$PARENT" ]; do PARENT=$(dirname "$PARENT"); done
+PARENT=$(cd "$PARENT" && pwd -P)
+if inside_home "$GIVEN" || inside_home "$PARENT"; then
+    die "$GIVEN is inside the real home; pick a folder outside it"
+fi
+[ "${2:-}" = stop ] && [ ! -d "$GIVEN" ] && die "$GIVEN was not built by this script"
+mkdir -p "$GIVEN"
+DIR=$(cd "$GIVEN" && pwd -P)
+inside_home "$DIR" && die "$DIR is inside the real home; pick a folder outside it"
 MARK="$DIR/.agent-ghosts"
 PIDFILE="$DIR/live.pid"
 
