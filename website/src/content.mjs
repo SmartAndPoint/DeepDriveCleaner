@@ -1,23 +1,23 @@
 "use strict";
 
 export const product = {
-  name: "DeepDriveCleaner", command: "ddc", version: "0.17.0", checked: "2026-11-02",
+  name: "DeepDriveCleaner", command: "ddc", version: "0.16.4", checked: "2026-11-02",
   origins: { product: "https://deepdrivecleaner.app", cli: "https://ddc.sh" },
   code: "https://github.com/SmartAndPoint/DeepDriveCleaner",
   vault: "https://github.com/SmartAndPoint/DeepDriveCleaner-projectstore",
   releases: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases",
-  release: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/tag/v0.17.0",
+  release: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/tag/v0.16.4",
   artifact: "https://claude.ai/artifact/1mdoyc7asMbj2qbtkDG2PV",
   license: "https://github.com/SmartAndPoint/DeepDriveCleaner/blob/main/LICENSE.md",
   disclaimer: "https://github.com/SmartAndPoint/DeepDriveCleaner/blob/main/DISCLAIMER.md",
   app: { os: "macos", architecture: "Apple Silicon", minimumOS: "macOS 26" },
   cli: {
-    macos: { label: "macOS", available: true, architecture: "Apple Silicon · ARM64", filename: "deepdrivecleaner-0.17.0-aarch64-apple-darwin.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.17.0/deepdrivecleaner-0.17.0-aarch64-apple-darwin.tar.gz" },
+    macos: { label: "macOS", available: true, architecture: "Apple Silicon · ARM64", filename: "deepdrivecleaner-0.16.4-aarch64-apple-darwin.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.16.4/deepdrivecleaner-0.16.4-aarch64-apple-darwin.tar.gz" },
     windows: { label: "Windows", available: false },
     linux: { label: "Linux", available: true, architecture: "x86_64 · ARM64 · static (musl)", archives: [
-      { filename: "deepdrivecleaner-0.17.0-x86_64-unknown-linux-musl.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.17.0/deepdrivecleaner-0.17.0-x86_64-unknown-linux-musl.tar.gz" },
-      { filename: "deepdrivecleaner-0.17.0-aarch64-unknown-linux-musl.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.17.0/deepdrivecleaner-0.17.0-aarch64-unknown-linux-musl.tar.gz" }
-    ], sums: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.17.0/SHA256SUMS" }
+      { filename: "deepdrivecleaner-0.16.4-x86_64-unknown-linux-musl.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.16.4/deepdrivecleaner-0.16.4-x86_64-unknown-linux-musl.tar.gz" },
+      { filename: "deepdrivecleaner-0.16.4-aarch64-unknown-linux-musl.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.16.4/deepdrivecleaner-0.16.4-aarch64-unknown-linux-musl.tar.gz" }
+    ], sums: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.16.4/SHA256SUMS" }
   },
   commands: {
     install: "brew install --cask smartandpoint/tap/deepdrivecleaner",
