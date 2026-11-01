@@ -13,7 +13,7 @@ use ddc_core::exec::Outcome;
 use ddc_core::exec::preflight::{Prediction, PreflightLine, PreflightSummary};
 use ddc_core::exec::report::CleanReport;
 use ddc_core::plan::ListedItems;
-use ddc_core::platform::{procs, statfs, usage};
+use ddc_core::platform::{self, Capability, procs, statfs, usage};
 use ddc_core::settings::SETTINGS;
 use ddc_core::store::{LAST_DISK, LAST_SCAN};
 
@@ -105,7 +105,8 @@ fn commands(profile: Profile, tree: &Path, data: &Path) -> Vec<(&'static str, Ve
         ("clean-dry-run", with_tree(args(&["clean", "--dry-run"]))),
         ("scan-background", with_tree(args(&["scan", "--background", "--no-notify"]))),
     ];
-    if profile == Profile::SystemRoot {
+    // `ddc disk` exits 69 where the platform does not declare it: nothing to measure.
+    if profile == Profile::SystemRoot && platform::CAPABILITIES.contains(&Capability::WholeDisk) {
         let mut disk = args(&["disk", "--json", "--system-root"]);
         disk.insert(3, tree.into());
         list.push(("disk", disk));
@@ -396,4 +397,18 @@ fn changed(before: &[(PathBuf, Option<SystemTime>)], after: &[(PathBuf, Option<S
             None => format!("{} removed", p.display()),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_system_root_profile_measures_disk_only_where_the_platform_has_it() {
+        let names: Vec<&str> =
+            commands(Profile::SystemRoot, Path::new("/t"), Path::new("/d")).into_iter().map(|(n, _)| n).collect();
+        let whole_disk = platform::CAPABILITIES.contains(&Capability::WholeDisk);
+        assert_eq!(names.contains(&"disk"), whole_disk, "{names:?}");
+        assert!(names.contains(&"scan") && names.contains(&"clean-dry-run"), "{names:?}");
+    }
 }
