@@ -194,6 +194,18 @@ pub trait CommandRunner {
     /// Runs without a shell, stdin closed, with `env` added to the
     /// environment; kills it after `timeout`.
     fn run(&self, exe: &Path, args: &[String], env: &[(&str, &str)], timeout: Duration) -> io::Result<CmdOutput>;
+    /// [`run`](Self::run), with every variable ddc inherited whose name
+    /// starts with `cleared` removed before `env` is added: a git probe
+    /// started from inside a git hook must not see the hook's `GIT_DIR` or
+    /// `GIT_INDEX_FILE` (story "Worktree findings and provenance").
+    fn run_cleared(
+        &self,
+        exe: &Path,
+        args: &[String],
+        cleared: &str,
+        env: &[(&str, &str)],
+        timeout: Duration,
+    ) -> io::Result<CmdOutput>;
 }
 
 pub trait Trasher {
@@ -253,6 +265,10 @@ pub struct Ports<'a> {
 
 /// Native cleanup commands may take long (Go module cache); then they are killed.
 pub const NATIVE_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// A question to a tool (a location probe, conda's settings, a git probe)
+/// that does not answer within this has failed.
+pub const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A runtime whose readiness probe does not answer within this is not ready.
 pub const READY_TIMEOUT: Duration = Duration::from_secs(5);

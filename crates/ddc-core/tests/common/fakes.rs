@@ -6,9 +6,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::Duration;
 
-use ddc_core::exec::{CmdOutput, CommandRunner, OpenVnode, ProcInfo, ProcStart, ProcessTable, Trasher};
+use ddc_core::env::Env;
+use ddc_core::exec::{CmdOutput, CommandRunner, OpenVnode, ProcInfo, ProcStart, ProcessTable, SystemCommands, Trasher};
 
 /// Told each call of [`FakeCommands`] before it answers.
 pub type CallHook = Box<dyn Fn(&str)>;
@@ -43,6 +45,8 @@ pub struct FakeCommands {
     pub by_path: HashMap<String, (bool, String)>,
     /// Each call with its absolute path, in the order of `calls`.
     pub path_calls: RefCell<Vec<String>>,
+    /// The prefix each [`CommandRunner::run_cleared`] call cleared, in order.
+    pub cleared: RefCell<Vec<String>>,
 }
 
 impl FakeCommands {
@@ -145,6 +149,125 @@ impl CommandRunner for FakeCommands {
         });
         let stderr = self.stderr.get(&call).cloned().unwrap_or_default();
         Ok(CmdOutput { success, code: Some(i32::from(!success)), stdout, stderr })
+    }
+    /// As [`run`](CommandRunner::run); `cleared` is recorded in `cleared`.
+    fn run_cleared(
+        &self,
+        exe: &Path,
+        args: &[String],
+        cleared: &str,
+        env: &[(&str, &str)],
+        timeout: Duration,
+    ) -> io::Result<CmdOutput> {
+        self.cleared.borrow_mut().push(cleared.to_owned());
+        self.run(exe, args, env, timeout)
+    }
+}
+
+/// One call [`SharedCommands`] saw.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Recorded {
+    pub exe: PathBuf,
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+    /// The prefix of the inherited variables removed; `None` for a plain `run`.
+    pub cleared: Option<String>,
+    pub timeout: Duration,
+}
+
+/// A runner a scan's parallel probes can share (`Send + Sync`, unlike
+/// [`FakeCommands`]): it records every call behind a mutex, and runs the
+/// real tools through `inner`, or answers from `answers` for the programs
+/// at the paths of `present`.
+#[derive(Default)]
+pub struct SharedCommands {
+    pub inner: Option<SystemCommands>,
+    /// Without `inner`: the only programs that exist, by absolute path.
+    pub present: HashSet<PathBuf>,
+    /// Without `inner`: `"<exe> <args joined by spaces>"` → exit 0 or not, stdout.
+    /// Any other call fails to start.
+    pub answers: HashMap<String, (bool, String)>,
+    pub calls: Mutex<Vec<Recorded>>,
+}
+
+impl SharedCommands {
+    /// The system's tools, as a scan in `env` finds them, recorded.
+    pub fn system(env: &Env) -> Self {
+        Self { inner: Some(SystemCommands::new(env)), ..Self::default() }
+    }
+
+    /// Only the programs at `present`, each answering as `answers` says.
+    pub fn answering(present: &[&str], answers: &[(&str, bool, &str)]) -> Self {
+        Self {
+            present: present.iter().map(PathBuf::from).collect(),
+            answers: answers.iter().map(|(call, ok, out)| ((*call).to_owned(), (*ok, (*out).to_owned()))).collect(),
+            ..Self::default()
+        }
+    }
+
+    pub fn calls(&self) -> Vec<Recorded> {
+        self.calls.lock().unwrap().clone()
+    }
+
+    /// The calls of a program named `git`.
+    pub fn git_calls(&self) -> Vec<Recorded> {
+        self.calls().into_iter().filter(|c| c.exe.file_name().is_some_and(|n| n == "git")).collect()
+    }
+
+    fn record(&self, exe: &Path, args: &[String], cleared: Option<&str>, env: &[(&str, &str)], timeout: Duration) {
+        self.calls.lock().unwrap().push(Recorded {
+            exe: exe.to_path_buf(),
+            args: args.to_vec(),
+            env: env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(),
+            cleared: cleared.map(str::to_owned),
+            timeout,
+        });
+    }
+
+    fn answer(&self, exe: &Path, args: &[String]) -> io::Result<CmdOutput> {
+        let call = format!("{} {}", exe.display(), args.join(" "));
+        match self.answers.get(&call) {
+            Some((success, stdout)) => Ok(CmdOutput {
+                success: *success,
+                code: Some(i32::from(!success)),
+                stdout: stdout.clone(),
+                stderr: String::new(),
+            }),
+            None => Err(io::Error::new(io::ErrorKind::NotFound, call)),
+        }
+    }
+}
+
+impl CommandRunner for SharedCommands {
+    fn find(&self, program: &str) -> Option<PathBuf> {
+        self.inner.as_ref().and_then(|i| i.find(program))
+    }
+    fn at(&self, exe: &Path) -> Option<PathBuf> {
+        match &self.inner {
+            Some(inner) => inner.at(exe),
+            None => self.present.contains(exe).then(|| exe.to_path_buf()),
+        }
+    }
+    fn run(&self, exe: &Path, args: &[String], env: &[(&str, &str)], timeout: Duration) -> io::Result<CmdOutput> {
+        self.record(exe, args, None, env, timeout);
+        match &self.inner {
+            Some(inner) => inner.run(exe, args, env, timeout),
+            None => self.answer(exe, args),
+        }
+    }
+    fn run_cleared(
+        &self,
+        exe: &Path,
+        args: &[String],
+        cleared: &str,
+        env: &[(&str, &str)],
+        timeout: Duration,
+    ) -> io::Result<CmdOutput> {
+        self.record(exe, args, Some(cleared), env, timeout);
+        match &self.inner {
+            Some(inner) => inner.run_cleared(exe, args, cleared, env, timeout),
+            None => self.answer(exe, args),
+        }
     }
 }
 

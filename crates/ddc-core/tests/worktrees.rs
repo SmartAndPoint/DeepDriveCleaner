@@ -119,10 +119,15 @@ fn a_claude_code_worktree_is_a_git_worktree_finding_and_its_main_checkout_none()
     let state = f.worktree.as_ref().expect("a worktree state");
     assert!(state.linked);
     assert_eq!((state.branch.as_deref(), state.detached, state.locked), (Some("worktree-x"), Some(false), Some(false)));
-    assert_eq!(state.probe, WorktreeProbe::Unknown, "no git probe runs before the story's next step");
-    assert_eq!((state.clean, state.own_commits, state.submodules, state.in_use), (None, None, None, None));
-    assert!(f.hint.starts_with(&format!("a linked worktree of {};", main.display())), "{}", f.hint);
-    assert!(f.hint.contains("git worktree remove"), "{}", f.hint);
+    assert_eq!(state.probe, WorktreeProbe::Unknown, "just made: below the idle window, no git probe runs");
+    assert_eq!((state.in_use, state.idle_days), (Some(false), Some(0)));
+    assert_eq!((state.clean, state.own_commits, state.submodules), (None, None, None));
+    assert!(
+        f.hint.starts_with(&format!("a linked worktree of {}; kept: used 0 days ago", main.display())),
+        "{}",
+        f.hint
+    );
+    assert!(f.hint.contains("--worktree-min-age"), "{}", f.hint);
     assert_eq!(r.findings.iter().filter(|f| f.rule.starts_with("git.")).count(), 1, "{:?}", h.summary(&r));
 }
 

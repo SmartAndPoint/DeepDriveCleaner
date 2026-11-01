@@ -93,6 +93,10 @@ pub struct ScanArgs {
     /// (default: settings.json, else 14).
     #[arg(long, value_name = "DAYS", value_parser = clap::value_parser!(u64).range(0..=3650))]
     pub min_age: Option<u64>,
+    /// A coding agent's worktree idle for at least this many days is selected
+    /// when it is clean and holds nothing of its own (default 2).
+    #[arg(long, value_name = "DAYS", value_parser = clap::value_parser!(u64).range(0..=3650))]
+    pub worktree_min_age: Option<u64>,
     /// Where the last scan and the lock live (default: ~/Library/Application Support/DeepDriveCleaner).
     #[arg(long, value_name = "DIR")]
     pub data_dir: Option<PathBuf>,
@@ -253,6 +257,10 @@ pub struct CleanArgs {
     /// settings.json, else 14).
     #[arg(long, value_name = "DAYS", value_parser = clap::value_parser!(u64).range(0..=3650))]
     pub min_age: Option<u64>,
+    /// A coding agent's worktree idle for at least this many days is selected
+    /// when it is clean and holds nothing of its own (default 2).
+    #[arg(long, value_name = "DAYS", value_parser = clap::value_parser!(u64).range(0..=3650))]
+    pub worktree_min_age: Option<u64>,
     /// Show the plan and exit without changing anything.
     #[arg(long)]
     pub dry_run: bool,

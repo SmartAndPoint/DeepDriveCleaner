@@ -89,6 +89,7 @@ pub fn run_with(
             excludes: args.exclude.clone(),
             skips: args.skip.clone(),
             min_age_days: args.min_age,
+            worktree_min_age_days: args.worktree_min_age,
         },
     )?;
     for path in &resolved.missing {

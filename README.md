@@ -149,8 +149,8 @@ ddc clean                # review the plan, then clean what you confirm
 Read-only: it never changes a file. It walks your home folder (or the paths you give), groups findings by risk class and type, and prints the largest per group. It saves the report as the last scan, which the app shows.
 
 ```
-ddc scan [PATH…] [--json] [--all] [--exclude PATH]… [--skip PATH]… [--min-age DAYS] [--data-dir DIR] [--threads N]
-         [--progress json]
+ddc scan [PATH…] [--json] [--all] [--exclude PATH]… [--skip PATH]… [--min-age DAYS] [--worktree-min-age DAYS]
+         [--data-dir DIR] [--threads N] [--progress json]
 ```
 
 | Option | Meaning |
@@ -161,6 +161,7 @@ ddc scan [PATH…] [--json] [--all] [--exclude PATH]… [--skip PATH]… [--min-
 | `--exclude PATH` | Never touch this folder: it is reported as protected user data. Repeatable. Replaces the `excludes` of `settings.json` (see [Settings](#settings)). |
 | `--skip PATH` | Never read this folder: it is not scanned and never cleaned, and the report lists it as not scanned. Repeatable. Adds to the `skips` of `settings.json`. |
 | `--min-age DAYS` | A project untouched for at least this many days has its rebuildable artifacts selected. Default: `settings.json`, else 14. |
+| `--worktree-min-age DAYS` | A coding agent's linked worktree untouched for at least this many days, by its own activity, is selected when it is also unlocked, not in use, without an initialized submodule, clean (its ignored files included) and without commits of its own. Default 2. A person's own worktree is never selected. |
 | `--data-dir DIR` | Where the last scan, the settings and the lock live (default `~/Library/Application Support/DeepDriveCleaner`). Logs then go to `DIR/logs`. The `DDC_DATA_DIR` environment variable does the same. |
 | `--threads N` | Worker threads. Default: one per core. |
 | `--progress json` | Write progress to stderr as events, one JSON line each ([`docs/progress.schema.json`](docs/progress.schema.json)): the files, folders and bytes read so far, at most every 100 ms, the last line with the report's totals. Other stderr lines start with `ddc:`. Without it, a terminal shows a live line instead. |
@@ -186,7 +187,8 @@ Right before touching an item it checks it again (see [Safety](#safety)) and ski
 
 ```
 ddc clean [PATH…] [--dry-run] [--yes] [--class CLASS]… [--category CATEGORY]… [--min-size SIZE]
-          [--min-age DAYS] [--permanent] [--exclude PATH]… [--skip PATH]… [--data-dir DIR] [--progress json]
+          [--min-age DAYS] [--worktree-min-age DAYS] [--permanent] [--exclude PATH]… [--skip PATH]… [--data-dir DIR]
+          [--progress json]
 ```
 
 | Option | Meaning |
@@ -198,6 +200,7 @@ ddc clean [PATH…] [--dry-run] [--yes] [--class CLASS]… [--category CATEGORY]
 | `--category CATEGORY` | Only these categories: `project-artifact`, `package-cache`, `xcode`, `vm-container`, `toolchain`, `ml-model`, `ide`, `app-cache`, `generic-cache`. Repeatable. |
 | `--min-size SIZE` | Skip findings smaller than this: `512K`, `100M`, `2G`, `1T`, or bytes. Applies on top of `min_size` in `settings.json`. |
 | `--min-age DAYS` | As for `scan`. |
+| `--worktree-min-age DAYS` | As for `scan`. |
 | `--permanent` | Delete `review` items instead of moving them to the Trash. |
 | `--exclude PATH` | Never touch this folder. Repeatable. |
 | `--skip PATH` | Never read this folder. Repeatable. Adds to the `skips` of `settings.json`. |

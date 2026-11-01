@@ -14,6 +14,7 @@ pub mod disk;
 pub mod env;
 pub mod exec;
 pub mod free;
+pub mod git;
 pub mod heap;
 pub mod json_path;
 pub mod keep;

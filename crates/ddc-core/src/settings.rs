@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::env::Env;
 use crate::model::ExclusionOrigin;
-use crate::report::{DEFAULT_MIN_AGE, ScanOptions};
+use crate::report::{DEFAULT_MIN_AGE, DEFAULT_WORKTREE_MIN_AGE, ScanOptions};
 
 pub const SETTINGS: &str = "settings.json";
 /// Version of [`Settings`]; the scan report has its own.
@@ -165,6 +165,9 @@ pub struct ScanFlags {
     /// Added to the settings' skips, never in place of them.
     pub skips: Vec<PathBuf>,
     pub min_age_days: Option<u64>,
+    /// `--worktree-min-age`: a harness's worktree idle this many days may
+    /// be selected; [`DEFAULT_WORKTREE_MIN_AGE`] without it.
+    pub worktree_min_age_days: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -247,6 +250,9 @@ impl Settings {
                     ExclusionOrigin::Flag
                 },
                 min_age: min_age_days.map_or(DEFAULT_MIN_AGE, |d| Duration::from_secs(d * 86_400)),
+                worktree_min_age: flags
+                    .worktree_min_age_days
+                    .map_or(DEFAULT_WORKTREE_MIN_AGE, |d| Duration::from_secs(d * 86_400)),
                 disabled_rules: self.disabled_rules.clone(),
                 min_size: self.min_size.unwrap_or(0),
                 ..ScanOptions::default()

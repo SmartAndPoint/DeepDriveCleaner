@@ -17,18 +17,23 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::class::{Removal, RiskClass};
 use crate::env::Env;
-use crate::exec::{ProcessTable, SystemProcesses};
+use crate::exec::{CommandRunner, PROBE_TIMEOUT, ProcessTable, SystemCommands, SystemProcesses};
 use crate::model::{
     ClassTotal, ExclusionOrigin, Finding, Inaccessible, LargeFile, NotSelected, Project, RemovalKind, SCHEMA_VERSION,
     ScanReport, SkippedPath, Totals,
 };
-use crate::rules::{Catalog, Classified, KEPT, RuleVisitor, TOMBSTONE, classify, worktree};
+use crate::rules::{Catalog, Classified, KEPT, RuleVisitor, TOMBSTONE, classify_probed, worktree};
 use crate::scan::{self, DirReader, Progress, ReadErrorKind, Visitor, WalkError, WalkOptions, WalkSetupError};
 use crate::stats;
 use contents::{ContentsLimits, EntryIndex};
 use volumes::{StatFs, SystemStatFs};
 
 pub const DEFAULT_MIN_AGE: Duration = Duration::from_secs(14 * 86_400);
+
+/// A harness's worktree idle at least this long may be selected
+/// (`--worktree-min-age`): an agent's worktree is dead within hours, and two
+/// days leave a weekend.
+pub const DEFAULT_WORKTREE_MIN_AGE: Duration = Duration::from_secs(2 * 86_400);
 
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
@@ -58,8 +63,39 @@ pub struct ScanOptions {
     pub contents: ContentsLimits,
     pub walk: WalkOptions,
     /// The processes a scan asks about a coding agent's sessions, when it
-    /// finds one (story "Harness data rules", epic DDC-003).
+    /// finds one (story "Harness data rules", epic DDC-003), and about a
+    /// linked worktree it may select.
     pub processes: Processes,
+    /// What runs the git probes of a linked worktree (story "Worktree
+    /// findings and provenance").
+    pub commands: Commands,
+    /// A harness's worktree idle at least this long may be selected.
+    pub worktree_min_age: Duration,
+    /// Each git probe's timeout.
+    pub probe_timeout: Duration,
+}
+
+/// The tools a scan runs: the system's, found in the environment's tool
+/// folders, unless a test injects others. Shared by the parallel probes.
+#[derive(Clone, Default)]
+pub struct Commands(Option<Arc<dyn CommandRunner + Send + Sync>>);
+
+impl Commands {
+    /// These tools instead of the system's; the caller may keep `runner` to
+    /// read what ran.
+    pub fn shared(runner: Arc<dyn CommandRunner + Send + Sync>) -> Self {
+        Self(Some(runner))
+    }
+
+    fn runner(&self, env: &Env) -> Arc<dyn CommandRunner + Send + Sync> {
+        self.0.clone().unwrap_or_else(|| Arc::new(SystemCommands::new(env)))
+    }
+}
+
+impl std::fmt::Debug for Commands {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() { "Commands(fixed)" } else { "Commands(system)" })
+    }
 }
 
 /// The process table a scan reads a session's liveness from: the system's,
@@ -103,6 +139,9 @@ impl Default for ScanOptions {
             contents: ContentsLimits::default(),
             walk: WalkOptions::default(),
             processes: Processes::default(),
+            commands: Commands::default(),
+            worktree_min_age: DEFAULT_WORKTREE_MIN_AGE,
+            probe_timeout: PROBE_TIMEOUT,
         }
     }
 }
@@ -211,8 +250,17 @@ pub(crate) fn scan_inner(
     // One read per folder: many findings can share a project root that holds
     // hundreds of thousands of entries (a temp folder).
     let mut activity = HashMap::new();
+    let commands = opts.commands.runner(env);
+    let probing = worktree::Probing {
+        now: env.now(),
+        min_age: opts.worktree_min_age,
+        processes: opts.processes.table(),
+        commands: &*commands,
+        tool_dirs: env.tool_dirs(),
+        timeout: opts.probe_timeout,
+    };
     let mut findings: Vec<Finding> =
-        classify(&out, &visitor).iter().map(|c| finding(c, env.now(), opts, &mut activity)).collect();
+        classify_probed(&out, &visitor, &probing).iter().map(|c| finding(c, env.now(), opts, &mut activity)).collect();
     sort_findings(&mut findings);
     let markers = visitor.keep_markers();
     let skips: Vec<PathBuf> = opts.skip.iter().chain(&opts.user_skips).cloned().collect();

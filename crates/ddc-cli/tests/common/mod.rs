@@ -78,6 +78,32 @@ pub fn skipped_without<T>(test: &str, made: std::io::Result<T>) -> Option<T> {
     }
 }
 
+/// `git -C <dir> <args>` with no global or system configuration, a fixed
+/// identity, no prompt and none of the `GIT_*` variables this process has
+/// (a git hook's `GIT_DIR`): its stdout, trimmed. `Unsupported` when no git
+/// runs here, for [`skipped_without`]; a git that fails panics.
+pub fn git(dir: &Path, args: &[&str]) -> std::io::Result<String> {
+    let mut cmd = std::process::Command::new("git");
+    for (key, _) in std::env::vars_os() {
+        if key.to_str().is_some_and(|k| k.starts_with("GIT_")) {
+            cmd.env_remove(key);
+        }
+    }
+    let out = cmd
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+        .args(["-c", "core.hooksPath=/dev/null"])
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Unsupported, format!("no git: {e}")))?;
+    assert!(out.status.success(), "git {args:?} in {}: {}", dir.display(), String::from_utf8_lossy(&out.stderr));
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
+}
+
 /// `(dev, ino)` of one path, without following symlinks.
 pub fn id(path: impl AsRef<Path>) -> (u64, u64) {
     ddc_core::platform::meta::lstat(path.as_ref()).unwrap().id()

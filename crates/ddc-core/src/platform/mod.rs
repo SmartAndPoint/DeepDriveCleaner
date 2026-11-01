@@ -111,6 +111,10 @@ mod pins {
 
     const _: fn() -> Option<PathBuf> = imp::folders::home;
     const _: fn(&Path) -> (PathBuf, PathBuf) = imp::folders::default_data_and_log;
+    const _: &str = imp::folders::GIT_PROGRAM;
+    const _: &[&str] = imp::folders::GIT_SHIM_DIRS;
+    const _: &[&str] = imp::folders::GIT_SYSTEM_DIRS;
+    const _: Option<&str> = imp::folders::DEVELOPER_DIR_TOOL;
 
     const _: fn() -> io::Result<()> = imp::iopolicy::disable_dataless_materialization;
     const _: fn() -> io::Result<bool> = imp::iopolicy::dataless_materialization_disabled;

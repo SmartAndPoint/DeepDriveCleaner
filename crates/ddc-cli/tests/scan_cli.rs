@@ -307,3 +307,93 @@ fn scan_of_the_settings_roots_by_path_says_nothing() {
     assert!(shows_line(&ddc(&home, &["scan", &dotted])), "one of two settings roots is other roots");
     assert!(!shows_line(&ddc(&home, &["scan", &dotted, other.to_str().unwrap()])));
 }
+
+/// A repository in the home with a coding agent's worktree just made, both
+/// clean; `None` after printing why the test skips (no git here).
+fn worktree_fixture(test: &str) -> Option<(tempfile::TempDir, std::path::PathBuf, std::path::PathBuf)> {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().canonical().unwrap().join("home");
+    let main = home.join("proj");
+    fs::create_dir_all(&main).unwrap();
+    common::skipped_without(test, common::git(&main, &["init", "-q", "-b", "main"]))?;
+    fs::write(main.join("README"), "hello\n").unwrap();
+    common::git(&main, &["add", "README"]).unwrap();
+    common::git(&main, &["commit", "-q", "-m", "init"]).unwrap();
+    let wt = main.join(".claude/worktrees/x");
+    common::git(&main, &["worktree", "add", "-q", "-b", "worktree-x", wt.to_str().unwrap()]).unwrap();
+    Some((tmp, home, wt))
+}
+
+fn worktree_finding(out: &Output, wt: &Path) -> serde_json::Value {
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let report = serde_json::to_value(contract::holds::<ScanReport>("scan", &out.stdout)).unwrap();
+    let found = report["findings"].as_array().unwrap().iter().find(|f| f["path"] == wt.to_str().unwrap()).cloned();
+    found.unwrap_or_else(|| panic!("no finding at {}: {report}", wt.display()))
+}
+
+/// `--worktree-min-age 0` selects a clean agent worktree touched a minute
+/// ago; the default two days leave it within the window.
+#[test]
+fn worktree_min_age_zero_selects_a_fresh_agent_worktree() {
+    if common::unsupported("worktree_min_age_zero_selects_a_fresh_agent_worktree") {
+        return;
+    }
+    let Some((tmp, home, wt)) = worktree_fixture("worktree_min_age_zero_selects_a_fresh_agent_worktree") else {
+        return;
+    };
+    let data = tmp.path().join("data");
+    let data = data.to_str().unwrap();
+
+    let default = worktree_finding(&ddc(&home, &["scan", "--json", "--data-dir", data]), &wt);
+    let zero = worktree_finding(&ddc(&home, &["scan", "--json", "--data-dir", data, "--worktree-min-age", "0"]), &wt);
+
+    assert_eq!((&default["class"], &default["selected"]), (&"review".into(), &false.into()), "{default}");
+    assert_eq!(default["worktree"]["probe"], "unknown");
+    assert!(default["hint"].as_str().unwrap().contains("--worktree-min-age"), "{default}");
+    assert_eq!((&zero["class"], &zero["selected"]), (&"rebuildable".into(), &true.into()), "{zero}");
+    assert_eq!((&zero["worktree"]["probe"], &zero["worktree"]["own_commits"]), (&"known".into(), &0.into()));
+}
+
+/// Started from a git hook, ddc inherits `GIT_DIR`, `GIT_INDEX_FILE` and
+/// `GIT_WORK_TREE` of another repository: its probes still read only the
+/// worktree, and the other repository is left as it was.
+#[test]
+fn git_variables_of_a_hook_never_reach_the_probes() {
+    if common::unsupported("git_variables_of_a_hook_never_reach_the_probes") {
+        return;
+    }
+    let Some((tmp, home, wt)) = worktree_fixture("git_variables_of_a_hook_never_reach_the_probes") else { return };
+    // The hook's repository, dirty: a probe that read it would keep the worktree.
+    let outer = tmp.path().canonical().unwrap().join("outer");
+    fs::create_dir_all(&outer).unwrap();
+    common::git(&outer, &["init", "-q", "-b", "main"]).unwrap();
+    fs::write(outer.join("tracked"), "one\n").unwrap();
+    common::git(&outer, &["add", "tracked"]).unwrap();
+    common::git(&outer, &["commit", "-q", "-m", "outer"]).unwrap();
+    fs::write(outer.join("tracked"), "changed\n").unwrap();
+    fs::write(outer.join("untracked"), "new\n").unwrap();
+    let dot_git = outer.join(".git");
+    let watched = ["config", "index", "HEAD"].map(|f| dot_git.join(f));
+    let read = || -> Vec<_> {
+        watched.iter().map(|p| (fs::read(p).unwrap(), fs::metadata(p).unwrap().modified().unwrap())).collect()
+    };
+    let before = read();
+    let data = tmp.path().join("data");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
+        .clear_env()
+        .home_env(&home)
+        .env("PATH", "")
+        .env("GIT_DIR", &dot_git)
+        .env("GIT_INDEX_FILE", dot_git.join("index"))
+        .env("GIT_WORK_TREE", &outer)
+        .args(["scan", "--json", "--worktree-min-age", "0", "--data-dir", data.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    let f = worktree_finding(&out, &wt);
+    assert_eq!((&f["class"], &f["selected"]), (&"rebuildable".into(), &true.into()), "{f}");
+    assert_eq!(f["worktree"]["clean"], true);
+    assert_eq!(read(), before, "the hook's repository is untouched");
+    assert!(!dot_git.join("worktrees").exists());
+}

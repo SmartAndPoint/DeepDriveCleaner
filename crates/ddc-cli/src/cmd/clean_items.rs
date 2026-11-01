@@ -52,6 +52,7 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
             excludes: args.exclude.clone(),
             skips: args.skip.clone(),
             min_age_days: args.min_age,
+            worktree_min_age_days: args.worktree_min_age,
         },
     )?;
     super::note_missing(&resolved.missing);

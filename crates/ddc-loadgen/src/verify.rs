@@ -112,6 +112,16 @@ impl CommandRunner for NoTools {
     fn run(&self, exe: &Path, _: &[String], _: &[(&str, &str)], _: std::time::Duration) -> std::io::Result<CmdOutput> {
         Err(std::io::Error::other(format!("no tool runs in a preflight: {}", exe.display())))
     }
+    fn run_cleared(
+        &self,
+        exe: &Path,
+        args: &[String],
+        _: &str,
+        env: &[(&str, &str)],
+        timeout: std::time::Duration,
+    ) -> std::io::Result<CmdOutput> {
+        self.run(exe, args, env, timeout)
+    }
 }
 
 struct NoProcesses;

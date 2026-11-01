@@ -58,6 +58,27 @@ pub struct Classified {
 }
 
 pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> {
+    classify_in(out, visitor, &visitor.worktrees())
+}
+
+/// [`classify`], then the six conditions of every harness's linked
+/// worktree (`worktree::assess`): a scan's classification.
+pub fn classify_probed(
+    out: &WalkOutput,
+    visitor: &RuleVisitor<'_>,
+    probing: &worktree::Probing<'_>,
+) -> Vec<Classified> {
+    let worktrees = visitor.worktrees();
+    let mut found = classify_in(out, visitor, &worktrees);
+    worktree::assess(&mut found, &worktrees, probing);
+    found
+}
+
+fn classify_in(
+    out: &WalkOutput,
+    visitor: &RuleVisitor<'_>,
+    worktrees: &HashMap<PathBuf, Recognized>,
+) -> Vec<Classified> {
     let catalog = visitor.catalog();
     let home = catalog.home();
     let kept = catalog.by_id(KEPT).expect("catalog defines user.kept");
@@ -66,7 +87,6 @@ pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> 
     let claims = visitor.kept_claims();
     let mut locks = LockFiles::default();
     let dropped = toolchain::dropped(&out.owners, catalog, &visitor.pins());
-    let worktrees = visitor.worktrees();
 
     let mut found = Vec::new();
     for owner in &out.owners {
