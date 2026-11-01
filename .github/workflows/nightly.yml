@@ -115,11 +115,11 @@ jobs:
           name: load-m
           path: target/load
 
-  # Every profile at S and M on Linux, 3 runs each, recorded and judged nowhere (story
-  # "Linux scanner and rule catalog", DDC-007): the trees go in marked temporary folders,
-  # as Linux has no disk image without root. `make load-baseline` derives the limits from
-  # the two tables; bench/load-limits-linux.tsv is set from this job's artifact, a hosted
-  # runner being the one Linux reference the repository has.
+  # Every profile at M on Linux, 3 runs each, judged against bench/load-limits-linux.tsv
+  # (story "Linux scanner and rule catalog", DDC-007): the trees go in marked temporary
+  # folders, as Linux has no disk image without root. That file came from `make
+  # load-baseline` on this job's runner, a hosted runner being the one Linux reference
+  # the repository has; to re-record it, run that target here and commit its artifact.
   load-linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -133,7 +133,7 @@ jobs:
         with:
           cache-bin: false
           key: load-linux
-      - run: make load-baseline
+      - run: make load LOAD_SIZE=M
       - uses: actions/upload-artifact@v7
         if: always()
         with:
