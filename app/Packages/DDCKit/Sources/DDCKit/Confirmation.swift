@@ -70,6 +70,28 @@ public struct Confirmation: Sendable, Equatable {
         items[index].permanent.toggle()
     }
 
+    /// Delete all permanently, over the items that can be: each keeps its
+    /// own `permanent`, so consent stays per item.
+    public var permanentState: CheckState {
+        let switchable = items.filter(\.canBePermanent)
+        let on = switchable.filter(\.permanent).count
+        return on == 0 ? .off : on == switchable.count ? .on : .mixed
+    }
+
+    /// The sheet-wide checkbox shows once two items can be deleted permanently.
+    public var showsAllPermanent: Bool { items.filter(\.canBePermanent).count >= 2 }
+
+    /// Sets Delete permanently on every item that can be; true when any changed.
+    @discardableResult
+    public mutating func setAllPermanent(_ on: Bool) -> Bool {
+        var changed = false
+        for index in items.indices where items[index].canBePermanent && items[index].permanent != on {
+            items[index].permanent = on
+            changed = true
+        }
+        return changed
+    }
+
     /// "Selected": what the scan measured, as the Review window and the class rows name it.
     public var bytes: UInt64 { items.reduce(0) { $0 + $1.finding.bytes } }
     /// What the clean frees. A `native-only` item frees space inside its

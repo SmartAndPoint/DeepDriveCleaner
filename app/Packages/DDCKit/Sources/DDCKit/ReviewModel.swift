@@ -564,6 +564,13 @@ public final class ReviewModel: ReviewRouting {
         sheet?.predictions[id] = nil
     }
 
+    /// Delete all permanently. One click can change every item's action, and a
+    /// delete is predicted differently from a Trash move, so the check runs again.
+    public func setAllPermanent(_ on: Bool) {
+        guard sheet?.stage == .confirm, sheet?.confirmation.setAllPermanent(on) == true else { return }
+        checkWarnings()
+    }
+
     /// Back to review, or Done on the result.
     public func closeSheet() {
         guard let sheet else { return }
