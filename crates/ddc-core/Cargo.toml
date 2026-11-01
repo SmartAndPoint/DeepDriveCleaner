@@ -28,7 +28,7 @@ trash.workspace = true
 rustix = { workspace = true, features = ["param", "process", "stdio", "termios", "time"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console"] }
+windows-sys = { workspace = true, features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_Kernel"] }
 
 [features]
 # The gate builds with both, one at a time: they install a global allocator each.

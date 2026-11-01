@@ -11,6 +11,7 @@ use super::{Capability, Platform};
 
 pub mod errno;
 pub mod folders;
+pub mod fsops;
 pub mod meta;
 pub mod paths;
 pub mod rlimit;
