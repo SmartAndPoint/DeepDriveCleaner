@@ -47,6 +47,7 @@ jobs:
       actions: read
     outputs:
       scope: ${{ steps.scope.outputs.scope }}
+      mounts: ${{ steps.scope.outputs.mounts }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -60,6 +61,13 @@ jobs:
           [ "$scope" = skip ] || scope=rust
           echo "scope=$scope" >> "$GITHUB_OUTPUT"
           echo "Rust jobs: $scope" >> "$GITHUB_STEP_SUMMARY"
+          mounts=no
+          if [ "$scope" = rust ]; then
+            mounts="$(scripts/gate-scope.sh mounts "$GITHUB_SHA" || true)"
+            [ "$mounts" = no ] || mounts=yes
+          fi
+          echo "mounts=$mounts" >> "$GITHUB_OUTPUT"
+          echo "Linux mounts job: $mounts" >> "$GITHUB_STEP_SUMMARY"
 
   gate:
     needs: scope
@@ -200,6 +208,56 @@ jobs:
         if: ${{ !cancelled() && needs.scope.outputs.scope != 'skip' && steps.tests.outcome != 'skipped' }}
         shell: bash
         run: scripts/native-skips.sh "${RUNNER_OS,,}" "$RUNNER_TEMP/native-tests.log"
+
+  # The tests that need real filesystems and root-made files (story "Linux CI mounts: a
+  # filesystem matrix job with root-only steps", DDC-010): scripts/ci-mounts.sh mounts
+  # btrfs, XFS, ZFS, NFS, CIFS, casefold ext4, exFAT, tmpfs and a bind mount on the
+  # runner itself (a container could not mount), then the environment group of
+  # .config/native-skips/linux.txt runs, and any skip in it fails. It runs when the Rust
+  # jobs do and gate-scope.sh's `mounts` does not answer `no`: on main whenever Rust
+  # runs, on a branch when the change touches what they judge. A failed scope runs it.
+  # Not a required check yet, so continue-on-error keeps a red run from blocking a
+  # release (scripts/ci-green.sh) or a scope base (BASE_JOBS): it becomes required after
+  # a week of green runs. Its steps skip, never the job, so the check is always posted.
+  linux-mounts:
+    needs: scope
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+        if: ${{ needs.scope.outputs.mounts != 'no' }}
+      - name: Toolchain from rust-toolchain.toml
+        if: ${{ needs.scope.outputs.mounts != 'no' }}
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        if: ${{ needs.scope.outputs.mounts != 'no' }}
+        with:
+          cache-bin: false
+          cache-on-failure: true
+          key: linux-mounts
+      - name: The nextest version .config/tools.mk pins
+        if: ${{ needs.scope.outputs.mounts != 'no' }}
+        id: tools
+        run: echo "nextest=$(sed -n 's/^NEXTEST_VERSION := //p' .config/tools.mk)" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        if: ${{ needs.scope.outputs.mounts != 'no' }}
+        with:
+          tool: nextest@${{ steps.tools.outputs.nextest }}
+      - name: Mounts
+        if: ${{ needs.scope.outputs.mounts != 'no' }}
+        run: scripts/ci-mounts.sh up /tmp/ddc-mounts >> "$GITHUB_ENV"
+      # shell: bash is `bash -eo pipefail`: a failing nextest fails the step through tee.
+      - name: Tests on the mounts
+        if: ${{ needs.scope.outputs.mounts != 'no' }}
+        shell: bash
+        run: |
+          cargo nextest run --workspace --locked --features ddc-core/op-stats \
+            -E "$(scripts/native-skips.sh --filter linux)" 2>&1 | tee "$RUNNER_TEMP/mounts-tests.log"
+      - name: Every test of the environment group passed
+        if: ${{ !cancelled() && needs.scope.outputs.mounts != 'no' }}
+        run: scripts/native-skips.sh --mounts linux "$RUNNER_TEMP/mounts-tests.log"
 
   # The release CLI as `make dist` builds and checks it before signing (story "Build
   # matrix: every target built, tested and packaged from one tag", DDC-007): release-only

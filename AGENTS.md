@@ -68,6 +68,11 @@
   `uncovered` with the reason; a unit test in `src/cli.rs` fails otherwise. The commit
   hook runs it when a staged path is under `crates/` or is `Cargo.toml` or `Cargo.lock`.
 - Never commit or push with `--no-verify`: fix what the gate names.
+- The Gate's `linux-mounts` job (btrfs, XFS, ZFS, NFS, CIFS and other mounts on the
+  runner, story "Linux CI mounts: a filesystem matrix job with root-only steps", DDC-010)
+  is not a required check yet. A red one does not block the merge or a release, but it
+  stops `gh pr checks --watch --fail-fast`: then read `gh pr view <n> --json state` and fix
+  the job's failure in a follow-up.
 - The pre-commit and commit-msg hooks run `scripts/private-scan.sh`. It refuses an added
   line, a file name or a commit message that holds a value of `.env` (8 characters or
   more) or a string of `.local/private-strings` (the owner's machines, their addresses

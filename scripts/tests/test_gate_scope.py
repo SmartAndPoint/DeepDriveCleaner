@@ -224,6 +224,48 @@ class StagedCases(unittest.TestCase):
         self.assertEqual(self.repo.scope("staged")[0], "rust")
 
 
+class Mounts(unittest.TestCase):
+    """Whether the linux-mounts job runs its tests (story "Linux CI mounts")."""
+
+    def setUp(self):
+        self.repo = Repo(self)
+        self.base = self.repo.commit(
+            "crates/ddc-core/src/scan/walker.rs", "crates/ddc-cli/src/render.rs", "app/A.swift", message="base"
+        )
+        self.repo.git("push", "-q", "origin", "main")
+        self.repo.git("fetch", "-q", "origin")
+        self.repo.git("checkout", "-q", "-b", "topic")
+
+    def mounts(self, *paths):
+        sha = self.repo.commit(*paths)
+        return self.repo.scope("mounts", sha)[0]
+
+    def test_the_walk_or_the_linux_module_runs_them(self):
+        self.assertEqual(self.mounts("crates/ddc-core/src/scan/walker.rs"), "yes")
+        self.assertEqual(self.mounts("crates/ddc-core/src/platform/linux/bulk.rs"), "yes")
+
+    def test_a_test_or_the_mounts_script_runs_them(self):
+        self.assertEqual(self.mounts("crates/ddc-cli/tests/clean_cli.rs"), "yes")
+        self.assertEqual(self.mounts("scripts/ci-mounts.sh"), "yes")
+
+    def test_the_app_or_the_renderer_alone_skips_them(self):
+        self.assertEqual(self.mounts("app/A.swift"), "no")
+        self.assertEqual(self.mounts("crates/ddc-cli/src/render.rs"), "no")
+
+    def test_main_itself_runs_them(self):
+        self.assertEqual(self.repo.scope("mounts", self.base)[0], "yes")
+
+    def test_no_origin_main_runs_them(self):
+        self.repo.git("update-ref", "-d", "refs/remotes/origin/main")
+        self.assertEqual(self.mounts("app/A.swift"), "yes")
+
+    def test_an_unknown_commit_runs_them(self):
+        self.assertEqual(self.repo.scope("mounts", "0" * 40)[0], "yes")
+
+    def test_a_usage_error_exits_2(self):
+        self.assertEqual(self.repo.scope("mounts")[1].returncode, 2)
+
+
 class Push(unittest.TestCase):
     def setUp(self):
         self.repo = Repo(self)

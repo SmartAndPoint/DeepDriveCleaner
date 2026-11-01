@@ -29,7 +29,9 @@ LOG = """\
 """
 
 
-class NativeSkips(unittest.TestCase):
+class Tree:
+    """A throwaway tree with the script and its own lists."""
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -51,6 +53,8 @@ class NativeSkips(unittest.TestCase):
             ["bash", self.script, os_name, self.log], env=env, capture_output=True, text=True
         )
 
+
+class NativeSkips(Tree, unittest.TestCase):
     def test_the_listed_skips_pass_and_the_counts_reach_the_summary(self):
         r = self.run_with("# Linux\n\na_session\na_formula\n")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -74,6 +78,82 @@ class NativeSkips(unittest.TestCase):
         r = self.run_with("a_formula\na_session\n", os_name="windows")
         self.assertEqual(r.returncode, 1)
         self.assertIn("no list for windows", r.stderr)
+
+
+MOUNT_LOG = LOG.replace(
+    "        PASS [   0.020s] ( 3/3) ddc-core::scanner walks\n",
+    "        PASS [   0.020s] ( 3/3) ddc-core::scanner walks\n"
+    "        PASS [   0.001s] ( 4/4) ddc-core::mounts a_btrfs_mount_is_btrfs\n"
+    "    stderr ───\n"
+    "    skipped a_btrfs_mount_is_btrfs: no btrfs mount (DDC_MOUNT_BTRFS unset)\n",
+)
+
+GROUPED = "# Linux\na_session\na_formula\n# [environment] needs the CI mounts\na_btrfs_mount_is_btrfs\n"
+
+
+class Groups(Tree, unittest.TestCase):
+    """The environment group (story "Linux CI mounts: a filesystem matrix job with root-only steps")."""
+
+    def setUp(self):
+        super().setUp()
+        with open(self.log, "w") as f:
+            f.write(MOUNT_LOG)
+
+    def run_mode(self, listed, *args, log=None):
+        with open(os.path.join(self.root, ".config", "native-skips", "linux.txt"), "w") as f:
+            f.write(listed)
+        if log is not None:
+            with open(self.log, "w") as f:
+                f.write(log)
+        env = {"PATH": "/usr/bin:/bin"}
+        return subprocess.run(["bash", self.script, *args], env=env, capture_output=True, text=True)
+
+    def test_a_mount_skip_in_the_environment_group_passes(self):
+        r = self.run_with(GROUPED)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_a_mount_skip_outside_the_environment_group_fails(self):
+        r = self.run_with("a_session\na_formula\na_btrfs_mount_is_btrfs\n")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("a mount skip outside the environment group", r.stderr)
+
+    def test_another_group_ends_the_environment_group(self):
+        r = self.run_with("# [environment] mounts\n# [capability] lacks\na_session\na_formula\na_btrfs_mount_is_btrfs\n")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("a mount skip outside the environment group", r.stderr)
+
+    def test_an_environment_test_skipped_for_another_reason_fails(self):
+        r = self.run_with("a_formula\n# [environment] mounts\na_session\na_btrfs_mount_is_btrfs\n")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("for another reason than a missing mount", r.stderr)
+
+    def test_the_filter_names_the_environment_group(self):
+        r = self.run_mode(GROUPED + "a_second_mount_test\n", "--filter", "linux")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "test(=a_btrfs_mount_is_btrfs) | test(=a_second_mount_test)")
+
+    def test_an_empty_environment_group_filters_nothing(self):
+        r = self.run_mode("a_session\n", "--filter", "linux")
+        self.assertEqual(r.stdout.strip(), "none()")
+
+    def test_the_mounts_run_passes_when_every_environment_test_passed(self):
+        log = "        PASS [   0.001s] (1/1) ddc-core::mounts a_btrfs_mount_is_btrfs\n"
+        r = self.run_mode(GROUPED, "--mounts", "linux", self.log, log=log)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_the_mounts_run_fails_on_any_skip(self):
+        r = self.run_mode(GROUPED, "--mounts", "linux", self.log)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("skipped in the mounts job", r.stderr)
+
+    def test_the_mounts_run_fails_when_an_environment_test_did_not_run(self):
+        log = "        PASS [   0.001s] (1/1) ddc-core::mounts another_test\n"
+        r = self.run_mode(GROUPED, "--mounts", "linux", self.log, log=log)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("did not pass in the mounts job: a_btrfs_mount_is_btrfs", r.stderr)
+
+    def test_a_usage_error_exits_2(self):
+        self.assertEqual(self.run_mode(GROUPED, "--mounts", "linux").returncode, 2)
 
 
 if __name__ == "__main__":
