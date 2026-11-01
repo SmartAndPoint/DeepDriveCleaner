@@ -143,6 +143,16 @@ struct ContractTests {
         #expect(labels == rules.groups)
     }
 
+    @Test("the About panel names the app's licence, the AGPL, and no earlier one")
+    func aboutPanelLicence() throws {
+        // ADR "Licensing: AGPL-3.0 with a commercial licence for the product, MIT
+        // for agent guidance and report schemas"; the Rust tests may not read app files.
+        let plist = try String(contentsOf: repositoryRoot().appending(path: "app/DeepDriveCleaner/Info.plist"), encoding: .utf8)
+        let copyright = try #require(plist.firstMatch(of: /<key>NSHumanReadableCopyright<\/key>\s*<string>([^<]*)<\/string>/))
+        #expect(copyright.1.contains("GNU Affero General Public License 3.0"))
+        #expect(!copyright.1.contains("PolyForm"))
+    }
+
     @Test("only CleanRun.swift runs a clean or its dry run, and only the sheet's Clean action starts one")
     func cleanHasOneOwner() throws {
         let sources = try appSources()
