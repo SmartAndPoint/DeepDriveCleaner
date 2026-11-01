@@ -261,9 +261,15 @@ enum Verdict {
 ///
 /// Entry rules (`ENTRY_RULES`) play no part here: they decide only whether a
 /// claim lists its children.
+/// A path as the catalog compares it: by the platform's key (on Windows
+/// case and separators fold; elsewhere the path itself).
+fn key(p: &Path) -> PathBuf {
+    ddc_core::platform::paths::key(p).into_owned()
+}
+
 fn reference(t: &Tree, rel: &Path) -> Verdict {
     let kept_or = |id| if t.has(rel, KEEP_MARKER) { KEPT } else { id };
-    let named = |paths: &[&str]| paths.iter().any(|p| rel == Path::new(p));
+    let named = |paths: &[&str]| paths.iter().any(|p| key(rel) == key(Path::new(p)));
 
     // Before the read.
     if RULES.iter().any(|r| matches!(r.matcher, Matcher::NoTraverse(paths) if named(paths))) {
@@ -285,7 +291,7 @@ fn reference(t: &Tree, rel: &Path) -> Verdict {
     if region.is_none()
         && let Some(r) = RULES
             .iter()
-            .find(|r| matches!(r.matcher, Matcher::KnownChildren(parents) if parents.iter().any(|p| rel.parent() == Some(Path::new(p)))))
+            .find(|r| matches!(r.matcher, Matcher::KnownChildren(parents) if parents.iter().any(|p| rel.parent().map(key) == Some(key(Path::new(p))))))
     {
         return Verdict::Claim(kept_or(r.id));
     }
@@ -312,11 +318,11 @@ fn reference(t: &Tree, rel: &Path) -> Verdict {
 
 /// `rel` lies strictly above a known path or region, or is a known parent.
 fn holds_known_path(rel: &Path) -> bool {
-    let above = |p: &str| Path::new(p).starts_with(rel) && Path::new(p) != rel;
+    let above = |p: &str| key(Path::new(p)).starts_with(key(rel)) && key(Path::new(p)) != key(rel);
     !rel.as_os_str().is_empty()
         && RULES.iter().any(|r| match r.matcher {
             Matcher::KnownPaths(paths) | Matcher::KnownRegion(paths) => paths.iter().any(|p| above(p)),
-            Matcher::KnownChildren(parents) => parents.iter().any(|p| above(p) || rel == Path::new(p)),
+            Matcher::KnownChildren(parents) => parents.iter().any(|p| above(p) || key(rel) == key(Path::new(p))),
             _ => false,
         })
 }
