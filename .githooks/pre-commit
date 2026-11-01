@@ -1,10 +1,14 @@
 #!/bin/sh
 # Before every commit: scripts/private-scan.sh refuses an added line that holds a value of
 # .env or a string of .local/private-strings, naming it but never printing it; then the
-# lint tier of the gate (`make lint`: fmt check and clippy). Installed once per clone by
-# `make hooks`. The lint is skipped when every staged path is Rust-free
-# (.config/rust-free-paths, scripts/gate-scope.sh); otherwise it checks the working tree,
-# not only what is staged.
+# lint tier of the gate (`make lint`: fmt check and clippy), then the CLI's calls of
+# crates/ddc-cli/tests/cases.json (`make cases`, story "CLI invocation cases: a table of
+# ddc calls and the suggested commands they print", DDC-005). Installed once per clone by
+# `make hooks`. Both are skipped when every staged path is Rust-free
+# (.config/rust-free-paths, scripts/gate-scope.sh staged); the cases also when no staged
+# path is under crates/ or is Cargo.toml or Cargo.lock (scripts/gate-scope.sh
+# staged-cases), and they run on any other answer. Like the lint, they check the working
+# tree, not only what is staged.
 set -eu
 # Homebrew's Rust may sit earlier in PATH; cargo finds rustc through PATH.
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -16,4 +20,11 @@ case "$(scripts/gate-scope.sh staged </dev/null)" in
         exit 0
         ;;
 esac
-exec make lint </dev/null
+make lint </dev/null
+case "$(scripts/gate-scope.sh staged-cases </dev/null)" in
+    no)
+        echo "pre-commit: nothing under crates/ or Cargo.* staged: the CLI cases skipped"
+        exit 0
+        ;;
+esac
+exec make cases </dev/null

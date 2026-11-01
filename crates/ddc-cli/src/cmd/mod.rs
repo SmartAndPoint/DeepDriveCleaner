@@ -19,7 +19,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use ddc_core::env::Env;
-use ddc_core::settings::{self, Resolved, ScanFlags};
+use ddc_core::model::ScanReport;
+use ddc_core::report::recheck::same_roots;
+use ddc_core::settings::{self, Resolved, ScanFlags, Settings};
 
 use crate::cli::{Cli, Command, DiskAction, DiskArgs, KeepAction};
 
@@ -43,6 +45,16 @@ pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
 /// A command's scan options: `settings.json` under its flags.
 fn resolve(env: &Env, flags: ScanFlags) -> anyhow::Result<Resolved> {
     Ok(settings::load(env)?.resolve(env, &flags)?)
+}
+
+/// Whether a scan given paths (`given`) walked other roots than a scan without
+/// paths does, as a clean judges it (`same_roots`). Then its report in the
+/// app's data directory replaces the app's own until its next scan (story
+/// "Review window: say when the saved scan is not of the home folder"), and
+/// the `ddc clean` it suggests names its roots. No Settings root existing
+/// counts as other roots.
+fn own_roots(given: bool, report: &ScanReport, env: &Env, settings: &Settings) -> bool {
+    given && !settings.resolve(env, &ScanFlags::default()).is_ok_and(|r| same_roots(report, env, &r.options))
 }
 
 /// Settings folders that do not exist (an unplugged disk) were skipped.

@@ -32,7 +32,7 @@ MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
 
 .PHONY: build fmt fmt-check clippy test check release install bump tag require-tag dist app app-test app-dist icons \
 	lint gate-fast gate nextest nextest-unit doctest clippy-dhat doc deny machete fuzz-lock msrv release-check unported-check \
-	tools require-tools hooks coverage coverage-ratchet ci-green cross-check golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test script-test leaks asan fuzz ddckit-test ci-green-full
+	tools require-tools hooks coverage coverage-ratchet ci-green cross-check cases golden-check golden-record loadgen-clean load-image load load-baseline scaling heap-profile bench-test script-test leaks asan fuzz ddckit-test ci-green-full
 
 build:
 	$(CARGO) build --workspace
@@ -133,6 +133,13 @@ cross-check:
 		echo "cross-check: $$t"; \
 		$(CARGO) clippy --workspace --all-targets --target $$t --locked -- -D warnings || exit 1; \
 	done
+
+# The calls of crates/ddc-cli/tests/cases.json and the commands they suggest (story "CLI
+# invocation cases: a table of ddc calls and the suggested commands they print", DDC-005).
+# Part of `nextest` and `nextest-unit`; the pre-commit hook runs it alone, with the same
+# features, so pre-push reuses its build.
+cases:
+	$(CARGO) nextest run -p ddc-cli --test cases_cli $(FEATURES) --locked
 
 # Golden outputs of the S load trees (bench/golden/, story "Synthetic load trees:
 # large, wide, deep and hostile"). The check is part of `nextest`, so the gate runs

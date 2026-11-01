@@ -5,13 +5,14 @@
 #
 #   scripts/gate-scope.sh paths       newline-separated repo paths on stdin
 #   scripts/gate-scope.sh staged      the index, for .githooks/pre-commit
+#   scripts/gate-scope.sh staged-cases   the index again: whether pre-commit runs `make cases`
 #   scripts/gate-scope.sh push        git's pre-push lines on stdin, for .githooks/pre-push
 #   scripts/gate-scope.sh ci <sha>    the Gate's scope job: <sha> against the newest ancestor
 #                                     whose push run passed gate, coverage, release-build and
 #                                     the two native check jobs
 #
 # Prints one word and exits 0: `rust`, `skip`, or for `push` `swift` (the Rust tiers are
-# skipped, DDCKit's package changed). A usage error prints `rust` and exits 2. Callers
+# skipped, DDCKit's package changed); `staged-cases` prints `yes` or `no`. A usage error prints `rust` and exits 2. Callers
 # take anything but `skip` or `swift` as `rust`, an empty answer included. Every diff is
 # --no-renames, so a file moved out of crates/ shows where it came from.
 set -euo pipefail
@@ -24,7 +25,7 @@ MAX_ANCESTORS=20
 
 answer() { printf '%s\n' "$1"; exit 0; }
 rust() { printf 'gate-scope: %s: the full gate\n' "$1" >&2; answer rust; }
-usage() { printf 'usage: scripts/gate-scope.sh paths | staged | push | ci <sha>\n' >&2; printf 'rust\n'; exit 2; }
+usage() { printf 'usage: scripts/gate-scope.sh paths | staged | staged-cases | push | ci <sha>\n' >&2; printf 'rust\n'; exit 2; }
 
 ON=()
 OFF=()
@@ -85,6 +86,22 @@ staged_scope() {
         skip | swift) answer skip ;;
         *) answer rust ;;
     esac
+}
+
+# Whether the commit runs the CLI cases (story "CLI invocation cases: a table of ddc calls
+# and the suggested commands they print", DDC-005): `yes` when a staged path is under
+# crates/ or is Cargo.toml or Cargo.lock, and on every doubt (git failing, nothing staged,
+# a name git had to quote); `no` otherwise. A word of its own, so `staged` keeps its one.
+staged_cases_scope() {
+    local names path
+    names="$(git -c core.quotePath=false diff --cached --no-renames --name-only)" || answer yes
+    [ -n "$names" ] || answer yes
+    while IFS= read -r path; do
+        case "$path" in
+            crates/* | Cargo.toml | Cargo.lock | '"'*) answer yes ;;
+        esac
+    done <<<"$names"
+    answer no
 }
 
 # A deletion sends nothing, and a tag adds no branch: gate.yml ignores tags, and a release
@@ -153,6 +170,7 @@ ci_scope() {
 case "${1:-}" in
     paths) [ "$#" -eq 1 ] || usage; answer "$(classify)" ;;
     staged) [ "$#" -eq 1 ] || usage; staged_scope ;;
+    staged-cases) [ "$#" -eq 1 ] || usage; staged_cases_scope ;;
     push) [ "$#" -eq 1 ] || usage; push_scope ;;
     ci) [ "$#" -eq 2 ] || usage; ci_scope "$2" ;;
     *) usage ;;

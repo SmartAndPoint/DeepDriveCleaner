@@ -71,7 +71,7 @@ pub fn tilde(path: &Path, home: &Path) -> String {
 }
 
 /// `ddc clean` over `roots`, each one shell word, so it can be pasted as is.
-fn clean_command(roots: &[PathBuf], home: &Path) -> String {
+pub fn clean_command(roots: &[PathBuf], home: &Path) -> String {
     let mut command = "ddc clean".to_owned();
     for root in roots {
         command.push(' ');

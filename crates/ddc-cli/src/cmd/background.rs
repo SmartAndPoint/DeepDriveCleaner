@@ -17,6 +17,7 @@ use ddc_core::store::{self, LockError, LockMode};
 
 use crate::cli::ScanArgs;
 use crate::notify::{self, Config, Facts, Notifier};
+use crate::render;
 use crate::size::human;
 
 /// Folders where macOS asks the user before an app may read them (folder
@@ -80,6 +81,7 @@ pub fn run_with(
         Err(e) => return Err(e.into()),
     };
     let settings = settings::load(env)?;
+    let given_roots = !args.paths.is_empty();
     let resolved = settings.resolve(
         env,
         &ScanFlags {
@@ -120,12 +122,18 @@ pub fn run_with(
     let now = env.now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
     let facts = Facts::from_report(&report, now);
     let decision = notify::decide(&facts, &config, &notify::load(env));
+    // Logged whether or not anything shows it, so the text is checked where no notifier exists.
+    let roots = if super::own_roots(given_roots, &report, env, &settings) { &report.scan_roots[..] } else { &[] };
+    let text = notify::message(&decision, &render::clean_command(roots, &report.home));
+    if decision.notify {
+        log(env, &format!("notification: {text}"));
+    }
     let mut notified = false;
     if json {
         // The app shows it and records it with `notify ack`; nothing is written here.
         print(out, &NotifyStatus::Scanned(decision.clone()))?;
     } else if let Some(notifier) = notifier.filter(|_| !args.no_notify && decision.notify) {
-        match notifier.notify("DeepDriveCleaner", &notify::message(&decision)) {
+        match notifier.notify("DeepDriveCleaner", &text) {
             Ok(()) => {
                 notified = true;
                 // Shown already: a state we cannot save must not fail the run.
@@ -294,6 +302,28 @@ mod tests {
         assert!(out.is_empty(), "silent");
         assert!(notify::load(&env).last_at.is_none(), "nothing was shown");
         assert!(env.data_dir().join("last-scan.json").exists(), "the scan ran");
+    }
+
+    /// The text is logged whether or not a notifier shows it, and its
+    /// `ddc clean` names the paths the scan was given.
+    #[test]
+    fn the_notification_is_logged_with_the_clean_of_the_scanned_paths() {
+        if unsupported("the_notification_is_logged_with_the_clean_of_the_scanned_paths") {
+            return;
+        }
+        let (tmp, _) = fixture();
+        let root = tmp.path().canonicalize().unwrap();
+        let env =
+            Env::with_paths(&root.join("home"), &root.join("data"), &root.join("logs"), SystemTime::now()).unwrap();
+        let p = root.join("home/p");
+        let mut out = Vec::new();
+        run_with(&args(&["--threshold", "1K", p.to_str().unwrap()]), &env, None, &ROOMY, &mut out).unwrap();
+        run_with(&args(&["--threshold", "1K", "--no-notify"]), &env, None, &ROOMY, &mut out).unwrap();
+        let log = std::fs::read_to_string(env.log_dir().join("background.log")).unwrap();
+        let lines: Vec<&str> = log.lines().filter(|l| l.contains(" notification: ")).collect();
+        assert_eq!(lines.len(), 2, "{log}");
+        assert!(lines[0].ends_with("Run `ddc clean ~/p` to review."), "{log}");
+        assert!(lines[1].ends_with("Run `ddc clean` to review."), "{log}");
     }
 
     #[test]

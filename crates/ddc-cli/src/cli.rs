@@ -448,3 +448,150 @@ pub enum ReaderArg {
     /// std::fs (readdir + lstat)
     Std,
 }
+
+/// Every subcommand and argument, hidden ones included, is called by a case
+/// of `tests/cases.json` or listed in its `uncovered` with a reason (story
+/// "CLI invocation cases: a table of ddc calls and the suggested commands
+/// they print", DDC-005). `--help` hides some, so the rule reads clap's tree.
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use clap::parser::ValueSource;
+    use clap::{Arg, ArgAction, Command as Clap, CommandFactory as _};
+    use serde_json::Value;
+
+    use super::Cli;
+
+    const CASES: &str = include_str!("../tests/cases.json");
+
+    /// Every name of `cmd`'s tree: a subcommand by its path (`disk agents`),
+    /// an argument by its path and long name (`scan --background`), or
+    /// `<id>` when it has none (`scan <paths>`). Not clap's own `help` and
+    /// `version`.
+    fn names(cmd: &Clap, path: &str, out: &mut BTreeSet<String>) {
+        for a in cmd.get_arguments().filter(|a| !matches!(a.get_id().as_str(), "help" | "version")) {
+            out.insert(format!("{path} {}", arg_name(a)).trim().to_owned());
+        }
+        for sub in cmd.get_subcommands().filter(|s| s.get_name() != "help") {
+            let p = format!("{path} {}", sub.get_name()).trim().to_owned();
+            out.insert(p.clone());
+            names(sub, &p, out);
+        }
+    }
+
+    fn arg_name(a: &Arg) -> String {
+        a.get_long().map_or_else(|| format!("<{}>", a.get_id()), |l| format!("--{l}"))
+    }
+
+    /// The names one call covers: each subcommand on its path, and each
+    /// argument given on the command line. A call clap refuses covers nothing.
+    fn covered(cmd: &Clap, args: &[String], out: &mut BTreeSet<String>) {
+        let Ok(mut m) = cmd
+            .clone()
+            .try_get_matches_from(std::iter::once("deepdrivecleaner".to_owned()).chain(args.iter().cloned()))
+        else {
+            return;
+        };
+        let mut cmd = cmd.clone();
+        let mut path = String::new();
+        loop {
+            for a in cmd.get_arguments() {
+                if m.value_source(a.get_id().as_str()) == Some(ValueSource::CommandLine) {
+                    out.insert(format!("{path} {}", arg_name(a)).trim().to_owned());
+                }
+            }
+            let Some((name, sub_m)) = m.remove_subcommand() else { break };
+            path = format!("{path} {name}").trim().to_owned();
+            out.insert(path.clone());
+            cmd = cmd.find_subcommand(&name).unwrap().clone();
+            m = sub_m;
+        }
+    }
+
+    /// The names of `cmd` neither `calls` nor `uncovered` cover.
+    fn missing(cmd: &Clap, calls: &[Vec<String>], uncovered: &BTreeSet<String>) -> Vec<String> {
+        let mut all = BTreeSet::new();
+        names(cmd, "", &mut all);
+        let mut seen = BTreeSet::new();
+        for call in calls {
+            covered(cmd, call, &mut seen);
+        }
+        all.into_iter().filter(|n| !seen.contains(n) && !uncovered.contains(n)).collect()
+    }
+
+    struct Cases {
+        calls: Vec<Vec<String>>,
+        uncovered: BTreeSet<String>,
+        data_dir_commands: BTreeSet<String>,
+    }
+
+    /// The calls as the runner makes them: placeholders become `1` (a number
+    /// and a path), and `--data-dir` is added where the command has it.
+    fn cases() -> Cases {
+        let v: Value = serde_json::from_str(CASES).unwrap();
+        let strings = |v: &Value| -> Vec<String> {
+            v.as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_owned()).collect()
+        };
+        let data_dir_commands: BTreeSet<String> = strings(&v["data_dir_commands"]).into_iter().collect();
+        let calls = v["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| {
+                let mut args: Vec<String> =
+                    strings(&c["args"]).into_iter().map(|a| if a.contains('{') { "1".to_owned() } else { a }).collect();
+                let two = args.get(..2).map(|w| w.join(" ")).unwrap_or_default();
+                if data_dir_commands.contains(&two) || args.first().is_some_and(|a| data_dir_commands.contains(a)) {
+                    args.extend(["--data-dir".to_owned(), "1".to_owned()]);
+                }
+                args
+            })
+            .collect();
+        let uncovered =
+            v["uncovered"].as_array().unwrap().iter().map(|u| u["name"].as_str().unwrap().to_owned()).collect();
+        Cases { calls, uncovered, data_dir_commands }
+    }
+
+    #[test]
+    fn every_command_and_argument_is_in_a_case_or_uncovered() {
+        let c = cases();
+        let missing = missing(&Cli::command(), &c.calls, &c.uncovered);
+        assert!(missing.is_empty(), "in no case of tests/cases.json and not in its uncovered: {missing:#?}");
+    }
+
+    #[test]
+    fn every_uncovered_name_is_a_real_command_or_argument() {
+        let mut all = BTreeSet::new();
+        names(&Cli::command(), "", &mut all);
+        let stale: Vec<String> = cases().uncovered.into_iter().filter(|u| !all.contains(u)).collect();
+        assert!(stale.is_empty(), "uncovered names nothing the CLI has: {stale:?}");
+    }
+
+    #[test]
+    fn data_dir_commands_are_the_commands_with_data_dir() {
+        fn with_data_dir(cmd: &Clap, path: &str, out: &mut BTreeSet<String>) {
+            if cmd.get_arguments().any(|a| a.get_id() == "data_dir") {
+                out.insert(path.to_owned());
+            }
+            for sub in cmd.get_subcommands() {
+                with_data_dir(sub, format!("{path} {}", sub.get_name()).trim(), out);
+            }
+        }
+        let mut want = BTreeSet::new();
+        with_data_dir(&Cli::command(), "", &mut want);
+        assert_eq!(cases().data_dir_commands, want);
+    }
+
+    #[test]
+    fn the_rule_names_what_no_call_covers() {
+        let cmd = Clap::new("x")
+            .subcommand(Clap::new("a").arg(Arg::new("h").long("h").hide(true).action(ArgAction::SetTrue)));
+        let none = BTreeSet::new();
+        assert_eq!(missing(&cmd, &[], &none), ["a", "a --h"]);
+        assert_eq!(missing(&cmd, &[vec!["a".into()]], &none), ["a --h"]);
+        assert!(missing(&cmd, &[vec!["a".into(), "--h".into()]], &none).is_empty());
+        assert!(missing(&cmd, &[], &["a".to_owned(), "a --h".to_owned()].into()).is_empty());
+        assert_eq!(missing(&cmd, &[vec!["a".into(), "--nope".into()]], &none), ["a", "a --h"], "a refused call");
+    }
+}

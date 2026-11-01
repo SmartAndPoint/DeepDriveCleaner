@@ -1,0 +1,250 @@
+{
+  "about": "Calls of ddc and what each must do, run by cases_cli.rs on a fresh synthetic home per case (story \"CLI invocation cases: a table of ddc calls and the suggested commands they print\", DDC-005). Every `ddc ...` the output suggests is run too (follow-through), and every subcommand and argument of the CLI is in a case or in `uncovered` (src/cli.rs). Placeholders: {root} the temporary root, {home} {root}/home, {data} {root}/data, {rule:ID} where this platform's catalog looks for rule ID (home-relative), {dev:REL} and {ino:REL} the identity of {root}/REL.",
+  "fixture": {
+    "dirs": ["home/Projects/empty", "sys"],
+    "files": [
+      {"path": "home/Projects/web/package.json", "text": "{}"},
+      {"path": "home/Projects/web/package-lock.json", "text": "{}"},
+      {"path": "home/Projects/web/node_modules/dep/index.js", "bytes": 40000},
+      {"path": "home/Projects/web/src/app.js", "text": "x"},
+      {"path": "home/Projects/py/__pycache__/m.cpython-312.pyc", "bytes": 50000},
+      {"path": "home/Projects/py/main.py", "text": "x"},
+      {"path": "home/Projects/kept/package.json", "text": "{}"},
+      {"path": "home/Projects/kept/package-lock.json", "text": "{}"},
+      {"path": "home/Projects/kept/node_modules/dep/index.js", "bytes": 10000},
+      {"path": "home/Projects/kept/node_modules/.ddc-keep", "text": ""},
+      {"path": "home/{rule:cache.npm}/_cacache/blob", "bytes": 30000},
+      {"path": "home/My Code/__pycache__/a.cpython-312.pyc", "bytes": 5000},
+      {"path": "home/it's/__pycache__/a.cpython-312.pyc", "bytes": 5000},
+      {"path": "beside/work/__pycache__/a.cpython-312.pyc", "bytes": 5000}
+    ]
+  },
+  "data_dir_commands": ["scan", "clean", "disk", "disk agents", "disk free", "disk brew-packages", "keep remove", "notify ack", "notify snooze"],
+  "cases": [
+    {
+      "name": "the owner's call: scan . in ~/Projects suggests the clean of ~/Projects",
+      "group": "roots",
+      "cwd": "{home}/Projects",
+      "args": ["scan", "."],
+      "expect": {
+        "exit": 0,
+        "roots": ["{home}/Projects"],
+        "rules": ["node.node_modules", "python.pycache", "user.kept"],
+        "stdout": {"contains": ["scanned ~/Projects in", "run `ddc clean ~/Projects` to review and confirm"], "not_contains": ["`ddc clean`"]}
+      }
+    },
+    {
+      "name": "scan . in a project's subfolder scans that subfolder",
+      "group": "roots",
+      "cwd": "{home}/Projects/web/src",
+      "args": ["scan", "."],
+      "expect": {"exit": 0, "roots": ["{home}/Projects/web/src"], "rules": [], "stdout": {"contains": ["scanned ~/Projects/web/src in", "`ddc clean ~/Projects/web/src`"]}}
+    },
+    {
+      "name": "scan with no path scans the home and suggests plain ddc clean",
+      "group": "roots",
+      "args": ["scan"],
+      "expect": {"exit": 0, "roots": ["{home}"], "stdout": {"contains": ["scanned ~ in", "run `ddc clean` to review and confirm"]}}
+    },
+    {
+      "name": "scan of the home by path is the default roots: plain ddc clean",
+      "group": "roots",
+      "args": ["scan", "{home}"],
+      "expect": {"exit": 0, "roots": ["{home}"], "stdout": {"contains": ["run `ddc clean` to review and confirm"]}, "stderr": {"not_contains": ["The app will show this report"]}}
+    },
+    {
+      "name": "two roots, one with a space and one with a quote, are both in the suggestion, quoted",
+      "group": "roots",
+      "args": ["scan", "{home}/My Code", "{home}/it's"],
+      "expect": {"exit": 0, "roots": ["{home}/My Code", "{home}/it's"], "rules": ["python.pycache"], "stdout": {"contains": ["`ddc clean ~/'My Code' ~/'it'\\''s'`"]}}
+    },
+    {
+      "name": "a nested root is dropped: the suggestion names the outer one",
+      "group": "roots",
+      "args": ["scan", "{home}/Projects", "{home}/Projects/web"],
+      "expect": {"exit": 0, "roots": ["{home}/Projects"], "stdout": {"contains": ["`ddc clean ~/Projects`"]}}
+    },
+    {
+      "name": "a root outside the home is named by its absolute path",
+      "group": "roots",
+      "args": ["scan", "{root}/beside"],
+      "expect": {"exit": 0, "roots": ["{root}/beside"], "rules": ["python.pycache"], "stdout": {"matches": ["`ddc clean /\\S+/beside`"]}}
+    },
+    {
+      "name": "the settings' roots given by path suggest plain ddc clean",
+      "group": "roots",
+      "args": ["scan", "{home}/Projects"],
+      "settings": {"schema_version": 1, "roots": ["{home}/Projects"]},
+      "expect": {"exit": 0, "roots": ["{home}/Projects"], "stdout": {"contains": ["run `ddc clean` to review and confirm"]}}
+    },
+    {
+      "name": "a missing root fails and names it",
+      "group": "roots",
+      "args": ["scan", "{home}/nope"],
+      "expect": {"exit": 1, "stderr": {"contains": ["cannot open scan root", "nope"]}}
+    },
+    {
+      "name": "skip and exclude keep the roots; the suggestion names the root",
+      "group": "scan",
+      "args": ["scan", "--skip", "{home}/Projects/py", "--exclude", "{home}/Projects/web", "{home}/Projects"],
+      "expect": {"exit": 0, "roots": ["{home}/Projects"], "stdout": {"contains": ["`ddc clean ~/Projects`"], "not_contains": ["python.pycache"]}}
+    },
+    {
+      "name": "an exclude flag replaces the settings' excludes and says which one it drops",
+      "group": "scan",
+      "args": ["scan", "--exclude", "{home}/Projects/web", "{home}/Projects"],
+      "settings": {"schema_version": 1, "excludes": ["{home}/Projects/py"]},
+      "expect": {"exit": 0, "roots": ["{home}/Projects"], "stderr": {"contains": ["no longer protected"]}}
+    },
+    {
+      "name": "scan --json is valid against its schema",
+      "group": "scan",
+      "args": ["scan", "--json", "--min-age", "0", "--threads", "2", "{home}/Projects"],
+      "expect": {"exit": 0, "roots": ["{home}/Projects"], "schema": "scan"}
+    },
+    {
+      "name": "scan --all lists every finding and still suggests the clean of its root",
+      "group": "scan",
+      "args": ["scan", "--all", "{home}/Projects"],
+      "expect": {"exit": 0, "roots": ["{home}/Projects"], "stdout": {"contains": ["`ddc clean ~/Projects`"], "not_contains": ["--all shows them"]}}
+    },
+    {
+      "name": "scan --progress json writes JSON lines to stderr and the report to stdout",
+      "group": "scan",
+      "args": ["scan", "--progress", "json", "{home}/Projects"],
+      "expect": {"exit": 0, "roots": ["{home}/Projects"], "stderr_schema": "progress", "stdout": {"contains": ["`ddc clean ~/Projects`"]}}
+    },
+    {
+      "name": "scan --no-times reports without dates",
+      "group": "scan",
+      "args": ["scan", "--no-times", "{home}/Projects"],
+      "expect": {"exit": 0, "roots": ["{home}/Projects"], "stdout": {"contains": ["`ddc clean ~/Projects`"]}}
+    },
+    {
+      "name": "a background scan of a folder logs the notification with the clean of that folder",
+      "group": "background",
+      "args": ["scan", "--background", "--no-notify", "--threshold", "1K", "{home}/Projects"],
+      "settings": {"schema_version": 1, "notify_low_disk": false},
+      "expect": {
+        "exit": 0,
+        "roots": ["{home}/Projects"],
+        "stdout": {"empty": true},
+        "files": {"{data}/logs/background.log": {"contains": ["Run `ddc clean ~/Projects` to review.", "notified false"], "matches": ["notification: About \\S+ \\S+ of developer junk can be freed"]}}
+      }
+    },
+    {
+      "name": "a background scan of the home logs plain ddc clean",
+      "group": "background",
+      "args": ["scan", "--background", "--no-notify", "--threshold", "1K"],
+      "settings": {"schema_version": 1, "notify_low_disk": false},
+      "expect": {"exit": 0, "roots": ["{home}"], "files": {"{data}/logs/background.log": {"contains": ["Run `ddc clean` to review."]}}}
+    },
+    {
+      "name": "a background scan with --notify json prints the decision for the app",
+      "group": "background",
+      "args": ["scan", "--background", "--notify", "json", "--threshold", "1K", "{home}/Projects"],
+      "settings": {"schema_version": 1, "notify_low_disk": false},
+      "expect": {"exit": 0, "roots": ["{home}/Projects"], "schema": "notify"}
+    },
+    {
+      "name": "clean --dry-run . plans the current folder only",
+      "group": "clean",
+      "cwd": "{home}/Projects",
+      "args": ["clean", "--dry-run", "."],
+      "expect": {"exit": 0, "roots": ["{home}/Projects"], "stdout": {"contains": ["python.pycache", "Dry run: nothing was changed."]}}
+    },
+    {
+      "name": "clean --dry-run with every filter",
+      "group": "clean",
+      "args": ["clean", "--dry-run", "--class", "safe", "--category", "project-artifact", "--min-size", "1K", "--min-age", "0", "--exclude", "{home}/Projects/web", "--skip", "{home}/Projects/kept", "--progress", "json", "{home}/Projects"],
+      "expect": {"exit": 0, "roots": ["{home}/Projects"], "stderr_schema": "progress", "stdout": {"contains": ["python.pycache", "Dry run: nothing was changed."], "not_contains": ["node.node_modules"]}}
+    },
+    {
+      "name": "rules lists the catalog",
+      "group": "commands",
+      "args": ["rules"],
+      "expect": {"exit": 0, "stdout": {"contains": ["python.pycache", "node.node_modules"]}}
+    },
+    {
+      "name": "rules --json for another platform is valid against its schema",
+      "group": "commands",
+      "args": ["rules", "--json", "--platform", "linux"],
+      "expect": {"exit": 0, "schema": "rules", "stdout": {"contains": ["\"linux\""]}}
+    },
+    {
+      "name": "du . measures the current folder",
+      "group": "commands",
+      "cwd": "{home}/Projects",
+      "args": ["du", "--reader", "std", "--threads", "2", "--private", "--rules", "."],
+      "expect": {"exit": 0, "stdout": {"matches": ["/Projects/py/__pycache__\\t\\d+\\tpython.pycache"]}, "stderr": {"contains": ["ddc du: "]}}
+    },
+    {
+      "name": "diag runs and reports",
+      "group": "commands",
+      "args": ["diag"],
+      "expect": {"exit": 0}
+    },
+    {
+      "name": "disk on a synthetic system root is valid against its schema",
+      "group": "commands",
+      "args": ["disk", "--json", "--system-root", "{root}/sys", "--threads", "2", "--temp-entry-budget", "1000", "--progress", "json"],
+      "expect": {"exit": 0, "schema": "disk", "stderr_schema": "progress"}
+    },
+    {
+      "name": "disk agents lists no harness in a fresh home",
+      "group": "commands",
+      "args": ["disk", "agents", "--json", "--no-sizes", "--threads", "2", "--system-root", "{root}/sys"],
+      "expect": {"exit": 0, "schema": "agents"}
+    },
+    {
+      "name": "disk brew-packages without Homebrew says brew is missing",
+      "group": "commands",
+      "args": ["disk", "brew-packages", "--json", "--system-root", "{root}/sys"],
+      "expect": {"exit": 1, "stderr": {"contains": ["brew could not list its packages"]}}
+    },
+    {
+      "name": "keep remove takes the marker off a kept folder",
+      "group": "commands",
+      "args": ["keep", "remove", "{home}/Projects/kept/node_modules", "--folder-dev", "{dev:home/Projects/kept/node_modules}", "--folder-ino", "{ino:home/Projects/kept/node_modules}", "--json"],
+      "expect": {"exit": 0, "schema": "keep"}
+    },
+    {
+      "name": "notify ack records the amount shown",
+      "group": "commands",
+      "args": ["notify", "ack", "--bytes", "1"],
+      "expect": {"exit": 0}
+    },
+    {
+      "name": "notify snooze records the time",
+      "group": "commands",
+      "args": ["notify", "snooze", "--until", "2026-10-20T09:00:00Z"],
+      "expect": {"exit": 0}
+    },
+    {
+      "name": "schedule status in a fresh home is not installed",
+      "group": "commands",
+      "args": ["schedule", "status"],
+      "expect": {"exit": 0, "stdout": {"contains": ["Not installed"]}}
+    }
+  ],
+  "not_run": [
+    {"pattern": "^ddc schedule install$", "reason": "it bootstraps a LaunchAgent into the real gui/<uid> domain whatever HOME is"}
+  ],
+  "uncovered": [
+    {"name": "clean --yes", "reason": "it deletes without asking; the cases never clean for real"},
+    {"name": "clean --permanent", "reason": "it deletes review items instead of trashing them; never run"},
+    {"name": "clean --items", "reason": "it cleans a list the app passes, for real; never run"},
+    {"name": "clean --json", "reason": "it requires --items"},
+    {"name": "clean --local-snapshots", "reason": "it requires --items"},
+    {"name": "disk free", "reason": "its dry run runs each tool's own dry run (brew, conda)"},
+    {"name": "disk free --actions", "reason": "disk free is never run"},
+    {"name": "disk free --dry-run", "reason": "disk free is never run"},
+    {"name": "disk free --json", "reason": "disk free is never run"},
+    {"name": "disk free --data-dir", "reason": "disk free is never run"},
+    {"name": "disk free --system-root", "reason": "disk free is never run"},
+    {"name": "schedule install", "reason": "it bootstraps a LaunchAgent into the real gui/<uid> domain whatever HOME is"},
+    {"name": "schedule install --interval", "reason": "schedule install is never run"},
+    {"name": "schedule install --threshold", "reason": "schedule install is never run"},
+    {"name": "schedule uninstall", "reason": "it boots out the real gui/<uid> agent whatever HOME is"}
+  ]
+}

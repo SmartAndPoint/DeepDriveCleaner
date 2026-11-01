@@ -523,6 +523,7 @@ A rebase merge gives the commits new SHAs, so the next branch starts from a fres
 
 ```
 make lint       # fmt check, clippy -D warnings
+make cases      # every call of crates/ddc-cli/tests/cases.json, and the commands it suggests (before every commit)
 make gate-fast  # lint, the unit tests (nextest, no load trees), doc tests
 make gate       # lint, every test, cargo deny, unused dependencies, docs, the MSRV build, a release build (CI on main)
 make check      # the same as make gate-fast
