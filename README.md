@@ -286,6 +286,8 @@ ddc disk --json | jq '.areas[] | {id, bytes}'      # area sizes
 
 `ddc disk agents` shows what coding-agent harnesses keep under your home folder: Claude Code, Codex, Cursor and opencode, with each one's folders and sizes, what of it runs, its live sessions and how many other transcripts it keeps. A Claude Code session is live while the process that wrote its record runs; a Codex thread is open while a process holds its lock file. It reads only the session records' named fields, the names of lock files and transcripts, the process list and sizes: never a transcript's content or a harness database. Its output shows project folders and session names. `--no-sizes` lists the sessions without measuring the folders, in a fraction of a second; `--json` follows [`docs/agents.schema.json`](docs/agents.schema.json). It saves nothing and removes nothing.
 
+With sizes it also shows what each Claude Code session keeps, largest first: its transcript, its checkpoints (`~/.claude/file-history/<session>`) and its temporary folder, which Claude Code keeps outside the home folder (`/private/tmp/claude-<uid>/<project>/<session>` on macOS, under `CLAUDE_CODE_TMPDIR` when that is set), with whether the session is live. The text lists the ten largest and sums the rest in one line; `--json` lists them all. A live session's files are only described. A row marked `not live` names its temporary folder: "3.4 GB in its temporary folder (…)". Nothing removes it yet; the folder is yours to clear once its session has ended.
+
 ```
 ddc disk agents [--json] [--no-sizes] [--threads N] [--data-dir DIR]
 ddc disk agents --no-sizes                         # live sessions only

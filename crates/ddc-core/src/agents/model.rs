@@ -2,12 +2,16 @@
 //!
 //! Values copied from a harness record (`status`, `entrypoint`, `name`,
 //! `cwd`) stay strings as they were read: they are another program's
-//! internals. The enums are ddc's own, and a new variant bumps the version.
+//! internals. The enums are ddc's own, and a new variant bumps the version:
+//! `liveness::LiveBy` and `liveness::UnknownCause` too, which a footprint
+//! carries.
 
 use std::path::PathBuf;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+
+use super::liveness::{LiveBy, UnknownCause};
 
 /// Version of [`AgentsReport`]; the scan and disk reports have their own.
 pub const AGENTS_SCHEMA_VERSION: u32 = 1;
@@ -120,6 +124,76 @@ pub struct Sessions {
     /// Live first, then by start, then by id.
     pub list: Vec<Session>,
     pub transcripts: Transcripts,
+    /// Claude Code only, with sizes: what each session keeps, largest
+    /// total first. A session that ended has no record, so this is a list
+    /// of its own, by session id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footprints: Option<Vec<SessionFootprint>>,
+    /// Claude Code only, with sizes: its temporary folder outside the home
+    /// folder (`/private/tmp/claude-<uid>` on macOS), when it exists. Its
+    /// bytes are in no folder of the harness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temp_root: Option<TempRoot>,
+}
+
+/// Whether a session's files are still in use, as the cleanup's session
+/// check would decide now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum FootprintState {
+    Live,
+    NotLive,
+    Unknown,
+}
+
+/// What one Claude Code session keeps on disk, by kind; allocated bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SessionFootprint {
+    /// The session id, a UUID.
+    pub id: String,
+    /// The project folder's name in `~/.claude/projects` (or in the
+    /// temporary folder), as Claude Code wrote it; absent when only the
+    /// checkpoints name the session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    pub state: FootprintState,
+    /// What shows it live; with `live` only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live_by: Option<LiveBy>,
+    /// Why its state is not known; with `unknown` only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unknown_cause: Option<UnknownCause>,
+    /// RFC 3339, UTC: the latest change of its transcript or a companion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified: Option<String>,
+    /// `~/.claude/projects/<project>/<id>.jsonl` and its companions.
+    pub transcript: u64,
+    /// `~/.claude/file-history/<id>`.
+    pub checkpoints: u64,
+    /// `<temp_root>/<project>/<id>`: its scratchpad, tasks and images.
+    pub temp: u64,
+    pub total: u64,
+    /// Its temporary folder, when it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "crate::json_path::opt_path")]
+    pub temp_path: Option<PathBuf>,
+}
+
+/// Claude Code's temporary folder for the current user.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct TempRoot {
+    /// Canonical.
+    #[serde(serialize_with = "crate::json_path::path")]
+    pub path: PathBuf,
+    /// At or under a skip of `settings.json`: never opened, no bytes.
+    pub skipped: bool,
+    /// Allocated bytes, sessions and the rest (`bash-edit-diff`, …);
+    /// absent when skipped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
+    /// Folders and entries inside that could not be read: `bytes` is then a
+    /// lower bound.
+    pub unreadable: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

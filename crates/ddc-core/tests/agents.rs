@@ -11,11 +11,13 @@ use std::sync::atomic::AtomicBool;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use common::{TreeBuilder, alloc, reference_alloc};
+use ddc_core::agents::liveness::{LiveBy, UnknownCause};
 use ddc_core::agents::{
-    self, AgentsOptions, AgentsReport, Harness, HarnessId, RecordsState, SessionState, UnknownReason, utc_ctime,
+    self, AgentsOptions, AgentsReport, FootprintState, Harness, HarnessId, RecordsState, SessionState, UnknownReason,
+    utc_ctime,
 };
 use ddc_core::env::Env;
-use ddc_core::platform::{Capability, procs};
+use ddc_core::platform::{Capability, PLATFORM, Platform, procs};
 
 const A: &str = "0a1b2c3d-0000-4000-8000-00000000000a";
 const B: &str = "0a1b2c3d-0000-4000-8000-00000000000b";
@@ -49,10 +51,18 @@ impl Fixture {
         self.t.write(&format!("home/{rel}"), content)
     }
 
+    /// Claude Code's temporary folder under the fixture's system root, from it.
+    fn temp_rel(&self) -> String {
+        let tmp = if PLATFORM == Platform::Macos { "private/tmp" } else { "tmp" };
+        format!("sys/{tmp}/claude-{}", procs::uid())
+    }
+
     fn report_with(&self, sizes: bool, user_skips: Vec<PathBuf>) -> AgentsReport {
+        // A fixture system root: no test reads the real `/tmp`.
         let env =
             Env::with_paths(&self.t.path("home"), &self.t.path("data"), &self.t.path("data/logs"), SystemTime::now())
-                .unwrap();
+                .unwrap()
+                .with_system_root(&self.t.dir("sys"));
         let opts = AgentsOptions { sizes, threads: Some(2), user_skips };
         agents::report(&env, &opts, &procs::current_user_processes_unopened(), &AtomicBool::new(false))
     }
@@ -193,6 +203,118 @@ fn transcripts_leave_out_the_live_sessions() {
     assert_eq!((t.count, t.bytes), (Some(1), None));
 }
 
+// MARK: - Per-session footprint
+
+/// Story "Per-session footprint: what each agent session keeps in its
+/// transcripts, temporary folders and worktrees": A is live by its record,
+/// B ended an hour ago; each keeps a transcript, checkpoints and a
+/// temporary folder, and the temporary folder holds more than sessions.
+#[test]
+fn claude_footprint_per_session() {
+    if common::lacks("claude_footprint_per_session", Capability::CodingAgents) {
+        return;
+    }
+    let fx = Fixture::new();
+    let me = std::process::id();
+    fx.write(".claude/sessions/1.json", &format!(r#"{{"pid":{me},"sessionId":"{A}","startedAt":{}}}"#, now_ms()));
+    let p = ".claude/projects/-Users-example-p";
+    let a = [fx.file(&format!("{p}/{A}.jsonl"), 20_000), fx.file(&format!("{p}/{A}/subagents/x.jsonl"), 8000)];
+    let b = fx.file(&format!("{p}/{B}.jsonl"), 12_000);
+    fx.file(&format!("{p}/memory/MEMORY.md"), 3000);
+    let a_hist = fx.file(&format!(".claude/file-history/{A}/f"), 4096);
+    let b_hist = fx.file(&format!(".claude/file-history/{B}/f"), 70_000);
+    let temp = fx.temp_rel();
+    // Joined by id: a session's temporary folder may sit under another slug (a worktree's).
+    let a_tmp = fx.t.file(&format!("{temp}/-Users-example-p-wt/{A}/scratchpad/x"), 16_384);
+    let b_tmp = fx.t.file(&format!("{temp}/-Users-example-p/{B}/tasks/y"), 200_000);
+    // C's transcript is gone (Claude Code's own sweep): its temporary folder is still a row.
+    let c_tmp = fx.t.file(&format!("{temp}/-Users-example-q/{C}/images/i"), 4096);
+    // No session's.
+    let other = fx.t.file(&format!("{temp}/bash-edit-diff/z"), 5000);
+    let hour_ago = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64 - 3600;
+    fx.t.age(&format!("home/{p}/{B}.jsonl"), hour_ago);
+
+    let report = fx.report();
+    let claude = harness(&report, HarnessId::ClaudeCode);
+    let s = claude.sessions.as_ref().unwrap();
+    let list = s.footprints.as_ref().unwrap();
+    let ids: Vec<&str> = list.iter().map(|f| f.id.as_str()).collect();
+    assert_eq!(ids, [B, A, C], "largest total first");
+    let (fb, fa, fc) = (&list[0], &list[1], &list[2]);
+
+    assert_eq!(fa.state, FootprintState::Live);
+    assert_eq!((fa.live_by, fa.unknown_cause), (Some(LiveBy::Record), None));
+    assert_eq!(fa.transcript, alloc(&a[0]) + alloc(&a[1]));
+    assert_eq!(fa.checkpoints, alloc(&a_hist));
+    assert_eq!(fa.temp, alloc(&a_tmp));
+    assert_eq!(fa.total, fa.transcript + fa.checkpoints + fa.temp);
+    assert_eq!(fa.project.as_deref(), Some("-Users-example-p"));
+    let base = fx.t.path(&temp).canonicalize().unwrap();
+    assert_eq!(fa.temp_path.as_deref(), Some(base.join("-Users-example-p-wt").join(A).as_path()));
+
+    assert_eq!(fb.state, FootprintState::NotLive);
+    assert_eq!((fb.live_by, fb.unknown_cause), (None, None));
+    assert_eq!((fb.transcript, fb.checkpoints, fb.temp), (alloc(&b), alloc(&b_hist), alloc(&b_tmp)));
+    assert_eq!(fb.total, alloc(&b) + alloc(&b_hist) + alloc(&b_tmp));
+    let modified = humantime::parse_rfc3339(fb.modified.as_deref().unwrap()).unwrap();
+    assert_eq!(modified, UNIX_EPOCH + std::time::Duration::from_secs(hour_ago as u64));
+
+    assert_eq!((fc.state, fc.unknown_cause), (FootprintState::Unknown, Some(UnknownCause::SessionWithoutFiles)));
+    assert_eq!((fc.transcript, fc.checkpoints, fc.temp, fc.total), (0, 0, alloc(&c_tmp), alloc(&c_tmp)));
+    assert_eq!(fc.project.as_deref(), Some("-Users-example-q"));
+
+    // The temporary folder: the sessions' folders and the rest, in no folder of the harness.
+    let root = s.temp_root.as_ref().unwrap();
+    assert_eq!(root.path, base);
+    assert!(!root.skipped);
+    assert_eq!(root.bytes, Some(reference_alloc(&base)));
+    let sessions: u64 = list.iter().map(|f| f.temp).sum();
+    assert_eq!(root.bytes.unwrap() - sessions, alloc(&other), "the rest is the folder no session owns");
+    assert_eq!(claude.bytes, Some(reference_alloc(&fx.home(".claude"))), "the harness bytes stay the home's");
+    // The transcript count and bytes are unchanged by it.
+    assert_eq!((s.transcripts.count, s.transcripts.bytes), (Some(1), Some(alloc(&b))));
+
+    let json = serde_json::to_value(&report).unwrap();
+    let rows = &json["harnesses"][0]["sessions"]["footprints"];
+    assert_eq!(rows[0]["state"], "not-live");
+    assert_eq!(rows[1]["live_by"], "record");
+
+    // Without sizes: no footprint, no temporary folder.
+    let fast = fx.report_with(false, Vec::new());
+    let s = harness(&fast, HarnessId::ClaudeCode).sessions.as_ref().unwrap();
+    assert!(s.footprints.is_none() && s.temp_root.is_none());
+}
+
+#[test]
+fn footprint_without_a_transcript_and_under_a_skip() {
+    if common::lacks("footprint_without_a_transcript_and_under_a_skip", Capability::CodingAgents) {
+        return;
+    }
+    let fx = Fixture::new();
+    fx.dir(".claude/sessions");
+    let temp = fx.temp_rel();
+    fx.t.file(&format!("{temp}/-Users-example-p/{C}/scratchpad/x"), 8192);
+    let c_hist = fx.file(&format!(".claude/file-history/{C}/f"), 4096);
+
+    let report = fx.report();
+    let s = harness(&report, HarnessId::ClaudeCode).sessions.clone().unwrap();
+    let list = s.footprints.unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].state, FootprintState::Unknown);
+    assert_eq!(list[0].unknown_cause, Some(UnknownCause::SessionWithoutFiles));
+    assert!(list[0].temp > 0 && list[0].transcript == 0);
+
+    // A skip covers the temporary folder: never opened, no bytes from it.
+    let base = fx.t.path(&temp).canonicalize().unwrap();
+    let report = fx.report_with(true, vec![base.clone()]);
+    let s = harness(&report, HarnessId::ClaudeCode).sessions.clone().unwrap();
+    let root = s.temp_root.unwrap();
+    assert!(root.skipped && root.bytes.is_none() && root.path == base);
+    let list = s.footprints.unwrap();
+    assert_eq!(list.len(), 1, "the checkpoints still name the session");
+    assert_eq!((list[0].temp, list[0].temp_path.as_ref(), list[0].checkpoints), (0, None, alloc(&c_hist)));
+}
+
 // MARK: - Codex
 
 struct Holder(Child);
@@ -255,7 +377,7 @@ fn the_codex_sweep_stats_no_open_path_and_takes_no_lock() {
             .collect::<Vec<_>>()
             .join("\n")
     };
-    for file in ["mod.rs", "claude.rs", "codex.rs", "running.rs", "sizes.rs", "model.rs"] {
+    for file in ["mod.rs", "claude.rs", "codex.rs", "running.rs", "sizes.rs", "model.rs", "footprint.rs"] {
         let text = code(file);
         for forbidden in
             ["flock", "lsof", "Command::new", "remove_", "trash", "Executor", "plan::", "rusqlite", "OpenOptions"]
