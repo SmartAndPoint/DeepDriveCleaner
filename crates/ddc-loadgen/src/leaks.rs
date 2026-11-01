@@ -7,6 +7,7 @@
 //! child a signal killed) is a failure, not a leak report. The report
 //! shares stdout with `--json`, so only the summary line is read.
 
+use ddc_core::platform::Canonical as _;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -97,7 +98,7 @@ pub fn prepare(p: Profile, dir: &Path, cli: &Path, real_home: &Path) -> anyhow::
 pub fn run(cli: &Path, out: &Path) -> anyhow::Result<Vec<Checked>> {
     fs::create_dir_all(out)?;
     let real_home = isolate::real_home()?;
-    let cli = cli.canonicalize()?;
+    let cli = cli.canonical()?;
     let mut checked = Vec::new();
     for p in Profile::ALL {
         let dir = target::Scratch::new()?;

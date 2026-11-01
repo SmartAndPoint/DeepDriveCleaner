@@ -5,6 +5,7 @@
 //! lists hold only items that are deleted, run a fake tool, or are refused,
 //! and a picked file is only ever dry-run.
 
+use ddc_core::platform::Canonical as _;
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{Read as _, Write as _};
@@ -31,7 +32,7 @@ struct Fx {
 impl Fx {
     fn new() -> Self {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let fx = Self { home: root.join("home"), data: root.join("data"), root, _tmp: tmp };
         let old = SystemTime::now() - Duration::from_secs(90 * 86_400);
         fx.write("p/package.json", b"{}");

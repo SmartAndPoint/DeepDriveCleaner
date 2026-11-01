@@ -1,6 +1,7 @@
 //! The home row from `last-scan.json`, when that report still describes the
 //! whole home folder.
 
+use crate::platform::Canonical as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -71,5 +72,5 @@ pub(super) fn last_scan(env: &Env, statfs: &dyn StatFs, data_root: &Path, max_ag
 }
 
 fn canonical(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    path.canonical().unwrap_or_else(|_| path.to_path_buf())
 }

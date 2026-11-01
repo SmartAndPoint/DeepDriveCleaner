@@ -19,6 +19,7 @@
 //! companions and its liveness read as the clean reads them (story
 //! "Harness data rules"), and a harness's folder the guard's `agent-live`.
 
+use crate::platform::Canonical as _;
 use std::cell::RefCell;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -132,7 +133,7 @@ pub fn preflight_skipping(
     let excludes = excludes
         .iter()
         .map(|e| {
-            e.canonicalize()
+            e.canonical()
                 .map_err(|err| io::Error::new(err.kind(), format!("cannot resolve --exclude {}: {err}", e.display())))
         })
         .collect::<io::Result<Vec<PathBuf>>>()?;
@@ -337,7 +338,7 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
     if !roots.iter().any(|r| path.starts_with(r)) {
         return skip(SkipReason::OutsideScanRoots);
     }
-    if parent.canonicalize().ok().as_deref() != Some(parent) {
+    if parent.canonical().ok().as_deref() != Some(parent) {
         return skip(SkipReason::ParentChanged);
     }
     let Some(policy) = entries::policy(rule.id).filter(|_| catalog.verify(rule, parent)) else {
@@ -394,7 +395,9 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
         kept: walked.kept
             || excludes.iter().any(|e| e.starts_with(path))
             || (st.is_dir && std::fs::symlink_metadata(path.join(KEEP_MARKER)).is_ok()),
-        protected: protected_in_home(PLATFORM).iter().any(|rel| home.join(rel).starts_with(path)),
+        protected: protected_in_home(PLATFORM)
+            .iter()
+            .any(|rel| crate::platform::paths::key(&home.join(rel)).starts_with(crate::platform::paths::key(path))),
         other_volume: walked.other_fs,
         // A session's entry took the guard's check above.
         session: None,
@@ -446,7 +449,7 @@ fn planned(item: &ListedItem, rule: &Rule, class: RiskClass, action: Action) -> 
 /// The scan's roots: the home directory by default, canonical, nested ones dropped.
 fn canonical_roots(env: &Env, roots: &[PathBuf]) -> Vec<PathBuf> {
     let given = if roots.is_empty() { vec![env.home().to_path_buf()] } else { roots.to_vec() };
-    let mut canon: Vec<PathBuf> = given.iter().filter_map(|r| r.canonicalize().ok()).collect();
+    let mut canon: Vec<PathBuf> = given.iter().filter_map(|r| r.canonical().ok()).collect();
     canon.sort();
     canon.dedup();
     let mut kept: Vec<PathBuf> = Vec::new();

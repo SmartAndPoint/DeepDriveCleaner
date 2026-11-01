@@ -1,5 +1,6 @@
 //! `ddc scan --background`: scan-only, silent, no TCC areas.
 
+use ddc_core::platform::Canonical as _;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -27,7 +28,7 @@ fn ddc(home: &Path, args: &[&str]) -> Output {
 
 fn tree() -> (tempfile::TempDir, PathBuf, PathBuf) {
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let home = root.join("home");
     for (rel, n) in
         [("p/__pycache__/m.pyc", 5_000usize), (".npm/_cacache/blob", 50_000), ("Documents/node_modules/x.js", 100)]

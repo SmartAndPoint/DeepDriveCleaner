@@ -12,7 +12,7 @@ mod toolchain;
 mod visitor;
 pub mod worktree;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub use catalog::{DOCKER_DOWN, RULES, SHARED_IDS, never_walked, protected_in_home, protected_system, rules_of};
@@ -22,7 +22,7 @@ pub use visitor::{KEEP_MARKER, KeptClaim, LARGE_FILE_BYTES, Pins, RuleVisitor};
 
 use crate::class::{Category, Removal, RiskClass};
 use crate::model::Origin;
-use crate::platform::PLATFORM;
+use crate::platform::{PLATFORM, paths};
 use crate::scan::Tag;
 
 /// An app that owns a cache, by its bundle name (`Cursor` for `Cursor.app`): while
@@ -170,14 +170,14 @@ pub enum NeverOpen<'s> {
 pub struct Catalog {
     home: PathBuf,
     rules: &'static [Rule],
-    known: HashMap<PathBuf, Tag>,
-    regions: HashMap<PathBuf, Tag>,
-    children_of: HashMap<PathBuf, Tag>,
-    no_traverse: HashMap<PathBuf, Tag>,
+    known: Keyed<Tag>,
+    regions: Keyed<Tag>,
+    children_of: Keyed<Tag>,
+    no_traverse: Keyed<Tag>,
     /// Ancestors of known paths: never claimed whole (ADR §2, item 3).
-    ancestors: HashSet<PathBuf>,
+    ancestors: Keyed<()>,
     /// Protected directories: never claimed by specialized or generic rules.
-    protected: HashSet<PathBuf>,
+    protected: Keyed<()>,
     specialized: Vec<Tag>,
     cachedir: Tag,
     kept: Tag,
@@ -185,6 +185,49 @@ pub struct Catalog {
     /// `Tag::MAX` in a catalog without them.
     worktree: Tag,
     worktree_orphan: Tag,
+}
+
+/// A map from paths compared by [`paths::key`]: on Windows two spellings of
+/// one folder (`/` or `\\`, another case) are one entry; elsewhere a path is
+/// its own key. It keeps each path as it was given, for output.
+#[derive(Debug)]
+struct Keyed<V> {
+    map: HashMap<PathBuf, (PathBuf, V)>,
+}
+
+impl<V> Default for Keyed<V> {
+    fn default() -> Self {
+        Self { map: HashMap::new() }
+    }
+}
+
+impl<V> Keyed<V> {
+    fn insert(&mut self, path: PathBuf, value: V) {
+        self.map.insert(paths::key(&path).into_owned(), (path, value));
+    }
+
+    fn get(&self, path: &Path) -> Option<&V> {
+        self.map.get(paths::key(path).as_ref()).map(|(_, v)| v)
+    }
+
+    fn contains_key(&self, path: &Path) -> bool {
+        self.map.contains_key(paths::key(path).as_ref())
+    }
+
+    /// The paths as they were given.
+    fn paths(&self) -> impl Iterator<Item = &Path> {
+        self.map.values().map(|(p, _)| p.as_path())
+    }
+}
+
+impl FromIterator<PathBuf> for Keyed<()> {
+    fn from_iter<I: IntoIterator<Item = PathBuf>>(iter: I) -> Self {
+        let mut keyed = Self::default();
+        for path in iter {
+            keyed.insert(path, ());
+        }
+        keyed
+    }
 }
 
 impl Catalog {
@@ -196,11 +239,11 @@ impl Catalog {
         let mut c = Self {
             home: home.to_path_buf(),
             rules,
-            known: HashMap::new(),
-            regions: HashMap::new(),
-            children_of: HashMap::new(),
-            no_traverse: HashMap::new(),
-            ancestors: HashSet::new(),
+            known: Keyed::default(),
+            regions: Keyed::default(),
+            children_of: Keyed::default(),
+            no_traverse: Keyed::default(),
+            ancestors: Keyed::default(),
             protected: protected_in_home(PLATFORM).iter().map(|rel| home.join(rel)).collect(),
             specialized: Vec::new(),
             cachedir: Tag::MAX,
@@ -210,13 +253,13 @@ impl Catalog {
         };
         for (i, rule) in rules.iter().enumerate() {
             let tag = i as Tag;
-            let anchor = |map: &mut HashMap<PathBuf, Tag>, rel: &str, ancestors: &mut HashSet<PathBuf>| {
+            let anchor = |map: &mut Keyed<Tag>, rel: &str, ancestors: &mut Keyed<()>| {
                 let path = home.join(rel);
                 for a in path.ancestors().skip(1) {
                     if !a.starts_with(home) || a == home {
                         break;
                     }
-                    ancestors.insert(a.to_path_buf());
+                    ancestors.insert(a.to_path_buf(), ());
                 }
                 map.insert(path, tag);
             };
@@ -225,7 +268,7 @@ impl Catalog {
                 Matcher::KnownRegion(paths) => paths.iter().for_each(|p| anchor(&mut c.regions, p, &mut c.ancestors)),
                 Matcher::KnownChildren(parents) => parents.iter().for_each(|p| {
                     anchor(&mut c.children_of, p, &mut c.ancestors);
-                    c.ancestors.insert(home.join(p));
+                    c.ancestors.insert(home.join(p), ());
                 }),
                 Matcher::NoTraverse(paths) => paths.iter().for_each(|p| {
                     c.no_traverse.insert(home.join(p), tag);
@@ -251,7 +294,7 @@ impl Catalog {
 
     /// Folders the walk never opens, sorted: the cloud folders.
     pub fn no_traverse_paths(&self) -> Vec<&Path> {
-        let mut paths: Vec<&Path> = self.no_traverse.keys().map(PathBuf::as_path).collect();
+        let mut paths: Vec<&Path> = self.no_traverse.paths().collect();
         paths.sort();
         paths
     }
@@ -288,7 +331,7 @@ impl Catalog {
     /// a scan root, `$HOME`, a protected directory, a git work tree or a
     /// directory holding a project manifest (ADR §2).
     pub(crate) fn claimable(&self, path: &Path, depth: u32, has_child: impl Fn(&str) -> bool) -> bool {
-        depth > 0 && path != self.home && !self.protected.contains(path) && !has_child(".git")
+        depth > 0 && path != self.home && !self.protected.contains_key(path) && !has_child(".git")
     }
 
     /// The worktree rule that makes `path` a region, and what it found:
@@ -304,7 +347,7 @@ impl Catalog {
     ) -> Option<(Tag, worktree::Recognized)> {
         if depth == 0
             || path == self.home
-            || self.protected.contains(path)
+            || self.protected.contains_key(path)
             || self.regions.contains_key(path)
             || !has_child(".git")
         {
@@ -343,7 +386,7 @@ impl Catalog {
             _ => match matcher::FsView::open(path) {
                 Some(view) => {
                     let has = |n: &str| matcher::DirView::has_child(&view, n);
-                    !self.ancestors.contains(path)
+                    !self.ancestors.contains_key(path)
                         && self.claimable(path, 1, has)
                         && Self::content_matcher_allowed(&rule.matcher, has)
                         && matcher::matches(&rule.matcher, &view, &self.home)

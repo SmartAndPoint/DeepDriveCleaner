@@ -11,6 +11,7 @@
 //! then it is unlinked relative to that descriptor. Every decision is
 //! journaled.
 
+use crate::platform::Canonical as _;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
@@ -139,7 +140,7 @@ fn decide(folder: &Path, given: Option<(u64, u64)>, roots: &[PathBuf]) -> (Optio
     // The folder where its ancestors really lead: a symlink above it cannot
     // carry the open outside the roots.
     let real = match (folder.parent(), folder.file_name()) {
-        (Some(parent), Some(name)) => parent.canonicalize().map_or_else(|_| folder.to_path_buf(), |p| p.join(name)),
+        (Some(parent), Some(name)) => parent.canonical().map_or_else(|_| folder.to_path_buf(), |p| p.join(name)),
         _ => folder.to_path_buf(),
     };
     if !roots.iter().any(|root| real.starts_with(root)) {

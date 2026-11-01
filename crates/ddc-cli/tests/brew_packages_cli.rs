@@ -4,6 +4,7 @@
 //! `brew` is a shell script that logs its calls and their environment and
 //! prints a fixture; nothing real is run.
 
+use ddc_core::platform::Canonical as _;
 use std::fs;
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -26,7 +27,7 @@ struct Fx {
 impl Fx {
     fn new() -> Self {
         let tmp = tempfile::tempdir().unwrap();
-        let fx = Self { root: tmp.path().canonicalize().unwrap(), _tmp: tmp };
+        let fx = Self { root: tmp.path().canonical().unwrap(), _tmp: tmp };
         let r = fx.root.display().to_string();
         fx.write("sys/System/Volumes/Data/opt/homebrew/Cellar/wget/1.25.0/bin/wget", 40_000);
         fx.write("sys/System/Volumes/Data/opt/homebrew/Cellar/openssl@3/3.4.0/lib/libssl.dylib", 20_000);

@@ -1,5 +1,6 @@
 //! `ddc scan` end to end with a temporary HOME and data directory.
 
+use ddc_core::platform::Canonical as _;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -23,7 +24,7 @@ fn ddc(home: &Path, args: &[&str]) -> Output {
 
 fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
     let tmp = tempfile::tempdir().unwrap();
-    let home = tmp.path().canonicalize().unwrap().join("home");
+    let home = tmp.path().canonical().unwrap().join("home");
     let w = |rel: &str, content: &[u8]| {
         let p = home.join(rel);
         fs::create_dir_all(p.parent().unwrap()).unwrap();
@@ -146,7 +147,7 @@ fn human_report_orders_findings_by_size() {
         return;
     }
     let tmp = tempfile::tempdir().unwrap();
-    let home = tmp.path().canonicalize().unwrap().join("home");
+    let home = tmp.path().canonical().unwrap().join("home");
     for (rel, n) in
         [("small/__pycache__/a.pyc", 4_000usize), ("big/__pycache__/a.pyc", 400_000), ("mid/__pycache__/a.pyc", 40_000)]
     {
@@ -263,7 +264,7 @@ fn scan_of_other_roots_into_the_app_data_folder_says_the_app_shows_it() {
         return;
     }
     let (tmp, home) = fixture();
-    let other = tmp.path().canonicalize().unwrap().join("other");
+    let other = tmp.path().canonical().unwrap().join("other");
     fs::create_dir_all(other.join("x")).unwrap();
     let other = other.to_str().unwrap();
 
@@ -292,7 +293,7 @@ fn scan_of_the_settings_roots_by_path_says_nothing() {
         return;
     }
     let (tmp, home) = fixture();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let other = root.join("other");
     fs::create_dir_all(&other).unwrap();
     let data = common::default_data(&home);

@@ -9,6 +9,7 @@
 
 mod contract;
 
+use ddc_core::platform::Canonical as _;
 use std::collections::BTreeSet;
 use std::fs;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -199,6 +200,7 @@ fn command_path(argv: &[String]) -> (&'static str, usize) {
 /// Where the case runs: a canonical temporary root with the home and the
 /// data folder in it.
 mod place {
+    use ddc_core::platform::Canonical as _;
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -218,7 +220,7 @@ mod place {
             let tmp = tempfile::tempdir().unwrap();
             // `/var/folders` is `/private/var/folders` on macOS: the root is
             // canonical before any placeholder is expanded.
-            let root = tmp.path().canonicalize().unwrap();
+            let root = tmp.path().canonical().unwrap();
             let sb = Sandbox { home: root.join("home"), data: root.join("data"), root, _tmp: tmp };
             for d in ["home", "data"].iter().copied().chain(fixture.dirs.iter().map(String::as_str)) {
                 fs::create_dir_all(sb.root.join(sb.expand(d))).unwrap();
@@ -310,7 +312,7 @@ use place::Sandbox;
 /// `p` canonical: its longest existing ancestor resolved by the file system,
 /// links included, the rest with `.` and `..` resolved by hand.
 fn normal(p: &Path) -> PathBuf {
-    if let Ok(c) = p.canonicalize() {
+    if let Ok(c) = p.canonical() {
         return c;
     }
     let mut out = PathBuf::new();
@@ -322,7 +324,7 @@ fn normal(p: &Path) -> PathBuf {
             Component::CurDir => {}
             other => {
                 out.push(other);
-                if let Ok(c) = out.canonicalize() {
+                if let Ok(c) = out.canonical() {
                     out = c;
                 }
             }

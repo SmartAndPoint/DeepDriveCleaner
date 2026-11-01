@@ -18,6 +18,7 @@ pub mod folders;
 pub mod fsops;
 pub mod iopolicy;
 pub mod meta;
+pub mod paths;
 pub mod process;
 pub mod procs;
 pub mod rlimit;

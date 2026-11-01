@@ -1,5 +1,6 @@
 //! `ddc schedule install|uninstall|status`.
 
+use ddc_core::platform::Canonical as _;
 use std::io::Write;
 use std::path::Path;
 use std::process::ExitCode;
@@ -21,7 +22,7 @@ pub fn run(action: ScheduleAction) -> anyhow::Result<ExitCode> {
     let lc = SystemLaunchctl;
     match action {
         ScheduleAction::Install { interval, threshold } => {
-            let exe = std::env::current_exe()?.canonicalize().context("cannot resolve the ddc binary")?;
+            let exe = std::env::current_exe()?.canonical().context("cannot resolve the ddc binary")?;
             let (mut out, mut err) = (std::io::stdout().lock(), std::io::stderr().lock());
             return install_with(interval, threshold, &exe, &env, uid, &lc, &mut out, &mut err);
         }

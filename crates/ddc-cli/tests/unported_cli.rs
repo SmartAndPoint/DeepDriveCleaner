@@ -6,6 +6,7 @@
 //! output was asked for. The temporary home is left as it was.
 #![cfg(feature = "simulate-unported")]
 
+use ddc_core::platform::Canonical as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -34,7 +35,7 @@ fn ddc(home: &Path, args: &[&str]) -> Output {
 /// A home with a project whose `node_modules` a scan would find.
 fn home() -> (tempfile::TempDir, PathBuf) {
     let tmp = tempfile::tempdir().unwrap();
-    let home = tmp.path().canonicalize().unwrap().join("home");
+    let home = tmp.path().canonical().unwrap().join("home");
     for (rel, content) in [("p/package.json", &b"{}"[..]), ("p/node_modules/x/index.js", &[1u8; 4_000][..])] {
         let p = home.join(rel);
         fs::create_dir_all(p.parent().unwrap()).unwrap();

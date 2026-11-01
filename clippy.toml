@@ -1,6 +1,8 @@
 # Deletion and $HOME access are funnelled through dedicated modules (see ADR
 # "Cleanup safety model"). Allow them locally with a justification.
 disallowed-methods = [
+  { path = "std::fs::canonicalize", reason = "use ddc_core::platform::Canonical (Path::canonical): it drops Windows' verbatim prefix" },
+  { path = "std::path::Path::canonicalize", reason = "use ddc_core::platform::Canonical (Path::canonical): it drops Windows' verbatim prefix" },
   { path = "std::env::home_dir", reason = "read $HOME only through ddc_core::env::Env" },
   { path = "std::env::var", reason = "read the environment only through ddc_core::env::Env" },
   { path = "std::env::var_os", reason = "read the environment only through ddc_core::env::Env" },

@@ -1,6 +1,7 @@
 //! The allocated bytes of the folders an area action frees, measured
 //! before and after it: ddc never reports space it did not free.
 
+use crate::platform::Canonical as _;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
@@ -69,7 +70,7 @@ pub(crate) fn regions(paths: &[PathBuf], skips: &[PathBuf]) -> Vec<Option<u64>> 
                 return None;
             }
             match std::fs::symlink_metadata(path) {
-                Ok(_) => path.canonicalize().ok().filter(|c| !skipped(c)).map(Some),
+                Ok(_) => path.canonical().ok().filter(|c| !skipped(c)).map(Some),
                 Err(e) if e.kind() == ErrorKind::NotFound => Some(None),
                 Err(_) => None,
             }

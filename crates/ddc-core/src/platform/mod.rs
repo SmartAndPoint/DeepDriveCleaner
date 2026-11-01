@@ -43,8 +43,21 @@ use windows as imp;
 // The OS calls, as `platform::<module>::<item>` (ADR §1, amended): shared
 // code never names `macos`, which stays private.
 pub use imp::{
-    bulk, errno, folders, fsops, iopolicy, meta, process, procs, rlimit, signals, statfs, term, trash, usage,
+    bulk, errno, folders, fsops, iopolicy, meta, paths, process, procs, rlimit, signals, statfs, term, trash, usage,
 };
+
+/// `Path::canonicalize` through the platform ([`paths::canonicalize`]): on
+/// Windows it drops the verbatim `\\?\` prefix std returns. Every crate
+/// calls this instead of std's, which clippy forbids (`clippy.toml`).
+pub trait Canonical {
+    fn canonical(&self) -> std::io::Result<std::path::PathBuf>;
+}
+
+impl Canonical for std::path::Path {
+    fn canonical(&self) -> std::io::Result<std::path::PathBuf> {
+        imp::paths::canonicalize(self)
+    }
+}
 
 /// What in-source tests need from the OS (a symlink, a non-UTF-8 name, POSIX
 /// path shapes): `Unsupported` where it is missing, and the test skips
@@ -89,6 +102,9 @@ mod pins {
     const _: fn(&DirFd, &OsStr) -> io::Result<ChildTimes> = DirFd::child_times;
     const _: fn(&DirFd, &OsStr, &OsStr) -> io::Result<()> = DirFd::rename_child;
     const _: fn(&DirFd, &OsStr) -> io::Result<()> = DirFd::unlink_child;
+
+    const _: fn(&Path) -> io::Result<PathBuf> = imp::paths::canonicalize;
+    const _: for<'a> fn(&'a Path) -> std::borrow::Cow<'a, Path> = imp::paths::key;
 
     const _: fn() -> Option<PathBuf> = imp::folders::home;
     const _: fn(&Path) -> (PathBuf, PathBuf) = imp::folders::default_data_and_log;

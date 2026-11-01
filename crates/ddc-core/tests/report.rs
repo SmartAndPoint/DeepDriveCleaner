@@ -1,5 +1,6 @@
 mod common;
 
+use ddc_core::platform::Canonical as _;
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -561,7 +562,7 @@ fn a_skipped_folder_is_never_opened_and_is_listed_as_not_scanned() {
 
     let r = report::scan(&fx.env(), &ScanOptions { large_file_bytes: 1 << 20, ..opts }, &Progress::default()).unwrap();
 
-    assert_eq!(r.not_scanned, [t.path("Work/Raw").canonicalize().unwrap()], "canonical, the claimed one not listed");
+    assert_eq!(r.not_scanned, [t.path("Work/Raw").canonical().unwrap()], "canonical, the claimed one not listed");
     assert!(r.inaccessible.iter().all(|i| i.path != locked), "never opened: {:?}", r.inaccessible);
     assert!(!r.findings.iter().any(|f| f.path.starts_with(t.path("Work/Raw"))), "nothing inside is a finding");
     let npm = find(&r, t, ".npm/_cacache");

@@ -156,7 +156,12 @@ struct Folder<'w> {
 
 /// Fills `contents` of each folder finding and returns the full index.
 pub(crate) fn attach(findings: &mut [Finding], walked: &[OwnerEntries], cx: &Context<'_>) -> EntryIndex {
-    let protected: Vec<PathBuf> = protected_in_home(PLATFORM).iter().map(|rel| cx.home.join(rel)).collect();
+    // Compared by the platform's key: on Windows a catalog spelling and the
+    // disk's may differ in case and separator.
+    let protected: Vec<PathBuf> = protected_in_home(PLATFORM)
+        .iter()
+        .map(|rel| crate::platform::paths::key(&cx.home.join(rel)).into_owned())
+        .collect();
     let others: Vec<(PathBuf, bool)> = findings.iter().map(|f| (f.path.clone(), f.rule == KEPT)).collect();
     let known = Known {
         found: others.iter().map(|(p, _)| p.as_path()).collect(),
@@ -376,7 +381,9 @@ impl Reading<'_> {
                 files.iter().any(|(c, _)| c.errors > 0 || c.skipped > 0) || broken.contains(&session.as_str());
             unit.state = Pending::Session {
                 kept: files.iter().any(|(_, p)| self.kept(p)),
-                protected: files.iter().any(|(_, p)| self.protected.iter().any(|x| x.starts_with(p))),
+                protected: files
+                    .iter()
+                    .any(|(_, p)| self.protected.iter().any(|x| x.starts_with(crate::platform::paths::key(p)))),
                 other_volume: files.iter().any(|(c, _)| c.other_fs > 0),
                 session,
             };
@@ -484,7 +491,7 @@ fn state_of(
         added: child.added,
         now: cx.now,
         kept,
-        protected: protected.iter().any(|p| p.starts_with(path)),
+        protected: protected.iter().any(|p| p.starts_with(crate::platform::paths::key(path))),
         other_volume: child.other_fs > 0,
         finished: rule == BACKUP_RULE && child.kind == EntryKind::Dir && backups::finished(path),
         session: None,

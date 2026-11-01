@@ -12,6 +12,7 @@ pub mod plist;
 pub(crate) mod simulators;
 pub(crate) mod visitor;
 
+use crate::platform::Canonical as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -142,14 +143,14 @@ pub fn measure_with(
 
     // The areas that exist, by canonical path; the same folder twice (a
     // firmlink, a symlink) is measured once, for the first area naming it.
-    let data_root = sources.data_root.canonicalize().ok();
+    let data_root = sources.data_root.canonical().ok();
     let mut paths: Vec<Vec<PathBuf>> = vec![Vec::new(); AREAS.len()];
     let mut seen: Vec<(u64, u64)> = Vec::new();
     if let Some(root) = &data_root {
         for (i, def) in AREAS.iter().enumerate() {
             for path in area_paths(root, def) {
                 let Ok(md) = std::fs::metadata(&path) else { continue };
-                let Ok(canon) = path.canonicalize() else { continue };
+                let Ok(canon) = path.canonical() else { continue };
                 let Ok(id) = crate::platform::meta::file_id(&md) else { continue };
                 if !md.is_dir() || seen.contains(&id) {
                     continue;
@@ -355,5 +356,5 @@ fn own_home_in_users(data_root: &Path, home: &Path) -> Option<PathBuf> {
         .flatten()
         .map(|e| e.path())
         .find(|p| std::fs::symlink_metadata(p).is_ok_and(|m| crate::platform::meta::file_id(&m).is_ok_and(|i| i == id)))
-        .and_then(|p| p.canonicalize().ok())
+        .and_then(|p| p.canonical().ok())
 }

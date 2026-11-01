@@ -3,6 +3,7 @@
 //! dry run. Folders are compared by `(dev, ino)`: the disk report spells an
 //! area through `/System/Volumes/Data`, the tools through the firmlink.
 
+use crate::platform::Canonical as _;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -99,7 +100,7 @@ pub(crate) fn brew(
         return Err(Refusal::PrefixMismatch);
     }
     let cellar = ask("--cellar")?;
-    let inside = match (cellar.canonicalize(), prefix.canonicalize()) {
+    let inside = match (cellar.canonical(), prefix.canonical()) {
         (Ok(c), Ok(p)) => c != p && c.starts_with(&p),
         _ => false,
     };
@@ -145,7 +146,7 @@ fn in_home(path: &Path, home: &Path) -> bool {
     if path.starts_with(home) || path.ancestors().any(|a| same_folder(a, home)) {
         return true;
     }
-    match (path.canonicalize(), home.canonicalize()) {
+    match (path.canonical(), home.canonical()) {
         (Ok(path), Ok(home)) => path.starts_with(home),
         _ => false,
     }
@@ -202,7 +203,7 @@ pub(crate) fn conda_environment(
         return Err(Refusal::CondaNotWritable);
     }
     let firmlinked = prefix.join("envs").join(name);
-    let spellings = [identifier.to_path_buf(), firmlinked, identifier.canonicalize().unwrap_or_default()];
+    let spellings = [identifier.to_path_buf(), firmlinked, identifier.canonical().unwrap_or_default()];
     let absolute: Vec<&Path> = spellings.iter().map(PathBuf::as_path).filter(|p| p.is_absolute()).collect();
     if guard::user_of(&absolute, procs).is_some() {
         return Err(Refusal::CondaInUse);

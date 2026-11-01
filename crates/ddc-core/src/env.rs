@@ -3,6 +3,7 @@
 //! and `TMPDIR`; everything else receives paths through [`Env`], so tests
 //! can point the whole tool at temporary directories.
 
+use crate::platform::Canonical as _;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -55,7 +56,7 @@ impl Env {
     #[allow(clippy::disallowed_methods)] // the one sanctioned reader of the process environment
     pub fn from_process(data_dir: Option<PathBuf>) -> Result<Self, EnvError> {
         let home = crate::platform::folders::home().ok_or(EnvError::NoHome)?;
-        let home = home.canonicalize().map_err(|source| EnvError::Home { path: home.clone(), source })?;
+        let home = home.canonical().map_err(|source| EnvError::Home { path: home.clone(), source })?;
         let data_dir =
             data_dir.or_else(|| std::env::var_os(Self::DATA_DIR_VAR).filter(|v| !v.is_empty()).map(PathBuf::from));
         let default_data_dir = data_dir.is_none();
@@ -84,7 +85,7 @@ impl Env {
     /// Explicit environment for tests and embedding; `home` is canonicalized.
     pub fn with_paths(home: &Path, data_dir: &Path, log_dir: &Path, now: SystemTime) -> io::Result<Self> {
         Ok(Self {
-            home: home.canonicalize()?,
+            home: home.canonical()?,
             data_dir: data_dir.to_path_buf(),
             log_dir: log_dir.to_path_buf(),
             now,

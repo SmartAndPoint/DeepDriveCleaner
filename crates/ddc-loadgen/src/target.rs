@@ -6,6 +6,7 @@
 //! real home or of `/` that is not the marked folder is refused. On macOS a
 //! marked temporary folder takes S trees only; larger ones go on an image.
 
+use ddc_core::platform::Canonical as _;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -123,7 +124,7 @@ pub fn decide(f: &Facts) -> Result<(), Refusal> {
 /// the image's device for an image target. Without a real home to compare
 /// with, it fails rather than guess.
 pub fn facts(target: &Path, device: Option<&str>, entries: u64) -> io::Result<Facts> {
-    let target = target.canonicalize()?;
+    let target = target.canonical()?;
     let home = procs::real_home().ok_or_else(|| io::Error::other("the password database names no home folder"))?;
     let dev = |p: &Path| fs::metadata(p).and_then(|m| meta::file_id(&m)).map(|(dev, _)| dev);
     let image = match device {
@@ -145,7 +146,7 @@ pub fn facts(target: &Path, device: Option<&str>, entries: u64) -> io::Result<Fa
 
 fn marked_temp(target: &Path) -> bool {
     // `$TMPDIR`, read outside `Env`: it only narrows where a tree may go.
-    std::env::temp_dir().canonicalize().is_ok_and(|tmp| marked_in(target, &tmp))
+    std::env::temp_dir().canonical().is_ok_and(|tmp| marked_in(target, &tmp))
 }
 
 /// Whether `target` is a marked folder directly in `tmp` (canonical).
@@ -171,7 +172,7 @@ pub fn mktemp() -> io::Result<PathBuf> {
 
 /// A marked temporary folder, removed with everything in it when dropped (tests).
 pub fn marked() -> io::Result<tempfile::TempDir> {
-    let dir = tempfile::Builder::new().prefix(PREFIX).tempdir_in(std::env::temp_dir().canonicalize()?)?;
+    let dir = tempfile::Builder::new().prefix(PREFIX).tempdir_in(std::env::temp_dir().canonical()?)?;
     let nonce =
         dir.path().file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_prefix(PREFIX)).unwrap_or_default();
     fs::write(dir.path().join(MARKER), nonce)?;
@@ -203,15 +204,15 @@ impl Drop for Scratch {
 /// It cannot tell an abandoned tree from one a run in another worktree is
 /// still using: run it when no load test or build is running.
 pub fn clean() -> io::Result<Vec<PathBuf>> {
-    clean_in(&std::env::temp_dir().canonicalize()?)
+    clean_in(&std::env::temp_dir().canonical()?)
 }
 
 /// Removes the one marked temporary folder `path` (a load run's, from
 /// [`mktemp`]), by the same rule as the guard; refuses anything else.
 #[allow(clippy::disallowed_methods)] // only a folder the guard accepts as the generator's own
 pub fn remove(path: &Path) -> io::Result<PathBuf> {
-    let tmp = std::env::temp_dir().canonicalize()?;
-    let path = path.canonicalize()?;
+    let tmp = std::env::temp_dir().canonical()?;
+    let path = path.canonical()?;
     if !marked_in(&path, &tmp) {
         return Err(io::Error::other(format!("{} is not a marked temporary folder of this user", path.display())));
     }
@@ -282,7 +283,7 @@ pub struct Layout {
 /// [`ROOT_LEN`] bytes, and the tree, home and data folders in it. The tree
 /// must not exist yet.
 pub fn prepare(target: &Path, device: Option<&str>, entries: u64) -> anyhow::Result<Layout> {
-    let target = target.canonicalize()?;
+    let target = target.canonical()?;
     decide(&facts(&target, device, entries)?)?;
     let room = ROOT_LEN.checked_sub(target.as_os_str().len() + "/".len() + "/tree".len()).filter(|&n| n > 0);
     let room = room.ok_or_else(|| {

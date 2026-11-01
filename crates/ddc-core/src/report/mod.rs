@@ -7,6 +7,7 @@ pub mod project;
 pub mod recheck;
 pub mod volumes;
 
+use crate::platform::Canonical as _;
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -189,7 +190,7 @@ pub(crate) fn scan_inner(
     let excludes = opts
         .excludes
         .iter()
-        .map(|p| p.canonicalize().map_err(|source| ScanError::Exclude { path: p.clone(), source }))
+        .map(|p| p.canonical().map_err(|source| ScanError::Exclude { path: p.clone(), source }))
         .collect::<Result<Vec<_>, _>>()?;
     let catalog = Catalog::builtin(env.home());
     let visitor = RuleVisitor::new(&catalog, excludes)

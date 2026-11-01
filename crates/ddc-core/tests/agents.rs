@@ -4,6 +4,7 @@
 
 mod common;
 
+use ddc_core::platform::Canonical as _;
 use std::fs::File;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -255,7 +256,7 @@ fn claude_footprint_per_session() {
     assert_eq!(fa.temp, alloc(&a_tmp));
     assert_eq!(fa.total, fa.transcript + fa.checkpoints + fa.temp);
     assert_eq!(fa.project.as_deref(), Some("-Users-example-p"));
-    let base = fx.t.path(&temp).canonicalize().unwrap();
+    let base = fx.t.path(&temp).canonical().unwrap();
     assert_eq!(fa.temp_path.as_deref(), Some(base.join("-Users-example-p-wt").join(A).as_path()));
 
     assert_eq!(fb.state, FootprintState::NotLive);
@@ -311,7 +312,7 @@ fn footprint_without_a_transcript_and_under_a_skip() {
     assert!(list[0].temp > 0 && list[0].transcript == 0);
 
     // A skip covers the temporary folder: never opened, no bytes from it.
-    let base = fx.t.path(&temp).canonicalize().unwrap();
+    let base = fx.t.path(&temp).canonical().unwrap();
     let report = fx.report_with(true, vec![base.clone()]);
     let s = harness(&report, HarnessId::ClaudeCode).sessions.clone().unwrap();
     let root = s.temp_root.unwrap();
@@ -533,7 +534,7 @@ fn a_skipped_harness_folder_is_never_opened() {
     fx.file(&format!(".claude/projects/p/{B}.jsonl"), 4096);
     fx.file(".codex/config.toml", 100);
 
-    let skip = fx.home(".claude").canonicalize().unwrap();
+    let skip = fx.home(".claude").canonical().unwrap();
     let report = fx.report_with(true, vec![skip]);
     let claude = harness(&report, HarnessId::ClaudeCode);
     assert!(claude.folders.iter().all(|f| f.skipped && f.bytes.is_none()));
@@ -545,7 +546,7 @@ fn a_skipped_harness_folder_is_never_opened() {
     assert!(harness(&report, HarnessId::Codex).folders[0].bytes.is_some());
 
     // A skip inside: the sessions stay, the transcripts do not.
-    let skip = fx.home(".claude/projects").canonicalize().unwrap();
+    let skip = fx.home(".claude/projects").canonical().unwrap();
     let report = fx.report_with(true, vec![skip]);
     let claude = harness(&report, HarnessId::ClaudeCode);
     let projects = claude.folders.iter().find(|f| f.nested).unwrap();
@@ -561,10 +562,8 @@ fn a_skipped_harness_folder_is_never_opened() {
     let unskipped = fx.report_with(true, Vec::new());
     let count = |r: &AgentsReport, id| harness(r, id).sessions.as_ref().unwrap().transcripts.clone();
     assert_eq!(count(&unskipped, HarnessId::Codex).count, Some(1));
-    let skips = vec![
-        fx.home(".claude/projects/q").canonicalize().unwrap(),
-        fx.home(".codex/sessions/2026").canonicalize().unwrap(),
-    ];
+    let skips =
+        vec![fx.home(".claude/projects/q").canonical().unwrap(), fx.home(".codex/sessions/2026").canonical().unwrap()];
     let report = fx.report_with(true, skips);
     for id in [HarnessId::ClaudeCode, HarnessId::Codex] {
         let t = count(&report, id);

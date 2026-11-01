@@ -1,5 +1,6 @@
 //! `ddc du` against `/usr/bin/du -skx` on a temporary tree.
 
+use ddc_core::platform::Canonical as _;
 use ddc_loadgen::isolate::ClearEnv as _;
 use std::fs;
 use std::path::Path;
@@ -18,7 +19,7 @@ fn ddc_du_matches_system_du() {
         return;
     }
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     for i in 0..30usize {
         let dir = root.join(format!("d{}/e{}", i % 4, i % 3));
         fs::create_dir_all(&dir).unwrap();

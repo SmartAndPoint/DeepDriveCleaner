@@ -4,6 +4,7 @@
 //! `dhat-heap.json` in its working directory, the tree's home; it is kept
 //! as `dhat-<size>-<profile>.json` in `out` for `bench/dhat_top.py`.
 
+use ddc_core::platform::Canonical as _;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -44,7 +45,7 @@ pub struct HeapArgs<'a> {
 
 pub fn run(a: &HeapArgs) -> anyhow::Result<Heap> {
     let real_home = isolate::real_home()?;
-    let cli = a.cli.canonicalize()?;
+    let cli = a.cli.canonical()?;
     let g = generate(a.profile, a.entries, a.seed, a.into, a.device)?;
     fs::write(g.layout.data.join(SETTINGS), r#"{"schema_version":1}"#)?;
     let mut args: Vec<OsString> = ["scan", "--json", "--data-dir"].iter().map(OsString::from).collect();

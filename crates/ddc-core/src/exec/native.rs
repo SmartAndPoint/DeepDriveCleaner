@@ -1,6 +1,7 @@
 //! Tools' own cleanup commands, run only where the tool reports the finding
 //! as its own location (ADR §6).
 
+use crate::platform::Canonical as _;
 use std::path::Path;
 use std::time::Duration;
 
@@ -93,7 +94,7 @@ pub(super) fn run(
         let Some(probe_exe) = commands.find(probe.program) else { return Native::Unavailable };
         let args: Vec<String> = probe.args.iter().map(|a| (*a).to_owned()).collect();
         let Ok(out) = commands.run(&probe_exe, &args, &[], Duration::from_secs(30)) else { return Native::Unavailable };
-        let reported = Path::new(out.stdout.trim()).canonicalize();
+        let reported = Path::new(out.stdout.trim()).canonical();
         let matches = out.success
             && reported.is_ok_and(|r| match probe.compare {
                 LocationCompare::Equals => r == target,

@@ -3,6 +3,7 @@
 //! terminal, and nothing that reads its output (the app, launchd, a pipe, a
 //! file) ever sees it.
 
+use ddc_core::platform::Canonical as _;
 use ddc_loadgen::isolate::ClearEnv as _;
 use std::fs;
 use std::io::{self, Read as _};
@@ -25,7 +26,7 @@ struct Fx {
 impl Fx {
     fn new() -> Self {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let (home, data) = (root.join("home"), root.join("data"));
         for (rel, content) in [
             ("p/package.json", &b"{}"[..]),

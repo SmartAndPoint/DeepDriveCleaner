@@ -178,6 +178,7 @@ fn log(env: &Env, line: &str) {
 
 #[cfg(test)]
 mod tests {
+    use ddc_core::platform::Canonical as _;
     use std::cell::RefCell;
     use std::io;
     use std::path::Path;
@@ -312,7 +313,7 @@ mod tests {
             return;
         }
         let (tmp, _) = fixture();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tmp.path().canonical().unwrap();
         let env =
             Env::with_paths(&root.join("home"), &root.join("data"), &root.join("logs"), SystemTime::now()).unwrap();
         let p = root.join("home/p");

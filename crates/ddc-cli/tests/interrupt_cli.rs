@@ -14,6 +14,7 @@
 // Unix only: it stops, signals and resumes process groups.
 #![cfg(unix)]
 
+use ddc_core::platform::Canonical as _;
 use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::io::{BufRead as _, BufReader, Read as _};
@@ -441,7 +442,7 @@ fn a_temp_file_left_by_a_kill_is_ignored_and_the_next_save_replaces_the_file() {
         return;
     }
     let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().canonicalize().unwrap();
+    let root = tmp.path().canonical().unwrap();
     let (home, data) = (root.join("home"), root.join("data"));
     fs::create_dir_all(home.join(".npm/_cacache")).unwrap();
     fs::write(home.join(".npm/_cacache/blob"), [1u8; 9_000]).unwrap();

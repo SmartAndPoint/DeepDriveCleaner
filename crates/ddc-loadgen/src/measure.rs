@@ -3,6 +3,7 @@
 //! every 10 ms. Output goes to files, never pipes: `scan --json` at M is
 //! megabytes, and a full pipe would block the child.
 
+use ddc_core::platform::Canonical as _;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io;
@@ -38,7 +39,7 @@ pub struct Measured {
 pub fn measure(cli: &Path, home: &Path, args: &[OsString], out: &Path) -> io::Result<Measured> {
     let stdout = out.with_extension("stdout");
     let stderr = out.with_extension("stderr");
-    let cli = cli.canonicalize()?;
+    let cli = cli.canonical()?;
     let started = Instant::now();
     let child = Command::new(cli)
         .clear_env()

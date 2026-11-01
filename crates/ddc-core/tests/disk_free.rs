@@ -4,6 +4,7 @@
 
 mod common;
 
+use ddc_core::platform::Canonical as _;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -56,7 +57,7 @@ impl Fx {
         t.try_symlink("System/Volumes/Data/opt", "sys/opt")?;
         t.file("home/Library/Caches/Homebrew/downloads/old.tar.gz", 128 * 1024);
         let sources = Sources::under(&t.path("sys"));
-        let home = t.path("home").canonicalize().unwrap();
+        let home = t.path("home").canonical().unwrap();
         Ok(Self { t, sources, home, cancel: AtomicBool::new(false), procs: FakeProcs::new(vec![]) })
     }
 
@@ -1120,7 +1121,7 @@ fn every_environment_conda_must_not_remove_is_refused_before_conda_starts() {
 
     // A running process holds a file of it, spelled as the kernel spells it.
     let mut busy = Fx::new().with_conda();
-    let held = busy.t.path(&format!("{MINICONDA}/envs/old/lib/own.dylib")).canonicalize().unwrap();
+    let held = busy.t.path(&format!("{MINICONDA}/envs/old/lib/own.dylib")).canonical().unwrap();
     busy.procs = FakeProcs::new(vec![common::fakes::holder(77, "python", &[&held])]);
     let commands = busy.conda(&busy.conda_settings(|_| {}));
     let (reports, _) = run(&busy, &commands, &busy.conda_list(ActionId::CondaEnvRemove, &busy.opt_env()));

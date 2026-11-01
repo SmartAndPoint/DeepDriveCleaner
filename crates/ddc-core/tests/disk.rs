@@ -4,6 +4,7 @@
 
 mod common;
 
+use ddc_core::platform::Canonical as _;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -423,7 +424,7 @@ fn a_folder_with_more_entries_than_the_budget_has_left_is_never_opened() {
     let reader = Opened::default();
     let r = fx.measure_with(&diskutil(1 << 40), &opts, &AtomicBool::new(false), Some(&reader));
     let opened = reader.0.into_inner().unwrap();
-    let huge = fx.data("private/var/folders/huge").canonicalize().unwrap();
+    let huge = fx.data("private/var/folders/huge").canonical().unwrap();
     assert!(!opened.contains(&huge), "{opened:?}");
     let temp = area(&r, "temporary-folders");
     assert!(temp.partial);
@@ -748,7 +749,7 @@ fn a_skip_outside_the_home_folder_is_never_opened_through_the_data_volume() {
     let reader = Opened::default();
     let r = fx.measure_with(&diskutil(1 << 40), &opts, &AtomicBool::new(false), Some(&reader));
     let opened = reader.0.into_inner().unwrap();
-    let skipped = fx.data("opt/private-tool").canonicalize().unwrap();
+    let skipped = fx.data("opt/private-tool").canonical().unwrap();
     assert!(!opened.iter().any(|p| p.starts_with(&skipped)), "{opened:?}");
     assert_eq!(area(&r, "opt").bytes, alloc(&kept));
 }
