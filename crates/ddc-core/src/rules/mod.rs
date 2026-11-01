@@ -294,14 +294,20 @@ impl Catalog {
     /// The worktree rule that makes `path` a region, and what it found:
     /// [`Self::claimable`]'s one carve-out for `.git`, a **file** naming a
     /// gitdir (story "Worktree findings and provenance"). Never a scan root,
-    /// `$HOME` or a protected folder; a folder without `.git` is not read.
+    /// `$HOME`, a protected folder or another rule's known region (which
+    /// stays the region it is); a folder without `.git` is not read.
     pub(crate) fn worktree_region(
         &self,
         path: &Path,
         depth: u32,
         has_child: impl Fn(&str) -> bool,
     ) -> Option<(Tag, worktree::Recognized)> {
-        if depth == 0 || path == self.home || self.protected.contains(path) || !has_child(".git") {
+        if depth == 0
+            || path == self.home
+            || self.protected.contains(path)
+            || self.regions.contains_key(path)
+            || !has_child(".git")
+        {
             return None;
         }
         let found = worktree::recognize(path)?;

@@ -12,6 +12,7 @@
     "Browser and app caches",
     "IDE caches",
     "Coding agents",
+    "Git worktrees",
     "Xcode builds",
     "Xcode device support",
     "Old toolchains",
@@ -183,6 +184,24 @@
       "removal": "delete",
       "listed": true,
       "switchable": true
+    },
+    {
+      "id": "git.worktree",
+      "group": "Git worktrees",
+      "category": "project-artifact",
+      "class": "review",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
+    },
+    {
+      "id": "git.worktree-orphan",
+      "group": "Git worktrees",
+      "category": "project-artifact",
+      "class": "review",
+      "removal": "none",
+      "listed": true,
+      "switchable": false
     },
     {
       "id": "cache.npm",

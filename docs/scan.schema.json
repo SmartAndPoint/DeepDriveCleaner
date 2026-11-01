@@ -1030,6 +1030,7 @@
       ]
     },
     "Project": {
+      "description": "The project an artifact belongs to, and how recently it changed. On a\n`git.worktree` finding `root` is the worktree's main checkout, while\n`last_activity` and `idle_days` are the worktree's own (its gitdir's\nindex and `HEAD`, its manifests and lock files), never the main\ncheckout's.",
       "type": "object",
       "properties": {
         "has_lockfile": {

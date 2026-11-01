@@ -447,6 +447,11 @@ impl Finding {
     }
 }
 
+/// The project an artifact belongs to, and how recently it changed. On a
+/// `git.worktree` finding `root` is the worktree's main checkout, while
+/// `last_activity` and `idle_days` are the worktree's own (its gitdir's
+/// index and `HEAD`, its manifests and lock files), never the main
+/// checkout's.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Project {
     #[serde(serialize_with = "crate::json_path::path")]

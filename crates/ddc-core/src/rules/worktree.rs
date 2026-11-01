@@ -17,8 +17,10 @@ use crate::report::project::git_dir;
 pub enum Recognized {
     /// A linked worktree: its gitdir exists and has a `commondir`.
     Linked(Linked),
-    /// Its gitdir does not exist: the repository was removed or moved, or
-    /// lies on a volume that is not mounted. The folder is a copy of files.
+    /// Its gitdir, `…/worktrees/<name>`, does not exist: the repository was
+    /// removed or moved, or lies on a volume that is not mounted. The folder
+    /// is a copy of files, and nothing says whose project it is: the
+    /// artifacts inside keep every downgrade.
     Orphan { harness: OriginHarness },
 }
 
@@ -57,7 +59,13 @@ pub fn recognize(path: &Path) -> Option<Recognized> {
     let gitdir = match fs::metadata(&named) {
         Ok(md) if md.is_dir() => named.canonicalize().ok()?,
         Ok(_) => return None,
-        Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
+        // Only a worktree's gitdir, `…/worktrees/<name>`: a submodule copied
+        // out of its superproject names a missing `…/modules/<name>` and is
+        // none (no finding, no region), as before.
+        Err(e)
+            if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory)
+                && normalize(&named).parent().and_then(Path::file_name).is_some_and(|n| n == "worktrees") =>
+        {
             return Some(Recognized::Orphan { harness: orphan_harness(path) });
         }
         Err(_) => return None,
@@ -78,10 +86,10 @@ pub fn is_worktree_rule(rule: &Rule) -> bool {
     matches!(rule.matcher, Matcher::Worktree | Matcher::WorktreeOrphan)
 }
 
-/// Whether `path` lies inside a folder the scan makes a worktree region:
+/// Whether `path` lies inside a linked worktree the scan makes a region:
 /// one of its ancestors below the longest scan root holding it, not the
-/// home, is recognized. The walk's own answer without a walk, for a listed
-/// item's class.
+/// home, is recognized as [`Recognized::Linked`]; an orphan does not count.
+/// The walk's own answer without a walk, for a listed item's class.
 pub(crate) fn inside(path: &Path, roots: &[&Path], home: &Path) -> bool {
     let Some(root) = roots.iter().filter(|r| path.starts_with(r)).max_by_key(|r| r.as_os_str().len()) else {
         return false;
@@ -89,7 +97,7 @@ pub(crate) fn inside(path: &Path, roots: &[&Path], home: &Path) -> bool {
     path.ancestors()
         .skip(1)
         .take_while(|dir| *dir != *root && dir.starts_with(root))
-        .any(|dir| dir != home && recognize(dir).is_some())
+        .any(|dir| dir != home && matches!(recognize(dir), Some(Recognized::Linked(_))))
 }
 
 /// What the scan knows of a linked worktree without a git probe: its
@@ -194,9 +202,13 @@ fn read_line(path: &Path) -> Option<String> {
 /// and `..` resolved by hand (the folders may not exist).
 fn resolve(base: &Path, target: &str) -> PathBuf {
     let target = Path::new(target);
-    let joined = if target.is_absolute() { target.to_path_buf() } else { base.join(target) };
+    normalize(&if target.is_absolute() { target.to_path_buf() } else { base.join(target) })
+}
+
+/// `path` with `.` and `..` resolved by hand.
+fn normalize(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
-    for c in joined.components() {
+    for c in path.components() {
         match c {
             Component::CurDir => {}
             Component::ParentDir => {
@@ -260,18 +272,52 @@ mod tests {
         assert_eq!(hint(&Recognized::Orphan { harness: OriginHarness::Git }), ORPHAN_HINT);
     }
 
-    /// What is not a worktree, without a git: no `.git` file, no `gitdir:`
-    /// line, a gitdir that is a file or has no `commondir`.
-    #[test]
-    fn only_a_git_file_into_a_gitdir_with_a_commondir_is_a_worktree() {
-        let d = tempfile::tempdir().unwrap();
-        let root = d.path().canonicalize().unwrap();
-        let dir = |rel: &str| {
-            let p = root.join(rel);
+    /// A temporary folder, canonical, with helpers to make folders and files in it.
+    struct Tree {
+        _dir: tempfile::TempDir,
+        root: PathBuf,
+    }
+
+    impl Tree {
+        fn new() -> Self {
+            let d = tempfile::tempdir().unwrap();
+            let root = d.path().canonicalize().unwrap();
+            Self { _dir: d, root }
+        }
+        fn dir(&self, rel: &str) -> PathBuf {
+            let p = self.root.join(rel);
             fs::create_dir_all(&p).unwrap();
             p
-        };
-        let write = |rel: &str, text: &str| fs::write(root.join(rel), text).unwrap();
+        }
+        fn write(&self, rel: &str, text: &str) {
+            fs::write(self.root.join(rel), text).unwrap();
+        }
+        /// A worktree at `rel` of a bare repository `bare.git`, without git.
+        fn worktree(&self, rel: &str) -> PathBuf {
+            let name = Path::new(rel).file_name().unwrap().to_str().unwrap();
+            self.dir(&format!("bare.git/worktrees/{name}"));
+            self.write(&format!("bare.git/worktrees/{name}/commondir"), "../..\n");
+            self.write(&format!("bare.git/worktrees/{name}/HEAD"), "garbage\n");
+            self.dir(rel);
+            let gitdir = self.root.join(format!("bare.git/worktrees/{name}"));
+            self.write(&format!("{rel}/.git"), &format!("gitdir: {}\n", gitdir.display()));
+            self.root.join(rel)
+        }
+    }
+
+    /// What is not a worktree, without a git: no `.git` file, no `gitdir:`
+    /// line, a gitdir that is a file or has no `commondir`, a missing gitdir
+    /// that is not a worktree's. Skipped where the scanner is not ported
+    /// (Windows): the paths are written as git writes them on Unix.
+    #[test]
+    fn only_a_git_file_into_a_gitdir_with_a_commondir_is_a_worktree() {
+        if crate::platform::skipped("only_a_git_file_into_a_gitdir_with_a_commondir_is_a_worktree") {
+            return;
+        }
+        let tree = Tree::new();
+        let root = tree.root.clone();
+        let dir = |rel: &str| tree.dir(rel);
+        let write = |rel: &str, text: &str| tree.write(rel, text);
         dir("checkout/.git");
         assert_eq!(recognize(&root.join("checkout")), None, "a main checkout");
         assert_eq!(recognize(&dir("plain")), None, "no .git");
@@ -286,11 +332,16 @@ mod tests {
         dir("sub");
         write("sub/.git", "gitdir: ../modules/sub\n");
         assert_eq!(recognize(&root.join("sub")), None, "a submodule's gitdir has no commondir");
-        dir("bare.git/worktrees/b");
-        write("bare.git/worktrees/b/commondir", "../..\n");
-        write("bare.git/worktrees/b/HEAD", "garbage\n");
-        dir("b");
-        write("b/.git", &format!("gitdir: {}\n", root.join("bare.git/worktrees/b").display()));
+        dir("copied/sub");
+        write("copied/sub/.git", "gitdir: ../../.git/modules/sub\n");
+        assert_eq!(recognize(&root.join("copied/sub")), None, "a submodule copied out of its superproject");
+        dir("elsewhere");
+        write("elsewhere/.git", "gitdir: /nowhere/at/all\n");
+        assert_eq!(recognize(&root.join("elsewhere")), None, "a missing gitdir that is no worktree's");
+        dir("gone");
+        write("gone/.git", "gitdir: ../repo/.git/worktrees/gone\n");
+        assert_eq!(recognize(&root.join("gone")), Some(Recognized::Orphan { harness: OriginHarness::Git }));
+        tree.worktree("b");
         let Some(Recognized::Linked(linked)) = recognize(&root.join("b")) else { panic!("b is a worktree") };
         assert_eq!(linked.main, root.join("bare.git"), "a bare repository is its own main");
         assert!(!linked.linked, "no back-pointer");
@@ -300,5 +351,45 @@ mod tests {
         assert!(!inside(&root.join("b/x"), &[Path::new("/elsewhere")], &root), "outside every root");
         assert!(inside(&root.join("b/x"), &[root.as_path()], Path::new("/")));
         assert!(!inside(&root.join("b"), &[root.join("b").as_path()], Path::new("/")), "the scan root itself");
+        assert!(!inside(&root.join("gone/x"), &[root.as_path()], Path::new("/")), "an orphan lifts nothing");
+    }
+
+    /// Another rule's known region stays the region it is: a worktree there
+    /// is not recorded, so nothing inside it loses a downgrade for it.
+    #[test]
+    fn a_known_region_is_never_a_worktree_region() {
+        use crate::class::{Category, Removal, RiskClass};
+        use crate::rules::{Catalog, Clones, KEPT, Scope};
+        if crate::platform::skipped("a_known_region_is_never_a_worktree_region") {
+            return;
+        }
+        let rule = |id, matcher| Rule {
+            id,
+            category: Category::Personal,
+            class: RiskClass::UserData,
+            removal: Removal::None,
+            matcher,
+            lockfiles: None,
+            owners: &[],
+            hint: "",
+            listed: true,
+            clones: Clones::Never,
+            scope: Scope::Item,
+            origin: None,
+            listed_only: false,
+        };
+        let rules: &'static [Rule] = Box::leak(Box::new([
+            rule(KEPT, Matcher::Synthetic),
+            rule("git.worktree", Matcher::Worktree),
+            rule("region", Matcher::KnownRegion(&["dl"])),
+        ]));
+        let tree = Tree::new();
+        let region = tree.worktree("dl");
+        let plain = tree.worktree("plain");
+        let catalog = Catalog::from_rules(rules, &tree.root);
+        let has_git = |n: &str| n == ".git";
+        assert!(catalog.worktree_region(&region, 1, has_git).is_none());
+        assert_eq!(catalog.worktree_region(&plain, 1, has_git).map(|(tag, _)| tag), Some(1));
+        assert!(catalog.worktree_region(&plain, 0, has_git).is_none(), "a scan root");
     }
 }
