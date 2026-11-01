@@ -34,14 +34,18 @@ pub fn st_flags(md: &Metadata) -> u32 {
     md.st_flags()
 }
 
-/// The owner's user id: not reported on macOS yet, so nothing there is
-/// refused for its owner (safety ADR, amendment of 2026-10-31).
+/// The owner's user id for the removal guard and the scan's findings: not
+/// reported on macOS yet, so nothing there is refused for its owner (safety
+/// ADR, amendment of 2026-10-31). It stays `None` here; [`uid`] is not a
+/// way around that.
 pub fn owner(_md: &Metadata) -> Option<u32> {
     None
 }
 
-/// The owner's user id (`st_uid`), for a folder ddc only reads and must
-/// own before it looks inside, such as Claude Code's temporary folder.
+/// The owner's user id (`st_uid`), only as a read gate: the agents report
+/// opens Claude Code's temporary folder only when the user owns it. Never
+/// fed to the removal guard or a finding, which use [`owner`] (`None` on
+/// macOS, safety ADR, amendment of 2026-10-31).
 pub fn uid(md: &Metadata) -> Option<u32> {
     Some(md.uid())
 }
