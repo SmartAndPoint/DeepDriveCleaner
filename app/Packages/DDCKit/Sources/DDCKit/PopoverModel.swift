@@ -384,8 +384,11 @@ public final class PopoverModel {
         switch decoded {
         case .success(let read):
             report = .loaded(read)
+        // Written by an older ddc, before an update: the next scan replaces it.
+        case .failure(ScanReport.ReadError.otherSchema(let version)) where version < ScanReport.schemaVersion:
+            report = .none
         case .failure(ScanReport.ReadError.otherSchema(let version)):
-            report = .unreadable("It was written by another version of ddc (schema \(version)).")
+            report = .unreadable("It was written by a newer version of ddc (schema \(version)). Update DeepDriveCleaner to read it.")
         case .failure(let error):
             report = .unreadable("It is not a scan report this app can read.")
             log("last-scan.json unreadable: \(error)")

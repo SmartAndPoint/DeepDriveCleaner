@@ -15,6 +15,8 @@ public final class DiskModel {
     public enum ReportState: Equatable {
         case loading
         case none
+        /// Written by an older ddc, before an update: a new scan replaces it.
+        case outdated
         case unreadable(String)
         case loaded(DiskReport)
     }
@@ -210,8 +212,10 @@ public final class DiskModel {
         switch decoded {
         case .success(let read):
             report = .loaded(read)
+        case .failure(ScanReport.ReadError.otherSchema(let version)) where version < DiskReport.schemaVersion:
+            report = .outdated
         case .failure(ScanReport.ReadError.otherSchema(let version)):
-            report = .unreadable("It was written by another version of ddc (schema \(version)).")
+            report = .unreadable("It was written by a newer version of ddc (schema \(version)). Update DeepDriveCleaner to read it.")
         case .failure(let error):
             report = .unreadable("It is not a whole-disk report this app can read.")
             log("last-disk.json unreadable: \(error)")
