@@ -106,11 +106,28 @@ pub fn rule_fixture(t: &TreeBuilder, rule: &Rule) -> Option<String> {
                 ),
                 "cocoapods.pods" => (&[("p/Podfile", ""), ("p/Podfile.lock", ""), ("p/Pods/x", "")], Some("p/Pods")),
                 "generic.cachedir-tag" => (&[("p/somecache/CACHEDIR.TAG", TAG)], Some("p/somecache")),
+                // The files `git worktree add` writes, without git
+                // (`tests/worktrees.rs` makes real ones).
+                "git.worktree" => (
+                    &[
+                        ("p/.git/HEAD", "ref: refs/heads/main\n"),
+                        ("p/.git/worktrees/w/HEAD", "ref: refs/heads/w\n"),
+                        ("p/.git/worktrees/w/commondir", "../..\n"),
+                        ("p/.git/worktrees/w/gitdir", "@ROOT@/w/.git\n"),
+                        ("w/.git", "gitdir: @ROOT@/p/.git/worktrees/w\n"),
+                        ("w/f", "x"),
+                    ],
+                    Some("w"),
+                ),
+                "git.worktree-orphan" => {
+                    (&[("o/.git", "gitdir: @ROOT@/gone/.git/worktrees/o\n"), ("o/f", "x")], Some("o"))
+                }
                 other => panic!("no fixture for rule {other}: add one here"),
             };
             for (rel, content) in files {
-                let content =
-                    content.replace("@SRC@", &format!("CMAKE_HOME_DIRECTORY:INTERNAL={}\n", t.path("p").display()));
+                let content = content
+                    .replace("@SRC@", &format!("CMAKE_HOME_DIRECTORY:INTERNAL={}\n", t.path("p").display()))
+                    .replace("@ROOT@", &t.root().display().to_string());
                 t.write(rel, &content);
             }
             at.map(str::to_owned)

@@ -72,8 +72,8 @@ fn exists_no_follow(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
 }
 
-/// `true` when `dir` matches a specialized matcher. Known-path matchers are
-/// resolved by the catalog, not here.
+/// `true` when `dir` matches a specialized matcher. Known-path and worktree
+/// matchers are resolved by the catalog, not here.
 pub(crate) fn matches(m: &Matcher, dir: &dyn DirView, home: &Path) -> bool {
     crate::stats::add(crate::stats::Counter::RuleMatchAttempts, 1);
     let path = dir.path();
@@ -115,6 +115,8 @@ pub(crate) fn matches(m: &Matcher, dir: &dyn DirView, home: &Path) -> bool {
         | Matcher::KnownRegion(_)
         | Matcher::KnownChildren(_)
         | Matcher::NoTraverse(_)
+        | Matcher::Worktree
+        | Matcher::WorktreeOrphan
         | Matcher::Synthetic => false,
     }
 }

@@ -438,6 +438,7 @@ fn planned(item: &ListedItem, rule: &Rule, class: RiskClass, action: Action) -> 
         protection: None,
         modified: None,
         origin: rule.origin,
+        worktree: None,
     };
     PlanItem { finding, action, default_selected: true, selected: true }
 }

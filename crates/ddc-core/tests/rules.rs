@@ -753,6 +753,10 @@ fn every_rule_has_a_group() {
         "agent.codex-runtimes",
         "agent.opencode-data",
         "agent.cursor-agent-data",
+        // Report only until removal through `git worktree remove` lands
+        // (story "Worktree findings and provenance", its third step).
+        "git.worktree",
+        "git.worktree-orphan",
     ];
     let agents_fixed = |r: &&ddc_core::rules::listing::RuleInfo| AGENTS_FIXED.contains(&r.id.as_str());
     let fixed: Vec<&str> =

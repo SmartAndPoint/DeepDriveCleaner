@@ -32,7 +32,7 @@ pub(super) static PROTECTED_SYSTEM: [&str; 8] =
     ["/", "/System", "/Applications", "/Library", "/usr", "/opt", "/opt/homebrew", "/Users"];
 
 /// How many rules macOS has.
-const COUNT: usize = 89;
+const COUNT: usize = 91;
 
 /// A named `static`, so the list has one address (its rules' tags are
 /// found by it).
@@ -62,6 +62,9 @@ pub(super) static RULES: [Rule; COUNT] = [
     shared::GRADLE_PROJECT_CACHE,
     shared::CMAKE_BUILD,
     shared::COCOAPODS_PODS,
+    // ---- linked git worktrees: regions, matched before the `.git` refusal ----
+    shared::GIT_WORKTREE,
+    shared::GIT_WORKTREE_ORPHAN,
     // ---- package caches ---------------------------------------------------
     shared::cache_npm(Platform::Macos),
     shared::cache_yarn(Platform::Macos),

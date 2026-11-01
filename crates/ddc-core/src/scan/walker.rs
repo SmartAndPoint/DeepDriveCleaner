@@ -259,6 +259,8 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
     let foreign_dir = uid.is_some_and(|u| u != sh.me);
     let name = dir.file_name().unwrap_or(dir.as_os_str());
     let mut lists = false;
+    // A `Pre::Region` made this folder one: a `Post::Region` keeps it.
+    let mut region_here = false;
 
     if hooks {
         let ctx = DirCtx { path: &dir, name, depth, dev: expect.0, ino: expect.1, owner: owner_ctx(&owner) };
@@ -280,6 +282,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
                 lists = sh.visitor.lists_entries(&ctx, tag);
                 let wants = Wants { private: false, times: false };
                 owner = Some(sh.new_owner(tag, OwnerKind::Region, &dir, expect, parent, wants));
+                region_here = true;
             }
         }
     }
@@ -303,7 +306,8 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
 
     if hooks {
         let ctx = DirCtx { path: &dir, name, depth, dev: expect.0, ino: expect.1, owner: owner_ctx(&owner) };
-        if let Post::Claim(tag) = sh.visitor.after_read(&ctx, &listing) {
+        let post = sh.visitor.after_read(&ctx, &listing);
+        if let Post::Claim(tag) = post {
             let wants = sh.claim_wants(&ctx, tag);
             let claim = sh.new_owner(tag, OwnerKind::Claim, &dir, expect, parent, wants);
             let for_private = !want_private && claim.want_private;
@@ -330,6 +334,12 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             hooks = false;
             // The region's own directory became another finding: no entries.
             lists = false;
+        } else if let Post::Region(tag) = post
+            && !region_here
+        {
+            // Rules keep working inside, as under a `Pre::Region`.
+            let wants = Wants { private: false, times: false };
+            owner = Some(sh.new_owner(tag, OwnerKind::Region, &dir, expect, parent, wants));
         }
     }
 

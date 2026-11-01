@@ -18,9 +18,10 @@ pub const RULES_SCHEMA_VERSION: u32 = 2;
 /// Every rule id in exactly one group, in the order of the Types settings:
 /// the thirteen of the design canvas's revised Settings (artboard 10),
 /// "Maven and test browsers", which holds the `review` downloads out of the
-/// Safe "Toolchain caches", and "Coding agents" (ADR "Agent footprint:
+/// Safe "Toolchain caches", "Coding agents" (ADR "Agent footprint:
 /// worktrees, harness data and bounded consent for agents", §3) after the
-/// IDE caches, then three without a switch: ddc's own leftovers, the Trash
+/// IDE caches and "Git worktrees" (§2) after it, then three without a
+/// switch: ddc's own leftovers, the Trash
 /// (story "The Trash: its own row, not Your data") and the user's data.
 pub const GROUPS: &[(&str, &[&str])] = &[
     ("Python environments", &["python.venv", "python.conda-env", "python.tox"]),
@@ -82,6 +83,7 @@ pub const GROUPS: &[(&str, &[&str])] = &[
             "agent.cursor-sealed",
         ],
     ),
+    ("Git worktrees", &["git.worktree", "git.worktree-orphan"]),
     ("Xcode builds", &["xcode.derived-data", "xcode.simulator-caches"]),
     ("Xcode device support", &["xcode.device-support"]),
     ("Old toolchains", &["toolchain.nvm", "toolchain.pyenv", "toolchain.rustup"]),

@@ -58,6 +58,9 @@ pub enum Pre {
 pub enum Post {
     Descend,
     Claim(Tag),
+    /// As [`Pre::Region`], known only from the listing (a linked git
+    /// worktree's `.git` file). A folder already a region stays the one it is.
+    Region(Tag),
 }
 
 /// What the visitor knows about a directory.

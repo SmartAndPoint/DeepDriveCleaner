@@ -196,8 +196,9 @@ fn each_path_of_the_eight_rules_is_found_with_its_rule_and_origin() {
 
 /// AC 2, apart from entries: auto memory, the live records, the shell
 /// snapshots, what the person installed and their plans and chats are
-/// never findings; the worktree folders are none either, while a
-/// `node_modules` inside one still is; Cursor's desktop caches stay
+/// never findings; the folders holding worktrees are none either, a
+/// worktree is a git finding and a `node_modules` inside one still is one;
+/// Cursor's desktop caches stay
 /// `ide.cursor-cache`; a `.venv` in a session's tool results is no venv; a
 /// list naming `memory/` or the project folder itself is refused.
 #[test]
@@ -250,8 +251,14 @@ fn sealed_folders_and_auto_memory_are_never_findings() {
     ] {
         h.nothing_at_or_under(&r, sealed);
     }
-    for folder in [".codex/worktrees", ".codex/worktrees/w1", ".cursor/worktrees", ".cursor/worktrees/repo/w2"] {
+    for folder in [".codex/worktrees", ".cursor/worktrees", ".cursor/worktrees/repo"] {
         assert!(h.finding(&r, folder).is_none(), "{folder}: {:?}", h.summary(&r));
+    }
+    // A worktree itself is a git finding, no agent rule's (tests/worktrees.rs);
+    // here its repository is absent, so an orphan.
+    for worktree in [".codex/worktrees/w1", ".cursor/worktrees/repo/w2"] {
+        let f = h.finding(&r, worktree).unwrap_or_else(|| panic!("no finding at {worktree}: {:?}", h.summary(&r)));
+        assert_eq!(f.rule, "git.worktree-orphan", "{worktree}");
     }
     for modules in [".codex/worktrees/w1/node_modules", ".cursor/worktrees/repo/w2/node_modules"] {
         let f = h.finding(&r, modules).unwrap_or_else(|| panic!("no finding at {modules}: {:?}", h.summary(&r)));

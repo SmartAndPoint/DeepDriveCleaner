@@ -1,6 +1,7 @@
 //! Rule matching during the walk, in the precedence order of ADR §2:
 //! exclusions and keep markers → exact known paths (before reading) →
-//! ancestors of known paths only descend → specialized rules → CACHEDIR.TAG.
+//! linked git worktrees, as regions → ancestors of known paths only descend
+//! → specialized rules → CACHEDIR.TAG.
 
 use std::collections::HashMap;
 use std::fs;
@@ -9,6 +10,7 @@ use std::sync::Mutex;
 
 use super::entries::has_entries;
 use super::matcher::{self, ListingView};
+use super::worktree::Recognized;
 use super::{Catalog, Clones, NeverOpen};
 use crate::class::RiskClass;
 use crate::model::{ExclusionOrigin, MarkerFolder};
@@ -58,6 +60,7 @@ pub struct RuleVisitor<'c> {
     /// The user skips only a flag gave.
     flag_skips: Vec<PathBuf>,
     not_scanned: Mutex<Vec<PathBuf>>,
+    worktrees: Mutex<HashMap<PathBuf, Recognized>>,
 }
 
 impl<'c> RuleVisitor<'c> {
@@ -76,6 +79,7 @@ impl<'c> RuleVisitor<'c> {
             user_skips: Vec::new(),
             flag_skips: Vec::new(),
             not_scanned: Mutex::new(Vec::new()),
+            worktrees: Mutex::new(HashMap::new()),
         }
     }
 
@@ -185,17 +189,47 @@ impl<'c> RuleVisitor<'c> {
         self.catalog.kept
     }
 
-    /// The specialized or generic rule that claims `dir` from its listing.
-    fn matched(&self, dir: &DirCtx<'_>, view: &ListingView<'_>) -> Option<Tag> {
+    /// The worktrees the walk made regions, by folder (story "Worktree
+    /// findings and provenance").
+    pub fn worktrees(&self) -> HashMap<PathBuf, Recognized> {
+        self.worktrees.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    /// The rule that takes `dir` from its listing: a worktree's region,
+    /// which the `.git` refusal of [`Catalog::claimable`] would hide, else
+    /// the specialized or generic rule that claims it.
+    fn matched(&self, dir: &DirCtx<'_>, view: &ListingView<'_>) -> Option<Matched> {
         let c = self.catalog;
         let has = |n: &str| matcher::DirView::has_child(view, n);
+        if let Some((tag, found)) = c.worktree_region(dir.path, dir.depth, has) {
+            return Some(Matched::Region(tag, found));
+        }
         if c.ancestors.contains(dir.path) || !c.claimable(dir.path, dir.depth, has) {
             return None;
         }
-        c.specialized.iter().chain((c.cachedir != Tag::MAX).then_some(&c.cachedir)).copied().find(|&tag| {
-            let m = &c.rule(tag).matcher;
-            Catalog::content_matcher_allowed(m, has) && matcher::matches(m, view, &c.home)
-        })
+        c.specialized
+            .iter()
+            .chain((c.cachedir != Tag::MAX).then_some(&c.cachedir))
+            .copied()
+            .find(|&tag| {
+                let m = &c.rule(tag).matcher;
+                Catalog::content_matcher_allowed(m, has) && matcher::matches(m, view, &c.home)
+            })
+            .map(Matched::Claim)
+    }
+}
+
+/// What [`RuleVisitor::matched`] found.
+enum Matched {
+    Claim(Tag),
+    Region(Tag, Recognized),
+}
+
+impl Matched {
+    fn tag(&self) -> Tag {
+        match self {
+            Matched::Claim(tag) | Matched::Region(tag, _) => *tag,
+        }
     }
 }
 
@@ -245,11 +279,19 @@ impl Visitor for RuleVisitor<'_> {
         let view = ListingView { path: dir.path, listing };
         let matched = self.matched(dir, &view);
         // A marker always keeps the folder; the matchers ran first so that
-        // the report names the rule it displaced.
+        // the report names the rule it displaced. A kept worktree is one
+        // `user.kept` finding, its artifacts with it.
         if matcher::DirView::has_child(&view, KEEP_MARKER) {
-            return Post::Claim(self.kept(dir.path, matched, true));
+            return Post::Claim(self.kept(dir.path, matched.as_ref().map(Matched::tag), true));
         }
-        matched.map_or(Post::Descend, Post::Claim)
+        match matched {
+            None => Post::Descend,
+            Some(Matched::Claim(tag)) => Post::Claim(tag),
+            Some(Matched::Region(tag, found)) => {
+                self.worktrees.lock().unwrap_or_else(|p| p.into_inner()).insert(dir.path.to_path_buf(), found);
+                Post::Region(tag)
+            }
+        }
     }
 
     fn wants_private(&self, dir: &DirCtx<'_>, tag: Tag) -> bool {

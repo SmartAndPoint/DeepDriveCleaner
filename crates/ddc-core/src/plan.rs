@@ -411,6 +411,7 @@ fn entry(
         protection: None,
         modified: None,
         origin: rule.origin,
+        worktree: None,
     };
     Ok(PlanItem { finding, action: Action::TrashEntry, default_selected: false, selected: true })
 }

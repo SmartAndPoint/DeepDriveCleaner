@@ -214,9 +214,78 @@ pub struct Finding {
     pub modified: Option<String>,
     /// The harness whose own structure the rule recognizes (ADR "Agent
     /// footprint: worktrees, harness data and bounded consent for agents",
-    /// §1). Only on findings of such rules.
+    /// §1). Only on findings of such rules, and on every git worktree's,
+    /// whose harness the worktree itself tells (§2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<Origin>,
+    /// What the scan read of a linked git worktree (ADR "Agent footprint:
+    /// worktrees, harness data and bounded consent for agents", §2). Only on
+    /// `git.worktree` findings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<WorktreeState>,
+}
+
+/// A linked git worktree's state. The fields a git probe fills are absent
+/// until one ran; `probe` says whether it did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WorktreeState {
+    /// Its administrative folder's back-pointer (`<gitdir>/gitdir`) names
+    /// this folder's `.git`, by file identity. False for a worktree copied
+    /// or moved by hand: `git worktree repair` relinks it, and ddc never
+    /// removes it through git.
+    pub linked: bool,
+    /// The branch checked out, without `refs/heads/`; absent when `HEAD` is
+    /// detached or could not be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// `HEAD` names a commit, not a branch; absent when it could not be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detached: Option<bool>,
+    /// No tracked change and no untracked file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clean: Option<bool>,
+    /// Ignored paths nothing accounts for: neither inside an artifact ddc
+    /// removes on its own nor a copy of the main checkout's file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ignored_content: Option<IgnoredContent>,
+    /// Commits reachable from its `HEAD` and from no reference that
+    /// survives its removal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_commits: Option<u64>,
+    /// A submodule is initialized in it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submodules: Option<bool>,
+    /// `<gitdir>/locked` exists: `git worktree lock`, or a live session's lock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked: Option<bool>,
+    /// A process of the current user works inside it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_use: Option<bool>,
+    /// Days since its own last activity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_days: Option<u64>,
+    /// Whether the git probes ran and were understood.
+    pub probe: WorktreeProbe,
+}
+
+/// The ignored paths that hold a worktree back: the first ones, and how
+/// many there are in all.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct IgnoredContent {
+    /// At most 20.
+    #[serde(serialize_with = "crate::json_path::paths")]
+    pub paths: Vec<PathBuf>,
+    pub count: u64,
+}
+
+/// Whether a worktree's git probes ran and were understood. `unknown` fails
+/// closed: the worktree stays `review`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum WorktreeProbe {
+    Known,
+    #[default]
+    Unknown,
 }
 
 /// Where a finding comes from: a coding agent's harness and what of it the
@@ -389,6 +458,11 @@ pub struct Project {
     pub idle_days: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub has_lockfile: Option<bool>,
+    /// The main checkout, when `root` is a linked git worktree of it: the
+    /// report groups the worktree's artifacts under the main project.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "crate::json_path::opt_path")]
+    pub worktree_of: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

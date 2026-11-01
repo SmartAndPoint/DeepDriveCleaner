@@ -420,6 +420,7 @@ mod tests {
                 protection: None,
                 modified: None,
                 origin: None,
+                worktree: None,
             },
             action,
             default_selected: selected,

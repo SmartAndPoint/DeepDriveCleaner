@@ -840,6 +840,7 @@ fn injected(path: &Path, r: &'static Rule, class: RiskClass, action: Action) -> 
         protection: None,
         modified: None,
         origin: r.origin,
+        worktree: None,
     };
     PlanItem { finding, action, default_selected: false, selected: true }
 }

@@ -352,6 +352,10 @@ fn reference_matches(t: &Tree, rel: &Path, m: &Matcher) -> bool {
         | Matcher::KnownChildren(_)
         | Matcher::NoTraverse(_)
         | Matcher::Synthetic => false,
+        // A generated `.git` file names no gitdir: the worktree rules,
+        // matched before the `.git` refusal, have their own tests
+        // (`tests/worktrees.rs`, with a real git).
+        Matcher::Worktree | Matcher::WorktreeOrphan => false,
     }
 }
 
@@ -370,7 +374,10 @@ fn visitor_verdict(visitor: &dyn Visitor, catalog: &Catalog, home: &Path, t: &Tr
     let ctx = DirCtx { owner: region.map(|tag| (OwnerKind::Region, tag)), ..ctx };
     match (visitor.after_read(&ctx, &t.listing(rel)), region) {
         (Post::Claim(tag), _) => Verdict::Claim(catalog.rule(tag).id),
-        (Post::Descend, Some(tag)) => Verdict::Region(catalog.rule(tag).id),
+        // A folder already a region stays the one it is, as in the walk.
+        (Post::Descend | Post::Region(_), Some(tag)) | (Post::Region(tag), None) => {
+            Verdict::Region(catalog.rule(tag).id)
+        }
         (Post::Descend, None) => Verdict::Descend,
     }
 }
@@ -527,7 +534,8 @@ impl Vocab {
                         own(parents),
                     );
                 }
-                Matcher::Synthetic => {}
+                // `.git` is among the names below; a generated one names no gitdir.
+                Matcher::Synthetic | Matcher::Worktree | Matcher::WorktreeOrphan => {}
             }
             for lock in rule.lockfiles.unwrap_or_default().iter().filter(|l| !l.contains('*')) {
                 file_names.insert((*lock).to_owned());

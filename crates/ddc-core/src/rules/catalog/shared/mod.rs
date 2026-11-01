@@ -62,7 +62,7 @@ impl PerOs {
 }
 
 /// How many rules every platform shares.
-pub(super) const COUNT: usize = 73;
+pub(super) const COUNT: usize = 75;
 
 /// Every shared rule resolved for `p`, in the macOS order.
 pub(super) const fn all(p: Platform) -> [Rule; COUNT] {
@@ -84,6 +84,8 @@ pub(super) const fn all(p: Platform) -> [Rule; COUNT] {
         GRADLE_PROJECT_CACHE,
         CMAKE_BUILD,
         COCOAPODS_PODS,
+        GIT_WORKTREE,
+        GIT_WORKTREE_ORPHAN,
         cache_npm(p),
         cache_yarn(p),
         CACHE_BUN,

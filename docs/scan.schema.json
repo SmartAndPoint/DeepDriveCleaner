@@ -574,7 +574,7 @@
           }
         },
         "origin": {
-          "description": "The harness whose own structure the rule recognizes (ADR \"Agent\nfootprint: worktrees, harness data and bounded consent for agents\",\n§1). Only on findings of such rules.",
+          "description": "The harness whose own structure the rule recognizes (ADR \"Agent\nfootprint: worktrees, harness data and bounded consent for agents\",\n§1). Only on findings of such rules, and on every git worktree's,\nwhose harness the worktree itself tells (§2).",
           "anyOf": [
             {
               "$ref": "#/$defs/Origin"
@@ -653,6 +653,17 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 0
+        },
+        "worktree": {
+          "description": "What the scan read of a linked git worktree (ADR \"Agent footprint:\nworktrees, harness data and bounded consent for agents\", §2). Only on\n`git.worktree` findings.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorktreeState"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -757,6 +768,28 @@
       "enum": [
         "file",
         "folder"
+      ]
+    },
+    "IgnoredContent": {
+      "description": "The ignored paths that hold a worktree back: the first ones, and how\nmany there are in all.",
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "paths": {
+          "description": "At most 20.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "paths",
+        "count"
       ]
     },
     "Inaccessible": {
@@ -1022,6 +1055,13 @@
         },
         "root": {
           "type": "string"
+        },
+        "worktree_of": {
+          "description": "The main checkout, when `root` is a linked git worktree of it: the\nreport groups the worktree's artifacts under the main project.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -1273,6 +1313,103 @@
         "roots",
         "free_bytes",
         "total_bytes"
+      ]
+    },
+    "WorktreeProbe": {
+      "description": "Whether a worktree's git probes ran and were understood. `unknown` fails\nclosed: the worktree stays `review`.",
+      "type": "string",
+      "enum": [
+        "known",
+        "unknown"
+      ]
+    },
+    "WorktreeState": {
+      "description": "A linked git worktree's state. The fields a git probe fills are absent\nuntil one ran; `probe` says whether it did.",
+      "type": "object",
+      "properties": {
+        "branch": {
+          "description": "The branch checked out, without `refs/heads/`; absent when `HEAD` is\ndetached or could not be read.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clean": {
+          "description": "No tracked change and no untracked file.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "detached": {
+          "description": "`HEAD` names a commit, not a branch; absent when it could not be read.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "idle_days": {
+          "description": "Days since its own last activity.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "ignored_content": {
+          "description": "Ignored paths nothing accounts for: neither inside an artifact ddc\nremoves on its own nor a copy of the main checkout's file.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IgnoredContent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "in_use": {
+          "description": "A process of the current user works inside it.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "linked": {
+          "description": "Its administrative folder's back-pointer (`<gitdir>/gitdir`) names\nthis folder's `.git`, by file identity. False for a worktree copied\nor moved by hand: `git worktree repair` relinks it, and ddc never\nremoves it through git.",
+          "type": "boolean"
+        },
+        "locked": {
+          "description": "`<gitdir>/locked` exists: `git worktree lock`, or a live session's lock.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "own_commits": {
+          "description": "Commits reachable from its `HEAD` and from no reference that\nsurvives its removal.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "probe": {
+          "description": "Whether the git probes ran and were understood.",
+          "$ref": "#/$defs/WorktreeProbe"
+        },
+        "submodules": {
+          "description": "A submodule is initialized in it.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "linked",
+        "probe"
       ]
     }
   }

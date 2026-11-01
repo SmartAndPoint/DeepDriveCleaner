@@ -129,3 +129,17 @@ pub(crate) const COCOAPODS_PODS: Rule = Rule {
     hint: "recreate: pod install",
     ..rule("cocoapods.pods", ProjectArtifact, Rebuildable, Removal::Delete, name(&["Pods"], &["Podfile"]))
 };
+
+// A linked git worktree, whoever made it (ADR "Agent footprint: worktrees,
+// harness data and bounded consent for agents", §2). Report only until
+// removal through `git worktree remove` lands (story "Worktree findings and
+// provenance", PR 3); a finding's hint names its main checkout.
+pub(crate) const GIT_WORKTREE: Rule = Rule {
+    hint: crate::rules::worktree::WORKTREE_HINT,
+    ..rule("git.worktree", ProjectArtifact, Review, Removal::None, Matcher::Worktree)
+};
+
+pub(crate) const GIT_WORKTREE_ORPHAN: Rule = Rule {
+    hint: crate::rules::worktree::ORPHAN_HINT,
+    ..rule("git.worktree-orphan", ProjectArtifact, Review, Removal::None, Matcher::WorktreeOrphan)
+};

@@ -21,7 +21,7 @@ use crate::model::{
     ClassTotal, ExclusionOrigin, Finding, Inaccessible, LargeFile, NotSelected, Project, RemovalKind, SCHEMA_VERSION,
     ScanReport, SkippedPath, Totals,
 };
-use crate::rules::{Catalog, Classified, KEPT, RuleVisitor, TOMBSTONE, classify};
+use crate::rules::{Catalog, Classified, KEPT, RuleVisitor, TOMBSTONE, classify, worktree};
 use crate::scan::{self, DirReader, Progress, ReadErrorKind, Visitor, WalkError, WalkOptions, WalkSetupError};
 use crate::stats;
 use contents::{ContentsLimits, EntryIndex};
@@ -280,7 +280,14 @@ fn finding(
     // fresh manifest next to the artifact counts even under a stale git root.
     let mut last_activity =
         |dir: &Path| *activity.entry(dir.to_path_buf()).or_insert_with(|| project::last_activity(dir));
+    // A worktree's activity is its own, through its gitdir, never its main
+    // checkout's; its idle window is not `--min-age` (decision 9 of story
+    // "Worktree findings and provenance").
+    let worktree = worktree::is_worktree_rule(c.rule);
     let last = c.project_root.as_deref().and_then(|root| {
+        if worktree {
+            return last_activity(&c.owner.path);
+        }
         let near = c.owner.path.parent().filter(|p| *p != root).and_then(&mut last_activity);
         last_activity(root).max(near)
     });
@@ -289,9 +296,11 @@ fn finding(
         last_activity: last.and_then(rfc3339),
         idle_days: last.map(|t| now.duration_since(t).unwrap_or_default().as_secs() / 86_400),
         has_lockfile: c.has_lockfile,
+        worktree_of: c.worktree_of.clone(),
     });
     let not_selected = match c.class {
         RiskClass::Safe => None,
+        RiskClass::Rebuildable if worktree => None,
         RiskClass::Rebuildable => match last.map(|t| now.duration_since(t).unwrap_or_default()) {
             None => Some(NotSelected::UnknownActivity),
             Some(idle) if idle < min_age => Some(NotSelected::ActiveProject { idle_days: idle.as_secs() / 86_400 }),
@@ -325,7 +334,7 @@ fn finding(
         not_selected,
         ignored,
         notes: c.notes.clone(),
-        hint: c.rule.hint.to_owned(),
+        hint: c.hint.clone().unwrap_or_else(|| c.rule.hint.to_owned()),
         dev: c.owner.dev,
         ino: c.owner.ino,
         parent_dev: Some(c.owner.parent_dev),
@@ -336,7 +345,8 @@ fn finding(
         // only after its walk (a marker or an exclusion inside it), whose
         // claim still read the times.
         modified: c.owner.modified.filter(|_| c.rule.id != KEPT).and_then(rfc3339_secs),
-        origin: c.rule.origin,
+        origin: c.origin.or(c.rule.origin),
+        worktree: c.worktree.clone(),
     }
 }
 
