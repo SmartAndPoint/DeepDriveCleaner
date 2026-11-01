@@ -474,7 +474,7 @@ pub fn agents(w: &mut impl Write, r: &AgentsReport, home: &Path, style: &Style) 
             temp_root(w, t, home, style)?;
         }
         if let Some(f) = &s.footprints {
-            footprints(w, f, home, style)?;
+            footprints(w, f, style)?;
         }
     }
     if !r.sizes {
@@ -500,8 +500,9 @@ fn temp_root(w: &mut impl Write, t: &TempRoot, home: &Path, style: &Style) -> io
 
 /// The sessions by total, largest first: the top ten, then the rest as one
 /// line. A live or unknown session's files are only described, never
-/// offered; a session that is not live names its temporary folder.
-fn footprints(w: &mut impl Write, list: &[SessionFootprint], home: &Path, style: &Style) -> io::Result<()> {
+/// offered; a session that is not live says what its temporary folder
+/// holds, and `--json` gives the folder's path.
+fn footprints(w: &mut impl Write, list: &[SessionFootprint], style: &Style) -> io::Result<()> {
     if list.is_empty() {
         return Ok(());
     }
@@ -519,9 +520,9 @@ fn footprints(w: &mut impl Write, list: &[SessionFootprint], home: &Path, style:
         if f.checkpoints > 0 {
             parts.push(format!("checkpoints {}", human(f.checkpoints)));
         }
-        match (&f.temp_path, f.state) {
-            (Some(p), FootprintState::NotLive) if f.temp > 0 => {
-                parts.push(format!("{} in its temporary folder ({})", human(f.temp), tilde(p, home)));
+        match f.state {
+            FootprintState::NotLive if f.temp > 0 => {
+                parts.push(format!("{} in its temporary folder", human(f.temp)));
             }
             _ if f.temp > 0 => parts.push(format!("temporary {}", human(f.temp))),
             _ => {}
