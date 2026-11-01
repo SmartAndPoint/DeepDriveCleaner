@@ -5,6 +5,12 @@
 pub mod fakes;
 pub mod fixtures;
 pub mod git;
+#[cfg(target_os = "linux")]
+pub mod mounts;
+
+#[cfg(target_os = "linux")]
+#[allow(unused_imports)] // each test binary uses its own part of `common`
+pub use mounts::{Mount, Prepared, mount, prepared};
 
 use std::cell::RefCell;
 use std::fs::{self, File};
@@ -28,6 +34,18 @@ impl TreeBuilder {
     #[allow(clippy::disallowed_methods)] // guard against writing into the real HOME
     pub fn new() -> Self {
         let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path().canonicalize().expect("canonical tempdir");
+        if let Some(home) = std::env::var_os("HOME").and_then(|h| PathBuf::from(h).canonicalize().ok()) {
+            assert!(!root.starts_with(&home), "test tree {root:?} must not live inside the real HOME");
+        }
+        Self { _tmp: tmp, root, locked: RefCell::new(Vec::new()) }
+    }
+
+    /// A tree in a fresh folder under `dir`, on whatever filesystem `dir` is
+    /// (a mount of the linux-mounts job), with the same guard as [`Self::new`].
+    #[allow(clippy::disallowed_methods)] // guard against writing into the real HOME
+    pub fn new_in(dir: &Path) -> Self {
+        let tmp = tempfile::tempdir_in(dir).expect("tempdir");
         let root = tmp.path().canonicalize().expect("canonical tempdir");
         if let Some(home) = std::env::var_os("HOME").and_then(|h| PathBuf::from(h).canonicalize().ok()) {
             assert!(!root.starts_with(&home), "test tree {root:?} must not live inside the real HOME");

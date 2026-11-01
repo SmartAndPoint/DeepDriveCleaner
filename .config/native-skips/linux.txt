@@ -5,6 +5,7 @@
 # left skips by design: the capabilities Linux does not declare (lacks), the rules only
 # macOS lists (no_rule), macOS's own facts (app bundles, chflags, cp -c) and the
 # goldens and pinned trees recorded on macOS.
+# The environment group at the end holds the tests that need the CI mounts.
 a_brew_elsewhere_is_not_asked_for_its_packages
 a_brew_that_cannot_list_exits_1_and_says_why
 a_change_to_one_rule_fails_the_golden_check
@@ -126,3 +127,24 @@ what_conda_says_of_an_environment_can_refuse_it_too
 without_actions_and_without_a_terminal_it_refuses_and_runs_nothing
 without_brews_services_command_none_runs_and_the_state_is_not_known
 without_ready_developer_tools_nothing_is_listed_or_deleted
+
+# [environment] needs the CI mounts: scripts/ci-mounts.sh makes them on the Gate's linux-mounts
+# job, which runs these and fails on any skip (story "Linux CI mounts: a filesystem
+# matrix job with root-only steps", DDC-010).
+a_bind_mount_has_its_parents_device_and_a_mountinfo_entry
+a_btrfs_mount_is_btrfs_in_mountinfo
+a_btrfs_subvolume_is_a_root_inode_with_a_device_of_its_own
+a_casefold_folder_finds_a_name_in_another_case
+a_cifs_mount_finds_a_name_in_another_case
+a_read_only_btrfs_snapshot_refuses_a_new_file
+a_root_topped_tmpfs_holds_a_folder_of_the_users
+a_squashed_nfs_mount_gives_a_new_file_to_nobody
+a_tmpfs_mount_is_the_users
+a_writable_btrfs_snapshot_takes_a_new_file
+a_zfs_child_dataset_is_a_mount_with_a_snapshot
+an_exfat_mount_finds_a_name_in_another_case
+an_nfs_mount_is_nfs_and_the_users
+an_xfs_mount_is_xfs_in_mountinfo
+the_prepared_append_only_file_carries_its_flag
+the_prepared_device_is_a_character_device
+the_prepared_immutable_file_carries_its_flag_and_refuses_a_rename

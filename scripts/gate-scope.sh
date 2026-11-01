@@ -6,13 +6,14 @@
 #   scripts/gate-scope.sh paths       newline-separated repo paths on stdin
 #   scripts/gate-scope.sh staged      the index, for .githooks/pre-commit
 #   scripts/gate-scope.sh staged-cases   the index again: whether pre-commit runs `make cases`
+#   scripts/gate-scope.sh mounts <sha>   whether the Gate's linux-mounts job runs its tests
 #   scripts/gate-scope.sh push        git's pre-push lines on stdin, for .githooks/pre-push
 #   scripts/gate-scope.sh ci <sha>    the Gate's scope job: <sha> against the newest ancestor
 #                                     whose push run passed gate, coverage, release-build and
 #                                     the two native check jobs
 #
 # Prints one word and exits 0: `rust`, `skip`, or for `push` `swift` (the Rust tiers are
-# skipped, DDCKit's package changed); `staged-cases` prints `yes` or `no`. A usage error prints `rust` and exits 2. Callers
+# skipped, DDCKit's package changed); `staged-cases` and `mounts` print `yes` or `no`. A usage error prints `rust` and exits 2. Callers
 # take anything but `skip` or `swift` as `rust`, an empty answer included. Every diff is
 # --no-renames, so a file moved out of crates/ shows where it came from.
 set -euo pipefail
@@ -25,7 +26,7 @@ MAX_ANCESTORS=20
 
 answer() { printf '%s\n' "$1"; exit 0; }
 rust() { printf 'gate-scope: %s: the full gate\n' "$1" >&2; answer rust; }
-usage() { printf 'usage: scripts/gate-scope.sh paths | staged | staged-cases | push | ci <sha>\n' >&2; printf 'rust\n'; exit 2; }
+usage() { printf 'usage: scripts/gate-scope.sh paths | staged | staged-cases | mounts <sha> | push | ci <sha>\n' >&2; printf 'rust\n'; exit 2; }
 
 ON=()
 OFF=()
@@ -104,6 +105,29 @@ staged_cases_scope() {
     answer no
 }
 
+# Whether the linux-mounts job runs its tests on <sha> (story "Linux CI mounts: a
+# filesystem matrix job with root-only steps", DDC-010): `yes` when a path changed since
+# the merge base with origin/main is one the mounted filesystems judge (the Linux
+# platform module, the walk, the clean, any test, the mounts script, the skip lists, this
+# workflow, the manifests), and on every doubt (git failing, no merge base, nothing to
+# diff, as on main itself, a name git had to quote); `no` otherwise.
+MOUNTS=(crates/ddc-core/src/platform/linux/ crates/ddc-core/src/scan/ crates/ddc-core/src/exec/
+    crates/ddc-core/tests/ crates/ddc-cli/tests/ crates/ddc-loadgen/tests/ crates/ddc-core/Cargo.toml
+    Cargo.toml Cargo.lock rust-toolchain.toml scripts/ci-mounts.sh scripts/native-skips.sh
+    .config/native-skips/ .config/nextest.toml .github/workflows/gate.yml .github/workflows/nightly.yml)
+mounts_scope() {
+    local head="$1" base names path
+    git cat-file -e "$head^{commit}" 2>/dev/null || answer yes
+    base="$(git merge-base origin/main "$head^{commit}" 2>/dev/null)" || answer yes
+    names="$(changed "$base" "$head^{commit}")" || answer yes
+    [ -n "$names" ] || answer yes
+    while IFS= read -r path; do
+        case "$path" in '"'*) answer yes ;; esac
+        matches "$path" "${MOUNTS[@]}" && answer yes
+    done <<<"$names"
+    answer no
+}
+
 # A deletion sends nothing, and a tag adds no branch: gate.yml ignores tags, and a release
 # checks its commit again (ci-green --full, require-tag.sh). A push of only those skips;
 # a branch line beside them is judged as usual.
@@ -171,6 +195,7 @@ case "${1:-}" in
     paths) [ "$#" -eq 1 ] || usage; answer "$(classify)" ;;
     staged) [ "$#" -eq 1 ] || usage; staged_scope ;;
     staged-cases) [ "$#" -eq 1 ] || usage; staged_cases_scope ;;
+    mounts) [ "$#" -eq 2 ] || usage; mounts_scope "$2" ;;
     push) [ "$#" -eq 1 ] || usage; push_scope ;;
     ci) [ "$#" -eq 2 ] || usage; ci_scope "$2" ;;
     *) usage ;;

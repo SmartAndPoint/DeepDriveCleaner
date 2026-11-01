@@ -140,6 +140,36 @@ jobs:
           name: load-linux
           path: target/load
 
+  # The tests on real filesystems, as the Gate's linux-mounts job runs them (story "Linux
+  # CI mounts: a filesystem matrix job with root-only steps", DDC-010): nightly too, so a
+  # runner image that stops mounting one of them shows without a push.
+  linux-mounts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+          key: linux-mounts
+      - name: The nextest version .config/tools.mk pins
+        id: tools
+        run: echo "nextest=$(sed -n 's/^NEXTEST_VERSION := //p' .config/tools.mk)" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@${{ steps.tools.outputs.nextest }}
+      - run: scripts/ci-mounts.sh up /tmp/ddc-mounts >> "$GITHUB_ENV"
+      - shell: bash
+        run: |
+          cargo nextest run --workspace --locked --features ddc-core/op-stats \
+            -E "$(scripts/native-skips.sh --filter linux)" 2>&1 | tee "$RUNNER_TEMP/mounts-tests.log"
+      - if: ${{ !cancelled() }}
+        run: scripts/native-skips.sh --mounts linux "$RUNNER_TEMP/mounts-tests.log"
+
   # L-size load on its own runner, so a gate or coverage failure does not skip it and
   # their builds do not share its disk: story "Synthetic load trees: large, wide, deep
   # and hostile".
