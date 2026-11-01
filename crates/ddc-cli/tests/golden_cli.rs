@@ -323,5 +323,5 @@ fn every_static_profile_has_a_golden_test() {
 
 /// The device of `path`, symlinks followed.
 fn dev(path: &Path) -> u64 {
-    ddc_core::platform::meta::file_id(&fs::metadata(path).unwrap()).unwrap().0
+    ddc_core::platform::meta::stat(path).unwrap().dev
 }

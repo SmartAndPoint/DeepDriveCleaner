@@ -5,7 +5,6 @@
 //! already skipped reaches them.
 #![allow(dead_code)]
 
-use std::fs;
 use std::path::Path;
 
 /// A test that runs `scan`, `clean`, `du`, `disk`, `schedule`, `notify` or
@@ -81,7 +80,7 @@ pub fn skipped_without<T>(test: &str, made: std::io::Result<T>) -> Option<T> {
 
 /// `(dev, ino)` of one path, without following symlinks.
 pub fn id(path: impl AsRef<Path>) -> (u64, u64) {
-    ddc_core::platform::meta::file_id(&fs::symlink_metadata(path).unwrap()).unwrap()
+    ddc_core::platform::meta::lstat(path.as_ref()).unwrap().id()
 }
 
 /// Sets the Unix permission bits of `path`.
@@ -93,7 +92,7 @@ pub fn set_mode(path: impl AsRef<Path>, mode: u32) {
 #[cfg(unix)]
 fn try_set_mode(path: &Path, mode: u32) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt as _;
-    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
 }
 
 #[cfg(not(unix))]

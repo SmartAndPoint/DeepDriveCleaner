@@ -127,18 +127,23 @@ pub mod iopolicy {
 pub mod meta {
     use std::fs::{Metadata, Permissions};
     use std::io;
+    use std::path::Path;
+
+    use crate::platform::types::FileStat;
 
     /// Fails closed: no identity is made up.
-    pub fn file_id(_md: &Metadata) -> io::Result<(u64, u64)> {
+    pub fn lstat(_path: &Path) -> io::Result<FileStat> {
         super::unsupported()
     }
 
-    pub fn link_count(_md: &Metadata) -> u64 {
-        1
+    /// Fails closed: no identity is made up.
+    pub fn stat(_path: &Path) -> io::Result<FileStat> {
+        super::unsupported()
     }
 
-    pub fn alloc_bytes(_md: &Metadata) -> u64 {
-        0
+    /// Fails closed: no identity is made up.
+    pub fn entry(_entry: &std::fs::DirEntry) -> io::Result<FileStat> {
+        super::unsupported()
     }
 
     pub fn mtime(_md: &Metadata) -> i64 {

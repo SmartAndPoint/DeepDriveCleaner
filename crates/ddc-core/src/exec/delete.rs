@@ -78,11 +78,10 @@ mod tests {
     use crate::platform::fsops::DirFd;
 
     fn verified(parent: &Path, name: &str) -> Verified {
-        let md = fs::symlink_metadata(parent.join(name)).unwrap();
         Verified {
             parent: DirFd::open(parent).unwrap(),
             name: name.into(),
-            id: crate::platform::meta::file_id(&md).unwrap(),
+            id: crate::platform::meta::lstat(&parent.join(name)).unwrap().id(),
             is_dir: true,
             session: None,
         }

@@ -224,9 +224,9 @@ fn normalize(path: &Path) -> PathBuf {
 /// Both name the same file, by `(dev, ino)`: case-folding and relative
 /// links do not make a mismatch.
 fn same_file(a: &Path, b: &Path) -> bool {
-    use crate::platform::meta::file_id;
-    match (fs::metadata(a), fs::symlink_metadata(b)) {
-        (Ok(a), Ok(b)) => matches!((file_id(&a), file_id(&b)), (Ok(x), Ok(y)) if x == y),
+    use crate::platform::meta::{lstat, stat};
+    match (stat(a), lstat(b)) {
+        (Ok(a), Ok(b)) => a.id() == b.id(),
         _ => false,
     }
 }

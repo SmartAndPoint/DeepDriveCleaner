@@ -61,10 +61,10 @@ fn with_fs_blocks(m: &Manifest, tree: &Path) -> Manifest {
 
     use ddc_core::platform::meta;
     let mut m = m.clone();
-    let Ok(root) = std::fs::symlink_metadata(tree) else { return m };
-    let (Ok((dev, _)), true) = (meta::file_id(&root), meta::alloc_bytes(&root) > 0) else { return m };
+    let Ok(root) = meta::lstat(tree) else { return m };
+    let (dev, true) = (root.dev, root.alloc > 0) else { return m };
     let at: HashMap<String, usize> = m.findings.iter().enumerate().map(|(i, f)| (f.path.clone(), i)).collect();
-    let mut stack = vec![(tree.to_path_buf(), meta::alloc_bytes(&root))];
+    let mut stack = vec![(tree.to_path_buf(), root.alloc)];
     while let Some((dir, own)) = stack.pop() {
         let mut add = |path: &Path, bytes: u64| {
             m.totals.scanned_bytes += bytes;
@@ -77,11 +77,11 @@ fn with_fs_blocks(m: &Manifest, tree: &Path) -> Manifest {
         let Ok(listing) = std::fs::read_dir(&dir) else { continue };
         for e in listing.flatten() {
             // Through the listing's own descriptor: it reaches past `PATH_MAX`.
-            let (Ok(kind), Ok(c)) = (e.file_type(), e.metadata()) else { continue };
+            let (Ok(kind), Ok(c)) = (e.file_type(), meta::entry(&e)) else { continue };
             if kind.is_symlink() {
-                add(&e.path(), meta::alloc_bytes(&c));
-            } else if kind.is_dir() && meta::file_id(&c).is_ok_and(|(d, _)| d == dev) {
-                stack.push((e.path(), meta::alloc_bytes(&c)));
+                add(&e.path(), c.alloc);
+            } else if kind.is_dir() && c.dev == dev {
+                stack.push((e.path(), c.alloc));
             }
         }
     }

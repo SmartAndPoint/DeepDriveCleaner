@@ -2,7 +2,6 @@
 //! `getattrlistbulk` on macOS) is the fast path; [`StdReader`] uses `std::fs` and serves as a reference in
 //! tests and as a fallback.
 
-use std::fs;
 use std::path::Path;
 
 use crate::platform::meta;
@@ -94,12 +93,13 @@ impl DirReader for StdReader {
 }
 
 fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListing, ReadError> {
-    let md = fs::symlink_metadata(dir).map_err(|e| ReadError::from_io(&e))?;
+    let st = meta::lstat(dir).map_err(|e| ReadError::from_io(&e))?;
+    let md = &st.md;
     if !md.is_dir() {
         return Err(ReadError::new(ReadErrorKind::Changed, None));
     }
-    let (dev, ino) = meta::file_id(&md).map_err(|e| ReadError::from_io(&e))?;
-    let modified = Some(meta::mtime(&md));
+    let (dev, ino) = st.id();
+    let modified = Some(meta::mtime(md));
     if let Some((want_dev, want_ino)) = expect {
         if dev != want_dev {
             return Err(ReadError::new(ReadErrorKind::OtherFilesystem, None));
@@ -112,7 +112,10 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
     for entry in crate::stats::read_dir(dir).map_err(|e| ReadError::from_io(&e))? {
         let entry = entry.map_err(|e| ReadError::from_io(&e))?;
         // `DirEntry::metadata` is `fstatat(.., AT_SYMLINK_NOFOLLOW)` on macOS.
-        let (em, (edev, eino)) = match entry.metadata().and_then(|m| meta::file_id(&m).map(|id| (m, id))) {
+        let (est, (edev, eino)) = match meta::entry(&entry).map(|st| {
+            let id = st.id();
+            (st, id)
+        }) {
             Ok(found) => found,
             Err(e) => {
                 entries.push(EntryMeta {
@@ -133,6 +136,7 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
                 continue;
             }
         };
+        let em = &est.md;
         let ft = em.file_type();
         let kind = if ft.is_dir() {
             EntryKind::Dir
@@ -148,16 +152,16 @@ fn list(dir: &Path, expect: Option<(u64, u64)>, times: bool) -> Result<DirListin
             kind,
             dev: edev,
             ino: eino,
-            nlink: u32::try_from(meta::link_count(&em)).unwrap_or(u32::MAX),
-            uid: meta::owner(&em),
-            flags: meta::st_flags(&em),
-            alloc: meta::alloc_bytes(&em),
+            nlink: u32::try_from(est.nlink).unwrap_or(u32::MAX),
+            uid: meta::owner(em),
+            flags: meta::st_flags(em),
+            alloc: est.alloc,
             private: None,
             error: None,
-            modified: times.then(|| meta::mtime(&em)),
+            modified: times.then(|| meta::mtime(em)),
             added: None,
             boundary: None,
         });
     }
-    Ok(DirListing { dev, ino, modified, alloc: meta::alloc_bytes(&md), entries })
+    Ok(DirListing { dev, ino, modified, alloc: st.alloc, entries })
 }

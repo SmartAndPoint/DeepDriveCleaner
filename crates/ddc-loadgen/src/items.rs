@@ -10,7 +10,6 @@
 //!   runs on the machine.
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 
 use ddc_core::class::RiskClass;
@@ -43,7 +42,7 @@ pub fn listed(m: &Manifest, tree: &Path) -> anyhow::Result<Option<ListedItems>> 
             continue;
         }
         let path = tree.join(&p.path);
-        let (dev, ino) = ddc_core::platform::meta::file_id(&fs::symlink_metadata(&path)?)?;
+        let (dev, ino) = ddc_core::platform::meta::lstat(&path)?.id();
         items.push(ListedItem {
             path,
             dev,

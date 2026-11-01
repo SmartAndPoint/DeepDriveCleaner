@@ -149,10 +149,10 @@ pub fn measure_with(
     if let Some(root) = &data_root {
         for (i, def) in AREAS.iter().enumerate() {
             for path in area_paths(root, def) {
-                let Ok(md) = std::fs::metadata(&path) else { continue };
+                let Ok(st) = crate::platform::meta::stat(&path) else { continue };
                 let Ok(canon) = path.canonical() else { continue };
-                let Ok(id) = crate::platform::meta::file_id(&md) else { continue };
-                if !md.is_dir() || seen.contains(&id) {
+                let id = st.id();
+                if !st.md.is_dir() || seen.contains(&id) {
                     continue;
                 }
                 seen.push(id);
@@ -350,11 +350,11 @@ fn area_paths(root: &Path, def: &AreaDef) -> Vec<PathBuf> {
 /// The user's home folder as `<data root>/Users/<name>`, when it lies there:
 /// the `users` area leaves it to the home row.
 fn own_home_in_users(data_root: &Path, home: &Path) -> Option<PathBuf> {
-    let id = std::fs::metadata(home).ok().and_then(|md| crate::platform::meta::file_id(&md).ok())?;
+    let id = crate::platform::meta::stat(home).ok()?.id();
     crate::stats::read_dir(data_root.join("Users"))
         .ok()?
         .flatten()
         .map(|e| e.path())
-        .find(|p| std::fs::symlink_metadata(p).is_ok_and(|m| crate::platform::meta::file_id(&m).is_ok_and(|i| i == id)))
+        .find(|p| crate::platform::meta::lstat(p).is_ok_and(|st| st.id() == id))
         .and_then(|p| p.canonical().ok())
 }

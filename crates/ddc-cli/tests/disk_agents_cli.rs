@@ -154,7 +154,7 @@ fn each_sessions_footprint_and_the_temporary_folder() {
     fx.file(&format!("{temp}/-p/{ENDED}/tasks/y"), 8 * 1024);
     // No session's: the remainder.
     fx.file(&format!("{temp}/bash-edit-diff/z"), 5000);
-    let stray = meta::alloc_bytes(&fs::symlink_metadata(fx.root.join(&temp).join("bash-edit-diff/z")).unwrap());
+    let stray = meta::lstat(&fx.root.join(&temp).join("bash-edit-diff/z")).unwrap().alloc;
     // The variable names another folder: the fixture root wins over it.
     let decoy = "0a1b2c3d-0000-4000-8000-0000000000dd";
     fx.file(&format!("decoy/claude-{}/-p/{decoy}/x", procs::uid()), 4096);

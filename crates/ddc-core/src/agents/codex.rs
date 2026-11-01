@@ -66,11 +66,11 @@ fn strict(listed: Listed) -> CodexLocks {
 /// A lock's `(dev, ino)`, its link not followed; `None` when it is not a
 /// plain file.
 fn lock_id(path: &Path) -> std::io::Result<Option<(u64, u64)>> {
-    let md = std::fs::symlink_metadata(path)?;
-    if !md.is_file() {
+    let st = crate::platform::meta::lstat(path)?;
+    if !st.md.is_file() {
         return Ok(None);
     }
-    crate::platform::meta::file_id(&md).map(Some)
+    Ok(Some(st.id()))
 }
 
 /// The thread locks of `dir`, sorted, and whether one could not be read.

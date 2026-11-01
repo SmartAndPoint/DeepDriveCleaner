@@ -123,8 +123,8 @@ pub(super) fn assemble(
 /// A file's identity and its own modification time, from its metadata
 /// alone; `None` when it is gone.
 fn fact(path: &Path) -> Option<FileFact> {
-    let md = path.symlink_metadata().ok()?;
-    Some(FileFact { id: meta::file_id(&md).ok()?, modified: Some(meta::mtime(&md)) })
+    let st = meta::lstat(path).ok()?;
+    Some(FileFact { id: st.id(), modified: Some(meta::mtime(&st.md)) })
 }
 
 fn rfc3339(secs: i64) -> Option<String> {
