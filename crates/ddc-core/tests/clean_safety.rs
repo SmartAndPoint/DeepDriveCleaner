@@ -673,6 +673,36 @@ fn a_running_editor_holds_back_only_its_own_caches() {
 }
 
 #[test]
+fn a_crash_reporter_left_behind_does_not_hold_back_its_apps_caches() {
+    // VS Code's crash reporter, still running weeks after VS Code quit.
+    // Apps run from bundles only on macOS.
+    if common::unsupported("a_crash_reporter_left_behind_does_not_hold_back_its_apps_caches")
+        || common::no_rule("a_crash_reporter_left_behind_does_not_hold_back_its_apps_caches", "macos.app-bundle")
+    {
+        return;
+    }
+    let fx = Fx::new();
+    let code = fx.t.dir("Library/Application Support/Code/GPUCache");
+    fx.t.file("Library/Application Support/Code/GPUCache/data", 1000);
+    let cursor = fx.t.dir("Library/Application Support/Cursor/GPUCache");
+    fx.t.file("Library/Application Support/Cursor/GPUCache/data", 1000);
+    let plan = fx.plan();
+    let procs = FakeProcs::new(vec![
+        app_process(
+            41617,
+            "/Applications/Visual Studio Code.app/Contents/Frameworks/Electron Framework.framework/Helpers/chrome_crashpad_handler",
+        ),
+        app_process(501, "/Applications/Cursor.app/Contents/MacOS/Cursor"),
+    ]);
+
+    let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe] };
+    let (r, _) = fx.run(&plan, consent, &FakeCommands::default(), &procs);
+
+    assert_eq!(outcome(&r, &code), &Outcome::Deleted);
+    assert_eq!(outcome(&r, &cursor), &Outcome::Skipped(SkipReason::OwnerRunning { pid: 501, name: "Cursor".into() }));
+}
+
+#[test]
 fn no_system_process_owns_a_cache() {
     // The process table is not ported off macOS yet.
     // Real processes run from app bundles only on macOS.

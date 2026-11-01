@@ -179,7 +179,11 @@ impl<'a> Guard<'a> {
             markers,
             uses: table.iter().map(uses).collect(),
             names: table.iter().map(|p| p.name.clone()).collect(),
-            apps: table.iter().filter_map(|p| Some((p.pid, p.app_bundle()?, p.name.clone()))).collect(),
+            apps: table
+                .iter()
+                .filter(|p| !crash_reporter(p))
+                .filter_map(|p| Some((p.pid, p.app_bundle()?, p.name.clone())))
+                .collect(),
             withheld: table.iter().filter(|p| p.withheld).count() as u64,
             procs,
             skips: Vec::new(),
@@ -661,6 +665,13 @@ fn uses(p: &ProcInfo) -> Uses {
     paths.extend(canonical);
     let name = p.app_bundle().unwrap_or_else(|| p.name.clone());
     Uses { pid: p.pid, name, paths, unresolved, open: p.open_files.clone() }
+}
+
+/// Chromium's and Electron's crash reporter, which outlives its app by days
+/// and writes only to its own database: it does not make the app running.
+/// What it holds open still counts through the in-use check.
+fn crash_reporter(p: &ProcInfo) -> bool {
+    p.name.strip_suffix(".exe").unwrap_or(&p.name).ends_with("crashpad_handler")
 }
 
 /// The first running process that uses one of `targets` (spellings of one
