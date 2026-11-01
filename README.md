@@ -1,4 +1,4 @@
-# DeepDriveCleaner
+# DeepDriveCleaner™
 
 Find and safely clean what development leaves on a Mac's disk: Python virtual environments, `node_modules`, build outputs, package and toolchain caches, Xcode data, local ML models and VM images. Everything it finds is grouped by risk. Nothing is removed until you have seen the plan and confirmed it.
 
@@ -427,6 +427,10 @@ The install script (under [Install](#on-an-older-macos-or-the-command-line-only)
 
 These checks lower the risk; they do not remove it. See the [Disclaimer](#disclaimer).
 
+## For coding agents
+
+[`agents/`](agents/) holds guidance for coding agents: a Claude Code skill and a snippet for `AGENTS.md` (Codex, opencode). It teaches an agent to ask `ddc` before it guesses about the disk, on a full disk, `ENOSPC` or before installing dependencies into a new worktree, with read-only commands (`ddc disk agents --json`, `ddc scan <dir> --json`, `ddc rules --json`), and to hand the cleanup to you rather than run it. [`agents/README.md`](agents/README.md) says how to install it.
+
 ## Full Disk Access
 
 Without Full Disk Access some of `~/Library` cannot be read; the report lists those folders instead of guessing. Grant it to the app: System Settings → Privacy & Security → Full Disk Access → DeepDriveCleaner. The grant is tied to the app's identity (its Developer ID signature and bundle id) rather than to one copy of it, so it should survive an update, by Update and Relaunch or by `brew upgrade`: both replace the app with a copy of the same identity. If the app reports no Full Disk Access after an update, switch it off and on again in that list.
@@ -541,3 +545,5 @@ DeepDriveCleaner deletes files and folders, and it can remove almost anything it
 ## License
 
 [PolyForm Noncommercial 1.0.0](LICENSE.md). You may read, use, change and share this code for any noncommercial purpose: personal use, research, education, nonprofits. You may not use it commercially, including selling an app built on it. Strictly speaking this makes the project source-available rather than "open source" in the OSI sense: the code is open so that you can see what a tool that deletes files on your disk actually does.
+
+The name and the icon are not covered by the license: see [TRADEMARKS.md](TRADEMARKS.md).
