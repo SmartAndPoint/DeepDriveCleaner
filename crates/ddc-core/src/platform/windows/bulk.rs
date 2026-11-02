@@ -12,14 +12,23 @@
 //!   target is `\??\Volume{…}`) is another file system, a [`Boundary`] the
 //!   walk does not open, so a finding holding one is incomplete; any other
 //!   target is a junction, a link. Cloud placeholders, WOF-compressed and
-//!   other tagged files are files or folders as their attributes say, and
-//!   nothing here opens them, so no placeholder is downloaded.
-//! - **Hard links.** The listing carries no link count. A regular file with
-//!   allocated bytes reports `nlink` 0, "unknown", and the walk's deferred
-//!   inode table counts it once across every place it is seen (pnpm and uv
-//!   hard-link almost every file on Windows). A link whose other name lies
-//!   outside the scan is counted as freed: a size overstated, never a
-//!   deletion widened.
+//!   other tagged files are files or folders as their attributes say; a
+//!   file is opened only with `FILE_OPEN_NO_RECALL` (for its link count), so
+//!   no placeholder is downloaded.
+//! - **Hard links.** The listing carries no link count, so a regular file
+//!   with allocated bytes gets it from one by-name stat relative to the
+//!   folder (`DirFd::stat_by_name`, no handle opened), checked against the
+//!   listed id. The count is then the real one, as on macOS and Linux: the
+//!   walk's inode table counts a shared file once, and counts its bytes as
+//!   shared, never freed, when one of its links lies outside the scan, in a
+//!   full walk and in an item's walk alike (pnpm and uv hard-link almost
+//!   every file on Windows).
+//!   A cloud placeholder (any recall attribute) is read through a no-recall
+//!   open instead, so nothing is downloaded; on a volume without file ids in
+//!   its listing (FAT, exFAT, some network shares) the count comes from the
+//!   same open. A count that cannot be read, or a file replaced since the
+//!   listing, is `u32::MAX`: never complete, so its bytes count as shared,
+//!   never as freed.
 //! - **One volume.** [`list_in`] opens a folder by path and checks that it is
 //!   on its scan root's volume; junctions never lead there, since they are
 //!   never descended, and a mount point is a boundary.
@@ -31,12 +40,14 @@ use std::os::windows::io::AsRawHandle as _;
 use std::path::{Path, PathBuf};
 
 use windows_sys::Win32::Foundation::{
-    ERROR_INVALID_LEVEL, ERROR_INVALID_PARAMETER, ERROR_NO_MORE_FILES, ERROR_NOT_SUPPORTED,
+    ERROR_INVALID_FUNCTION, ERROR_INVALID_LEVEL, ERROR_INVALID_PARAMETER, ERROR_NO_MORE_FILES, ERROR_NOT_SUPPORTED,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_BASIC_INFO, FILE_FULL_DIR_INFO, FILE_ID_EXTD_DIR_INFO,
-    FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_STANDARD_INFO, FileFullDirectoryInfo, FileFullDirectoryRestartInfo,
-    FileIdExtdDirectoryInfo, FileIdExtdDirectoryRestartInfo, GetFileInformationByHandleEx, SYNCHRONIZE,
+    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
+    FILE_ATTRIBUTE_RECALL_ON_OPEN, FILE_ATTRIBUTE_REPARSE_POINT, FILE_BASIC_INFO, FILE_FULL_DIR_INFO,
+    FILE_ID_EXTD_DIR_INFO, FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_STANDARD_INFO, FileFullDirectoryInfo,
+    FileFullDirectoryRestartInfo, FileIdExtdDirectoryInfo, FileIdExtdDirectoryRestartInfo,
+    GetFileInformationByHandleEx, SYNCHRONIZE,
 };
 use windows_sys::Win32::System::IO::DeviceIoControl;
 
@@ -201,19 +212,30 @@ fn entry(folder: &DirFd, raw: Raw, dev: u64, times: Times) -> Option<EntryMeta> 
             boundary = Some(Boundary::Mount);
         }
     }
+    let listed_id = raw.id.is_some();
     let id = match raw.id {
         Some(id) => id,
         None => folder.stat_child(&raw.name).map(|st| (st.dev, st.ino)),
     };
     let alloc = u64::try_from(raw.alloc).unwrap_or(0);
+    // Only a file with allocated bytes can be shared in a way that counts.
+    let nlink = match &id {
+        Ok((_, ino)) if kind == EntryKind::File && alloc > 0 => {
+            let by_handle = !listed_id || raw.attributes & RECALL != 0;
+            if by_handle {
+                links_by_handle(folder, &raw.name, *ino).unwrap_or(u32::MAX)
+            } else {
+                links(folder, &raw.name, *ino)
+            }
+        }
+        _ => 1,
+    };
     let mut meta = EntryMeta {
         name: raw.name,
         kind,
         dev,
         ino: 0,
-        // Unknown for a file with allocated bytes: the walk's inode table
-        // counts it once wherever its links are seen.
-        nlink: if kind == EntryKind::File && alloc > 0 { 0 } else { 1 },
+        nlink,
         uid: None,
         flags: 0,
         alloc,
@@ -234,6 +256,33 @@ fn entry(folder: &DirFd, raw: Raw, dev: u64, times: Times) -> Option<EntryMeta> 
         }
     }
     Some(meta)
+}
+
+/// Attributes of a file whose data may live elsewhere: a by-name query
+/// cannot pass `FILE_OPEN_NO_RECALL`, so such a file is opened with it.
+const RECALL: u32 = FILE_ATTRIBUTE_RECALL_ON_OPEN | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS | FILE_ATTRIBUTE_OFFLINE;
+
+/// The link count of the file `name`, listed with the id `ino`: from one
+/// by-name stat, or, where that call or class is missing, from a relative
+/// open of the file. `u32::MAX`, never complete, when it cannot be read or
+/// the name now holds another file.
+fn links(folder: &DirFd, name: &OsStr, ino: u64) -> u32 {
+    match folder.stat_by_name(name) {
+        Ok(st) if st.FileId as u64 == ino => st.NumberOfLinks,
+        Ok(_) => u32::MAX,
+        Err(e) if refused_class(&e) || e.raw_os_error() == Some(ERROR_INVALID_FUNCTION as i32) => {
+            links_by_handle(folder, name, ino).unwrap_or(u32::MAX)
+        }
+        Err(_) => u32::MAX,
+    }
+}
+
+/// The link count through a relative, no-recall open, checked against `ino`.
+fn links_by_handle(folder: &DirFd, name: &OsStr, ino: u64) -> Option<u32> {
+    let child = folder.child(name, FILE_READ_ATTRIBUTES | SYNCHRONIZE, 0).ok()?;
+    let (_, now) = id_of(&info::<FILE_ID_INFO>(&child).ok()?).ok()?;
+    (now == ino).then_some(())?;
+    Some(info::<FILE_STANDARD_INFO>(&child).ok()?.NumberOfLinks)
 }
 
 /// Whether the mount point `name` is a junction (`Some(false)`: a link) or
@@ -388,7 +437,7 @@ mod tests {
         let f = by_name(&l, "f");
         let st = meta::lstat(&d.path().join("f")).unwrap();
         assert_eq!((f.kind, f.dev, f.ino, f.alloc), (EntryKind::File, st.dev, st.ino, st.alloc));
-        assert_eq!(f.nlink, 0, "a file with allocated bytes: links unknown");
+        assert_eq!(f.nlink, st.nlink as u32, "the real link count");
         assert!(f.modified.is_some() && f.added.is_none());
         assert_eq!(by_name(&l, "empty").nlink, 1);
         assert_eq!(by_name(&l, "sub").kind, EntryKind::Dir);
@@ -464,7 +513,54 @@ mod tests {
         let l = list(d.path(), None, false, Times::None).unwrap();
         let (a, b) = (by_name(&l, "a"), by_name(&l, "b"));
         assert_eq!((a.dev, a.ino), (b.dev, b.ino));
-        assert_eq!((a.nlink, b.nlink), (0, 0));
+        assert_eq!((a.nlink, b.nlink), (2, 2), "the real count, from the by-name stat");
+        DirFd::open(d.path()).unwrap().unlink_child(OsStr::new("b")).unwrap();
+        assert_eq!(by_name(&list(d.path(), None, false, Times::None).unwrap(), "a").nlink, 1);
+    }
+
+    #[test]
+    fn a_link_count_is_read_only_for_the_listed_file() {
+        let d = tempfile::tempdir().unwrap();
+        fs::write(d.path().join("a"), vec![1u8; 5000]).unwrap();
+        fs::hard_link(d.path().join("a"), d.path().join("b")).unwrap();
+        let folder = DirFd::open(d.path()).unwrap();
+        let ino = meta::lstat(&d.path().join("a")).unwrap().ino;
+        assert!(super::super::fsops::query_by_name().is_some(), "Windows 10 1709 or later on the test machine");
+        assert_eq!(links(&folder, OsStr::new("a"), ino), 2);
+        assert_eq!(links_by_handle(&folder, OsStr::new("a"), ino), Some(2), "the open agrees");
+        assert_eq!(links(&folder, OsStr::new("a"), ino + 1), u32::MAX, "another file now: never complete");
+        assert_eq!(links_by_handle(&folder, OsStr::new("a"), ino + 1), None);
+        assert_eq!(links(&folder, OsStr::new("gone"), ino), u32::MAX);
+    }
+
+    #[test]
+    fn the_fallback_listing_reads_real_link_counts() {
+        let d = tempfile::tempdir().unwrap();
+        fs::write(d.path().join("a"), vec![1u8; 5000]).unwrap();
+        fs::hard_link(d.path().join("a"), d.path().join("b")).unwrap();
+        fs::write(d.path().join("c"), vec![1u8; 5000]).unwrap();
+        let folder = DirFd::open(d.path()).unwrap();
+        let dev = meta::lstat(d.path()).unwrap().dev;
+        let raw = |name: &str| Raw {
+            name: name.into(),
+            attributes: 0,
+            tag: 0,
+            alloc: 8192,
+            modified: 0,
+            created: 0,
+            id: None,
+        };
+        let (a, c) =
+            (entry(&folder, raw("a"), dev, Times::None).unwrap(), entry(&folder, raw("c"), dev, Times::None).unwrap());
+        assert_eq!((a.nlink, c.nlink), (2, 1), "no ids in the listing: counted through the open");
+        let mut placeholder = raw("a");
+        placeholder.id = Some(Ok((dev, a.ino)));
+        placeholder.attributes = FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS;
+        assert_eq!(
+            entry(&folder, placeholder, dev, Times::None).unwrap().nlink,
+            2,
+            "a recall attribute: the no-recall open"
+        );
     }
 
     fn reparse(target: &str) -> Vec<u8> {
