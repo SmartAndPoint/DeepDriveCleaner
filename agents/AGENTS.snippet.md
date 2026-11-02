@@ -11,7 +11,7 @@ what agent sessions left behind.
 **What to run** (read-only; with `--json` only the report goes to stdout):
 
 ```sh
-ddc agent status --json --no-sizes  # harnesses and live sessions (macOS)
+ddc agent status --json --no-sizes  # harnesses and live sessions (macOS, Linux)
 ddc scan "$PWD" --json              # what can be freed under this project
 ddc rules --json                    # what each rule id means
 ```

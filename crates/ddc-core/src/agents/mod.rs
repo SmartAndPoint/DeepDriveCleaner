@@ -31,17 +31,78 @@ pub use running::Installs;
 /// Where Cursor's agent CLI installs its versions, from the home folder.
 pub const CURSOR_AGENT: &str = ".local/share/cursor-agent";
 
+/// Where Claude Code's native installer keeps its builds, from the home
+/// folder, on macOS and Linux alike.
+pub const CLAUDE_VERSIONS: &str = ".local/share/claude/versions";
+
+/// The harnesses' install folders under a home folder, for [`Installs`]:
+/// the report and the guard's liveness read the same ones.
+pub struct InstallDirs {
+    codex_packages: PathBuf,
+    cursor_agent: PathBuf,
+    claude_versions: PathBuf,
+}
+
+impl InstallDirs {
+    pub fn under(home: &Path) -> Self {
+        Self {
+            codex_packages: home.join(".codex/packages"),
+            cursor_agent: home.join(CURSOR_AGENT),
+            // Canonical: on Linux a process's executable is resolved, so a
+            // home reached through a link (`/home` to `/var/home`) still matches.
+            claude_versions: home.join(CLAUDE_VERSIONS).canonical().unwrap_or_else(|_| home.join(CLAUDE_VERSIONS)),
+        }
+    }
+
+    pub fn installs(&self) -> Installs<'_> {
+        Installs {
+            codex_packages: &self.codex_packages,
+            cursor_agent: &self.cursor_agent,
+            claude_versions: &self.claude_versions,
+        }
+    }
+}
+
 use crate::env::Env;
 use crate::platform::procs::{self, ProcInfo};
+use crate::platform::{PLATFORM, Platform};
 use crate::rules::Catalog;
 use sizes::{Shape, TranscriptBytes};
 
-/// One folder of a harness, relative to the home folder.
+/// One folder of a harness: `path` under its `root`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FolderDef {
+    pub root: Root,
     pub path: &'static str,
     /// Lies inside the folder before it.
     pub nested: bool,
+}
+
+/// Where a harness folder's path starts. Each XDG root is its default under
+/// the home folder: a harness that honours a moved one is then not found,
+/// which is a missing row, never a wrong one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Root {
+    Home,
+    /// `$XDG_DATA_HOME`, `~/.local/share`.
+    XdgData,
+    /// `$XDG_CACHE_HOME`, `~/.cache`.
+    XdgCache,
+    /// `$XDG_CONFIG_HOME`, `~/.config`.
+    XdgConfig,
+}
+
+impl FolderDef {
+    /// The folder under `home`.
+    pub fn under(&self, home: &Path) -> PathBuf {
+        let base = match self.root {
+            Root::Home => home.to_path_buf(),
+            Root::XdgData => home.join(".local/share"),
+            Root::XdgCache => home.join(".cache"),
+            Root::XdgConfig => home.join(".config"),
+        };
+        base.join(self.path)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,36 +113,77 @@ pub struct HarnessDef {
 }
 
 const fn top(path: &'static str) -> FolderDef {
-    FolderDef { path, nested: false }
+    FolderDef { root: Root::Home, path, nested: false }
 }
 
 const fn nested(path: &'static str) -> FolderDef {
-    FolderDef { path, nested: true }
+    FolderDef { root: Root::Home, path, nested: true }
 }
 
-/// Every harness and the folders it keeps, from the research note "Coding-agent
-/// harnesses on macOS: where their data lives and how to tell a live
-/// session". The rest of `Library/Application Support/Claude` is the
+const fn xdg(root: Root, path: &'static str) -> FolderDef {
+    FolderDef { root, path, nested: false }
+}
+
+const CODEX: HarnessDef = HarnessDef {
+    id: HarnessId::Codex,
+    name: "Codex",
+    folders: &[top(".codex"), nested(".codex/sessions"), nested(".codex/worktrees"), top(".cache/codex-runtimes")],
+};
+const CURSOR: HarnessDef = HarnessDef { id: HarnessId::Cursor, name: "Cursor", folders: &[top(".cursor")] };
+const OPENCODE: HarnessDef = HarnessDef {
+    id: HarnessId::Opencode,
+    name: "opencode",
+    folders: &[xdg(Root::XdgData, "opencode"), xdg(Root::XdgCache, "opencode"), xdg(Root::XdgConfig, "opencode")],
+};
+
+/// Every harness and the folders it keeps on macOS, from the research note
+/// "Coding-agent harnesses on macOS: where their data lives and how to tell
+/// a live session". The rest of `Library/Application Support/Claude` is the
 /// desktop chat app's, and `Library/Application Support/Cursor` the
 /// editor's state: neither is listed.
-pub const HARNESSES: &[HarnessDef] = &[
+const MACOS: &[HarnessDef] = &[
     HarnessDef {
         id: HarnessId::ClaudeCode,
         name: "Claude Code",
         folders: &[top(".claude"), nested(".claude/projects"), top("Library/Application Support/Claude/claude-code")],
     },
+    CODEX,
+    CURSOR,
+    OPENCODE,
+];
+
+/// On Linux, from the note's addendum "On Linux": no desktop app's builds,
+/// and Codex keeps its runtimes under the XDG cache there.
+const LINUX: &[HarnessDef] = &[
+    HarnessDef {
+        id: HarnessId::ClaudeCode,
+        name: "Claude Code",
+        folders: &[top(".claude"), nested(".claude/projects")],
+    },
     HarnessDef {
         id: HarnessId::Codex,
         name: "Codex",
-        folders: &[top(".codex"), nested(".codex/sessions"), nested(".codex/worktrees"), top(".cache/codex-runtimes")],
+        folders: &[
+            top(".codex"),
+            nested(".codex/sessions"),
+            nested(".codex/worktrees"),
+            xdg(Root::XdgCache, "codex-runtimes"),
+        ],
     },
-    HarnessDef { id: HarnessId::Cursor, name: "Cursor", folders: &[top(".cursor")] },
-    HarnessDef {
-        id: HarnessId::Opencode,
-        name: "opencode",
-        folders: &[top(".local/share/opencode"), top(".cache/opencode"), top(".config/opencode")],
-    },
+    CURSOR,
+    OPENCODE,
 ];
+
+/// Every harness and the folders it keeps on `p`. Each list starts with the
+/// harness's own folder (`.claude`, `.codex`), where its records are read.
+/// Windows keeps the same folders under the profile until its harnesses are
+/// read there.
+pub const fn harnesses(p: Platform) -> &'static [HarnessDef] {
+    match p {
+        Platform::Macos => MACOS,
+        Platform::Linux | Platform::Windows => LINUX,
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct AgentsOptions {
@@ -108,17 +210,17 @@ pub fn report(env: &Env, opts: &AgentsOptions, procs: &[ProcInfo], cancel: &Atom
     let catalog = Catalog::builtin(home);
     let skipped = |path: &Path| catalog.never_open(path, &opts.user_skips).is_some();
     let pids: Vec<i32> = procs.iter().map(|p| p.pid).collect();
-    let packages = home.join(".codex/packages");
-    let cursor_agent = home.join(CURSOR_AGENT);
-    let installs = Installs { codex_packages: &packages, cursor_agent: &cursor_agent };
+    let dirs = InstallDirs::under(home);
+    let installs = dirs.installs();
+    let defs = harnesses(PLATFORM);
 
-    let found: Vec<Vec<Found>> = HARNESSES
+    let found: Vec<Vec<Found>> = defs
         .iter()
         .map(|def| {
             def.folders
                 .iter()
                 .filter_map(|f| {
-                    let path = home.join(f.path);
+                    let path = f.under(home);
                     path.metadata().ok().filter(std::fs::Metadata::is_dir)?;
                     let path = path.canonical().ok()?;
                     Some(Found { skipped: skipped(&path), path, nested: f.nested })
@@ -130,10 +232,10 @@ pub fn report(env: &Env, opts: &AgentsOptions, procs: &[ProcInfo], cancel: &Atom
     // Sessions first: the transcripts the walk sums leave the live ones out.
     let mut transcripts: Vec<TranscriptBytes> = Vec::new();
     let mut sessions: Vec<Option<(Sessions, Option<usize>)>> = Vec::new();
-    for (def, folders) in HARNESSES.iter().zip(&found) {
+    for (def, folders) in defs.iter().zip(&found) {
         let base = |name: &str| folders.first().map(|f| &f.path).filter(|p| p.ends_with(name));
         let read = match def.id {
-            HarnessId::ClaudeCode => base(".claude").map(|b| claude_sessions(b, &skipped)),
+            HarnessId::ClaudeCode => base(".claude").map(|b| claude_sessions(b, &skipped, env.now())),
             HarnessId::Codex => base(".codex").map(|b| codex_sessions(b, &skipped, &pids)),
             HarnessId::Cursor | HarnessId::Opencode => None,
         };
@@ -147,7 +249,7 @@ pub fn report(env: &Env, opts: &AgentsOptions, procs: &[ProcInfo], cancel: &Atom
     }
 
     // Claude Code's sessions by id, and its temporary folder: with sizes only.
-    let claude_base = HARNESSES
+    let claude_base = defs
         .iter()
         .zip(&found)
         .find(|(def, _)| def.id == HarnessId::ClaudeCode)
@@ -206,7 +308,7 @@ pub fn report(env: &Env, opts: &AgentsOptions, procs: &[ProcInfo], cancel: &Atom
     };
 
     let mut harnesses = Vec::new();
-    for ((def, folders), sessions) in HARNESSES.iter().zip(&found).zip(sessions) {
+    for ((def, folders), sessions) in defs.iter().zip(&found).zip(sessions) {
         if folders.is_empty() {
             continue;
         }
@@ -254,14 +356,18 @@ pub fn report(env: &Env, opts: &AgentsOptions, procs: &[ProcInfo], cancel: &Atom
     }
 }
 
-/// Claude Code's sessions under `base` (`~/.claude`), and its transcripts
-/// to sum when they are not skipped.
-fn claude_sessions(base: &Path, skipped: &dyn Fn(&Path) -> bool) -> (Sessions, Option<TranscriptBytes>) {
+/// Claude Code's sessions under `base` (`~/.claude`) at `now`, and its
+/// transcripts to sum when they are not skipped.
+fn claude_sessions(
+    base: &Path,
+    skipped: &dyn Fn(&Path) -> bool,
+    now: std::time::SystemTime,
+) -> (Sessions, Option<TranscriptBytes>) {
     let records = base.join("sessions");
     let (state, reason, list) = if skipped(&records) {
         (RecordsState::Unknown, Some(UnknownReason::Skipped), Vec::new())
     } else {
-        claude::sessions(&records)
+        claude::sessions(&records, now)
     };
     let projects = base.join("projects");
     let names = claude_transcripts(&projects, skipped);

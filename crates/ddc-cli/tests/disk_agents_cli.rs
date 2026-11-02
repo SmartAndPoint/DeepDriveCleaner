@@ -178,7 +178,8 @@ fn each_sessions_footprint_and_the_temporary_folder() {
     let root = s.temp_root.as_ref().unwrap();
     assert_eq!(root.path, fx.root.join(&temp));
     let sessions: u64 = list.iter().map(|f| f.temp).sum();
-    assert_eq!(root.bytes.unwrap() - sessions, stray, "the remainder is the folder no session owns");
+    let rest = stray + folder_blocks(&fx.root.join(&temp));
+    assert_eq!(root.bytes.unwrap() - sessions, rest, "the remainder is the folder no session owns, and its folders");
 
     // `--no-sizes`: neither.
     let fast = fx.json(&["--no-sizes"]);
@@ -390,4 +391,16 @@ fn help_lists_agent_and_hides_disk_agents() {
     assert!(names.iter().any(|c| c == "free") && !names.iter().any(|c| c == "agents"), "{disk}");
     let agent = help(&["agent"]);
     assert!(commands(&agent).iter().any(|c| c == "status"), "{agent}");
+}
+
+/// The allocated bytes of `dir` and of every folder under it, not their
+/// files: on ext4 a folder takes a block of its own, on APFS none.
+fn folder_blocks(dir: &std::path::Path) -> u64 {
+    let own = ddc_core::platform::meta::lstat(dir).unwrap().alloc;
+    own + std::fs::read_dir(dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .map(|e| folder_blocks(&e.path()))
+        .sum::<u64>()
 }

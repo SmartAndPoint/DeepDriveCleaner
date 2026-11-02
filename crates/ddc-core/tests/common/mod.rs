@@ -286,6 +286,11 @@ pub fn skipped_without<T>(test: &str, made: std::io::Result<T>) -> Option<T> {
     }
 }
 
+/// Unix seconds `secs` before now, for [`TreeBuilder::age`].
+pub fn secs_ago(secs: i64) -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64 - secs
+}
+
 /// Allocated bytes of one path, without following symlinks.
 pub fn alloc(path: &Path) -> u64 {
     meta::lstat(path).unwrap().alloc

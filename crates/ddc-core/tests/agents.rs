@@ -137,6 +137,9 @@ fn claude_sessions_are_live_stale_or_unknown() {
     for (name, body) in &records {
         fx.write(&format!(".claude/sessions/{name}"), body);
     }
+    // Written an hour ago: on Linux a fresh record of a pid not seen here
+    // may be a container's, and is undecidable. The live ones stay live.
+    fx.t.age("home/.claude/sessions", common::secs_ago(3600));
     // Never read: not `<digits>.json`.
     fx.write(".claude/sessions/1.0123abcd.key", "KEYMATERIAL");
     fx.write(".claude/sessions/notes.json", "{");
@@ -276,7 +279,8 @@ fn claude_footprint_per_session() {
     assert!(!root.skipped);
     assert_eq!(root.bytes, Some(reference_alloc(&base)));
     let sessions: u64 = list.iter().map(|f| f.temp).sum();
-    assert_eq!(root.bytes.unwrap() - sessions, alloc(&other), "the rest is the folder no session owns");
+    let rest = alloc(&other) + folder_blocks(&base);
+    assert_eq!(root.bytes.unwrap() - sessions, rest, "the rest is the folder no session owns, and its folders");
     assert_eq!(claude.bytes, Some(reference_alloc(&fx.home(".claude"))), "the harness bytes stay the home's");
     // The transcript count and bytes are unchanged by it.
     assert_eq!((s.transcripts.count, s.transcripts.bytes), (Some(1), Some(alloc(&b))));
@@ -485,12 +489,19 @@ fn sizes_count_hard_links_once_and_nested_folders_inclusively() {
     let folder = |rel: &str| claude.folders.iter().find(|f| f.path == fx.home(rel)).unwrap();
     let top = folder(".claude");
     let projects = folder(".claude/projects");
-    let bins = folder("Library/Application Support/Claude/claude-code");
     assert_eq!(top.bytes, Some(reference_alloc(&fx.home(".claude"))));
     assert!(!top.nested && projects.nested);
     assert_eq!(projects.bytes, Some(reference_alloc(&fx.home(".claude/projects"))));
-    assert_eq!(claude.bytes, Some(top.bytes.unwrap() + bins.bytes.unwrap()));
-    assert_eq!(claude.folders.len(), 3);
+    // The desktop app's builds are Claude Code's on macOS only; elsewhere
+    // the folder is not listed (research note, addendum "On Linux").
+    if PLATFORM == Platform::Macos {
+        let bins = folder("Library/Application Support/Claude/claude-code");
+        assert_eq!(claude.bytes, Some(top.bytes.unwrap() + bins.bytes.unwrap()));
+        assert_eq!(claude.folders.len(), 3);
+    } else {
+        assert_eq!(claude.bytes, top.bytes);
+        assert_eq!(claude.folders.len(), 2);
+    }
 }
 
 #[test]
@@ -595,4 +606,16 @@ fn committed_agents_schema_is_current() {
     }
     let committed = std::fs::read_to_string(&path).unwrap_or_default();
     assert!(committed == schema, "docs/agents.schema.json is stale: run DDC_UPDATE_SCHEMA=1 cargo test");
+}
+
+/// The allocated bytes of `dir` and of every folder under it, not their
+/// files: on ext4 a folder takes a block of its own, on APFS none.
+fn folder_blocks(dir: &std::path::Path) -> u64 {
+    let own = ddc_core::platform::meta::lstat(dir).unwrap().alloc;
+    own + std::fs::read_dir(dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .map(|e| folder_blocks(&e.path()))
+        .sum::<u64>()
 }

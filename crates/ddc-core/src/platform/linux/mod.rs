@@ -36,4 +36,4 @@ pub const PLATFORM: Platform = Platform::Linux;
 
 pub const SUPPORTED: bool = true;
 
-pub const CAPABILITIES: &[Capability] = &[Capability::InUseCheck];
+pub const CAPABILITIES: &[Capability] = &[Capability::InUseCheck, Capability::CodingAgents];

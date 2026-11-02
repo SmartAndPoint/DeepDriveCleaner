@@ -85,7 +85,7 @@ pub(super) fn assemble(
     let read = if records_skipped {
         Err(UnknownCause::RecordsSkipped)
     } else {
-        liveness::claude_records(records, procs::process_start)
+        liveness::claude_records(records, procs::process_start, now)
     };
     let pids = if read.is_ok() { pids } else { &[] };
     let states = liveness::claude(read.as_deref().map_err(|c| *c), &facts, pids, procs::open_vnodes, now);

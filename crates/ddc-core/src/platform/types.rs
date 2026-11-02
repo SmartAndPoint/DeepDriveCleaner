@@ -224,7 +224,9 @@ pub struct ProcInfo {
     pub pid: i32,
     /// Executable name (basename of the exec path, or the kernel's name).
     pub name: String,
-    /// The path passed to `execve`, before symlinks are resolved; may be relative.
+    /// The executable's path. On macOS the path passed to `execve`, before
+    /// symlinks are resolved, and may be relative; on Linux the resolved
+    /// path the kernel gives (`/proc/<pid>/exe`).
     pub exe: Option<PathBuf>,
     pub args: Vec<OsString>,
     pub cwd: Option<PathBuf>,

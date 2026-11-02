@@ -17,11 +17,19 @@ pub struct Installs<'a> {
     /// versions. Its launcher `exec`s the bundled `node`, so the process is
     /// named `node`; every binary there is the CLI's.
     pub cursor_agent: &'a Path,
+    /// `~/.local/share/claude/versions`, where Claude Code's native
+    /// installer keeps its builds, one file each, named by version. On Linux
+    /// a process's name is its resolved executable's, the version, so the
+    /// folder is what tells it.
+    pub claude_versions: &'a Path,
 }
 
 /// The harness `proc` belongs to, and what it is of it.
 pub(super) fn classify(proc: &ProcInfo, installs: Installs<'_>) -> Option<(HarnessId, RunningKind)> {
     if let Some(exe) = proc.exe.as_deref().filter(|e| e.is_absolute()) {
+        if exe.parent() == Some(installs.claude_versions) {
+            return Some((HarnessId::ClaudeCode, RunningKind::Cli));
+        }
         if exe.starts_with(installs.codex_packages) {
             return Some((HarnessId::Codex, RunningKind::AppServer));
         }
@@ -92,9 +100,14 @@ mod tests {
 
     const PACKAGES: &str = "/Users/example/.codex/packages";
     const CURSOR_AGENT: &str = "/Users/example/.local/share/cursor-agent";
+    const CLAUDE_VERSIONS: &str = "/Users/example/.local/share/claude/versions";
 
     fn installs() -> Installs<'static> {
-        Installs { codex_packages: Path::new(PACKAGES), cursor_agent: Path::new(CURSOR_AGENT) }
+        Installs {
+            codex_packages: Path::new(PACKAGES),
+            cursor_agent: Path::new(CURSOR_AGENT),
+            claude_versions: Path::new(CLAUDE_VERSIONS),
+        }
     }
 
     fn classify(p: &ProcInfo) -> Option<(HarnessId, RunningKind)> {
@@ -189,6 +202,26 @@ mod tests {
         let legacy = proc("cursor-agent", "/opt/homebrew/bin/cursor-agent", &["cursor-agent"]);
         assert_eq!(classify(&legacy), Some((HarnessId::Cursor, RunningKind::Cli)));
         assert_eq!(classify(&proc("cursor-agent-helper", "/usr/local/bin/cursor-agent-helper", &[])), None);
+    }
+
+    /// On Linux the kernel names a process after its resolved executable, so
+    /// the native Claude Code runs as its version, `2.1.126`: its versions
+    /// folder tells it. A file deeper inside, or beside the folder, is not.
+    #[test]
+    fn a_native_claude_code_runs_from_its_versions_folder() {
+        if crate::platform::skipped_without(
+            "a_native_claude_code_runs_from_its_versions_folder",
+            crate::platform::testing::posix_paths(),
+        )
+        .is_none()
+        {
+            return;
+        }
+        let native = proc("2.1.126", &format!("{CLAUDE_VERSIONS}/2.1.126"), &["claude"]);
+        assert_eq!(classify(&native), Some((HarnessId::ClaudeCode, RunningKind::Cli)));
+        assert_eq!(of(HarnessId::ClaudeCode, &[native], installs()), [Running { pid: 1, kind: RunningKind::Cli }]);
+        assert_eq!(classify(&proc("2.1.126", &format!("{CLAUDE_VERSIONS}/x/2.1.126"), &[])), None);
+        assert_eq!(classify(&proc("helper", "/Users/example/.local/share/claude/helper", &[])), None);
     }
 
     #[test]

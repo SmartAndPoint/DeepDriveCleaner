@@ -435,7 +435,7 @@ fn sessions_liveness(folders: &[Folder<'_>], cx: &Context<'_>) -> HashMap<String
     let records = if cx.skips.iter().any(|s| dir.starts_with(s)) {
         Err(UnknownCause::RecordsSkipped)
     } else {
-        liveness::claude_records(&dir, |pid| cx.processes.process_start(pid))
+        liveness::claude_records(&dir, |pid| cx.processes.process_start(pid), cx.now)
     };
     let pids: Vec<i32> = match &records {
         Ok(_) => cx.processes.pids(),

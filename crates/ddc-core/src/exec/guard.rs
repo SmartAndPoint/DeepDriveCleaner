@@ -14,7 +14,7 @@ use super::{AgentLiveBy, ProcessTable, SkipReason};
 use crate::agents::liveness::{
     self, FileFact, HarnessBy, HarnessLiveness, SessionFacts, SessionLiveness, UnknownCause,
 };
-use crate::agents::{CURSOR_AGENT, HarnessId, Installs, UnknownReason};
+use crate::agents::{HarnessId, InstallDirs, UnknownReason};
 use crate::class::Location;
 use crate::env::Env;
 use crate::model::NotSelected;
@@ -572,7 +572,7 @@ impl<'a> Guard<'a> {
         let records = if self.skips.iter().any(|s| dir.starts_with(s)) {
             Err(UnknownCause::RecordsSkipped)
         } else {
-            liveness::claude_records(&dir, |pid| self.procs.process_start(pid))
+            liveness::claude_records(&dir, |pid| self.procs.process_start(pid), self.now)
         };
         let pids = match &records {
             Ok(_) => self.procs.pids(),
@@ -610,16 +610,14 @@ pub(crate) fn harness_state(
     procs: &dyn ProcessTable,
     skips: &[PathBuf],
 ) -> HarnessLiveness {
-    let packages = home.join(".codex/packages");
-    let cursor_agent = home.join(CURSOR_AGENT);
-    let installs = Installs { codex_packages: &packages, cursor_agent: &cursor_agent };
+    let dirs = InstallDirs::under(home);
     let locks = if harness == HarnessId::Codex {
         let dir = home.join(".codex/thread-writer-locks");
         if skips.iter().any(|s| dir.starts_with(s)) { Err(UnknownReason::Skipped) } else { liveness::codex_locks(&dir) }
     } else {
         Err(UnknownReason::Missing)
     };
-    liveness::harness(harness, table, installs, &locks, |pid| procs.open_vnodes(pid))
+    liveness::harness(harness, table, dirs.installs(), &locks, |pid| procs.open_vnodes(pid))
 }
 
 /// The skip of a folder whose harness is not known to be idle.

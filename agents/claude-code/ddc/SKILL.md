@@ -31,7 +31,7 @@ ddc rules --json                    # what each rule id means: its class and how
 ```
 
 Scan the project first. `ddc scan` without a path walks the whole home folder and can take a
-minute: run it only when the person asks. `ddc agent status` is macOS's for now: when a scan's
+minute: run it only when the person asks. `ddc agent status` runs on macOS and Linux: when a scan's
 `capabilities` lacks `coding-agents`, skip it. An older `ddc` that has no `ddc agent status`
 (its `ddc --help` lists no agent command) has it as `ddc disk agents`, with the same options
 and the same report.
