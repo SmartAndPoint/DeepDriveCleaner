@@ -16,9 +16,12 @@ pub const SIGKILL: i32 = libc::SIGKILL;
 
 static CANCEL: AtomicBool = AtomicBool::new(false);
 static SIGNAL: AtomicI32 = AtomicI32::new(0);
-/// Process group of the native command running now; 0 when none. One slot:
-/// the executor runs one command at a time.
-static CHILD_GROUP: AtomicI32 = AtomicI32::new(0);
+/// How many commands may run at once with their group published: the
+/// executor runs one, a scan's git probes one per worker thread.
+const CHILD_SLOTS: usize = 128;
+/// The process groups of the commands running now; 0 marks a free slot. A
+/// fixed array of atomics, so the handler reads it without a lock.
+static CHILD_GROUPS: [AtomicI32; CHILD_SLOTS] = [const { AtomicI32::new(0) }; CHILD_SLOTS];
 /// Said at once: the current item, a long delete included, runs to its end.
 const NOTICE: &[u8] = b"\nddc: stopping after the current item\n";
 
@@ -28,11 +31,13 @@ extern "C" fn on_signal(sig: libc::c_int) {
     let errno = unsafe { *libc::__error() };
     SIGNAL.store(sig, Ordering::SeqCst);
     CANCEL.store(true, Ordering::SeqCst);
-    let group = CHILD_GROUP.load(Ordering::SeqCst);
-    // Never 0: `kill(0, sig)` would signal ddc's own group (under a test runner, the runner).
-    if group > 0 {
-        // SAFETY: kill(2) is async-signal-safe; a negative pid names a process group.
-        unsafe { libc::kill(-group, sig) };
+    for slot in &CHILD_GROUPS {
+        let group = slot.load(Ordering::SeqCst);
+        // Never 0: `kill(0, sig)` would signal ddc's own group (under a test runner, the runner).
+        if group > 0 {
+            // SAFETY: kill(2) is async-signal-safe; a negative pid names a process group.
+            unsafe { libc::kill(-group, sig) };
+        }
     }
     // SAFETY: write(2) is async-signal-safe; the buffer is static. A failed
     // write (a closed terminal) is ignored.
@@ -71,15 +76,32 @@ pub fn received() -> Option<i32> {
 
 /// Publishes the process group of a native command just spawned. If a signal
 /// arrived before it was published, it is forwarded now, so it is never lost.
+/// Every command running at once has its own slot; when all are taken the
+/// command still runs, bounded by its timeout, and a signal misses it.
 pub fn set_child_group(group: i32) {
-    CHILD_GROUP.store(group, Ordering::SeqCst);
+    if group > 0 {
+        let _ = CHILD_GROUPS
+            .iter()
+            .find(|slot| slot.compare_exchange(0, group, Ordering::SeqCst, Ordering::SeqCst).is_ok());
+    }
     if let Some(sig) = received() {
         kill_group(group, sig);
     }
 }
 
-pub fn clear_child_group() {
-    CHILD_GROUP.store(0, Ordering::SeqCst);
+/// Forgets `group`, whose command has ended.
+pub fn clear_child_group(group: i32) {
+    if group > 0 {
+        let _ = CHILD_GROUPS
+            .iter()
+            .find(|slot| slot.compare_exchange(group, 0, Ordering::SeqCst, Ordering::SeqCst).is_ok());
+    }
+}
+
+/// The groups published now, for a test.
+#[cfg(test)]
+pub(crate) fn child_groups() -> Vec<i32> {
+    CHILD_GROUPS.iter().map(|s| s.load(Ordering::SeqCst)).filter(|g| *g > 0).collect()
 }
 
 /// Sends `sig` to every process of `group` (a positive process group id).

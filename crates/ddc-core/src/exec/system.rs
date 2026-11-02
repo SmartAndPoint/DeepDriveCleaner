@@ -34,7 +34,7 @@ impl CommandRunner for SystemCommands {
     fn run(&self, exe: &Path, args: &[String], env: &[(&str, &str)], timeout: Duration) -> io::Result<CmdOutput> {
         let mut cmd = Command::new(exe);
         cmd.args(args).envs(env.iter().copied());
-        spawn(exe, cmd, timeout)
+        spawn(exe, cmd, timeout, false)
     }
 
     /// The names are read from this process's environment as the command
@@ -54,7 +54,7 @@ impl CommandRunner for SystemCommands {
             cmd.env_remove(name);
         }
         cmd.envs(env.iter().copied());
-        spawn(exe, cmd, timeout)
+        spawn(exe, cmd, timeout, true)
     }
 }
 
@@ -71,7 +71,11 @@ fn inherited(prefix: &str) -> Vec<std::ffi::OsString> {
 }
 
 /// Runs `cmd`, stdin closed and its output piped, in its own process group.
-fn spawn(exe: &Path, mut cmd: Command, timeout: Duration) -> io::Result<CmdOutput> {
+/// `lossy`: output that is not UTF-8 is kept with replacement characters,
+/// so a git probe never reads a file name it cannot decode as no output at
+/// all; otherwise such output is empty, as every other tool's always was
+/// (a readiness probe must not take bytes it cannot read for an answer).
+fn spawn(exe: &Path, mut cmd: Command, timeout: Duration, lossy: bool) -> io::Result<CmdOutput> {
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = process::own_process_group(&mut cmd).spawn()?;
     // The group id is the child's pid; a signal that came before this is forwarded now.
@@ -80,17 +84,20 @@ fn spawn(exe: &Path, mut cmd: Command, timeout: Duration) -> io::Result<CmdOutpu
     // Drain both pipes on threads so a chatty command cannot block on a full pipe.
     let mut out = child.stdout.take().expect("piped");
     let mut err = child.stderr.take().expect("piped");
-    // Lossy: output that is not UTF-8 (a file name in `git status`) must
-    // never read as no output at all.
+    let decode = move |bytes: Vec<u8>| match String::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(e) if lossy => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+        Err(_) => String::new(),
+    };
     let out_t = std::thread::spawn(move || {
         let mut bytes = Vec::new();
         let _ = out.read_to_end(&mut bytes);
-        String::from_utf8_lossy(&bytes).into_owned()
+        decode(bytes)
     });
     let err_t = std::thread::spawn(move || {
         let mut bytes = Vec::new();
         let _ = err.read_to_end(&mut bytes);
-        String::from_utf8_lossy(&bytes).into_owned()
+        decode(bytes)
     });
     let started = Instant::now();
     let waited = loop {
@@ -114,7 +121,7 @@ fn spawn(exe: &Path, mut cmd: Command, timeout: Duration) -> io::Result<CmdOutpu
     // Cleared only once the pipes are drained: a process the command left
     // behind in its group can hold them open, and a signal meanwhile must
     // still reach it. The group id is not reused while a member lives.
-    signals::clear_child_group();
+    signals::clear_child_group(group);
     let status = waited?;
     Ok(CmdOutput { success: status.success(), code: status.code(), stdout, stderr })
 }
@@ -161,6 +168,54 @@ mod tests {
     use super::*;
     use crate::exec::NATIVE_TIMEOUT;
     use crate::platform::usage::thread_cpu_time;
+
+    /// Commands running at once each publish their process group, so a
+    /// forwarded signal reaches every one of them (a scan's parallel git
+    /// probes), and each forgets its own when it ends.
+    #[test]
+    fn parallel_commands_each_publish_their_group() {
+        if crate::platform::skipped("parallel_commands_each_publish_their_group") {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let env =
+            Env::with_paths(dir.path(), &dir.path().join("data"), &dir.path().join("logs"), SystemTime::now()).unwrap();
+        let commands = SystemCommands::new(&env);
+        let most = std::thread::scope(|s| {
+            let runs: Vec<_> = (0..3)
+                .map(|_| s.spawn(|| commands.run(Path::new("/bin/sleep"), &["1".into()], &[], NATIVE_TIMEOUT)))
+                .collect();
+            let mut most = 0;
+            let started = Instant::now();
+            while started.elapsed() < Duration::from_millis(800) {
+                most = most.max(crate::platform::signals::child_groups().len());
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            for run in runs {
+                assert!(run.join().unwrap().unwrap().success);
+            }
+            most
+        });
+        assert!(most >= 3, "{most} groups published at once");
+    }
+
+    /// Output that is not UTF-8 is empty for a plain run, as before, and
+    /// kept with replacement characters for a probe.
+    #[test]
+    fn only_a_probe_keeps_output_that_is_not_utf8() {
+        if crate::platform::skipped("only_a_probe_keeps_output_that_is_not_utf8") {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let env =
+            Env::with_paths(dir.path(), &dir.path().join("data"), &dir.path().join("logs"), SystemTime::now()).unwrap();
+        let commands = SystemCommands::new(&env);
+        let args = ["-c".to_owned(), r"printf 'a\377b'".to_owned()];
+        let plain = commands.run(Path::new("/bin/sh"), &args, &[], NATIVE_TIMEOUT).unwrap();
+        assert_eq!(plain.stdout, "");
+        let probe = commands.run_cleared(Path::new("/bin/sh"), &args, "GIT_", &[], NATIVE_TIMEOUT).unwrap();
+        assert_eq!(probe.stdout, "a\u{fffd}b");
+    }
 
     /// The thread waiting for a native command sleeps between its looks: its
     /// own CPU over a 2 s command is under 1% of the wait.

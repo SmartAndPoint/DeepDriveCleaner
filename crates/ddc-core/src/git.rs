@@ -210,28 +210,39 @@ impl<'a> Git<'a> {
         }
     }
 
-    /// The commits that survive the removal of the worktree at `candidate`,
-    /// asked in `from` (its main checkout, or any worktree of it): every
-    /// branch but `branch`, every remote-tracking branch and tag, and the
-    /// `HEAD` of every other worktree. Sorted, each once.
-    pub fn survivors(&self, from: &Path, candidate: &Path, branch: Option<&str>) -> Probe<Vec<String>> {
-        let refs = self.run(
-            from,
-            &["for-each-ref", "--format=%(objectname) %(refname)", "refs/heads", "refs/remotes", "refs/tags"],
-        );
-        let refs = match refs.known().and_then(|out| parse_refs(&out, branch)) {
+    /// The branches, remote-tracking branches and tags, and every
+    /// worktree's `HEAD`, asked in `from` (a main checkout, or any worktree
+    /// of it): asked once per repository, whatever its worktrees.
+    pub fn refs(&self, from: &Path) -> Probe<Refs> {
+        let refs = self
+            .run(
+                from,
+                &["for-each-ref", "--format=%(objectname) %(refname)", "refs/heads", "refs/remotes", "refs/tags"],
+            )
+            .known()
+            .and_then(|out| parse_refs(&out));
+        let refs = match refs {
             Ok(refs) => refs,
             Err(why) => return Probe::Unknown(why),
         };
-        let heads =
-            self.run(from, &["worktree", "list", "--porcelain"]).known().and_then(|out| other_heads(&out, candidate));
-        let mut all = match heads {
-            Ok(heads) => refs.into_iter().chain(heads).collect::<Vec<_>>(),
-            Err(why) => return Probe::Unknown(why),
-        };
-        all.sort_unstable();
-        all.dedup();
-        Probe::Known(all)
+        self.run(from, &["worktree", "list", "--porcelain"])
+            .known()
+            .and_then(|out| parse_worktrees(&out))
+            .map(|heads| Refs { refs, heads })
+            .into()
+    }
+
+    /// [`Refs::survivors`] of the repository `from` belongs to.
+    pub fn survivors(&self, from: &Path, candidate: &Path, branch: Option<&str>) -> Probe<Vec<String>> {
+        self.refs(from).known().map(|refs| refs.survivors(candidate, branch)).into()
+    }
+
+    /// The tracked paths in `dir` git does not compare with the files:
+    /// marked skip-worktree (`S`) or assume-unchanged (a lowercase tag), so
+    /// a local edit to them looks clean to `status`, and `git worktree
+    /// remove` would delete it.
+    pub fn unwatched(&self, dir: &Path) -> Probe<Vec<String>> {
+        self.run(dir, &["ls-files", "-v", "-z"]).known().and_then(|out| parse_unwatched(&out)).into()
     }
 
     /// How many commits `head` reaches that none of `survivors` does:
@@ -322,25 +333,47 @@ fn parse_config_values(out: &str) -> Result<Vec<String>, String> {
         .collect()
 }
 
-/// `<object> <refname>` lines, every one but `skip`'s object.
-fn parse_refs(out: &str, skip: Option<&str>) -> Result<Vec<String>, String> {
+/// A repository's references and its worktrees' `HEAD`s, as one scan read them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Refs {
+    /// `(object, full name)` of each branch, remote-tracking branch and tag.
+    pub refs: Vec<(String, String)>,
+    /// `(path, HEAD commit)` of each worktree with a `HEAD`, the main one included.
+    pub heads: Vec<(PathBuf, String)>,
+}
+
+impl Refs {
+    /// The commits that survive the removal of the worktree at `candidate`
+    /// on `branch`: every branch but `branch`, every remote-tracking branch
+    /// and tag, and the `HEAD` of every other worktree, told from the
+    /// candidate by file identity. Sorted, each once.
+    pub fn survivors(&self, candidate: &Path, branch: Option<&str>) -> Vec<String> {
+        let refs = self.refs.iter().filter(|(_, name)| Some(name.as_str()) != branch).map(|(object, _)| object);
+        let heads = self.heads.iter().filter(|(path, _)| !same(path, candidate)).map(|(_, head)| head);
+        let mut all: Vec<String> = refs.chain(heads).cloned().collect();
+        all.sort_unstable();
+        all.dedup();
+        all
+    }
+}
+
+/// `<object> <refname>` lines.
+fn parse_refs(out: &str) -> Result<Vec<(String, String)>, String> {
     let mut found = Vec::new();
     for line in out.lines().filter(|l| !l.is_empty()) {
         let (object, name) = line.split_once(' ').ok_or_else(|| format!("for-each-ref printed {:?}", short(line)))?;
         if !is_object(object) || !name.starts_with("refs/") {
             return Err(format!("for-each-ref printed {:?}", short(line)));
         }
-        if Some(name) != skip {
-            found.push(object.to_owned());
-        }
+        found.push((object.to_owned(), name.to_owned()));
     }
     Ok(found)
 }
 
-/// The `HEAD` of every worktree `worktree list --porcelain` lists but
-/// `candidate`, which is recognized by file identity. A quoted path cannot
-/// be compared: unknown.
-fn other_heads(out: &str, candidate: &Path) -> Result<Vec<String>, String> {
+/// The path and `HEAD` of every worktree `worktree list --porcelain` lists
+/// with one (a bare repository has none). A quoted path cannot be compared
+/// with a candidate: unknown.
+fn parse_worktrees(out: &str) -> Result<Vec<(PathBuf, String)>, String> {
     let garbage = |line: &str| format!("worktree list printed {:?}", short(line));
     let mut heads = Vec::new();
     for block in out.split("\n\n").filter(|b| !b.trim().is_empty()) {
@@ -350,15 +383,33 @@ fn other_heads(out: &str, candidate: &Path) -> Result<Vec<String>, String> {
         if path.starts_with('"') {
             return Err(garbage(first));
         }
-        let head = lines.find_map(|l| l.strip_prefix("HEAD "));
-        match head {
+        match lines.find_map(|l| l.strip_prefix("HEAD ")) {
             Some(head) if !is_object(head) => return Err(garbage(head)),
-            Some(head) if !same(Path::new(path), candidate) => heads.push(head.to_owned()),
-            // The candidate itself, or a bare repository (no `HEAD` line).
-            _ => {}
+            Some(head) => heads.push((PathBuf::from(path), head.to_owned())),
+            None => {}
         }
     }
     Ok(heads)
+}
+
+/// `<tag> <path>\0` entries; the paths whose tag is `S` (skip-worktree) or
+/// a lowercase letter (assume-unchanged).
+fn parse_unwatched(out: &str) -> Result<Vec<String>, String> {
+    if out.is_empty() {
+        return Ok(Vec::new());
+    }
+    let body = out.strip_suffix('\0').ok_or_else(|| format!("ls-files printed {:?}", short(out)))?;
+    let mut found = Vec::new();
+    for entry in body.split('\0') {
+        let b = entry.as_bytes();
+        if b.len() < 3 || !b[0].is_ascii_alphabetic() || b[1] != b' ' {
+            return Err(format!("ls-files printed {:?}", short(entry)));
+        }
+        if b[0] == b'S' || b[0].is_ascii_lowercase() {
+            found.push(entry[2..].to_owned());
+        }
+    }
+    Ok(found)
 }
 
 /// Both name one existing folder, by `(dev, ino)`.
@@ -448,10 +499,20 @@ mod tests {
     #[test]
     fn refs_leave_out_the_candidates_branch() {
         let out = format!("{A} refs/heads/main\n{B} refs/heads/wt\n{A} refs/tags/v1\n");
-        assert_eq!(parse_refs(&out, Some("refs/heads/wt")), Ok(vec![A.to_owned(), A.to_owned()]));
-        assert_eq!(parse_refs(&out, None).unwrap().len(), 3);
-        assert!(parse_refs("nonsense", None).is_err());
-        assert!(parse_refs(&format!("{A} main"), None).is_err());
+        let refs = Refs { refs: parse_refs(&out).unwrap(), heads: Vec::new() };
+        assert_eq!(refs.survivors(Path::new("/nowhere"), Some("refs/heads/wt")), vec![A.to_owned()]);
+        assert_eq!(refs.survivors(Path::new("/nowhere"), None), vec![A.to_owned(), B.to_owned()]);
+        assert!(parse_refs("nonsense").is_err());
+        assert!(parse_refs(&format!("{A} main")).is_err());
+    }
+
+    #[test]
+    fn unwatched_paths_are_skip_worktree_or_assume_unchanged() {
+        assert_eq!(parse_unwatched(""), Ok(Vec::new()));
+        let out = "H README\0S sparse.txt\0h assumed.txt\0s both.txt\0M merged\0";
+        assert_eq!(parse_unwatched(out), Ok(vec!["sparse.txt".into(), "assumed.txt".into(), "both.txt".into()]));
+        assert!(parse_unwatched("H README").is_err(), "no closing NUL");
+        assert!(parse_unwatched("?? x\0").is_err());
     }
 
     #[test]
@@ -480,10 +541,12 @@ mod tests {
             main.display(),
             wt.display()
         );
-        assert_eq!(other_heads(&out, &wt), Ok(vec![A.to_owned(), B.to_owned()]));
-        assert!(other_heads("worktree \"quoted\\npath\"\nHEAD x\n\n", &wt).is_err());
-        assert!(other_heads("garbage\n\n", &wt).is_err());
-        assert!(other_heads(&format!("worktree {}\nHEAD nothex\n\n", main.display()), &wt).is_err());
+        let refs = Refs { refs: Vec::new(), heads: parse_worktrees(&out).unwrap() };
+        assert_eq!(refs.heads.len(), 3);
+        assert_eq!(refs.survivors(&wt, None), vec![A.to_owned(), B.to_owned()], "the candidate's own B left out");
+        assert!(parse_worktrees("worktree \"quoted\\npath\"\nHEAD x\n\n").is_err());
+        assert!(parse_worktrees("garbage\n\n").is_err());
+        assert!(parse_worktrees(&format!("worktree {}\nHEAD nothex\n\n", main.display())).is_err());
     }
 
     #[test]
