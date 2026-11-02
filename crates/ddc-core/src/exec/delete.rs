@@ -10,6 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::Outcome;
 use super::guard::Verified;
+use crate::platform::types::HeldOpen;
 
 pub(super) fn remove(v: &Verified, path: &Path, make_writable: bool) -> Outcome {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or_default();
@@ -19,7 +20,7 @@ pub(super) fn remove(v: &Verified, path: &Path, make_writable: bool) -> Outcome 
         return Outcome::Skipped(super::SkipReason::ChangedSinceScan);
     }
     if let Err(e) = v.parent.rename_child(&v.name, &tomb) {
-        return Outcome::Failed { error: format!("rename to tombstone: {e}") };
+        return rename_failed(&e);
     }
     // The rename went through the verified parent; make sure it moved the
     // directory we checked, not something swapped in meanwhile.
@@ -42,6 +43,16 @@ pub(super) fn remove(v: &Verified, path: &Path, make_writable: bool) -> Outcome 
         Ok(()) => Outcome::Deleted,
         Err(e) => Outcome::Failed { error: format!("{e} (left as {})", tomb_path.display()) },
     }
+}
+
+/// The outcome of a refused tombstone rename: skipped held open when the
+/// error carries [`HeldOpen`] (Windows, safety ADR §5, amendment of
+/// 2026-11-02), failed otherwise, Linux's `EBUSY` included.
+fn rename_failed(e: &io::Error) -> Outcome {
+    if HeldOpen::is(e) {
+        return Outcome::Skipped(super::SkipReason::HeldOpen);
+    }
+    Outcome::Failed { error: format!("rename to tombstone: {e}") }
 }
 
 #[allow(clippy::disallowed_methods)] // the one place that deletes directory trees
@@ -84,6 +95,22 @@ mod tests {
             id: crate::platform::meta::lstat(&parent.join(name)).unwrap().id(),
             is_dir: true,
             session: None,
+        }
+    }
+
+    /// Only a rename error that carries the held-open marker is a skip; a
+    /// plain denial, a sharing violation and `EBUSY` stay failures.
+    #[test]
+    fn only_a_held_open_rename_is_skipped() {
+        for held in [HeldOpen::AtOpen, HeldOpen::AtRename] {
+            assert_eq!(rename_failed(&io::Error::other(held)), Outcome::Skipped(SkipReason::HeldOpen));
+        }
+        for code in [5, 16, 32] {
+            let out = rename_failed(&io::Error::from_raw_os_error(code));
+            assert!(
+                matches!(&out, Outcome::Failed { error } if error.starts_with("rename to tombstone: ")),
+                "{code}: {out:?}"
+            );
         }
     }
 

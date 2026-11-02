@@ -72,6 +72,10 @@ pub enum SkipReason {
         pid: i32,
         name: String,
     },
+    /// Another process holds the folder (Windows only, safety ADR §5,
+    /// amendment of 2026-11-02): a process works inside it, or a file below
+    /// it is open, so the tombstone rename was refused. Nothing moved.
+    HeldOpen,
     /// An app that owns the item is running; `name` is its bundle name.
     OwnerRunning {
         pid: i32,

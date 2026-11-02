@@ -21,6 +21,7 @@ public enum CleanWording {
         case .inUse(_, let name): "In use by \(name)"
         case .inUseUnknownCwd(_, let name): "Possibly in use by \(name)"
         case .ownerRunning(_, let name): "\(name) is running"
+        case .heldOpen: "A program has it, or a file in it, open · close it and try again"
         case .needsConfirmation: "Needs a confirmation"
         case .actionNotAllowed: "Its rule does not allow this action"
         case .incomplete: "Partly unreadable, or another disk is mounted inside"

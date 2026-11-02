@@ -1066,6 +1066,19 @@
           ]
         },
         {
+          "description": "Another process holds the folder (Windows only, safety ADR §5,\namendment of 2026-11-02): a process works inside it, or a file below\nit is open, so the tombstone rename was refused. Nothing moved.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "held-open"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
           "description": "An app that owns the item is running; `name` is its bundle name.",
           "type": "object",
           "properties": {

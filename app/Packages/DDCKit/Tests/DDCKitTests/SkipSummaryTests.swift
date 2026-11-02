@@ -192,7 +192,7 @@ struct SkipSummaryTests {
             }
             classes[reason.afterClean, default: []].insert(tag)
         }
-        #expect(classes[.keep] == ["owner-running", "in-use", "in-use-unknown-cwd", "tool-not-ready", "agent-live"])
+        #expect(classes[.keep] == ["owner-running", "in-use", "in-use-unknown-cwd", "held-open", "tool-not-ready", "agent-live"])
         #expect(classes[.rescan] == [
             "changed-since-scan", "parent-changed", "missing", "rule-mismatch", "not-an-entry", "entry-locked", "symlink",
             "not-a-directory", "incomplete", "worktree-kept",
@@ -201,6 +201,6 @@ struct SkipSummaryTests {
             "kept", "protected", "project-root", "scan-root", "outside-scan-roots", "action-not-allowed", "needs-confirmation",
             "inside-another-item", "native-unavailable", "foreign-owner", "trash-crosses-filesystem",
         ])
-        #expect(SkipReason.tags.count == 26)
+        #expect(SkipReason.tags.count == 27)
     }
 }

@@ -283,7 +283,7 @@ struct ContractTests {
     func schemaEnums() throws {
         let clean = try schema("clean")
         #expect(Set(try values(clean, "SkipReason", key: "reason")) == Set(SkipReason.tags))
-        #expect(SkipReason.tags.count == 26)
+        #expect(SkipReason.tags.count == 27)
         #expect(Set(try values(clean, "EntryLock", key: "reason")) == Set(EntryLock.tags))
         #expect(Set(try values(clean, "AgentLiveBy")) == Set(SkipReason.AgentLiveBy.allCases.map(\.rawValue)))
         #expect(Set(try values(clean, "HarnessId")) == Set(AgentsReport.HarnessID.allCases.map(\.rawValue)))
