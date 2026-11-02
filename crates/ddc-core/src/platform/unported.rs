@@ -32,52 +32,6 @@ pub mod iopolicy {
     }
 }
 
-#[cfg(not(target_os = "linux"))] // ported: `linux/process.rs`
-pub mod process {
-    use std::process::Command;
-
-    pub fn own_process_group(cmd: &mut Command) -> &mut Command {
-        cmd
-    }
-}
-
-#[cfg(not(target_os = "linux"))] // ported: `linux/signals.rs`
-pub mod signals {
-    use std::io;
-    use std::sync::atomic::AtomicBool;
-
-    pub const SIGKILL: i32 = 9;
-
-    pub fn install() -> io::Result<&'static AtomicBool> {
-        super::unsupported()
-    }
-
-    pub fn received() -> Option<i32> {
-        None
-    }
-
-    pub fn set_child_group(_group: i32) {}
-
-    pub fn clear_child_group(_group: i32) {}
-
-    /// The groups published now, for a test: none here.
-    #[cfg(test)]
-    pub(crate) fn child_groups() -> Vec<i32> {
-        Vec::new()
-    }
-
-    pub fn kill_group(_group: i32, _sig: i32) {}
-
-    pub fn signal_group(_group: i32, _sig: i32) -> io::Result<()> {
-        super::unsupported()
-    }
-
-    /// Ends the process with the shell's code for a death by `sig`.
-    pub fn reraise(sig: i32) -> ! {
-        std::process::exit(128 + sig)
-    }
-}
-
 #[cfg(not(target_os = "linux"))] // ported: `linux/trash.rs`
 pub mod trash {
     use std::ffi::OsStr;

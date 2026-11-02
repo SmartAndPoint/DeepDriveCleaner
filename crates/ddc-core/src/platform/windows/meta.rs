@@ -215,10 +215,15 @@ pub fn add_owner_rwx(perms: &mut Permissions) {
     perms.set_readonly(false);
 }
 
-/// No tool is found yet: which files the command runner may run (by
-/// extension) is step 9 of story "Windows scanner and rule catalog".
-pub fn is_executable(_md: &Metadata) -> bool {
-    false
+/// Whether the command runner may run it: a file named `.exe`, `.cmd` or
+/// `.bat`, in any case (story "Windows scanner and rule catalog", step
+/// 9c-1). Never by `PATHEXT`, which could add scripts of any kind.
+pub fn is_executable(path: &Path, md: &Metadata) -> bool {
+    md.is_file()
+        && path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|ext| super::process::PROGRAM_EXTENSIONS.iter().any(|known| ext.eq_ignore_ascii_case(known)))
 }
 
 #[cfg(test)]
