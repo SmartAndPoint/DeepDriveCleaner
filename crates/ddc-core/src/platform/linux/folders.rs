@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 
 /// `$HOME`, when set and not empty. `Env` canonicalizes it.
-#[allow(clippy::disallowed_methods)] // the platform's reader of HOME; `Env::from_process` is its one caller
+#[allow(clippy::disallowed_methods)] // the platform's reader of HOME; `Env::from_process` and the Trash's home trash call it
 pub fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from)
 }

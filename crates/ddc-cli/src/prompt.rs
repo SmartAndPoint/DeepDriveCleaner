@@ -273,6 +273,9 @@ pub fn reason(r: &SkipReason) -> String {
         SkipReason::NotAnEntry => "no longer a file or folder you can pick in its folder".to_owned(),
         SkipReason::EntryLocked { lock } => format!("locked: {}", lock_text(lock)),
         SkipReason::InsideAnotherItem => "removed with the folder it is in".to_owned(),
+        SkipReason::TrashCrossesFilesystem => {
+            "no Trash on its own filesystem; --permanent removes it instead".to_owned()
+        }
         SkipReason::AgentLive { harness, by } => match by {
             AgentLiveBy::Running => format!("{} is running; quit it and run again", harness_name(*harness)),
             AgentLiveBy::LockHeld => format!("{} holds a lock on it", harness_name(*harness)),

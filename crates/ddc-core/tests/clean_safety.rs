@@ -19,6 +19,7 @@ use ddc_core::env::Env;
 use ddc_core::exec::{
     self, Consent, ExecError, ExecEvents, ExecOptions, ExecPhase, ExecProgress, ExecReport, ExecSnapshot, Journal,
     JournalEntry, MemoryJournal, OpenVnode, Outcome, Ports, ProcStart, ProcessTable, SkipReason, SystemProcesses,
+    TrashError, TrashPlace, TrashTarget, TrashedTo, Trasher,
 };
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{Action, Plan, PlanItem, PlanOptions, build_plan};
@@ -160,7 +161,7 @@ fn deletes_selected_items_and_journals_each() {
     assert_eq!(journal.0.len(), 2, "one journal line per action");
     let e = journal.0.iter().find(|e| e.path == nm).unwrap();
     // The journal's own version, not the scan report's (safety ADR, amendment of 2026-10-28).
-    assert_eq!((e.rule.as_str(), e.method, e.schema_version), ("node.node_modules", "delete", 7));
+    assert_eq!((e.rule.as_str(), e.method, e.schema_version), ("node.node_modules", "delete", 8));
     let line = serde_json::to_value(e).unwrap();
     assert_eq!(line["kind"], "item");
     for key in ["ts", "path", "dev", "ino", "rule", "class", "method", "bytes", "outcome"] {
@@ -298,6 +299,63 @@ fn interactive_review_goes_to_the_trash() {
 
     assert_eq!(outcome(&r, &orphan), &Outcome::Trashed);
     assert!(!orphan.exists() && fx.data.path().join("FakeTrash/node_modules/a.js").exists());
+}
+
+/// A Trash with no folder on the item's own filesystem: the item is
+/// skipped `trash-crosses-filesystem` and nothing moves. A Trash that tells
+/// where it put the item has the journal line say so (safety ADR §5,
+/// amendment of 2026-11-01).
+#[test]
+fn a_trash_that_would_cross_skips_the_item_and_a_told_place_is_journaled() {
+    if common::unsupported("a_trash_that_would_cross_skips_the_item_and_a_told_place_is_journaled") {
+        return;
+    }
+    struct Crossing;
+    impl Trasher for Crossing {
+        fn trash(&self, _: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+            Err(TrashError::CrossesFilesystem)
+        }
+    }
+    struct Telling(PathBuf);
+    impl Trasher for Telling {
+        fn trash(&self, t: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+            fs::create_dir_all(self.0.join("files"))?;
+            fs::rename(t.path, self.0.join("files").join(t.name))?;
+            Ok(Some(TrashPlace { trash: self.0.clone(), name: t.name.to_owned() }))
+        }
+    }
+    let fx = Fx::new();
+    let orphan = fx.t.dir("x/node_modules");
+    fx.t.file("x/node_modules/a.js", 100);
+    let mut plan = fx.plan();
+    select_all(&mut plan);
+    let run = |trash: &dyn Trasher| {
+        let mut journal = MemoryJournal::default();
+        let ports =
+            Ports { commands: &FakeCommands::default(), trash, procs: &FakeProcs::new(vec![]), journal: &mut journal };
+        let env = fx.env();
+        let r = exec::execute(
+            &env,
+            &Catalog::builtin(fx.t.root()),
+            &plan,
+            &Consent::Interactive,
+            ports,
+            &ExecOptions::default(),
+        )
+        .unwrap();
+        (r, journal)
+    };
+
+    let (r, journal) = run(&Crossing);
+    assert_eq!(outcome(&r, &orphan), &Outcome::Skipped(SkipReason::TrashCrossesFilesystem));
+    assert!(fx.t.path("x/node_modules/a.js").exists(), "nothing moved");
+    assert!(journal.0.iter().all(|l| l.trash.is_none()));
+
+    let told = fx.data.path().join("Told");
+    let (r, journal) = run(&Telling(told.clone()));
+    assert_eq!(outcome(&r, &orphan), &Outcome::Trashed);
+    let line = journal.0.iter().find(|l| l.path == orphan).unwrap();
+    assert_eq!(line.trash, Some(TrashedTo { trash: told, name: PathBuf::from("node_modules") }));
 }
 
 #[test]

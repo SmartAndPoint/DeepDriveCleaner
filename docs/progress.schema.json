@@ -876,6 +876,19 @@
           ]
         },
         {
+          "description": "No Trash on the item's own filesystem that ddc may use, or the move\nwould cross into another (safety ADR §5, amendment of 2026-11-01):\nnothing moved. `--permanent` removes it instead.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "trash-crosses-filesystem"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
           "description": "A coding agent's harness uses its data: the whole folder is refused\nwhile it runs (ADR \"Agent footprint: worktrees, harness data and\nbounded consent for agents\", §3).",
           "type": "object",
           "properties": {

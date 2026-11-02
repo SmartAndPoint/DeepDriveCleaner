@@ -296,8 +296,12 @@ fn sealed_folders_and_auto_memory_are_never_findings() {
     assert_eq!(refused(&t.path(PROJECT)), [SkipReason::ActionNotAllowed]);
     // The dry run gives each the plan's reason.
     let mut predicted = Vec::new();
-    let ports =
-        PreflightPorts { commands: &FakeCommands::default(), procs: &FakeProcs::new(vec![]), reader: &StdReader };
+    let ports = PreflightPorts {
+        commands: &FakeCommands::default(),
+        procs: &FakeProcs::new(vec![]),
+        reader: &StdReader,
+        trash: &common::fakes::AnyTrash,
+    };
     preflight::preflight(&h.env(), &h.catalog(), &[], &[], &items, &ports, &mut |line| {
         if let PreflightLine::Item(i) = line {
             predicted.push(i.prediction.clone());

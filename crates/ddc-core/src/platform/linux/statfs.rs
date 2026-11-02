@@ -48,6 +48,13 @@ pub(crate) fn points() -> io::Result<std::collections::HashMap<PathBuf, String>>
     Ok(parse(&read_mountinfo()?).into_iter().map(|m| (m.mount_point, m.fs_type)).collect())
 }
 
+/// The mount point of mount `id`, read now: the top of an item's mount,
+/// where its own Trash folder lies (safety ADR §5, amendment of
+/// 2026-11-01). `None` when mountinfo does not list it.
+pub(crate) fn point_by_id(id: u64) -> io::Result<Option<PathBuf>> {
+    Ok(parse(&read_mountinfo()?).into_iter().find(|m| m.id == id).map(|m| m.mount_point))
+}
+
 fn read_mountinfo() -> io::Result<Vec<u8>> {
     std::fs::read("/proc/self/mountinfo")
 }

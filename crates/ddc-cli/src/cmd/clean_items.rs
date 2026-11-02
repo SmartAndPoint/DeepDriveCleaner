@@ -226,7 +226,8 @@ fn dry_run(
 ) -> anyhow::Result<ExitCode> {
     let _lock = store::try_lock(env, LockMode::Shared)?;
     let commands = SystemCommands::new(env);
-    let ports = PreflightPorts { commands: &commands, procs: &SystemProcesses, reader: &SystemReader };
+    let ports =
+        PreflightPorts { commands: &commands, procs: &SystemProcesses, reader: &SystemReader, trash: &SystemTrash };
     let mut out = std::io::stdout().lock();
     let home = env.home().to_path_buf();
     let skips: Vec<PathBuf> = opts.skip.iter().chain(&opts.user_skips).cloned().collect();

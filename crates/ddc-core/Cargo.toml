@@ -23,8 +23,9 @@ libc.workspace = true
 trash.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# The freedesktop Trash's `DeletionDate`, in local time (platform/linux/trash.rs).
+chrono.workspace = true
 libc.workspace = true
-trash.workspace = true
 rustix = { workspace = true, features = ["param", "process", "stdio", "termios", "time"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]

@@ -30,6 +30,7 @@ public enum CleanWording {
         case .notAnEntry: "No longer a file or folder you can pick in its folder"
         case .entryLocked(let lock): entryLock(lock)
         case .insideAnotherItem: "Removed with the folder it is in"
+        case .trashCrossesFilesystem: "No Trash on its own disk · --permanent removes it"
         case .agentLive(let harness, .running): "\(harnessName(harness)) is running"
         case .agentLive(let harness, .lockHeld): "\(harnessName(harness)) holds a lock on it"
         case .agentLive(let harness, .unknown): "Could not tell whether \(harnessName(harness)) is using it"

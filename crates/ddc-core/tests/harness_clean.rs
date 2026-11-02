@@ -163,8 +163,19 @@ impl Home {
         procs: &dyn ProcessTable,
         skips: &[PathBuf],
     ) -> Vec<(Option<u64>, Prediction)> {
+        self.predict_with(items, procs, skips, &common::fakes::AnyTrash)
+    }
+
+    /// [`Self::predict`] with the dry run's Trash.
+    fn predict_with(
+        &self,
+        items: &[ListedItem],
+        procs: &dyn ProcessTable,
+        skips: &[PathBuf],
+        trash: &dyn Trasher,
+    ) -> Vec<(Option<u64>, Prediction)> {
         let mut predicted = Vec::new();
-        let ports = PreflightPorts { commands: &FakeCommands::default(), procs, reader: &StdReader };
+        let ports = PreflightPorts { commands: &FakeCommands::default(), procs, reader: &StdReader, trash };
         preflight::preflight_skipping(&self.env(), &self.catalog(), &[], &[], skips, items, &ports, &mut |line| {
             if let PreflightLine::Item(i) = line {
                 predicted.push((i.bytes, i.prediction.clone()));
@@ -237,6 +248,35 @@ fn reasons(plan: &ListedPlan) -> Vec<SkipReason> {
 fn entry_of(line: &JournalEntry) -> Option<String> {
     let value = serde_json::to_value(line).unwrap();
     value.get("entry").map(|e| e.as_str().unwrap().to_owned())
+}
+
+/// A session's entry and a session's folder with no Trash on their
+/// filesystem: the dry run predicts `trash-crosses-filesystem` for both,
+/// and the clean skips both with nothing moved (safety ADR §5, amendment of
+/// 2026-11-01, step 6).
+#[test]
+fn a_session_entry_without_a_trash_is_predicted_and_skipped_as_crossing() {
+    if common::unsupported("a_session_entry_without_a_trash_is_predicted_and_skipped_as_crossing") {
+        return;
+    }
+    let h = Home::new();
+    h.two_sessions();
+    let transcript = format!("{PROJECT}/{A}.jsonl");
+    let items =
+        [h.entry(&transcript, TRANSCRIPTS), h.entry(&format!("{HISTORY}/{A}"), "agent.claude-code-file-history")];
+    let none = FakeProcs::new(Vec::new());
+    let crossing = Prediction::WouldSkip(SkipReason::TrashCrossesFilesystem);
+    let predicted: Vec<Prediction> =
+        h.predict_with(&items, &none, &[], &common::fakes::CrossingTrash).into_iter().map(|(_, p)| p).collect();
+    assert_eq!(predicted, [crossing.clone(), crossing]);
+
+    let plan = h.plan(&items, &none);
+    let (run, _) = h.run(&plan, &common::fakes::CrossingTrash, &none, &[]);
+    let skipped = Outcome::Skipped(SkipReason::TrashCrossesFilesystem);
+    assert_eq!(outcomes(&run), [skipped.clone(), skipped]);
+    for stays in [transcript, format!("{PROJECT}/{A}"), format!("{HISTORY}/{A}")] {
+        assert!(h.path(&stays).exists(), "{stays}");
+    }
 }
 
 /// AC 3: a session's entry goes to the Trash, its companions first, by

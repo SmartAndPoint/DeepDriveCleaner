@@ -30,8 +30,8 @@ use std::path::{Path, PathBuf};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::guard::{Guard, Walked, walk_item};
-use super::{CommandRunner, ProcessTable, SkipReason};
+use super::guard::{Guard, Verified, Walked, walk_item};
+use super::{CommandRunner, ProcessTable, SkipReason, TrashError, TrashTarget, Trasher};
 use crate::class::{Fallback, Location, ReadyProbe, RiskClass};
 use crate::conda;
 use crate::env::Env;
@@ -96,6 +96,8 @@ pub struct PreflightPorts<'a> {
     pub commands: &'a dyn CommandRunner,
     pub procs: &'a dyn ProcessTable,
     pub reader: &'a dyn DirReader,
+    /// Asked whether it has a Trash for an item, never to move one.
+    pub trash: &'a dyn Trasher,
 }
 
 /// Checks every listed item and hands `out` one line per item as its checks
@@ -267,7 +269,7 @@ fn check(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
     // Identity, symlinks, rule marker, project root, `.ddc-keep` above, owner
     // and use: all before the walk, so nothing behind a swapped path is read.
     let action = action_for(rule, class, item.permanent).unwrap_or(Action::Trash);
-    guard.check(&planned(item, rule, class, action)).map_err(|reason| (None, reason))?;
+    let verified = guard.check(&planned(item, rule, class, action)).map_err(|reason| (None, reason))?;
     let walked = walk_item(path, ports.reader).ok_or((None, SkipReason::Incomplete))?;
     if walked.kept {
         return Err((Some(walked.bytes), SkipReason::Kept));
@@ -333,7 +335,22 @@ fn check(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
             },
         },
     };
+    if matches!(prediction, Prediction::WouldTrash) {
+        would_trash(ports.trash, &verified, path).map_err(|reason| (Some(walked.bytes), reason))?;
+    }
     Ok((walked.bytes, prediction))
+}
+
+/// The Trash's own answer for an item the clean would move there: no usable
+/// Trash on its filesystem is `trash-crosses-filesystem`, where the clean
+/// would skip it (safety ADR §5, amendment of 2026-11-01, step 6). Any
+/// other answer is the clean's to meet: a failure is not predicted.
+fn would_trash(trash: &dyn Trasher, v: &Verified, path: &Path) -> Result<(), SkipReason> {
+    let target = TrashTarget { path, parent: &v.parent, name: &v.name, id: v.id, is_dir: v.is_dir };
+    match trash.would_trash(&target) {
+        Err(TrashError::CrossesFilesystem) => Err(SkipReason::TrashCrossesFilesystem),
+        Ok(()) | Err(TrashError::Other(_)) => Ok(()),
+    }
 }
 
 /// What the executor's readiness probe would say, from what can be read
@@ -407,6 +424,8 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
         let verified = guard
             .check(&planned(item, rule, RiskClass::UserData, Action::TrashEntry))
             .map_err(|reason| (None, reason))?;
+        // The companions share the key's folder, and so its Trash.
+        would_trash(ports.trash, &verified, path).map_err(|reason| (None, reason))?;
         let parts = verified.session.unwrap_or_default();
         let bytes = parts.key_bytes + parts.companions.iter().map(|c| c.bytes).sum::<u64>();
         return Ok((bytes, Prediction::WouldTrash));
@@ -448,9 +467,10 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
     if let Some(lock) = lock_of(&facts) {
         return Err((Some(walked.bytes), SkipReason::EntryLocked { lock }));
     }
-    guard
+    let verified = guard
         .check(&planned(item, rule, RiskClass::UserData, Action::TrashEntry))
         .map_err(|reason| (Some(walked.bytes), reason))?;
+    would_trash(ports.trash, &verified, path).map_err(|reason| (Some(walked.bytes), reason))?;
     Ok((walked.bytes, Prediction::WouldTrash))
 }
 

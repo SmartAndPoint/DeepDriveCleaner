@@ -277,6 +277,28 @@ impl CommandRunner for SharedCommands {
 /// Moves into a directory of the test tree instead of the real Trash.
 pub struct FakeTrash(pub PathBuf);
 
+/// A Trash with no folder on any item's filesystem: the clean and the dry
+/// run both refuse, as crossing (safety ADR §5, amendment of 2026-11-01).
+pub struct CrossingTrash;
+
+impl Trasher for CrossingTrash {
+    fn trash(&self, _: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+        Err(TrashError::CrossesFilesystem)
+    }
+    fn would_trash(&self, _: &TrashTarget<'_>) -> Result<(), TrashError> {
+        Err(TrashError::CrossesFilesystem)
+    }
+}
+
+/// The dry run's Trash: every item has one, and nothing moves.
+pub struct AnyTrash;
+
+impl Trasher for AnyTrash {
+    fn trash(&self, _: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+        Err(io::Error::other("nothing moves in a dry run").into())
+    }
+}
+
 impl Trasher for FakeTrash {
     fn trash(&self, target: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
         fs::create_dir_all(&self.0)?;

@@ -154,7 +154,7 @@ impl Fx {
 
     fn dry_run(&self, items: &[ListedItem], commands: &FakeCommands, procs: &dyn ProcessTable) -> Vec<Prediction> {
         let mut out = Vec::new();
-        let ports = PreflightPorts { commands, procs, reader: &StdReader };
+        let ports = PreflightPorts { commands, procs, reader: &StdReader, trash: &common::fakes::AnyTrash };
         preflight::preflight(&self.env(), &self.catalog(), &[], &[], items, &ports, &mut |line| {
             if let PreflightLine::Item(i) = line {
                 out.push(i.prediction.clone());

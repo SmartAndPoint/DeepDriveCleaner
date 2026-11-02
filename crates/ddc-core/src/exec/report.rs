@@ -21,7 +21,9 @@ use crate::platform::{Capability, Platform};
 /// bounded consent for agents", §3). 6: the skip reason `foreign-owner`
 /// (safety ADR, amendment of 2026-10-31). 7: the skip reason `worktree-kept`
 /// (ADR "Agent footprint", §2, amendment of 2026-11-01).
-pub const CLEAN_SCHEMA_VERSION: u32 = 7;
+/// 8: the skip reason `trash-crosses-filesystem` (safety ADR §5, amendment
+/// of 2026-11-01).
+pub const CLEAN_SCHEMA_VERSION: u32 = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CleanReport {
