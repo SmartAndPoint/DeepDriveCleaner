@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use super::{MovedCompanion, Outcome};
+use super::{MovedCompanion, Outcome, TrashPlace};
 use crate::class::RiskClass;
 use crate::disk::ActionId;
 use crate::env::Env;
@@ -26,7 +26,27 @@ use crate::plan::PlanItem;
 /// `item` line, the skip reason `foreign-owner` (safety ADR, amendment of
 /// 2026-10-31). 7: in an `item` line, the skip reason `worktree-kept` (ADR
 /// "Agent footprint", §2, amendment of 2026-11-01).
-pub const JOURNAL_SCHEMA_VERSION: u32 = 7;
+/// 8: in an `item` line, the skip reason `trash-crosses-filesystem` and the
+/// optional `trash`, where the item went (safety ADR §5, amendment of
+/// 2026-11-01).
+pub const JOURNAL_SCHEMA_VERSION: u32 = 8;
+
+/// Where an item went in the Trash: the trash folder and the name in its
+/// `files/`. Absent where the Trash does not tell (macOS): a trash on
+/// another filesystem is not shown by every desktop.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TrashedTo {
+    #[serde(serialize_with = "crate::json_path::path")]
+    pub trash: PathBuf,
+    #[serde(serialize_with = "crate::json_path::path")]
+    pub name: PathBuf,
+}
+
+impl From<TrashPlace> for TrashedTo {
+    fn from(p: TrashPlace) -> Self {
+        Self { trash: p.trash, name: PathBuf::from(p.name) }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -58,6 +78,8 @@ pub struct JournalEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(serialize_with = "crate::json_path::opt_path")]
     pub entry: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trash: Option<TrashedTo>,
     #[serde(flatten)]
     pub outcome: Outcome,
 }
@@ -78,6 +100,7 @@ impl JournalEntry {
             bytes: f.bytes,
             private_bytes: f.private_bytes,
             entry: None,
+            trash: None,
             outcome: outcome.clone(),
         }
     }
@@ -98,6 +121,7 @@ impl JournalEntry {
             bytes: moved.bytes,
             private_bytes: None,
             entry: Some(f.path.clone()),
+            trash: moved.place.clone().map(TrashedTo::from),
             outcome: Outcome::Trashed,
         }
     }

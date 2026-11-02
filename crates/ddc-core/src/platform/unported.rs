@@ -145,11 +145,18 @@ pub mod statfs {
 
 #[cfg(not(target_os = "linux"))] // ported: `linux/trash.rs`
 pub mod trash {
-    use std::io;
+    use std::ffi::OsStr;
     use std::path::Path;
 
-    pub fn move_to_trash(_path: &Path) -> io::Result<()> {
-        super::unsupported()
+    use crate::platform::fsops::DirFd;
+    use crate::platform::types::{TrashError, TrashPlace};
+
+    pub fn trash_item(_: &DirFd, _: &OsStr, _: &Path, _: (u64, u64)) -> Result<Option<TrashPlace>, TrashError> {
+        Err(TrashError::Other(super::unsupported::<()>().unwrap_err()))
+    }
+
+    pub fn would_trash(_: &DirFd, _: &OsStr, _: &Path) -> Result<(), TrashError> {
+        Err(TrashError::Other(super::unsupported::<()>().unwrap_err()))
     }
 }
 

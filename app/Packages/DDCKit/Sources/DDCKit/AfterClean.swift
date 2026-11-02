@@ -26,8 +26,9 @@ extension SkipReason {
              .incomplete, .worktreeKept:
             .rescan
         // `foreignOwner`: only that user, or root, can remove it.
+        // `trashCrossesFilesystem`: only `--permanent` removes it.
         case .kept, .protected, .projectRoot, .scanRoot, .outsideScanRoots, .actionNotAllowed, .needsConfirmation,
-             .insideAnotherItem, .nativeUnavailable, .foreignOwner:
+             .insideAnotherItem, .nativeUnavailable, .foreignOwner, .trashCrossesFilesystem:
             .never
         }
     }

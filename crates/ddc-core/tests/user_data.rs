@@ -142,8 +142,12 @@ impl Home {
 
     fn dry_run(&self, items: &[ListedItem], procs: Vec<ProcInfo>) -> Vec<Prediction> {
         let mut out = Vec::new();
-        let ports =
-            PreflightPorts { commands: &FakeCommands::default(), procs: &FakeProcs::new(procs), reader: &StdReader };
+        let ports = PreflightPorts {
+            commands: &FakeCommands::default(),
+            procs: &FakeProcs::new(procs),
+            reader: &StdReader,
+            trash: &common::fakes::AnyTrash,
+        };
         preflight::preflight(&self.env(), &self.catalog(), &[], &self.excludes, items, &ports, &mut |line| {
             if let PreflightLine::Item(i) = line {
                 out.push(i.prediction.clone());

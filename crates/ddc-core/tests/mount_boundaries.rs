@@ -179,3 +179,97 @@ fn a_stale_plan_into_a_bind_mount_is_refused_and_nothing_moves() {
     assert_eq!(at_mount.outcome, Outcome::Skipped(Skip::Incomplete));
     assert!(tree.path("p/node_modules/dep/index.js").exists(), "nothing moved");
 }
+
+/// One file in a fresh tree on `dir`'s filesystem, its folder open, and
+/// its identity: what the Trash is given after the guard's check.
+fn item_on(dir: &Path) -> (TreeBuilder, ddc_core::platform::fsops::DirFd, std::path::PathBuf, (u64, u64)) {
+    use std::os::unix::fs::MetadataExt as _;
+    let tree = TreeBuilder::new_in(dir);
+    let file = tree.file("cache/blob", 4096);
+    let md = std::fs::symlink_metadata(&file).unwrap();
+    let folder = ddc_core::platform::fsops::DirFd::open(file.parent().unwrap()).unwrap();
+    (tree, folder, file, (md.dev(), md.ino()))
+}
+
+fn uid() -> u32 {
+    use std::os::unix::fs::MetadataExt as _;
+    let d = tempfile::tempdir().unwrap();
+    std::fs::metadata(d.path()).unwrap().uid()
+}
+
+/// The user's own tmpfs: the item moves into `.Trash-$uid` at its top,
+/// keeping its `(dev, ino)`, and the dry run said it would.
+#[test]
+fn a_tmpfs_item_moves_into_its_own_trash_with_its_identity() {
+    use ddc_core::platform::trash;
+    use std::os::unix::fs::MetadataExt as _;
+    let Some(top) = common::mount("a_tmpfs_item_moves_into_its_own_trash_with_its_identity", Mount::Tmpfs) else {
+        return;
+    };
+    let (_tree, folder, file, id) = item_on(&top);
+    let name = file.file_name().unwrap();
+    trash::would_trash(&folder, name, &file).unwrap();
+    let place = trash::trash_item(&folder, name, &file, id).unwrap().expect("Linux tells the place");
+    assert_eq!(place.trash, top.join(format!(".Trash-{}", uid())));
+    let landed = std::fs::symlink_metadata(place.trash.join("files").join(&place.name)).unwrap();
+    assert_eq!((landed.dev(), landed.ino()), id);
+    assert!(!file.exists());
+    let info =
+        std::fs::read_to_string(place.trash.join("info").join(format!("{}.trashinfo", place.name.to_string_lossy())))
+            .unwrap();
+    let rel = file.strip_prefix(&top).unwrap();
+    assert!(info.contains(&format!("Path={}\n", rel.display())), "relative to the top: {info}");
+}
+
+/// A tmpfs whose top is root's: no trash can be made there, so the item is
+/// refused as crossing and stays; the dry run says the same first.
+#[test]
+fn a_root_topped_tmpfs_item_is_refused_and_stays() {
+    use ddc_core::platform::trash;
+    use ddc_core::platform::types::TrashError;
+    let Some(dir) = common::mount("a_root_topped_tmpfs_item_is_refused_and_stays", Mount::TmpfsRootTop) else {
+        return;
+    };
+    let (_tree, folder, file, id) = item_on(&dir);
+    let name = file.file_name().unwrap();
+    assert!(matches!(trash::would_trash(&folder, name, &file), Err(TrashError::CrossesFilesystem)));
+    assert!(matches!(trash::trash_item(&folder, name, &file, id), Err(TrashError::CrossesFilesystem)));
+    assert!(file.exists(), "nothing moved");
+    assert!(!dir.parent().unwrap().join(format!(".Trash-{}", uid())).exists());
+}
+
+/// An item in a btrfs subvolume reached by path: its mount's top is
+/// another device, where a rename gives `EXDEV`. Refused, by the dry run
+/// too, never copied.
+#[test]
+fn a_btrfs_subvolume_item_is_refused_and_stays() {
+    use ddc_core::platform::trash;
+    use ddc_core::platform::types::TrashError;
+    let Some(sub) = common::mount("a_btrfs_subvolume_item_is_refused_and_stays", Mount::BtrfsSubvolume) else {
+        return;
+    };
+    let (_tree, folder, file, id) = item_on(&sub);
+    let name = file.file_name().unwrap();
+    assert!(matches!(trash::would_trash(&folder, name, &file), Err(TrashError::CrossesFilesystem)));
+    assert!(matches!(trash::trash_item(&folder, name, &file, id), Err(TrashError::CrossesFilesystem)));
+    assert!(file.exists(), "nothing moved");
+}
+
+/// NFS refuses `RENAME_NOREPLACE`: the move checks the name, then renames,
+/// into the export's own `.Trash-$uid`.
+#[test]
+fn an_nfs_item_moves_into_the_exports_trash() {
+    use ddc_core::platform::trash;
+    use std::os::unix::fs::MetadataExt as _;
+    let Some(top) = common::mount("an_nfs_item_moves_into_the_exports_trash", Mount::Nfs) else {
+        return;
+    };
+    let (_tree, folder, file, id) = item_on(&top);
+    let name = file.file_name().unwrap();
+    trash::would_trash(&folder, name, &file).unwrap();
+    let place = trash::trash_item(&folder, name, &file, id).unwrap().expect("Linux tells the place");
+    assert_eq!(place.trash, top.join(format!(".Trash-{}", uid())));
+    let landed = std::fs::symlink_metadata(place.trash.join("files").join(&place.name)).unwrap();
+    assert_eq!((landed.dev(), landed.ino()), id);
+    assert!(!file.exists());
+}

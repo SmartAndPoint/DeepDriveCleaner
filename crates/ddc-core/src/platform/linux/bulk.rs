@@ -170,6 +170,32 @@ fn mount_id(fd: &OwnedFd, statx: Option<u64>) -> Option<u64> {
     })
 }
 
+/// An open folder's `(dev, ino)` and mount id ([`mount_id`]), for the
+/// Trash's choice of a trash folder on the item's own mount.
+pub(super) fn fd_mount(fd: &OwnedFd) -> Result<((u64, u64), Option<u64>), Errno> {
+    let st = stat(fd, c"", AtFlags::EMPTY_PATH, false)?;
+    Ok(((st.dev, st.ino), mount_id(fd, st.mnt_id)))
+}
+
+/// An open folder is the root of its mount: `STATX_ATTR_MOUNT_ROOT` where
+/// the kernel tells, else its mount id differs from that of its `..`, or
+/// its `..` is itself (the process's root). No path is compared (safety
+/// ADR, amendment of 2026-11-01, completed on 2026-11-02). `None` when
+/// neither tells.
+pub(super) fn is_mount_root(fd: &OwnedFd) -> Option<bool> {
+    let st = stat(fd, c"", AtFlags::EMPTY_PATH, false).ok()?;
+    if let Some(root) = st.mount_root {
+        return Some(root);
+    }
+    let up = retry(|| rustix::fs::openat(fd, c"..", OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC, Mode::empty()))
+        .ok()?;
+    let above = stat(&up, c"", AtFlags::EMPTY_PATH, false).ok()?;
+    if (above.dev, above.ino) == (st.dev, st.ino) {
+        return Some(true);
+    }
+    Some(mount_id(fd, st.mnt_id)? != mount_id(&up, above.mnt_id)?)
+}
+
 fn fdinfo_mnt_id(info: &[u8]) -> Option<u64> {
     std::str::from_utf8(info).ok()?.lines().find_map(|l| l.strip_prefix("mnt_id:")?.trim().parse().ok())
 }

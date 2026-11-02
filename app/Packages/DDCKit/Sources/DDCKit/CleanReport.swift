@@ -33,6 +33,9 @@ public enum SkipReason: Sendable, Equatable, Hashable {
     /// Inside a listed folder that was removed: an entry that went to the
     /// Trash, or a linked worktree removed through git.
     case insideAnotherItem
+    /// No Trash on the item's own disk that ddc may use (Linux): nothing
+    /// moved; `--permanent` removes it instead.
+    case trashCrossesFilesystem
     /// A coding agent uses its data now, or whether it does could not be told.
     case agentLive(harness: AgentsReport.HarnessID, by: AgentLiveBy)
     /// A linked worktree one of the six conditions keeps: `condition` is its
@@ -54,7 +57,8 @@ public enum SkipReason: Sendable, Equatable, Hashable {
         "missing", "not-a-directory", "symlink", "changed-since-scan", "parent-changed", "rule-mismatch",
         "outside-scan-roots", "scan-root", "protected", "project-root", "kept", "in-use", "in-use-unknown-cwd",
         "owner-running", "needs-confirmation", "action-not-allowed", "incomplete", "foreign-owner", "native-unavailable",
-        "tool-not-ready", "not-an-entry", "entry-locked", "inside-another-item", "agent-live", "worktree-kept",
+        "tool-not-ready", "not-an-entry", "entry-locked", "inside-another-item", "trash-crosses-filesystem", "agent-live",
+        "worktree-kept",
     ]
 
     enum CodingKeys: String, CodingKey {
@@ -90,6 +94,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
         case "not-an-entry": self = .notAnEntry
         case "entry-locked": self = .entryLocked(try c.decode(EntryLock.self, forKey: .lock))
         case "inside-another-item": self = .insideAnotherItem
+        case "trash-crosses-filesystem": self = .trashCrossesFilesystem
         case "agent-live":
             self = .agentLive(
                 harness: try c.decode(AgentsReport.HarnessID.self, forKey: .harness), by: try c.decode(AgentLiveBy.self, forKey: .by))
@@ -104,7 +109,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
 /// `clean --items --json`: what happened to each listed item.
 public struct CleanReport: Decodable, Sendable, Equatable {
     /// `CLEAN_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 7
+    public static let schemaVersion = 8
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)

@@ -389,8 +389,12 @@ fn the_plan_the_dry_run_and_the_clean_refuse_a_session_entry_listed_as_review() 
     assert_eq!(listed.refused.iter().map(|x| x.reason.clone()).collect::<Vec<_>>(), [SkipReason::ChangedSinceScan]);
 
     let mut predicted = Vec::new();
-    let ports =
-        PreflightPorts { commands: &FakeCommands::default(), procs: &FakeProcs::new(Vec::new()), reader: &StdReader };
+    let ports = PreflightPorts {
+        commands: &FakeCommands::default(),
+        procs: &FakeProcs::new(Vec::new()),
+        reader: &StdReader,
+        trash: &common::fakes::AnyTrash,
+    };
     preflight::preflight(&h.env(), &catalog, &[], &[], &items, &ports, &mut |line| {
         if let PreflightLine::Item(i) = line {
             predicted.push(i.prediction.clone());

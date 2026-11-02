@@ -132,13 +132,18 @@ pub(super) fn executable(path: &Path) -> bool {
 }
 
 /// The system Trash (`platform::trash`): on macOS through `NSFileManager`
-/// (no AppleScript, no Automation prompt).
+/// (no AppleScript, no Automation prompt); on Linux ddc's own move into a
+/// freedesktop trash folder on the item's own mount (safety ADR §5,
+/// amendment of 2026-11-01).
 pub struct SystemTrash;
 
 impl Trasher for SystemTrash {
     fn trash(&self, target: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
-        trash::move_to_trash(target.path)?;
-        Ok(None)
+        trash::trash_item(target.parent, target.name, target.path, target.id)
+    }
+
+    fn would_trash(&self, target: &TrashTarget<'_>) -> Result<(), TrashError> {
+        trash::would_trash(target.parent, target.name, target.path)
     }
 }
 

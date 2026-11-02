@@ -176,7 +176,12 @@ fn a_dry_run_is_refused_before_it_checks_an_item() {
     let fx = Fx::new();
     let before = fx.state();
     let commands = FakeCommands::default();
-    let ports = PreflightPorts { commands: &commands, procs: &FakeProcs::new(vec![]), reader: &StdReader };
+    let ports = PreflightPorts {
+        commands: &commands,
+        procs: &FakeProcs::new(vec![]),
+        reader: &StdReader,
+        trash: &common::fakes::AnyTrash,
+    };
     let mut lines = 0;
     let err =
         preflight::preflight(&fx.env(), &Catalog::builtin(fx.t.root()), &[], &[], &[fx.listed()], &ports, &mut |_| {

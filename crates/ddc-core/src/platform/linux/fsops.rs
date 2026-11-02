@@ -77,6 +77,11 @@ impl DirFd {
         }
     }
 
+    /// The open descriptor, for the Trash's move out of this folder.
+    pub(super) fn fd(&self) -> &OwnedFd {
+        &self.0
+    }
+
     /// `(dev, ino)` of the directory itself.
     pub fn identity(&self) -> io::Result<(u64, u64)> {
         let st = rustix::fs::fstat(&self.0)?;

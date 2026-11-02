@@ -11,6 +11,7 @@ mod progress;
 pub mod report;
 pub mod system;
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::io;
@@ -24,7 +25,7 @@ use serde::{Deserialize, Serialize};
 
 pub use journal::{
     AreaActionEntry, AreaJournal, FileJournal, JOURNAL_SCHEMA_VERSION, Journal, JournalEntry, JournalKind, KeepJournal,
-    KeepRemoveEntry, MemoryAreaJournal, MemoryJournal, MemoryKeepJournal,
+    KeepRemoveEntry, MemoryAreaJournal, MemoryJournal, MemoryKeepJournal, TrashedTo,
 };
 pub use native::CommandResult;
 pub(crate) use native::tail;
@@ -103,6 +104,10 @@ pub enum SkipReason {
     },
     /// Inside an entry of the same list that went to the Trash.
     InsideAnotherItem,
+    /// No Trash on the item's own filesystem that ddc may use, or the move
+    /// would cross into another (safety ADR §5, amendment of 2026-11-01):
+    /// nothing moved. `--permanent` removes it instead.
+    TrashCrossesFilesystem,
     /// A coding agent's harness uses its data: the whole folder is refused
     /// while it runs (ADR "Agent footprint: worktrees, harness data and
     /// bounded consent for agents", §3).
@@ -405,6 +410,8 @@ pub fn execute(
         // A session's entry: its key's own bytes, and the companions moved.
         let mut key_bytes: Option<u64> = None;
         let mut companions: Vec<MovedCompanion> = Vec::new();
+        // Where the item went in the Trash, for its journal line.
+        let place: Cell<Option<TrashPlace>> = Cell::new(None);
         let outcome = if opts.cancelled() {
             Outcome::NotRun
         } else {
@@ -420,12 +427,12 @@ pub fn execute(
                     Err(reason) => Outcome::Skipped(reason),
                     Ok(verified) => match &verified.session {
                         Some(parts) => {
-                            let (outcome, moved) = trash_session(&ports, &verified, parts, path);
+                            let (outcome, moved) = trash_session(&ports, &verified, parts, path, &place);
                             key_bytes = Some(parts.key_bytes);
                             companions = moved;
                             outcome
                         }
-                        None => act(item, &verified, &guard, &ports, &installs, &worktrees, progress),
+                        None => act(item, &verified, &guard, &ports, &installs, &worktrees, progress, &place),
                     },
                 }
             }
@@ -450,6 +457,7 @@ pub fn execute(
                 if let Some(bytes) = key_bytes {
                     line.bytes = bytes;
                 }
+                line.trash = place.take().map(TrashedTo::from);
                 recorded = ports.journal.record(&line);
             }
             if recorded.is_err() {
@@ -577,6 +585,7 @@ fn removed_by_git(item: &PlanItem, outcome: &Outcome) -> bool {
         && matches!(outcome, Outcome::Native { commands } if !commands.is_empty() && commands.iter().all(|c| c.success))
 }
 
+#[allow(clippy::too_many_arguments)] // `place`: where the Trash put it, for the journal
 fn act(
     item: &PlanItem,
     v: &guard::Verified,
@@ -585,6 +594,7 @@ fn act(
     installs: &crate::conda::Installs<'_>,
     worktrees: &WorktreeRecheck<'_>,
     progress: &ExecProgress,
+    place: &Cell<Option<TrashPlace>>,
 ) -> Outcome {
     let opts = worktrees.opts;
     let path = item.finding.path.as_path();
@@ -601,7 +611,7 @@ fn act(
         match fb {
             Fallback::Delete => delete::remove(v, path, false),
             Fallback::DeleteWritable => delete::remove(v, path, true),
-            Fallback::Trash => trash(ports, v, path),
+            Fallback::Trash => trash(ports, v, path, place),
             Fallback::Skip => Outcome::Skipped(SkipReason::ToolNotReady {
                 program: program.to_owned(),
                 detail: format!("no {program} lists this folder"),
@@ -610,7 +620,7 @@ fn act(
     };
     match item.action {
         Action::Delete { make_writable } => delete::remove(v, path, make_writable),
-        Action::Trash | Action::TrashEntry => trash(ports, v, path),
+        Action::Trash | Action::TrashEntry => trash(ports, v, path, place),
         Action::Native { cmd, fallback: fb } => {
             // A long clean reaches this item minutes after the guard's snapshot,
             // and a tool waits on a lock a process took meanwhile (uv).
@@ -708,6 +718,8 @@ pub struct MovedCompanion {
     pub path: PathBuf,
     pub id: (u64, u64),
     pub bytes: u64,
+    /// Where it went, when the Trash tells.
+    pub place: Option<TrashPlace>,
 }
 
 /// A session's entry: each companion to the Trash first, by name, each
@@ -720,6 +732,7 @@ fn trash_session(
     v: &guard::Verified,
     parts: &guard::SessionParts,
     path: &Path,
+    place: &Cell<Option<TrashPlace>>,
 ) -> (Outcome, Vec<MovedCompanion>) {
     let mut moved = Vec::new();
     let Some(parent) = path.parent() else { return (Outcome::Skipped(SkipReason::Protected), moved) };
@@ -737,12 +750,21 @@ fn trash_session(
             return (outcome, moved);
         }
         let target = TrashTarget { path: &at, parent: &v.parent, name: &c.name, id: c.id, is_dir: c.is_dir };
-        if let Err(e) = ports.trash.trash(&target) {
-            return (Outcome::Failed { error: format!("{}: {e}", at.display()) }, moved);
-        }
-        moved.push(MovedCompanion { path: at, id: c.id, bytes: c.bytes });
+        let to = match ports.trash.trash(&target) {
+            Ok(to) => to,
+            Err(TrashError::CrossesFilesystem) if moved.is_empty() => {
+                return (Outcome::Skipped(SkipReason::TrashCrossesFilesystem), moved);
+            }
+            Err(e) => return (Outcome::Failed { error: format!("{}: {e}", at.display()) }, moved),
+        };
+        moved.push(MovedCompanion { path: at, id: c.id, bytes: c.bytes, place: to });
     }
-    match trash(ports, v, path) {
+    match trash(ports, v, path, place) {
+        // The key had no Trash after its companions went: they stay there.
+        Outcome::Skipped(SkipReason::TrashCrossesFilesystem) if !moved.is_empty() => {
+            let error = format!("{}: no Trash on its own filesystem after its companions moved", path.display());
+            (Outcome::Failed { error }, moved)
+        }
         // The key changed after its companions went: they stay in the Trash.
         Outcome::Skipped(_) if !moved.is_empty() => {
             let error = format!("{} changed after the check", path.display());
@@ -752,13 +774,18 @@ fn trash_session(
     }
 }
 
-fn trash(ports: &Ports<'_>, v: &guard::Verified, path: &Path) -> Outcome {
+/// `place` is told where the item went, when the Trash tells.
+fn trash(ports: &Ports<'_>, v: &guard::Verified, path: &Path, place: &Cell<Option<TrashPlace>>) -> Outcome {
     if !v.unchanged() {
         return Outcome::Skipped(SkipReason::ChangedSinceScan);
     }
     let target = TrashTarget { path, parent: &v.parent, name: &v.name, id: v.id, is_dir: v.is_dir };
     match ports.trash.trash(&target) {
-        Ok(_) => Outcome::Trashed,
+        Ok(to) => {
+            place.set(to);
+            Outcome::Trashed
+        }
+        Err(TrashError::CrossesFilesystem) => Outcome::Skipped(SkipReason::TrashCrossesFilesystem),
         Err(e) => Outcome::Failed { error: e.to_string() },
     }
 }

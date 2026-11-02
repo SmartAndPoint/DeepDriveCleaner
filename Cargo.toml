@@ -3,7 +3,7 @@ members = ["crates/ddc-core", "crates/ddc-cli", "crates/ddc-loadgen"]
 resolver = "3"
 
 [workspace.package]
-version = "0.19.1"
+version = "0.20.0"
 edition = "2024"
 rust-version = "1.89"
 license = "AGPL-3.0-only"
@@ -14,6 +14,7 @@ publish = false
 ddc-core = { path = "crates/ddc-core" }
 ddc-loadgen = { path = "crates/ddc-loadgen" }
 anyhow = "1.0.100"
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 clap = { version = "4.6", features = ["derive"] }
 dhat = "0.3.3"
 humantime = "2.4"

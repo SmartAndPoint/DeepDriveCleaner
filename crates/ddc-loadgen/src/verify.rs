@@ -7,7 +7,10 @@ use std::time::SystemTime;
 
 use ddc_core::env::Env;
 use ddc_core::exec::preflight::{PreflightPorts, PreflightSummary, preflight};
-use ddc_core::exec::{CmdOutput, CommandRunner, OpenVnode, ProcInfo, ProcStart, ProcessTable};
+use ddc_core::exec::{
+    CmdOutput, CommandRunner, OpenVnode, ProcInfo, ProcStart, ProcessTable, TrashError, TrashPlace, TrashTarget,
+    Trasher,
+};
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{Plan, PlanOptions, build_plan};
 use ddc_core::report::{self, ScanOptions};
@@ -97,7 +100,7 @@ pub fn preflight_items(m: &Manifest, layout: &Layout, home: &Path) -> anyhow::Re
     }
     let Some(list) = items::listed(m, &layout.tree)? else { return Ok(None) };
     let env = env(layout, home)?;
-    let ports = PreflightPorts { commands: &NoTools, procs: &NoProcesses, reader: &StdReader };
+    let ports = PreflightPorts { commands: &NoTools, procs: &NoProcesses, reader: &StdReader, trash: &NoTrash };
     let roots = [layout.tree.clone()];
     let summary = preflight(&env, &Catalog::builtin(env.home()), &roots, &[], &list.items, &ports, &mut |_| Ok(()))?;
     Ok(Some(summary))
@@ -121,6 +124,15 @@ impl CommandRunner for NoTools {
         timeout: std::time::Duration,
     ) -> std::io::Result<CmdOutput> {
         self.run(exe, args, env, timeout)
+    }
+}
+
+/// A dry run asks only whether there is a Trash: there always is here.
+struct NoTrash;
+
+impl Trasher for NoTrash {
+    fn trash(&self, _: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+        Err(TrashError::Other(std::io::Error::other("nothing moves in a preflight")))
     }
 }
 

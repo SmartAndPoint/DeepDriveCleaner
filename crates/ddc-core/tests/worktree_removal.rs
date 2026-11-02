@@ -151,7 +151,7 @@ impl Home {
     fn preflight(&self, items: &[ListedItem], commands: &dyn CommandRunner) -> Vec<PreflightLine> {
         let mut lines = Vec::new();
         let procs = FakeProcs::new(vec![]);
-        let ports = PreflightPorts { commands, procs: &procs, reader: &StdReader };
+        let ports = PreflightPorts { commands, procs: &procs, reader: &StdReader, trash: &common::fakes::AnyTrash };
         preflight::preflight(&self.env(), &self.catalog(), &[], &[], items, &ports, &mut |l| {
             lines.push(l.clone());
             Ok(())

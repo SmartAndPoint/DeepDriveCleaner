@@ -95,8 +95,18 @@ impl Fx {
     }
 
     fn preflight(&self, items: &[ListedItem], procs: &dyn ProcessTable, commands: &FakeCommands) -> Vec<PreflightLine> {
+        self.preflight_with(items, procs, commands, &common::fakes::AnyTrash)
+    }
+
+    fn preflight_with(
+        &self,
+        items: &[ListedItem],
+        procs: &dyn ProcessTable,
+        commands: &FakeCommands,
+        trash: &dyn ddc_core::exec::Trasher,
+    ) -> Vec<PreflightLine> {
         let mut lines = Vec::new();
-        let ports = PreflightPorts { commands, procs, reader: &StdReader };
+        let ports = PreflightPorts { commands, procs, reader: &StdReader, trash };
         preflight::preflight(&self.env(), &self.catalog(), &[], &[], items, &ports, &mut |l| {
             lines.push(l.clone());
             Ok(())
@@ -271,6 +281,42 @@ fn a_user_data_item_is_refused_and_a_swapped_one_is_changed_since_scan() {
     assert!(pictures.join("a.jpg").exists() && cache.exists());
 }
 
+/// The dry run asks the Trash as the clean will: one with no folder on the
+/// item's filesystem predicts `trash-crosses-filesystem`, for a move to the
+/// Trash and for a tool's Trash fallback alike (safety ADR §5, amendment of
+/// 2026-11-01, step 6).
+#[test]
+fn the_dry_run_predicts_a_trash_that_would_cross() {
+    if common::unsupported("the_dry_run_predicts_a_trash_that_would_cross") {
+        return;
+    }
+    let fx = Fx::new();
+    let modules = fx.review_modules("x");
+    // A second version beside the global one: pyenv's own finding.
+    for v in ["3.12.3", "3.13.1"] {
+        fx.t.file(&format!(".pyenv/versions/{v}/bin/python"), 1000);
+    }
+    fx.t.write(".pyenv/version", "3.12.3");
+    let pyenv = fx.t.path(".pyenv/versions/3.13.1");
+    let reviewed = fx.scan();
+    let items: Vec<ListedItem> = [&modules, &pyenv].iter().map(|p| listed(&reviewed, p)).collect();
+    assert_eq!(items[1].action, ActionKind::Native, "pyenv's own command, the Trash its fallback");
+
+    let lines =
+        fx.preflight_with(&items, &FakeProcs::new(vec![]), &FakeCommands::default(), &common::fakes::CrossingTrash);
+
+    let predictions: Vec<&Prediction> = lines
+        .iter()
+        .filter_map(|l| match l {
+            PreflightLine::Item(i) => Some(&i.prediction),
+            PreflightLine::Summary(_) => None,
+        })
+        .collect();
+    let crossing = Prediction::WouldSkip(SkipReason::TrashCrossesFilesystem);
+    assert_eq!(predictions, [&crossing, &crossing]);
+    assert!(modules.exists() && pyenv.exists());
+}
+
 #[test]
 fn the_dry_run_predicts_and_changes_nothing() {
     if common::unsupported("the_dry_run_predicts_and_changes_nothing") {
@@ -409,7 +455,12 @@ fn the_dry_run_walks_only_the_listed_items_and_streams_a_line_per_item() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let reader = Counting { events: Arc::clone(&events) };
     let commands = FakeCommands::default();
-    let ports = PreflightPorts { commands: &commands, procs: &FakeProcs::new(vec![]), reader: &reader };
+    let ports = PreflightPorts {
+        commands: &commands,
+        procs: &FakeProcs::new(vec![]),
+        reader: &reader,
+        trash: &common::fakes::AnyTrash,
+    };
 
     let mut kinds = Vec::new();
     preflight::preflight(&fx.env(), &fx.catalog(), &[], &[], &items, &ports, &mut |line| {
