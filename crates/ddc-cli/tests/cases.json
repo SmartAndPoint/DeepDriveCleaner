@@ -234,7 +234,7 @@
     }
   ],
   "not_run": [
-    {"pattern": "^ddc schedule install$", "reason": "it bootstraps a LaunchAgent into the real gui/<uid> domain whatever HOME is"}
+    {"pattern": "^ddc schedule install$", "reason": "it installs into the real scheduler of the user (launchd's gui/<uid> domain) whatever HOME is"}
   ],
   "uncovered": [
     {"name": "clean --yes", "reason": "it deletes without asking; the cases never clean for real"},
@@ -248,7 +248,7 @@
     {"name": "disk free --json", "reason": "disk free is never run"},
     {"name": "disk free --data-dir", "reason": "disk free is never run"},
     {"name": "disk free --system-root", "reason": "disk free is never run"},
-    {"name": "schedule install", "reason": "it bootstraps a LaunchAgent into the real gui/<uid> domain whatever HOME is"},
+    {"name": "schedule install", "reason": "it installs into the real scheduler of the user (launchd's gui/<uid> domain) whatever HOME is"},
     {"name": "schedule install --interval", "reason": "schedule install is never run"},
     {"name": "schedule install --threshold", "reason": "schedule install is never run"},
     {"name": "schedule uninstall", "reason": "it boots out the real gui/<uid> agent whatever HOME is"}

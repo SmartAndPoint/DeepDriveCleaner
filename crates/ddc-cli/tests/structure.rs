@@ -12,6 +12,7 @@ fn background_sources_never_reference_cleanup() {
         "cmd/notify.rs",
         "notify.rs",
         "platform/launchd.rs",
+        "platform/scheduler.rs",
         "platform/macos.rs",
         "platform/unported.rs",
     ] {

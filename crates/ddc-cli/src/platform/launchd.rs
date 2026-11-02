@@ -1,10 +1,12 @@
-//! The scheduled scan as a per-user LaunchAgent.
+//! The scheduled scan as a per-user LaunchAgent: one [`Scheduler`].
 
-use ddc_core::platform::Canonical as _;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::scheduler::{
+    Installed, ProgramState, ScheduleSpec, Scheduler, inside_cargo_target, program_state, scheduled_program,
+};
 use crate::cli::IntervalArg;
 
 pub const LABEL: &str = "com.smartandpoint.deepdrivecleaner";
@@ -106,63 +108,6 @@ pub fn installed_program(plist_text: &str) -> Option<PathBuf> {
     Some(PathBuf::from(unescaped))
 }
 
-/// A binary built by cargo (`…/target/<profile>/deepdrivecleaner`) disappears with
-/// `cargo clean` or `ddc clean` (rule `rust.target`): refuse to schedule it.
-pub fn inside_cargo_target(exe: &Path) -> bool {
-    exe.ancestors().any(|a| {
-        a.file_name().is_some_and(|n| n == "target") && a.parent().is_some_and(|p| p.join("Cargo.toml").exists())
-    })
-}
-
-/// Homebrew installs every version under a new directory, which `brew upgrade`
-/// removes; a link outside it follows the upgrade. Path arithmetic only:
-/// - cask: `<prefix>/Caskroom/<token>/<version>/<file>` → `<prefix>/bin/<file>`
-/// - formula: `<prefix>/Cellar/<name>/<version>/bin/<file>` → `<prefix>/opt/<name>/bin/<file>`
-pub fn homebrew_stable_path(exe: &Path) -> Option<PathBuf> {
-    let file = exe.file_name()?;
-    let parent = exe.parent()?;
-    let named = |dir: &Path, name: &str| dir.file_name().is_some_and(|n| n == name);
-    let caskroom = parent.parent()?.parent()?;
-    if named(caskroom, "Caskroom") {
-        return Some(caskroom.parent()?.join("bin").join(file));
-    }
-    let formula = parent.parent()?.parent()?;
-    let cellar = formula.parent()?;
-    if named(parent, "bin") && named(cellar, "Cellar") {
-        return Some(cellar.parent()?.join("opt").join(formula.file_name()?).join("bin").join(file));
-    }
-    None
-}
-
-/// Both paths name the same file once symlinks are resolved.
-pub fn same_binary(a: &Path, b: &Path) -> bool {
-    matches!((a.canonical(), b.canonical()), (Ok(x), Ok(y)) if x == y)
-}
-
-/// The path the agent runs: Homebrew's stable link when it leads to this binary,
-/// so the schedule survives `brew upgrade`; otherwise the binary itself.
-pub fn scheduled_program(exe: &Path) -> PathBuf {
-    homebrew_stable_path(exe).filter(|link| same_binary(link, exe)).unwrap_or_else(|| exe.to_path_buf())
-}
-
-/// How the program in an installed plist relates to the running binary.
-#[derive(Debug, PartialEq, Eq)]
-pub enum ProgramState {
-    Missing,
-    Other,
-    Current,
-}
-
-pub fn program_state(program: &Path, current: Option<&Path>) -> ProgramState {
-    if !program.exists() {
-        ProgramState::Missing
-    } else if current.is_some_and(|c| same_binary(program, c)) {
-        ProgramState::Current
-    } else {
-        ProgramState::Other
-    }
-}
-
 pub trait Launchctl {
     /// Unloads; `Ok(false)` when it was not loaded.
     fn bootout(&self, target: &str) -> io::Result<bool>;
@@ -236,6 +181,49 @@ pub fn uninstall(home: &Path, uid: u32, lc: &dyn Launchctl) -> anyhow::Result<bo
     Ok(existed)
 }
 
+/// The LaunchAgent of the user `uid` whose home is `home`.
+pub struct Launchd<'a> {
+    pub home: PathBuf,
+    pub uid: u32,
+    pub lc: &'a dyn Launchctl,
+}
+
+impl Scheduler for Launchd<'_> {
+    fn install(&self, spec: &ScheduleSpec) -> anyhow::Result<Installed> {
+        let agent = AgentSpec {
+            exe: spec.exe.clone(),
+            interval: spec.interval,
+            threshold: spec.threshold,
+            log_dir: spec.log_dir.clone(),
+            associated_bundle: app_bundle_of(&spec.exe).map(|_| APP_BUNDLE_ID),
+        };
+        let path = install(&agent, &self.home, self.uid, self.lc)?;
+        Ok(Installed { path, try_now: format!("launchctl kickstart -k {}", target(self.uid)) })
+    }
+
+    fn uninstall(&self) -> anyhow::Result<bool> {
+        uninstall(&self.home, self.uid, self.lc)
+    }
+
+    fn status(&self, current: Option<&Path>) -> Option<Vec<String>> {
+        let path = plist_path(&self.home);
+        let text = std::fs::read_to_string(&path).ok()?;
+        let mut lines = vec![
+            format!("Agent:   {}", path.display()),
+            format!("Loaded:  {}", if self.lc.loaded(&target(self.uid)) { "yes" } else { "no" }),
+        ];
+        lines.push(match installed_program(&text) {
+            Some(p) => match program_state(&p, current) {
+                ProgramState::Missing => format!("Binary:  {} (missing! reinstall)", p.display()),
+                ProgramState::Other => format!("Binary:  {} (not this ddc)", p.display()),
+                ProgramState::Current => format!("Binary:  {}", p.display()),
+            },
+            None => "Binary:  unreadable plist".to_owned(),
+        });
+        Some(lines)
+    }
+}
+
 /// A launchctl that only remembers what it loaded: no test ever runs the real
 /// one (the owner's installed agent has the same label).
 #[cfg(test)]
@@ -279,6 +267,8 @@ mod tests {
 
     use super::fake::FakeLaunchctl;
     use super::*;
+    use crate::platform::scheduler::homebrew_stable_path;
+    use ddc_core::platform::Canonical as _;
 
     fn spec(dir: &Path) -> AgentSpec {
         AgentSpec {
@@ -353,6 +343,48 @@ mod tests {
         assert!(uninstall(tmp.path(), 501, &lc).unwrap());
         assert!(!uninstall(tmp.path(), 501, &lc).unwrap());
         assert!(lc.0.borrow().is_empty() && !plist_path(tmp.path()).exists());
+    }
+
+    /// `schedule status`'s lines for a LaunchAgent, byte for byte: S2's
+    /// systemd backend must leave them as they are.
+    #[test]
+    fn status_says_the_agent_whether_it_is_loaded_and_its_binary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let exe = tmp.path().join("bin/deepdrivecleaner");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, "binary").unwrap();
+        let lc = FakeLaunchctl::default();
+        let agent = Launchd { home: tmp.path().to_path_buf(), uid: 501, lc: &lc };
+        assert_eq!(agent.status(Some(&exe)), None, "nothing installed");
+
+        let spec = ScheduleSpec {
+            exe: exe.clone(),
+            interval: IntervalArg::Daily,
+            threshold: None,
+            log_dir: tmp.path().join("logs"),
+        };
+        agent.install(&spec).unwrap();
+        let plist = plist_path(tmp.path());
+        assert_eq!(
+            agent.status(Some(&exe)).unwrap(),
+            vec![
+                format!("Agent:   {}", plist.display()),
+                "Loaded:  yes".to_owned(),
+                format!("Binary:  {}", exe.display()),
+            ]
+        );
+
+        #[allow(clippy::disallowed_methods)] // the test's own file
+        std::fs::remove_file(&exe).unwrap();
+        lc.0.borrow_mut().clear();
+        assert_eq!(
+            agent.status(None).unwrap(),
+            vec![
+                format!("Agent:   {}", plist.display()),
+                "Loaded:  no".to_owned(),
+                format!("Binary:  {} (missing! reinstall)", exe.display()),
+            ]
+        );
     }
 
     #[test]
