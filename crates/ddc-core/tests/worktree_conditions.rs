@@ -123,12 +123,18 @@ fn state(f: &Finding) -> &WorktreeState {
     f.worktree.as_ref().expect("a worktree state")
 }
 
-/// It holds all six conditions: `rebuildable` and selected, removed through git.
+/// It holds all six conditions: `rebuildable` and selected, removed through
+/// git; its hint names the branch the removal keeps.
 fn eligible(f: &Finding) {
     assert_eq!((f.class, f.selected, f.not_selected), (RiskClass::Rebuildable, true, None), "{}", f.hint);
     assert_eq!(f.removal, RemovalKind::Native);
     assert_eq!(state(f).probe, WorktreeProbe::Known);
     assert!(f.hint.contains("that nothing needs any more"), "{}", f.hint);
+    let kept = match &state(f).branch {
+        Some(branch) => format!("branch {branch} is kept, git branch -d to drop it"),
+        None => "its HEAD is detached and no other ref loses a commit".to_owned(),
+    };
+    assert!(f.hint.contains(&kept), "{kept:?} in {}", f.hint);
 }
 
 fn kept(f: &Finding, says: &str) {
@@ -164,6 +170,7 @@ fn a_dead_claude_code_worktree_is_rebuildable_and_selected() {
     assert_eq!((s.locked, s.in_use, s.idle_days), (Some(false), Some(false), Some(3)));
     assert_eq!((s.submodules, s.clean, s.own_commits, &s.ignored_content), (Some(false), Some(true), Some(0), &None));
     assert_eq!(s.branch.as_deref(), Some("worktree-x"));
+    assert!(f.hint.contains("branch worktree-x is kept, git branch -d to drop it"), "{}", f.hint);
     assert!(f.hint.starts_with(&format!("a linked worktree of {} that nothing needs", main.display())), "{}", f.hint);
     assert_eq!(f.project.as_ref().unwrap().idle_days, Some(3));
     let calls = commands.git_calls();

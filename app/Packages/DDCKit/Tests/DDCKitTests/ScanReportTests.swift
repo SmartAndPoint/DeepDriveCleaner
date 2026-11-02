@@ -49,6 +49,21 @@ struct ScanReportTests {
         #expect(report.totals.selectedBytes == 8192)
     }
 
+    /// Story "Worktree findings and provenance" (epic DDC-003): a report the
+    /// released ddc 0.25.0 wrote over a Claude Code worktree with a `.venv`
+    /// reads, with the fields the app reads of the worktree finding.
+    @Test("a report with a coding agent's worktree and what lies in it reads")
+    func decodesReportWithWorktree() throws {
+        let report = try ScanReport.read(try Data(contentsOf: try Self.fixture("scan-report-0.25.0-worktree")))
+        #expect(report.schemaVersion == ScanReport.schemaVersion)
+        #expect(report.findings.map(\.rule) == ["python.venv", "git.worktree"])
+        #expect(report.findings.map(\.class) == [.rebuildable, .review])
+        #expect(report.findings.map(\.removal) == [.delete, .native])
+        #expect(report.findings.map(\.originKind) == [nil, "worktree"])
+        #expect(report.findings.map(\.selected) == [false, false])
+        #expect(report.findings.map(\.project?.root) == ["/h/p/.claude/worktrees/x", "/h/p"])
+    }
+
     /// Story "Harness data rules" (epic DDC-003): a session folder lists its
     /// sessions as entries, a live one locked `live-session`; an unknown
     /// `by` or `cause` does not decode.
