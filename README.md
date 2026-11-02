@@ -23,7 +23,7 @@ DeepDriveCleaner · scanned ~ in 39.6s · 5.5M files · 544.8 GiB
 
 Status: 0.3.0. macOS 26 on Apple Silicon. The app now schedules scans itself and notifies with Review and Remind Me Tomorrow (Settings → Schedule).
 
-The command-line tool also runs on Linux, x86_64 and aarch64, as one static binary: `scan`, `clean`, `keep`, `rules`, `du` and `agent status`, with the Linux catalog (XDG caches, the editors' remote servers, rootless Docker) and ddc's own freedesktop Trash, which never copies across filesystems. The rest of `disk`, Homebrew, `schedule` and notifications are macOS's. Install it with the script below or from the release archives.
+The command-line tool also runs on Linux, x86_64 and aarch64, as one static binary: `scan`, `clean`, `keep`, `rules`, `du` and `agent status`, with the Linux catalog (XDG caches, the editors' remote servers, rootless Docker) and ddc's own freedesktop Trash, which never copies across filesystems. `schedule` runs as a systemd user timer. The rest of `disk`, Homebrew and notifications are macOS's. Install it with the script below or from the release archives.
 
 ## Install
 
@@ -350,9 +350,10 @@ ddc schedule status
 ddc schedule uninstall
 ```
 
-- `install` installs (or updates) a LaunchAgent that scans daily, or weekly with `--interval weekly`. It notifies when at least `--threshold` can be freed (default: the settings' threshold, else 10G), or when a scanned disk is under 10 % free with something on it to clean. A threshold notification repeats after a fifth more or a week; a disk under 10 % free notifies at every scheduled scan until it is cleaned (`notify_low_disk: false` in `settings.json` turns that off). The background scan **never deletes anything**, and it skips the folders where macOS would show a permission prompt, because a prompt would block it. Once the Mac app runs the scheduled scan itself (0.3.0), `install` refuses: one scheduler at a time.
-- `status` shows whether the LaunchAgent is installed, loaded and runs this binary.
-- `uninstall` removes the LaunchAgent.
+- `install` installs (or updates) a scheduled scan, daily, or weekly with `--interval weekly`. It notifies when at least `--threshold` can be freed (default: the settings' threshold, else 10G), or when a scanned disk is under 10 % free with something on it to clean. A threshold notification repeats after a fifth more or a week; a disk under 10 % free notifies at every scheduled scan until it is cleaned (`notify_low_disk: false` in `settings.json` turns that off). The background scan **never deletes anything**, and it skips the folders where macOS would show a permission prompt, because a prompt would block it. Once the Mac app runs the scheduled scan itself (0.3.0), `install` refuses: one scheduler at a time.
+- `status` shows whether the scheduled scan is installed, loaded and runs this binary.
+- `uninstall` removes it.
+- On macOS it is a LaunchAgent. On Linux it is a systemd user timer: `install` writes `deepdrivecleaner-scan.service` and `.timer` into `~/.local/state/deepdrivecleaner/systemd/` and links them into your systemd user manager, no root needed. The service pins the data folder and the variables ddc honours (`DOCKER_CONFIG`, `CLAUDE_CODE_TMPDIR`). Without lingering (`loginctl enable-linger $USER`), a user timer runs only while you are logged in; `status` says so. Where no systemd user manager runs (a container, WSL without systemd, OpenRC), `install` refuses with exit 69 and prints a crontab line to add instead.
 - The Mac app's own schedule (Settings → Schedule) replaces this LaunchAgent: the app offers Replace It while the LaunchAgent exists, and `ddc schedule install` refuses while the app schedules.
 
 ```
@@ -397,7 +398,8 @@ The install script (under [Install](#on-an-older-macos-or-the-command-line-only)
 | `~/Library/Logs/DeepDriveCleaner/actions.jsonl` | The journal: every deletion, move to the Trash, tool run and `keep remove` decision, one JSON line each. |
 | `~/Library/Logs/DeepDriveCleaner/background.log` | What the scheduled scans found; `background.out.log` and `background.err.log` hold their raw output. |
 | `~/Library/Logs/DeepDriveCleaner/app.log` | What the menu bar app did: each run of the command-line tool and its outcome. |
-| `~/Library/LaunchAgents/com.smartandpoint.deepdrivecleaner.plist` | The background agent of `ddc schedule install`. |
+| `~/Library/LaunchAgents/com.smartandpoint.deepdrivecleaner.plist` | The background agent of `ddc schedule install` on macOS. |
+| `~/.local/state/deepdrivecleaner/systemd/deepdrivecleaner-scan.{service,timer}` | The systemd user timer of `ddc schedule install` on Linux. |
 
 `--data-dir DIR` or `DDC_DATA_DIR=DIR` moves the data files to `DIR` and the command-line tool's logs to `DIR/logs`, which is how to try `ddc` without touching your real ones.
 

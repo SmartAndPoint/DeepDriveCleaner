@@ -259,6 +259,34 @@ jobs:
         if: ${{ !cancelled() && needs.scope.outputs.mounts != 'no' }}
         run: scripts/native-skips.sh --mounts linux "$RUNNER_TEMP/mounts-tests.log"
 
+  # The Linux scheduled scan on the runner's real, throwaway systemd user manager (story
+  # "Scheduled scans on Linux through a systemd user timer", DDC-010). Not required until
+  # it has been green for a week; the story's close flips continue-on-error.
+  linux-schedule:
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.scope != 'skip' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+          cache-on-failure: true
+          key: linux-schedule
+      - name: Build
+        run: cargo build --locked -p ddc-cli
+      - name: Install, run, reinstall and uninstall the timer
+        run: scripts/ci-schedule.sh target/debug/deepdrivecleaner
+      - name: No timer is left behind
+        if: ${{ always() }}
+        run: |
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          "$RUNNER_TEMP/stable/deepdrivecleaner" schedule uninstall || true
+
   # The release CLI as `make dist` builds and checks it before signing (story "Build
   # matrix: every target built, tested and packaged from one tag", DDC-007): release-only
   # breakage (LTO, codegen units, the path remap) shows on the push, not on the

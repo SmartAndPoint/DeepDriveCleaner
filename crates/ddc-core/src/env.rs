@@ -158,6 +158,23 @@ impl Env {
         self.now
     }
 
+    /// The variables ddc honours that were set in this process, as a
+    /// scheduler that does not start from the shell must pin them (story
+    /// "Scheduled scans on Linux through a systemd user timer"): `DOCKER_CONFIG`
+    /// and `CLAUDE_CODE_TMPDIR`. Never `HOME`, `PATH` or the data folder's
+    /// variables, which the schedule pins otherwise or not at all, and never
+    /// `TMPDIR`, a session's value that may be gone by the next run.
+    pub fn pinned_vars(&self) -> Vec<(&'static str, PathBuf)> {
+        let mut vars = Vec::new();
+        if let Some(dir) = &self.docker_config {
+            vars.push(("DOCKER_CONFIG", dir.clone()));
+        }
+        if let Some(dir) = &self.claude_tmpdir {
+            vars.push(("CLAUDE_CODE_TMPDIR", dir.clone()));
+        }
+        vars
+    }
+
     /// docker's config folder: `DOCKER_CONFIG`, else `~/.docker`.
     pub fn docker_config(&self) -> PathBuf {
         self.docker_config.clone().unwrap_or_else(|| self.home.join(".docker"))
@@ -242,5 +259,22 @@ mod tests {
         if crate::platform::PLATFORM != Platform::Windows {
             assert!(base.unwrap().starts_with("/fixture"));
         }
+    }
+
+    #[test]
+    fn only_the_set_honoured_variables_are_pinned_and_never_tmpdir() {
+        let env = Env {
+            home: PathBuf::from("/home"),
+            data_dir: PathBuf::from("/data"),
+            log_dir: PathBuf::from("/data/logs"),
+            now: SystemTime::UNIX_EPOCH,
+            path: Vec::new(),
+            docker_config: Some(PathBuf::from("/cfg/docker")),
+            system_root: PathBuf::from("/"),
+            claude_tmpdir: None,
+            tmpdir: Some(PathBuf::from("/var/tmp/me")),
+            default_data_dir: true,
+        };
+        assert_eq!(env.pinned_vars(), vec![("DOCKER_CONFIG", PathBuf::from("/cfg/docker"))]);
     }
 }

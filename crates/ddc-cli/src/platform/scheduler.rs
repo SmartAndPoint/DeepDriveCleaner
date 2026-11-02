@@ -17,6 +17,35 @@ pub struct ScheduleSpec {
     /// Written only when given, so `notify_threshold` in settings.json applies otherwise.
     pub threshold: Option<u64>,
     pub log_dir: PathBuf,
+    /// The data folder the interactive install knew, which the scheduled scan
+    /// writes to: pinned where the scheduler's own environment could name
+    /// another one.
+    pub data_dir: PathBuf,
+    /// Neither `--data-dir` nor `DDC_DATA_DIR` named it.
+    pub data_dir_is_default: bool,
+    /// The variables ddc honours that were set at install, which a scheduler
+    /// that does not start from the shell pins (`Env::pinned_vars`).
+    pub pinned: Vec<(&'static str, PathBuf)>,
+}
+
+/// Why this machine has no scheduler ddc can use: refused before anything
+/// is written (exit `EX_UNAVAILABLE`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unavailable {
+    /// A stable code, such as `no-user-systemd`.
+    pub code: &'static str,
+    /// For stderr, after `ddc: <code>: `.
+    pub message: String,
+    /// For stdout: what the user can do instead, such as a cron line.
+    pub instead: String,
+}
+
+/// What `ddc schedule status` prints of an installed schedule.
+pub struct Status {
+    pub lines: Vec<String>,
+    /// The data folder the schedule names, when it names one: the last scan
+    /// is read from there, not from the shell's.
+    pub data_dir: Option<PathBuf>,
 }
 
 /// Where an install wrote its schedule, and the command that runs it now.
@@ -26,13 +55,29 @@ pub struct Installed {
 }
 
 pub trait Scheduler {
+    /// Whether this machine runs the scheduler at all. Asked before anything
+    /// is written; a scheduler that is always there says yes.
+    fn available(&self, _spec: &ScheduleSpec) -> Result<(), Unavailable> {
+        Ok(())
+    }
     /// Writes and (re)loads the schedule: idempotent.
     fn install(&self, spec: &ScheduleSpec) -> anyhow::Result<Installed>;
     /// Unloads and removes it: idempotent. Returns whether one was installed.
     fn uninstall(&self) -> anyhow::Result<bool>;
-    /// The status lines, `None` when nothing is installed. `current` is the
-    /// running binary.
-    fn status(&self, current: Option<&Path>) -> Option<Vec<String>>;
+    /// The status, `None` when nothing is installed. `current` is the running
+    /// binary.
+    fn status(&self, current: Option<&Path>) -> Option<Status>;
+}
+
+/// Refuses a binary a scheduler must not run: one cargo may delete.
+pub fn refuse_cargo_target(exe: &Path) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !inside_cargo_target(exe),
+        "{} is a cargo build artifact and may be deleted; install a stable copy first: \
+         make install (or cargo install --path crates/ddc-cli)",
+        exe.display()
+    );
+    Ok(())
 }
 
 /// A binary built by cargo (`…/target/<profile>/deepdrivecleaner`) disappears with
