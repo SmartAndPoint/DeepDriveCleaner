@@ -30,7 +30,7 @@
 //! Not covered here: that `--yes` runs only the default-selected findings of
 //! its classes (`exec::allowed`, tested in `ddc-core/tests/clean_safety.rs`).
 
-// Unix only: the placements are byte paths, and the checks read st_dev and st_ino.
+// Unix only: the placements are byte paths, and the checks read devices and inodes.
 #![cfg(unix)]
 
 use std::cell::Cell;
@@ -38,7 +38,6 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io;
 use std::os::unix::ffi::OsStrExt as _;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, SystemTime};
@@ -816,7 +815,7 @@ impl Trasher for FakeTrash {
 
 /// A plan item for `path` as the scan would describe it, with its real identity.
 fn injected(path: &Path, r: &'static Rule, class: RiskClass, action: Action) -> PlanItem {
-    let id = |p: &Path| p.symlink_metadata().map(|m| (m.dev(), m.ino())).ok();
+    let id = |p: &Path| ddc_core::platform::meta::lstat(p).map(|st| st.id()).ok();
     let (dev, ino) = id(path).unwrap_or_default();
     let up = path.parent().and_then(id);
     let finding = Finding {

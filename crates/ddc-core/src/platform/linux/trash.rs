@@ -212,7 +212,7 @@ fn inside(
     dev: u64,
     create: bool,
 ) -> Result<Option<Chosen>, TrashError> {
-    let on_dev = |fd: &OwnedFd| rustix::fs::fstat(fd).map(|st| st.st_dev == dev).map_err(errno);
+    let on_dev = |fd: &OwnedFd| bulk::held(fd).map(|held| held.id.0 == dev).map_err(errno);
     if !on_dev(&trash_fd)? {
         return Err(TrashError::CrossesFilesystem);
     }
@@ -305,8 +305,8 @@ fn move_into(
                 return Err(errno(e));
             }
         }
-        let landed = rustix::fs::statat(&chosen.files, &base, AtFlags::SYMLINK_NOFOLLOW);
-        if !landed.is_ok_and(|st| (st.st_dev, st.st_ino) == id) {
+        let landed = bulk::stat_child(&chosen.files, &base);
+        if !landed.is_ok_and(|st| (st.dev, st.ino) == id) {
             // Swapped between the check and the rename: put it back.
             if rename_into(&chosen.files, &base, parent, name).is_ok() {
                 forget();
@@ -408,7 +408,7 @@ mod tests {
     use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 
     use super::*;
-    use crate::platform::testing;
+    use crate::platform::{meta, testing};
 
     struct Fx {
         _d: tempfile::TempDir,
@@ -430,16 +430,16 @@ mod tests {
             fs::create_dir_all(&folder).unwrap();
             let path = folder.join(name);
             fs::write(&path, b"x").unwrap();
-            let md = fs::symlink_metadata(&path).unwrap();
+            let id = meta::lstat(&path).unwrap().id();
             let fd =
                 rustix::fs::open(&folder, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC, Mode::empty()).unwrap();
-            (fd, path, (md.dev(), md.ino()))
+            (fd, path, id)
         }
         fn top(&self) -> OwnedFd {
             open(&self.base)
         }
         fn dev(&self) -> u64 {
-            fs::metadata(&self.base).unwrap().dev()
+            meta::stat(&self.base).unwrap().dev
         }
     }
 
@@ -472,8 +472,7 @@ mod tests {
         let place = move_into(&dir, OsStr::new("cache"), &path, id, &fx.home_trash()).unwrap();
         assert_eq!(place, TrashPlace { trash: fx.home_trash(), name: "cache".into() });
         assert!(!path.exists());
-        let moved = fs::symlink_metadata(fx.home_trash().join("files/cache")).unwrap();
-        assert_eq!((moved.dev(), moved.ino()), id);
+        assert_eq!(meta::lstat(&fx.home_trash().join("files/cache")).unwrap().id(), id);
         let info = fs::read_to_string(fx.home_trash().join("info/cache.trashinfo")).unwrap();
         assert!(info.contains(&format!("Path={}\n", path.display())), "{info}");
         assert_eq!(fs::metadata(fx.home_trash()).unwrap().mode() & 0o777, 0o700);

@@ -9,8 +9,11 @@ use std::fs;
 use std::io;
 use std::mem::MaybeUninit;
 use std::os::unix::ffi::OsStrExt as _;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
+
+use rustix::fs::{Mode, OFlags};
+
+use crate::platform::types::EntryKind;
 
 pub use crate::platform::types::{OpenVnode, ProcInfo, ProcStart, RootOwner, app_bundle};
 
@@ -121,12 +124,20 @@ pub fn open_vnodes(pid: i32) -> Vec<OpenVnode> {
     let Ok(fds) = crate::stats::read_dir(proc(pid).join("fd")) else { return Vec::new() };
     fds.flatten()
         .filter_map(|fd| {
-            // `stat` through the link reaches the open file, even an unlinked one.
-            let md = fs::metadata(fd.path()).ok()?;
-            (md.is_file() || md.is_dir()).then(|| OpenVnode {
-                dev: md.dev(),
-                ino: md.ino(),
-                path: fs::read_link(fd.path()).ok().and_then(|p| file_path(p.as_os_str())),
+            // Opened once through the link, which reaches the open file, even
+            // an unlinked one: its kind, inode and device (the one a scan
+            // reports, `super::fsid`) come from that one descriptor, never
+            // from a second lookup another file could have taken by then. An
+            // fd closed since the listing opens nothing, and the process no
+            // longer holds it; no raw device stands in for a fold.
+            let link = fd.path();
+            let held =
+                super::bulk::retry(|| rustix::fs::open(&link, OFlags::PATH | OFlags::CLOEXEC, Mode::empty())).ok()?;
+            let held = super::bulk::held(&held).ok()?;
+            matches!(held.kind, EntryKind::File | EntryKind::Dir).then(|| OpenVnode {
+                dev: held.id.0,
+                ino: held.id.1,
+                path: fs::read_link(&link).ok().and_then(|p| file_path(p.as_os_str())),
             })
         })
         .collect()
@@ -443,8 +454,8 @@ mod tests {
         let real = crate::platform::paths::canonicalize(d.path()).unwrap();
         assert_eq!(info.cwd.as_deref(), Some(real.as_path()));
         assert!(open_files(kid.pid()).contains(&real.join("held")), "{:?}", open_files(kid.pid()));
-        let vnode = fs::metadata(&held).unwrap();
-        assert!(open_vnodes(kid.pid()).iter().any(|v| (v.dev, v.ino) == (vnode.dev(), vnode.ino())));
+        let vnode = crate::platform::meta::stat(&held).unwrap().id();
+        assert!(open_vnodes(kid.pid()).iter().any(|v| (v.dev, v.ino) == vnode));
     }
 
     /// A venv's `bin/python` is a symlink: `exe` names the interpreter it

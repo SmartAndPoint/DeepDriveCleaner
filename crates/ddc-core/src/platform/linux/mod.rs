@@ -15,6 +15,7 @@ mod btrfs;
 pub mod bulk;
 pub mod errno;
 pub mod folders;
+mod fsid;
 pub mod fsops;
 pub mod meta;
 pub mod paths;

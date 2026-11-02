@@ -136,6 +136,19 @@ fn the_dataset_rule_tells_each_condition_for_work() {
     assert!(bound.contains("edge: Some(Mount)"), "{bound}");
 }
 
+/// A file held open inside a child dataset is in use: one identity for the
+/// guard, the walk and the process table, its device the dataset's
+/// `f_fsid` folded (safety ADR, amendment of 2026-11-02, "Stable
+/// identities").
+#[test]
+fn a_file_held_open_inside_a_dataset_is_in_use() {
+    let Some(t) = common::mount("a_file_held_open_inside_a_dataset_is_in_use", Mount::ZfsTree) else {
+        return;
+    };
+    let tree = TreeBuilder::new_in(&t.join("work"));
+    common::mounts::held_open_is_in_use("a_file_held_open_inside_a_dataset_is_in_use", &tree.file("held", 4096));
+}
+
 /// An item inside a child dataset moves into `.Trash-$uid` at the
 /// dataset's own root, the top of its mount: the same device, so the rename
 /// works, and never the pool's top above it. The dry run said it would.
@@ -149,8 +162,7 @@ fn a_dataset_item_moves_into_the_datasets_own_trash() {
     let top = top.canonical().unwrap();
     let tree = TreeBuilder::new_in(&top);
     let file = tree.file("cache/blob", 4096);
-    let md = std::fs::symlink_metadata(&file).unwrap();
-    let id = (md.dev(), md.ino());
+    let id = ddc_core::platform::meta::lstat(&file).unwrap().id();
     let folder = ddc_core::platform::fsops::DirFd::open(file.parent().unwrap()).unwrap();
     let name = file.file_name().unwrap();
     let uid = std::fs::metadata(tree.root()).unwrap().uid();
@@ -158,8 +170,8 @@ fn a_dataset_item_moves_into_the_datasets_own_trash() {
     trash::would_trash(&folder, name, &file).unwrap();
     let place = trash::trash_item(&folder, name, &file, id).unwrap().expect("Linux tells the place");
     assert_eq!(place.trash, top.join(format!(".Trash-{uid}")));
-    let landed = std::fs::symlink_metadata(place.trash.join("files").join(&place.name)).unwrap();
-    assert_eq!((landed.dev(), landed.ino()), id);
+    let landed = ddc_core::platform::meta::lstat(&place.trash.join("files").join(&place.name)).unwrap();
+    assert_eq!(landed.id(), id);
     assert!(!file.exists());
     let info =
         std::fs::read_to_string(place.trash.join("info").join(format!("{}.trashinfo", place.name.to_string_lossy())))
