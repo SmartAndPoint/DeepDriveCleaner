@@ -118,9 +118,16 @@ impl Home {
     /// Rescans, plans the list and runs it as `clean --items` does; the
     /// outcomes in list order, refused items included.
     fn clean(&self, items: &[ListedItem], procs: Vec<ProcInfo>) -> Vec<Outcome> {
+        self.clean_after(items, procs, || {})
+    }
+
+    /// [`Self::clean`], with `between` run after the plan and before the
+    /// clean: a change the guard alone must catch.
+    fn clean_after(&self, items: &[ListedItem], procs: Vec<ProcInfo>, between: impl FnOnce()) -> Vec<Outcome> {
         let (scanned, entries) = self.scan();
         let catalog = self.catalog();
         let listed = plan_listed(&scanned, &entries, &catalog, items);
+        between();
         let mut journal = MemoryJournal::default();
         let run = exec::execute(
             &self.env(),
@@ -779,4 +786,27 @@ fn the_executor_derives_an_entrys_lock_again_right_before_the_trash() {
     assert_eq!(outcome("Downloads/Project"), Some(kept()));
     assert_eq!(outcome("Downloads/fine.zip"), Some(Outcome::Trashed));
     assert!(h.path("Downloads/a.iso").exists() && h.path("Downloads/Project/sub/x.bin").exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn an_entry_evicted_to_the_cloud_after_the_plan_is_never_moved() {
+    if common::unsupported("an_entry_evicted_to_the_cloud_after_the_plan_is_never_moved") {
+        return;
+    }
+    let h = Home::new();
+    h.tree.file("Downloads/old.zip", 30_000);
+    h.tree.file("Downloads/Album/a.jpg", 30_000);
+    let items = [h.pick("Downloads/old.zip", "user.downloads"), h.pick("Downloads/Album", "user.downloads")];
+    let evict = || {
+        common::offline(&h.path("Downloads/old.zip"));
+        common::offline(&h.path("Downloads/Album"));
+    };
+    let outcomes = h.clean_after(&items, vec![], evict);
+    assert_eq!(outcomes, [skipped(SkipReason::NotAnEntry), skipped(SkipReason::NotAnEntry)]);
+    // The dry run, now the entries are placeholders, says the same.
+    let refused = Prediction::WouldSkip(SkipReason::NotAnEntry);
+    assert_eq!(h.dry_run(&items, vec![]), [refused.clone(), refused]);
+    assert!(h.path("Downloads/old.zip").exists() && h.path("Downloads/Album/a.jpg").exists());
+    assert!(!h.trash().exists(), "nothing reached the Trash");
 }

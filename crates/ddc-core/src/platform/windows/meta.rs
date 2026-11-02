@@ -172,9 +172,9 @@ pub(super) const RECALL_BY_HANDLE: u32 = FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS | 
 /// placeholder, as macOS reports an evicted file or folder. The walker then
 /// skips such a folder without listing it (a listing would make the
 /// provider download its entries), preflight refuses such an item, and an
-/// entry-shaped report shows it as dataless. The guard refuses one only
-/// among a session's companions (story "Windows scanner and rule catalog",
-/// step 6b, records the gap).
+/// entry-shaped report shows it as dataless. The guard refuses a finding,
+/// a picked entry or a session companion that turned dataless after the
+/// plan, and re-checks right before the rename.
 pub(super) fn flags_of(attributes: u32) -> u32 {
     if attributes & RECALL != 0 { crate::scan::reader::SF_DATALESS } else { 0 }
 }
