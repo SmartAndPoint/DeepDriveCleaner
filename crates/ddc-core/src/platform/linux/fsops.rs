@@ -9,7 +9,7 @@ use std::os::fd::OwnedFd;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rustix::fs::{Access, AtFlags, CWD, FileType, Mode, OFlags, RenameFlags, Timespec, Timestamps, UTIME_OMIT};
+use rustix::fs::{Access, AtFlags, CWD, Mode, OFlags, RenameFlags, Timespec, Timestamps, UTIME_OMIT};
 use rustix::io::Errno;
 
 use crate::platform::types::EntryStat;
@@ -58,6 +58,18 @@ impl DirFd {
         Ok(Self(fd))
     }
 
+    /// `dir`, at or beneath `anchor`'s root, opened as the walk opens it
+    /// ([`super::bulk::open_in`]) and stricter: a mount crossed or a
+    /// symlink on the way, or no mount id to tell, is refused.
+    pub fn open_beneath(anchor: &super::bulk::Anchor, dir: &Path) -> io::Result<Self> {
+        match super::bulk::open_in(anchor, dir, true) {
+            Ok(fd) => Ok(Self(fd)),
+            Err(e) => {
+                Err(e.errno.map_or_else(|| io::Error::other(format!("{:?}", e.kind)), io::Error::from_raw_os_error))
+            }
+        }
+    }
+
     /// `(dev, ino)` of the directory itself.
     pub fn identity(&self) -> io::Result<(u64, u64)> {
         let st = rustix::fs::fstat(&self.0)?;
@@ -65,17 +77,7 @@ impl DirFd {
     }
 
     pub fn stat_child(&self, name: &OsStr) -> io::Result<EntryStat> {
-        let st = rustix::fs::statat(&self.0, name, AtFlags::SYMLINK_NOFOLLOW)?;
-        let ft = FileType::from_raw_mode(st.st_mode);
-        Ok(EntryStat {
-            dev: st.st_dev,
-            ino: st.st_ino,
-            is_dir: ft == FileType::Directory,
-            is_file: ft == FileType::RegularFile,
-            is_symlink: ft == FileType::Symlink,
-            flags: 0,
-            alloc: u64::try_from(st.st_blocks).unwrap_or(0) * 512,
-        })
+        Ok(super::bulk::stat_child(&self.0, name)?)
     }
 
     /// The child's modification time, Unix seconds, without following a
@@ -137,6 +139,28 @@ mod tests {
         assert!(dir.stat_child(OsStr::new("sub")).unwrap().is_dir);
         assert!(dir.stat_child(OsStr::new("sym")).unwrap().is_symlink, "never followed");
         assert_eq!(dir.stat_child(OsStr::new("gone")).unwrap_err().kind(), io::ErrorKind::NotFound);
+    }
+
+    /// The guard's parent opens beneath its root, with `openat2` and
+    /// without: a path outside the root, or (with `openat2`) a symlink on
+    /// the way, is refused; a child on the same mount is no mount root.
+    #[test]
+    fn a_parent_opens_beneath_its_root_and_never_through_a_symlink() {
+        use crate::platform::bulk;
+        let d = tempfile::tempdir().unwrap();
+        let root = crate::platform::Canonical::canonical(d.path()).unwrap();
+        fs::create_dir_all(root.join("a/b")).unwrap();
+        testing::symlink(&root.join("a"), &root.join("via")).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        for (anchor, beneath) in [(bulk::anchor(&root).unwrap(), true), (bulk::anchor_by_path(&root).unwrap(), false)] {
+            let dir = DirFd::open_beneath(&anchor, &root.join("a")).unwrap();
+            assert!(!dir.stat_child(OsStr::new("b")).unwrap().mount_root, "same mount");
+            assert!(DirFd::open_beneath(&anchor, outside.path()).is_err(), "outside the root");
+            assert!(DirFd::open_beneath(&anchor, &root.join("via")).is_err(), "the symlink itself");
+            if beneath {
+                assert!(DirFd::open_beneath(&anchor, &root.join("via/b")).is_err(), "a symlink on the way");
+            }
+        }
     }
 
     #[test]

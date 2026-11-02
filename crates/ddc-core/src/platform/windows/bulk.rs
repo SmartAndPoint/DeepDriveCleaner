@@ -53,8 +53,8 @@ const GET_REPARSE_POINT: u32 = 0x0009_00A8;
 /// A scan root, which [`list_in`] keeps folders on the volume of.
 #[derive(Debug)]
 pub struct Anchor {
-    path: PathBuf,
-    dev: u64,
+    pub(super) path: PathBuf,
+    pub(super) dev: u64,
 }
 
 /// Opens `root` (canonical) as the anchor of a walk.

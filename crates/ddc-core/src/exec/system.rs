@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use super::{CmdOutput, CommandRunner, ProcessTable, Trasher};
+use super::{CmdOutput, CommandRunner, ProcessTable, TrashError, TrashPlace, TrashTarget, Trasher};
 use crate::env::Env;
 use crate::platform::procs::{self, OpenVnode, ProcInfo, ProcStart};
 use crate::platform::{meta, process, signals, trash};
@@ -136,8 +136,9 @@ pub(super) fn executable(path: &Path) -> bool {
 pub struct SystemTrash;
 
 impl Trasher for SystemTrash {
-    fn trash(&self, path: &Path) -> io::Result<()> {
-        trash::move_to_trash(path)
+    fn trash(&self, target: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+        trash::move_to_trash(target.path)?;
+        Ok(None)
     }
 }
 

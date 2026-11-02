@@ -35,7 +35,6 @@ use crate::env::Env;
 use crate::model::{Finding, RemovalKind};
 use crate::plan::{Action, ActionKind, ListedItem, PlanItem, action_for};
 use crate::platform::PLATFORM;
-use crate::platform::fsops::DirFd;
 use crate::report::backups;
 use crate::rules::entries::{self, BACKUP_RULE, EntryFacts, EntryShape, lock_of};
 use crate::rules::{Catalog, KEEP_MARKER, LockFiles, Rule, effective_class, protected_in_home};
@@ -344,7 +343,10 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
     let Some(policy) = entries::policy(rule.id).filter(|_| catalog.verify(rule, parent)) else {
         return skip(SkipReason::NotAnEntry);
     };
-    let Ok(parent_fd) = DirFd::open(parent) else { return skip(SkipReason::ParentChanged) };
+    let parent_fd = match guard.open_parent(parent) {
+        Ok(fd) => fd,
+        Err(reason) => return skip(reason),
+    };
     let st = match parent_fd.stat_child(name) {
         Ok(st) => st,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return skip(SkipReason::NotAnEntry),
@@ -370,7 +372,7 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
         return Ok((bytes, Prediction::WouldTrash));
     }
     // A volume mounted at the entry itself: locked, and never walked.
-    let mounted = parent_fd.identity().is_ok_and(|(dev, _)| dev != st.dev);
+    let mounted = st.mount_root || parent_fd.identity().is_ok_and(|(dev, _)| dev != st.dev);
     let walked = if mounted {
         Walked { bytes: 0, kept: false, incomplete: true, other_fs: true }
     } else if st.is_dir {

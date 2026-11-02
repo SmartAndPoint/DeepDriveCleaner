@@ -131,6 +131,19 @@ impl DirFd {
         Ok(Self(handle))
     }
 
+    /// `dir`, at or beneath `anchor`'s root and on its volume, opened as
+    /// [`Self::open`] opens it, never through a link.
+    pub fn open_beneath(anchor: &super::bulk::Anchor, dir: &Path) -> io::Result<Self> {
+        if !dir.starts_with(&anchor.path) {
+            return Err(io::Error::other("outside the scan root"));
+        }
+        let folder = Self::open(dir)?;
+        if folder.identity()?.0 != anchor.dev {
+            return Err(io::Error::other("another volume"));
+        }
+        Ok(folder)
+    }
+
     /// `(dev, ino)` of the folder itself.
     pub fn identity(&self) -> io::Result<(u64, u64)> {
         id_of(&info::<FILE_ID_INFO>(&self.0)?)
@@ -151,6 +164,7 @@ impl DirFd {
             is_symlink,
             flags: 0,
             alloc: u64::try_from(standard.AllocationSize).unwrap_or(0),
+            mount_root: false,
         })
     }
 

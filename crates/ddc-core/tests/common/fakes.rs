@@ -10,7 +10,10 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use ddc_core::env::Env;
-use ddc_core::exec::{CmdOutput, CommandRunner, OpenVnode, ProcInfo, ProcStart, ProcessTable, SystemCommands, Trasher};
+use ddc_core::exec::{
+    CmdOutput, CommandRunner, OpenVnode, ProcInfo, ProcStart, ProcessTable, SystemCommands, TrashError, TrashPlace,
+    TrashTarget, Trasher,
+};
 
 /// Told each call of [`FakeCommands`] before it answers.
 pub type CallHook = Box<dyn Fn(&str)>;
@@ -275,9 +278,10 @@ impl CommandRunner for SharedCommands {
 pub struct FakeTrash(pub PathBuf);
 
 impl Trasher for FakeTrash {
-    fn trash(&self, path: &Path) -> io::Result<()> {
+    fn trash(&self, target: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
         fs::create_dir_all(&self.0)?;
-        fs::rename(path, self.0.join(path.file_name().unwrap()))
+        fs::rename(target.path, self.0.join(target.name))?;
+        Ok(None)
     }
 }
 

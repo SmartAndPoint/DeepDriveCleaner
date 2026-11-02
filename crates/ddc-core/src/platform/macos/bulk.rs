@@ -77,7 +77,7 @@ impl Drop for Fd {
 /// folder still opens by its path.
 #[derive(Debug)]
 pub struct Anchor {
-    path: std::path::PathBuf,
+    pub(super) path: std::path::PathBuf,
 }
 
 pub fn anchor(root: &Path) -> std::io::Result<Anchor> {

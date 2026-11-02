@@ -83,3 +83,99 @@ fn a_bind_mount_is_refused_beneath_its_root_with_openat2_and_without() {
         assert_eq!(err.kind, ReadErrorKind::OtherFilesystem, "{anchor:?}");
     }
 }
+
+/// The guard's stat of a child tells a bind mount of the same filesystem,
+/// which its `dev` does not (safety ADR §5, amendment of 2026-11-01).
+#[test]
+fn the_guards_stat_tells_a_bind_mount_as_a_mount_root() {
+    use ddc_core::platform::bulk;
+    use ddc_core::platform::fsops::DirFd;
+    let Some(root) = common::mount("the_guards_stat_tells_a_bind_mount_as_a_mount_root", Mount::Bind) else {
+        return;
+    };
+    let dir = DirFd::open(&root).unwrap();
+    let inner = dir.stat_child(std::ffi::OsStr::new("inner")).unwrap();
+    assert!(inner.mount_root, "the bind mount");
+    assert_eq!(inner.dev, dir.identity().unwrap().0, "the same device");
+    for anchor in [bulk::anchor(&root).unwrap(), bulk::anchor_by_path(&root).unwrap()] {
+        assert!(DirFd::open_beneath(&anchor, &root).is_ok(), "{anchor:?}");
+        assert!(DirFd::open_beneath(&anchor, &root.join("inner")).is_err(), "{anchor:?}");
+    }
+}
+
+/// A plan whose finding now lies behind a bind mount, with the same inode
+/// on both sides, is refused before anything moves: its parent opens
+/// beneath the scan root, and the bind mount is not crossed. Opened by path,
+/// as before, it passed every identity check.
+#[test]
+fn a_stale_plan_into_a_bind_mount_is_refused_and_nothing_moves() {
+    use std::fs::File;
+    use std::time::{Duration, SystemTime};
+
+    use common::fakes::{FakeCommands, FakeProcs, FakeTrash};
+    use ddc_core::class::RiskClass;
+    use ddc_core::env::Env;
+    use ddc_core::exec::{self, Consent, ExecOptions, MemoryJournal, Outcome, Ports, SkipReason as Skip};
+    use ddc_core::plan::{PlanOptions, build_plan};
+    use ddc_core::report::{self, ScanOptions};
+    use ddc_core::rules::Catalog;
+
+    let Some(root) = common::mount("a_stale_plan_into_a_bind_mount_is_refused_and_nothing_moves", Mount::Bind) else {
+        return;
+    };
+    // The tree through the bind mount, and the same folder at its source.
+    let tree = TreeBuilder::new_in(&root.join("inner"));
+    let source = root.parent().unwrap().join("bind-source").join(tree.root().file_name().unwrap());
+    assert!(source.is_dir(), "{source:?}");
+    let now = SystemTime::now();
+    tree.write("p/package.json", "{}");
+    tree.write("p/package-lock.json", "{}");
+    tree.file("p/node_modules/dep/index.js", 20_000);
+    for f in ["p/package.json", "p/package-lock.json"] {
+        File::options()
+            .write(true)
+            .open(tree.path(f))
+            .unwrap()
+            .set_modified(now - Duration::from_secs(86_400 * 60))
+            .unwrap();
+    }
+    let data = tempfile::tempdir().unwrap();
+    let env = |home: &Path| Env::with_paths(home, data.path(), &data.path().join("logs"), now).unwrap();
+
+    // Planned at the source, then pointed through the bind mount.
+    let scanned = report::scan(&env(&source), &ScanOptions::default(), &Progress::default()).unwrap();
+    let mut plan = build_plan(&scanned, &Catalog::builtin(&source), &PlanOptions::default());
+    assert!(!plan.items.is_empty(), "the project's node_modules is planned");
+    plan.roots = vec![root.clone()];
+    for item in &mut plan.items {
+        item.finding.path = tree.root().join(item.finding.path.strip_prefix(&source).unwrap());
+    }
+    // And one at the bind mount itself, with the identity of the folder
+    // it shows: the parent opens, and the entry is a mount root.
+    let mut at_mount = plan.items[0].clone();
+    let id = |p: &Path| {
+        let m = std::fs::symlink_metadata(p).unwrap();
+        (std::os::unix::fs::MetadataExt::dev(&m), std::os::unix::fs::MetadataExt::ino(&m))
+    };
+    at_mount.finding.path = root.join("inner");
+    (at_mount.finding.dev, at_mount.finding.ino) = id(&root.parent().unwrap().join("bind-source"));
+    (at_mount.finding.parent_dev, at_mount.finding.parent_ino) = (Some(id(&root).0), Some(id(&root).1));
+    plan.items.push(at_mount);
+
+    let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
+    let trash = FakeTrash(data.path().join("FakeTrash"));
+    let mut journal = MemoryJournal::default();
+    let ports = Ports {
+        commands: &FakeCommands::default(),
+        trash: &trash,
+        procs: &FakeProcs::new(vec![]),
+        journal: &mut journal,
+    };
+    let report =
+        exec::execute(&env(&root), &Catalog::builtin(&root), &plan, &consent, ports, &ExecOptions::default()).unwrap();
+    let nm = report.items.iter().find(|i| i.path == tree.path("p/node_modules")).expect("planned");
+    assert_eq!(nm.outcome, Outcome::Skipped(Skip::ParentChanged));
+    let at_mount = report.items.iter().find(|i| i.path == root.join("inner")).expect("planned");
+    assert_eq!(at_mount.outcome, Outcome::Skipped(Skip::Incomplete));
+    assert!(tree.path("p/node_modules/dep/index.js").exists(), "nothing moved");
+}
