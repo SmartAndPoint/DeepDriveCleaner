@@ -308,15 +308,18 @@ settled() {
     for i in $(seq 30); do
         sleep 1
         now="$("$@")"
-        [ "$now" = "$prev" ] && break
+        if [ "$now" = "$prev" ]; then
+            echo "$now"
+            return
+        fi
         prev="$now"
     done
-    echo "$now"
+    fail "$*: the space in use did not settle in 30 s (last $prev, then $now)"
 }
 ctable=
 # $1 filesystem, $2 its folder, $3 text or random, $4… prints the bytes in use there.
 measure() {
-    local fs="$1" kind="$3" dir="$2/$3" before after bytes freed
+    local fs="$1" kind="$3" dir="$2/$3" before after bytes freed out
     shift 3
     mkdir "$dir"
     if [ "$kind" = text ]; then
@@ -325,7 +328,10 @@ measure() {
         head -c 16M /dev/urandom >"$dir/f"
     fi
     before="$(settled "$@")"
-    bytes=$(($(env -i PATH= NO_COLOR=1 HOME="$dir" "$ddc" du "$dir" | cut -f1) * 1024))
+    out="$(env -i PATH= NO_COLOR=1 HOME="$dir" "$ddc" du "$dir" 2>"$img/du.err")" ||
+        fail "ddc du $dir failed: $(cat "$img/du.err")"
+    grep -q ' 0 errors, 0 skipped,' "$img/du.err" || fail "ddc du $dir: $(cat "$img/du.err")"
+    bytes=$(($(cut -f1 <<<"$out") * 1024))
     rm -r "$dir"
     after="$(settled "$@")"
     freed=$((before - after))
@@ -343,12 +349,16 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
       echo "| filesystem | data | ddc bytes | freed by the delete | bytes / freed |"; echo "|---|---|---|---|---|"
       printf '%s' "$ctable"; } >>"$GITHUB_STEP_SUMMARY"
 fi
+kib=1024
 mib=$((1 << 20))
 # Counted $1 against freed $2: at most 2% under what the delete freed, at most 10% over.
 near() { [ $(($1 * 100)) -ge $(($2 * 98)) ] && [ $(($1 * 10)) -le $(($2 * 11)) ]; }
 [ "$m_btrfs_text_bytes" -ge $((16 * mib)) ] || fail "compressed btrfs: ddc counted $m_btrfs_text_bytes bytes of 16 MiB of text, not its uncompressed size"
 [ "$m_btrfs_text_freed" -lt $((4 * mib)) ] || fail "compressed btrfs: the delete freed $m_btrfs_text_freed bytes, as if the text had not been compressed"
+[ "$m_btrfs_text_freed" -ge $((128 * kib)) ] || fail "compressed btrfs: the delete freed only $m_btrfs_text_freed bytes, less than the compressed text"
 [ "$m_zfs_text_bytes" -lt $((4 * mib)) ] || fail "ZFS with lz4: ddc counted $m_zfs_text_bytes bytes of 16 MiB of text, not its compressed size"
+d=$((m_zfs_text_bytes - m_zfs_text_freed))
+[ "${d#-}" -le $((16 * kib)) ] || fail "ZFS with lz4: ddc counted $m_zfs_text_bytes bytes of text and the delete freed $m_zfs_text_freed, more than 16 KiB apart"
 for fs in btrfs zfs; do
     eval "b=\$m_${fs}_random_bytes f=\$m_${fs}_random_freed"
     near "$b" "$f" || fail "$fs: random bytes were counted as $b and freed $f, more than 2% under or 10% over"

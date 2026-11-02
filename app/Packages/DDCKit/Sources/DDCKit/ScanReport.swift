@@ -145,6 +145,10 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         /// The directory's identity at scan time; `clean --items` matches it.
         public let dev: UInt64
         public let ino: UInt64
+        /// Allocated bytes belonging to this finding alone. On Linux btrfs with
+        /// compression it is the uncompressed size, which can be far more than a
+        /// delete frees; on ZFS it is the size on disk after compression. A
+        /// delete frees nothing of the blocks a snapshot still holds.
         public let bytes: UInt64
         /// APFS clones shared with nothing outside the finding; `bytes` when absent.
         public let privateBytes: UInt64?
@@ -304,7 +308,8 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         public let path: String
         public let kind: Kind
         /// Allocated bytes, findings inside it included; a session's, its
-        /// companions' too.
+        /// companions' too. Counted as a finding's `bytes` is, with the same
+        /// compression and snapshot caveats.
         public let bytes: UInt64
         public let dev: UInt64
         public let ino: UInt64
