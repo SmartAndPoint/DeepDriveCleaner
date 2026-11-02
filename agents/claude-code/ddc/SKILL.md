@@ -24,17 +24,19 @@ output parses as it is.
 
 ```sh
 ddc --version                       # installed? if not, try: deepdrivecleaner --version
-ddc disk agents --json --no-sizes   # harnesses and live sessions, in a fraction of a second
-ddc disk agents --json              # the same, with folder sizes and each session's bytes
+ddc agent status --json --no-sizes  # harnesses and live sessions, in a fraction of a second
+ddc agent status --json             # the same, with folder sizes and each session's bytes
 ddc scan "$PWD" --json              # what can be freed under this project
 ddc rules --json                    # what each rule id means: its class and how it is removed
 ```
 
 Scan the project first. `ddc scan` without a path walks the whole home folder and can take a
-minute: run it only when the person asks. `ddc disk agents` is macOS's for now: when a scan's
-`capabilities` lacks `coding-agents`, skip it.
+minute: run it only when the person asks. `ddc agent status` is macOS's for now: when a scan's
+`capabilities` lacks `coding-agents`, skip it. An older `ddc` that has no `ddc agent status`
+(its `ddc --help` lists no agent command) has it as `ddc disk agents`, with the same options
+and the same report.
 
-## Reading `ddc disk agents --json` (docs/agents.schema.json)
+## Reading `ddc agent status --json` (docs/agents.schema.json)
 
 - `harnesses[]`: one per harness, by `id` (`claude-code`, `codex`, `cursor`, `opencode`), with
   its `folders[]` and their `bytes`, and the processes of it that are `running`.

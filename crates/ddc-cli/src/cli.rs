@@ -26,6 +26,11 @@ pub enum Command {
     Rules(RulesArgs),
     /// Show what uses the whole startup disk, outside your home folder too (read-only).
     Disk(DiskArgs),
+    /// For coding agents: what their harnesses keep, and their live sessions.
+    Agent {
+        #[command(subcommand)]
+        action: AgentAction,
+    },
     /// Remove a folder's protection: its .ddc-keep file, never the folder.
     Keep {
         #[command(subcommand)]
@@ -66,6 +71,7 @@ impl Command {
                 Some(DiskAction::Free(a)) => a.json,
                 Some(DiskAction::BrewPackages(a)) => a.json,
             },
+            Command::Agent { action: AgentAction::Status(a) } => a.json,
             Command::Keep { action: KeepAction::Remove(a) } => a.json,
             Command::Schedule { .. } | Command::Notify { .. } | Command::Du(_) | Command::Diag => false,
         }
@@ -106,7 +112,7 @@ pub struct ScanArgs {
     /// Write progress events to stderr, one JSON line each (docs/progress.schema.json).
     #[arg(long, value_enum, value_name = "FORMAT", conflicts_with = "background")]
     pub progress: Option<ProgressFormat>,
-    /// Run as the scheduled background agent: no output, skip TCC-protected folders, notify.
+    /// Run as the scheduled LaunchAgent: no output, skip TCC-protected folders, notify.
     #[arg(long, hide = true)]
     pub background: bool,
     /// Background mode: do not show a notification.
@@ -220,7 +226,7 @@ pub enum ScheduleAction {
     },
     /// Remove the LaunchAgent.
     Uninstall,
-    /// Show whether the agent is installed, loaded and current.
+    /// Show whether the LaunchAgent is installed, loaded and current.
     Status,
 }
 
@@ -366,7 +372,10 @@ pub struct DiskArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum DiskAction {
-    /// What coding-agent harnesses keep under your home folder, and their live sessions (read-only).
+    /// The former name of `ddc agent status`, with the same output.
+    // Hidden, kept for the app and older guidance (ADR "Agent footprint:
+    // worktrees, harness data and bounded consent for agents", §7).
+    #[command(hide = true)]
     Agents(AgentsArgs),
     /// Free an area with its own tool: delete a simulator runtime, or run `brew cleanup`.
     Free(FreeArgs),
@@ -408,6 +417,12 @@ pub struct FreeArgs {
     /// `/` (tests).
     #[arg(long, hide = true, value_name = "DIR")]
     pub system_root: Option<PathBuf>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentAction {
+    /// What coding-agent harnesses keep under your home folder, and their live sessions (read-only).
+    Status(AgentsArgs),
 }
 
 #[derive(Debug, Args)]

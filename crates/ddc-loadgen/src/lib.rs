@@ -96,7 +96,7 @@ pub fn unsupported(test: &str) -> bool {
 
 /// True, after saying why, when this build's platform does not declare
 /// `capability` (ADR "Platform seam", §9, amended): a test of a command or
-/// an action that needs it (`ddc disk`, `ddc disk agents`, Homebrew) starts
+/// an action that needs it (`ddc disk`, `ddc agent status`, Homebrew) starts
 /// with `if lacks("name", Capability::WholeDisk) { return; }`. Never true on
 /// macOS, which declares every capability.
 pub fn lacks(test: &str, capability: ddc_core::platform::Capability) -> bool {

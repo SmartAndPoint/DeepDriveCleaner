@@ -1,6 +1,7 @@
-//! `ddc disk agents` end to end (story "Coding agents in the Whole disk
-//! view"): a temporary HOME and data directory and an empty `PATH`. It
-//! reads, takes no lock and writes nothing.
+//! `ddc agent status`, and its hidden alias `ddc disk agents`, end to end
+//! (story "Coding agents in the Whole disk view"): a temporary HOME and
+//! data directory and an empty `PATH`. It reads, takes no lock and writes
+//! nothing.
 
 use ddc_core::platform::Canonical as _;
 use std::fs;
@@ -47,8 +48,14 @@ impl Fx {
         fs::write(path, vec![b'x'; len]).unwrap();
     }
 
-    /// Always under a fixture system root: no test reads the real `/tmp`.
+    /// `ddc agent status`, always under a fixture system root: no test reads
+    /// the real `/tmp`.
     fn ddc(&self, args: &[&str]) -> Command {
+        self.ddc_as(&["agent", "status"], args)
+    }
+
+    /// The command named by `words`: `agent status` or its alias `disk agents`.
+    fn ddc_as(&self, words: &[&str], args: &[&str]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"));
         cmd.clear_env()
             .env_remove("CLAUDE_CODE_TMPDIR")
@@ -56,7 +63,7 @@ impl Fx {
             .home_env(self.root.join("home"))
             .env("PATH", "")
             .env("NO_COLOR", "1")
-            .args(["disk", "agents"])
+            .args(words)
             .args(args)
             .arg("--data-dir")
             .arg(self.root.join("data"))
@@ -310,4 +317,77 @@ fn disk_options_do_not_mix_with_the_subcommand() {
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(2));
+}
+
+/// `disk agents` is a hidden alias of `agent status` (ADR "Agent footprint:
+/// worktrees, harness data and bounded consent for agents", §7): over one
+/// home, both print the same report, but for when it was made and how long
+/// it took, and the processes of the machine, which may start or end
+/// between the two runs.
+#[test]
+fn agent_status_and_disk_agents_give_the_same_report() {
+    if common::unsupported("agent_status_and_disk_agents_give_the_same_report")
+        || common::lacks("agent_status_and_disk_agents_give_the_same_report", Capability::CodingAgents)
+    {
+        return;
+    }
+    let fx = Fx::new();
+    let me = std::process::id();
+    fx.write(".claude/sessions/1.json", &format!(r#"{{"pid":{me},"sessionId":"{LIVE}","startedAt":{}}}"#, now_ms()));
+    fx.write(&format!(".claude/projects/-p/{LIVE}.jsonl"), "{}\n");
+    fx.write(&format!(".claude/file-history/{ENDED}/f"), "x");
+    fx.write(".cursor/argv.json", "{}");
+    fx.file(&format!("{}/-p/{LIVE}/scratchpad/x", Fx::temp_rel()), 4096);
+
+    let report = |words: &[&str]| {
+        let out = fx.ddc_as(words, &["--json"]).output().unwrap();
+        assert!(out.status.success(), "{words:?}: {}", String::from_utf8_lossy(&out.stderr));
+        drop(contract::holds::<AgentsReport>("agents", &out.stdout));
+        let mut v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        let map = v.as_object_mut().unwrap();
+        assert!(map.remove("generated_at").is_some() && map.remove("duration_ms").is_some(), "{words:?}");
+        for h in map["harnesses"].as_array_mut().unwrap() {
+            h.as_object_mut().unwrap().remove("running");
+        }
+        v
+    };
+    let status = report(&["agent", "status"]);
+    assert_eq!(status["harnesses"].as_array().map(Vec::len), Some(2), "{status:#}");
+    assert_eq!(status, report(&["disk", "agents"]));
+}
+
+/// `ddc --help` lists `agent`, and `ddc disk --help` no longer lists
+/// `agents`, whose name is now `agent status`.
+#[test]
+fn help_lists_agent_and_hides_disk_agents() {
+    let help = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
+            .clear_env()
+            .env("NO_COLOR", "1")
+            .args(args)
+            .arg("--help")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap()
+    };
+    // The command names of a help text: the first word of each line of its
+    // `Commands:` section.
+    let commands = |text: &str| -> Vec<String> {
+        text.lines()
+            .skip_while(|l| !l.starts_with("Commands:"))
+            .skip(1)
+            .take_while(|l| l.starts_with("  "))
+            .filter_map(|l| l.split_whitespace().next().map(str::to_owned))
+            .collect()
+    };
+    let top = help(&[]);
+    assert!(commands(&top).iter().any(|c| c == "agent"), "{top}");
+    assert!(top.contains("coding agents"), "{top}");
+    let disk = help(&["disk"]);
+    let names = commands(&disk);
+    assert!(names.iter().any(|c| c == "free") && !names.iter().any(|c| c == "agents"), "{disk}");
+    let agent = help(&["agent"]);
+    assert!(commands(&agent).iter().any(|c| c == "status"), "{agent}");
 }

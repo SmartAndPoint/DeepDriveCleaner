@@ -1,7 +1,7 @@
-//! `ddc disk agents`: what coding-agent harnesses keep under the home
-//! folder, and their live sessions (story "Coding agents in the Whole disk
-//! view"). Read-only and lock-free: it saves nothing and sends no
-//! notification.
+//! `ddc agent status`, and its hidden alias `ddc disk agents`: what
+//! coding-agent harnesses keep under the home folder, and their live
+//! sessions (story "Coding agents in the Whole disk view"). Read-only and
+//! lock-free: it saves nothing and sends no notification.
 
 use std::io::{IsTerminal as _, Write as _};
 use std::process::ExitCode;

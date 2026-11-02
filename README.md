@@ -23,7 +23,7 @@ DeepDriveCleaner · scanned ~ in 39.6s · 5.5M files · 544.8 GiB
 
 Status: 0.3.0. macOS 26 on Apple Silicon. The app now schedules scans itself and notifies with Review and Remind Me Tomorrow (Settings → Schedule).
 
-The command-line tool also runs on Linux, x86_64 and aarch64, as one static binary: `scan`, `clean`, `keep`, `rules` and `du`, with the Linux catalog (XDG caches, the editors' remote servers, rootless Docker) and the freedesktop Trash. `disk`, `disk agents`, Homebrew, `schedule` and notifications are macOS's. Install it with the script below or from the release archives.
+The command-line tool also runs on Linux, x86_64 and aarch64, as one static binary: `scan`, `clean`, `keep`, `rules` and `du`, with the Linux catalog (XDG caches, the editors' remote servers, rootless Docker) and the freedesktop Trash. `disk`, `agent status`, Homebrew, `schedule` and notifications are macOS's. Install it with the script below or from the release archives.
 
 ## Install
 
@@ -121,7 +121,7 @@ This installs `~/.cargo/bin/deepdrivecleaner` and a `ddc` symlink to it. A local
 
 - **The popover** (click the icon) shows the last scan: what can be freed by risk class, the biggest finds, when the last scan ran, and Scan Now. The icon shows a turning arc while a scan or a clean runs, shows a small warning when something needs you (Full Disk Access, a failed scan), and goes grey while scans are paused (Pause Scans, in the icon's right-click menu).
 - **The Review window** lists every finding by group (a sidebar ordered by size, per risk class) or as one list you can filter and sort. You tick what to clean; safe and idle rebuildable items start ticked, review items never do. Clean N items… at the bottom cleans every tick; Clean N from <group>… in a group's Select all row cleans only that group's. Right-click a folder to show it in Finder or protect it with a `.ddc-keep` file.
-- **Whole disk** (Where Does the Rest Go? in the popover, or the last row of the Review sidebar) shows the startup disk as one bar: the home folder, with what the last scan can free in its class colours, then apps, system data, Homebrew, conda, simulator runtimes and what could not be counted, one row each. Scan Whole Disk runs `ddc disk` beside any scan or clean, never on its own, and Stop keeps what it measured so far. Under the rows, **Coding agents** shows what Claude Code, Codex, Cursor and opencode keep and their live sessions, from `ddc disk agents`; it shows project folders and session names. Some rows offer their owning tool's cleanup: Delete Runtime… on a downloaded simulator runtime no simulator runs on, Clean Up Homebrew…, and for a conda install in /opt, Clean Package Cache… and Remove Environment… on each of its environments, listed under the Conda row (none on a folder your user cannot write). Each opens a sheet with the tool's own dry run and the exact command, and runs only after you confirm (`ddc disk free`); nothing else in this view removes anything.
+- **Whole disk** (Where Does the Rest Go? in the popover, or the last row of the Review sidebar) shows the startup disk as one bar: the home folder, with what the last scan can free in its class colours, then apps, system data, Homebrew, conda, simulator runtimes and what could not be counted, one row each. Scan Whole Disk runs `ddc disk` beside any scan or clean, never on its own, and Stop keeps what it measured so far. Under the rows, **Coding agents** shows what Claude Code, Codex, Cursor and opencode keep and their live sessions, from `ddc agent status`; it shows project folders and session names. Some rows offer their owning tool's cleanup: Delete Runtime… on a downloaded simulator runtime no simulator runs on, Clean Up Homebrew…, and for a conda install in /opt, Clean Package Cache… and Remove Environment… on each of its environments, listed under the Conda row (none on a folder your user cannot write). Each opens a sheet with the tool's own dry run and the exact command, and runs only after you confirm (`ddc disk free`); nothing else in this view removes anything.
 - **The confirmation sheet** lists every item with its action, checks each one with a dry run first, and names what would be skipped and why. Review items go to the Trash unless you choose Delete permanently for one. After the clean it shows what was deleted, moved to the Trash or skipped, grouped by cause.
 - **Your own files.** Downloads, Pictures, Movies, Music and iPhone and iPad backups list what they hold, largest first. Nothing in them is ever selected for you; you pick files and folders one by one, and they go to the Trash, never deleted. App libraries (Photos and others), partial downloads, unfinished backups and anything changed in the last 10 minutes are locked. Cloud folders (iCloud Drive and other File Provider folders) are not scanned.
 - **Settings** has General (Open at login, the icon, the daily update check, when it last ran, and Check Now), Folders, Schedule, Automation, Types and Permissions.
@@ -289,15 +289,6 @@ ddc disk                                           # the table
 ddc disk --json | jq '.areas[] | {id, bytes}'      # area sizes
 ```
 
-`ddc disk agents` shows what coding-agent harnesses keep under your home folder: Claude Code, Codex, Cursor and opencode, with each one's folders and sizes, what of it runs, its live sessions and how many other transcripts it keeps. A Claude Code session is live while the process that wrote its record runs; a Codex thread is open while a process holds its lock file. It reads only the session records' named fields, the names of lock files and transcripts, the process list and sizes: never a transcript's content or a harness database. Its output shows project folders and session names. `--no-sizes` lists the sessions without measuring the folders, in a fraction of a second; `--json` follows [`docs/agents.schema.json`](docs/agents.schema.json). It saves nothing and removes nothing.
-
-With sizes it also shows what each Claude Code session keeps, largest first: its transcript, its checkpoints (`~/.claude/file-history/<session>`) and its temporary folder, which Claude Code keeps outside the home folder (`/private/tmp/claude-<uid>/<project>/<session>` on macOS, under `CLAUDE_CODE_TMPDIR` when that is set), with whether the session is live. The text lists the ten largest and sums the rest in one line; `--json` lists them all. A live session's files are only described. A row marked `not live` says what its temporary folder holds ("3.4 GB in its temporary folder"), and `--json` gives the folder's path (`temp_path`). Nothing removes it yet; the folder is yours to clear once its session has ended. `claude-<uid>` is read only when it is a folder you own, not a link: in a shared `/tmp` anyone could make it first, and the report then says it was not read.
-
-```
-ddc disk agents [--json] [--no-sizes] [--threads N] [--data-dir DIR]
-ddc disk agents --no-sizes                         # live sessions only
-```
-
 `ddc disk brew-packages` lists the Homebrew formulae you installed, largest first. Each size is measured by ddc from the formula's kegs in the Cellar, every installed version on its own line; brew's own list has no sizes. Under each formula it names the dependencies only it needs and their size, and says why its removal would not be offered: another formula or a cask needs it, it is pinned, or a `brew services` job is registered for it. It asks `/opt/homebrew/bin/brew` for its installed formulae (`brew info`, which can take many seconds) and its service jobs (`brew services list`), with `HOMEBREW_NO_AUTO_UPDATE=1`. `--json` follows [`docs/brew-packages.schema.json`](docs/brew-packages.schema.json). It saves nothing and removes nothing.
 
 ```
@@ -319,6 +310,20 @@ ddc disk free [--actions FILE|-] [--dry-run] [--json] [--data-dir DIR]
 ddc disk free                                      # asks for each action
 ddc disk free --dry-run                            # what each tool would remove
 ```
+
+### `ddc agent`: what coding agents keep
+
+`ddc agent status` shows what coding-agent harnesses keep under your home folder: Claude Code, Codex, Cursor and opencode, with each one's folders and sizes, what of it runs, its live sessions and how many other transcripts it keeps. A Claude Code session is live while the process that wrote its record runs; a Codex thread is open while a process holds its lock file. It reads only the session records' named fields, the names of lock files and transcripts, the process list and sizes: never a transcript's content or a harness database. Its output shows project folders and session names. `--no-sizes` lists the sessions without measuring the folders, in a fraction of a second; `--json` follows [`docs/agents.schema.json`](docs/agents.schema.json). It saves nothing and removes nothing.
+
+With sizes it also shows what each Claude Code session keeps, largest first: its transcript, its checkpoints (`~/.claude/file-history/<session>`) and its temporary folder, which Claude Code keeps outside the home folder (`/private/tmp/claude-<uid>/<project>/<session>` on macOS, under `CLAUDE_CODE_TMPDIR` when that is set), with whether the session is live. The text lists the ten largest and sums the rest in one line; `--json` lists them all. A live session's files are only described. A row marked `not live` says what its temporary folder holds ("3.4 GB in its temporary folder"), and `--json` gives the folder's path (`temp_path`). Nothing removes it yet; the folder is yours to clear once its session has ended. `claude-<uid>` is read only when it is a folder you own, not a link: in a shared `/tmp` anyone could make it first, and the report then says it was not read.
+
+```
+ddc agent status [--json] [--no-sizes] [--threads N] [--data-dir DIR]
+ddc agent status --no-sizes                        # live sessions only
+ddc agent status --json | jq '.harnesses[] | {id, bytes}'
+```
+
+`ddc disk agents` is its former name, kept as a hidden alias with the same output: the Mac app and older guidance call it.
 
 ### `ddc keep`: remove a folder's protection
 
@@ -346,8 +351,8 @@ ddc schedule uninstall
 ```
 
 - `install` installs (or updates) a LaunchAgent that scans daily, or weekly with `--interval weekly`. It notifies when at least `--threshold` can be freed (default: the settings' threshold, else 10G), or when a scanned disk is under 10 % free with something on it to clean. A threshold notification repeats after a fifth more or a week; a disk under 10 % free notifies at every scheduled scan until it is cleaned (`notify_low_disk: false` in `settings.json` turns that off). The background scan **never deletes anything**, and it skips the folders where macOS would show a permission prompt, because a prompt would block it. Once the Mac app runs the scheduled scan itself (0.3.0), `install` refuses: one scheduler at a time.
-- `status` shows whether the agent is installed, loaded and runs this binary.
-- `uninstall` removes the agent.
+- `status` shows whether the LaunchAgent is installed, loaded and runs this binary.
+- `uninstall` removes the LaunchAgent.
 - The Mac app's own schedule (Settings → Schedule) replaces this agent: the app offers Replace It while the agent exists, and `ddc schedule install` refuses while the app schedules.
 
 ```
@@ -434,7 +439,7 @@ These checks lower the risk; they do not remove it. See the [Disclaimer](#discla
 
 ## For coding agents
 
-[`agents/`](agents/) holds guidance for coding agents: a Claude Code skill and a snippet for `AGENTS.md` (Codex, opencode). It teaches an agent to ask `ddc` before it guesses about the disk, on a full disk, `ENOSPC` or before installing dependencies into a new worktree, with read-only commands (`ddc disk agents --json`, `ddc scan <dir> --json`, `ddc rules --json`), and to hand the cleanup to you rather than run it. [`agents/README.md`](agents/README.md) says how to install it.
+[`agents/`](agents/) holds guidance for coding agents: a Claude Code skill and a snippet for `AGENTS.md` (Codex, opencode). It teaches an agent to ask `ddc` before it guesses about the disk, on a full disk, `ENOSPC` or before installing dependencies into a new worktree, with read-only commands (`ddc agent status --json`, `ddc scan <dir> --json`, `ddc rules --json`), and to hand the cleanup to you rather than run it. [`agents/README.md`](agents/README.md) says how to install it.
 
 ## Full Disk Access
 

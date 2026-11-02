@@ -11,12 +11,14 @@ what agent sessions left behind.
 **What to run** (read-only; with `--json` only the report goes to stdout):
 
 ```sh
-ddc disk agents --json --no-sizes   # harnesses and live sessions (macOS)
+ddc agent status --json --no-sizes  # harnesses and live sessions (macOS)
 ddc scan "$PWD" --json              # what can be freed under this project
 ddc rules --json                    # what each rule id means
 ```
 
-**How to read it.** `ddc disk agents` (docs/agents.schema.json): `harnesses[]`, and per
+An older `ddc` that has no `ddc agent status` has it as `ddc disk agents`, with the same options.
+
+**How to read it.** `ddc agent status` (docs/agents.schema.json): `harnesses[]`, and per
 session in `sessions.list[]` its `cwd` and `state`: `live` is hands off, `stale` has ended,
 `unknown` counts as live.
 Each session's bytes (Claude Code only, and absent under `--no-sizes`, so drop that flag for

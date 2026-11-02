@@ -1,7 +1,7 @@
 # ddc for coding agents
 
 Guidance that teaches a coding agent to ask `ddc` about the disk before it guesses, and to leave
-the cleaning to you. It is read-only: the agent runs `ddc disk agents --json`, `ddc scan <dir>
+the cleaning to you. It is read-only: the agent runs `ddc agent status --json`, `ddc scan <dir>
 --json` and `ddc rules --json`, tells you what it found, and hands you the `ddc clean` command
 (or the Mac app's Review window) to run yourself. Why an agent never cleans on its own: ADR
 "Agent footprint: worktrees, harness data and bounded consent for agents", §5, in the

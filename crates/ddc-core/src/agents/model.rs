@@ -1,4 +1,5 @@
-//! `ddc disk agents --json` (schema `docs/agents.schema.json`).
+//! `ddc agent status --json`, and its alias `ddc disk agents --json`
+//! (schema `docs/agents.schema.json`).
 //!
 //! Values copied from a harness record (`status`, `entrypoint`, `name`,
 //! `cwd`) stay strings as they were read: they are another program's
