@@ -95,34 +95,53 @@ fn dry_run_changes_nothing_and_writes_no_journal() {
     let _ = &fx.tmp;
 }
 
-/// `clean` takes `--worktree-min-age` as `scan` does. A worktree it selects
-/// is not planned yet: removal through git comes with a later release.
+/// `clean` takes `--worktree-min-age` as `scan` does: a clean Claude Code
+/// worktree made a moment ago stays under the default two days, and with
+/// `--worktree-min-age 0` a person's `clean --yes --class rebuildable`
+/// removes it through git, its branch kept.
 #[test]
-fn clean_takes_worktree_min_age_and_plans_no_worktree() {
-    if common::unsupported("clean_takes_worktree_min_age_and_plans_no_worktree") {
+fn clean_yes_with_worktree_min_age_zero_removes_a_fresh_agent_worktree() {
+    if common::unsupported("clean_yes_with_worktree_min_age_zero_removes_a_fresh_agent_worktree") {
         return;
     }
     let fx = Fx::new();
     let main = fx.home.join("proj");
     fs::create_dir_all(&main).unwrap();
     let made = common::git(&main, &["init", "-q", "-b", "main"]);
-    let Some(_) = common::skipped_without("clean_takes_worktree_min_age_and_plans_no_worktree", made) else {
+    let Some(_) = common::skipped_without("clean_yes_with_worktree_min_age_zero_removes_a_fresh_agent_worktree", made)
+    else {
         return;
     };
     fx.write("proj/README", b"hello\n");
     common::git(&main, &["add", "README"]).unwrap();
     common::git(&main, &["commit", "-q", "-m", "init"]).unwrap();
     let wt = main.join(".claude/worktrees/x");
-    common::git(&main, &["worktree", "add", "-q", wt.to_str().unwrap()]).unwrap();
-    let before = fx.snapshot();
+    common::git(&main, &["worktree", "add", "-q", "-b", "worktree-x", wt.to_str().unwrap()]).unwrap();
+    let yes = ["clean", "--yes", "--class", "rebuildable", "--data-dir", fx.data_arg()];
 
-    let args = ["clean", "--dry-run", "--class", "rebuildable", "--worktree-min-age", "0", "--data-dir", fx.data_arg()];
-    let out = ddc(&fx.home, &args);
+    let out = ddc(&fx.home, &yes);
 
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
-    let text = String::from_utf8(out.stdout).unwrap();
-    assert!(!text.contains(".claude/worktrees/x"), "{text}");
-    assert_eq!(fx.snapshot(), before);
+    assert!(wt.join("README").exists(), "within the two-day window it stays");
+
+    let zero: Vec<&str> = yes.iter().copied().chain(["--worktree-min-age", "0"]).collect();
+    let out = ddc(&fx.home, &zero);
+
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(!wt.exists(), "removed: {}", String::from_utf8_lossy(&out.stdout));
+    let listed = common::git(&main, &["worktree", "list", "--porcelain"]).unwrap();
+    assert!(!listed.contains(".claude/worktrees/x"), "{listed}");
+    assert!(!main.join(".git/worktrees/x").exists(), "its administrative folder went with it");
+    assert_eq!(common::git(&main, &["branch", "--list", "worktree-x"]).unwrap(), "worktree-x", "the branch is kept");
+    let journal = fs::read_to_string(fx.data.join("logs/actions.jsonl")).unwrap();
+    let line: serde_json::Value = serde_json::from_str(journal.lines().next_back().unwrap()).unwrap();
+    assert_eq!(
+        (&line["rule"], &line["method"], &line["outcome"]),
+        (&"git.worktree".into(), &"native".into(), &"native".into())
+    );
+    let args: Vec<&str> = line["commands"][0]["args"].as_array().unwrap().iter().map(|a| a.as_str().unwrap()).collect();
+    assert!(args.ends_with(&["worktree", "remove", wt.to_str().unwrap()]), "{args:?}");
+    assert!(!args.contains(&"--force") && !args.contains(&"prune"), "{args:?}");
 }
 
 #[test]

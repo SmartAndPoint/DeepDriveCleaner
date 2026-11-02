@@ -110,6 +110,15 @@ impl Reach {
         reach
     }
 
+    /// The folder at `path` with its whole subtree, and its ancestors.
+    pub(crate) fn subtree(path: &Path) -> Self {
+        Reach {
+            items: HashSet::from([path.to_path_buf()]),
+            ancestors: path.ancestors().skip(1).map(Path::to_path_buf).collect(),
+            ..Reach::default()
+        }
+    }
+
     /// Whether the re-check opens `dir`: a few lookups per level of `dir`,
     /// whatever the length of the list.
     pub fn allows(&self, dir: &Path) -> bool {

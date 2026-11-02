@@ -349,6 +349,7 @@ fn yes_with_the_review_class_is_refused() {
     let plan = Plan {
         roots: r.scan_roots.clone(),
         items: vec![PlanItem { finding: f, action: Action::Trash, default_selected: true, selected: true }],
+        dropped: Vec::new(),
     };
 
     let err = h.run(&plan, Consent::AssumeYes { classes: vec![RiskClass::Review] }).unwrap_err();
@@ -392,7 +393,7 @@ fn a_plan_without_a_list_never_holds_a_listed_only_item() {
     let paste = h.t.path(".claude/paste-cache");
     let f = r.findings.iter().find(|f| f.path == paste).unwrap().clone();
     let item = PlanItem { finding: f, action: Action::Trash, default_selected: true, selected: true };
-    let by_hand = Plan { roots: r.scan_roots.clone(), items: vec![item] };
+    let by_hand = Plan { roots: r.scan_roots.clone(), items: vec![item], dropped: Vec::new() };
     for consent in [Consent::Interactive, yes()] {
         let run = h.run(&by_hand, consent.clone()).unwrap();
         assert!(matches!(outcome(&run, &paste), Outcome::Skipped(_)), "{consent:?}: {:?}", run.items);

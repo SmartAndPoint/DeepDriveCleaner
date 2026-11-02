@@ -21,8 +21,9 @@ extension SkipReason {
         case .ownerRunning, .inUse, .inUseUnknownCwd, .toolNotReady, .agentLive:
             .keep
         // `incomplete`: the walk was partial; nothing in it says a permission would fix it.
+        // `worktreeKept`: the worktree changed since the scan let it go.
         case .changedSinceScan, .parentChanged, .missing, .ruleMismatch, .notAnEntry, .entryLocked, .symlink, .notADirectory,
-             .incomplete:
+             .incomplete, .worktreeKept:
             .rescan
         // `foreignOwner`: only that user, or root, can remove it.
         case .kept, .protected, .projectRoot, .scanRoot, .outsideScanRoots, .actionNotAllowed, .needsConfirmation,

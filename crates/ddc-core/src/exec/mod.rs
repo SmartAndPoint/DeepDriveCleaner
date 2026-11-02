@@ -110,6 +110,14 @@ pub enum SkipReason {
         harness: HarnessId,
         by: AgentLiveBy,
     },
+    /// A linked worktree that one of the six conditions of ADR "Agent
+    /// footprint", §2, holds back, re-checked right before `git worktree
+    /// remove` (decision 8 of story "Worktree findings and provenance"):
+    /// `condition` is its number, 1 to 6, `detail` says why in words.
+    WorktreeKept {
+        condition: u8,
+        detail: String,
+    },
 }
 
 /// What shows a harness in use, for [`SkipReason::AgentLive`].
@@ -323,13 +331,26 @@ pub struct ExecOptions<'a> {
     /// The scan's skips (`ScanOptions::skip` and `user_skips`): the guard
     /// reads no harness's records or locks under one.
     pub skips: &'a [PathBuf],
+    /// `--worktree-min-age`: a harness's worktree removed under `--yes`
+    /// must still be idle this long (condition 3).
+    pub worktree_min_age: Duration,
+    /// Each git probe's timeout in a worktree's re-check.
+    pub probe_timeout: Duration,
 }
 
 static NEVER: AtomicBool = AtomicBool::new(false);
 
 impl Default for ExecOptions<'_> {
     fn default() -> Self {
-        Self { cancel: &NEVER, progress: None, local_snapshots: None, events: None, skips: &[] }
+        Self {
+            cancel: &NEVER,
+            progress: None,
+            local_snapshots: None,
+            events: None,
+            skips: &[],
+            worktree_min_age: crate::report::DEFAULT_WORKTREE_MIN_AGE,
+            probe_timeout: PROBE_TIMEOUT,
+        }
     }
 }
 
@@ -368,8 +389,10 @@ pub fn execute(
     report.withheld_processes = guard.withheld();
     // Each conda install is asked for its folders once per clean.
     let installs = crate::conda::Installs::new(ports.commands, crate::conda::candidates(env.home(), env.system_root()));
-    // Entries that went to the Trash: what lies inside them went with them.
-    let mut trashed: Vec<PathBuf> = Vec::new();
+    // Entries that went to the Trash, and worktrees git removed: what lies
+    // inside them went with them.
+    let mut removed: Vec<PathBuf> = Vec::new();
+    let worktrees = WorktreeRecheck { env, consent, commands: ports.commands, opts };
     // Before the phase flips, so no item counter reaches stderr ahead of it.
     if let Some(events) = opts.events {
         events.cleaning();
@@ -386,7 +409,7 @@ pub fn execute(
             Outcome::NotRun
         } else {
             progress.item_started(index, item);
-            if trashed.iter().any(|t| path != t && path.starts_with(t)) {
+            if removed.iter().any(|t| path != t && path.starts_with(t)) {
                 Outcome::Skipped(SkipReason::InsideAnotherItem)
             } else if !allowed(item, consent) {
                 Outcome::Skipped(SkipReason::NeedsConfirmation)
@@ -402,13 +425,13 @@ pub fn execute(
                             companions = moved;
                             outcome
                         }
-                        None => act(item, &verified, &guard, &ports, &installs, opts, progress),
+                        None => act(item, &verified, &guard, &ports, &installs, &worktrees, progress),
                     },
                 }
             }
         };
-        if item.action == Action::TrashEntry && outcome == Outcome::Trashed {
-            trashed.push(path.clone());
+        if (item.action == Action::TrashEntry && outcome == Outcome::Trashed) || removed_by_git(item, &outcome) {
+            removed.push(path.clone());
         }
         if outcome == Outcome::NotRun {
             report.cancelled = true;
@@ -494,6 +517,12 @@ fn action_allowed(item: &PlanItem, catalog: &Catalog, consent: &Consent) -> Resu
     if rule.class == RiskClass::UserData || item.finding.class == RiskClass::UserData {
         return Err(SkipReason::ActionNotAllowed);
     }
+    // A linked worktree goes through git alone, and git's handler serves no
+    // other rule: never `delete` or `trash` for one (ADR "Agent footprint", §2).
+    let through_git = matches!(item.action, Action::Native { cmd, .. } if cmd.location == Some(Location::GitWorktree));
+    if through_git != (rule.id == crate::rules::worktree::WORKTREE_RULE) {
+        return Err(SkipReason::ActionNotAllowed);
+    }
     let ok = match (rule.removal, item.action) {
         (Removal::Delete, Action::Delete { .. }) => true,
         // A rule downgraded to review goes to the Trash.
@@ -508,15 +537,56 @@ fn action_allowed(item: &PlanItem, catalog: &Catalog, consent: &Consent) -> Resu
     if ok { Ok(()) } else { Err(SkipReason::ActionNotAllowed) }
 }
 
+/// What a worktree's re-check before `git worktree remove` reads.
+struct WorktreeRecheck<'a> {
+    env: &'a Env,
+    consent: &'a Consent,
+    commands: &'a dyn CommandRunner,
+    opts: &'a ExecOptions<'a>,
+}
+
+impl WorktreeRecheck<'_> {
+    /// The six conditions again for `item`, a `git.worktree` finding (ADR
+    /// "Agent footprint", §2): 1 and 3 are waived when a person listed or
+    /// confirmed it, never under `--yes`. Condition 5's accounting asks a
+    /// fresh walk of the worktree for its artifacts, only when git lists
+    /// ignored paths.
+    fn check(&self, item: &PlanItem) -> Result<crate::rules::worktree::Removable, SkipReason> {
+        use crate::rules::worktree;
+        let path = item.finding.path.as_path();
+        let rc = worktree::Recheck {
+            commands: self.commands,
+            tool_dirs: self.env.tool_dirs(),
+            timeout: self.opts.probe_timeout,
+            now: self.env.now(),
+            min_age: self.opts.worktree_min_age,
+        };
+        let person = !matches!(self.consent, Consent::AssumeYes { .. });
+        // The main checkout the scan recorded: the worktree's project root.
+        let Some(main) = item.finding.project.as_ref().map(|p| p.root.as_path()) else {
+            return Err(SkipReason::ChangedSinceScan);
+        };
+        let owners = || std::borrow::Cow::Owned(crate::report::removable_inside(self.env, path, self.opts.skips));
+        worktree::recheck(path, Some(main), person, &rc, &owners)
+    }
+}
+
+/// A `git.worktree` item git removed: what lay inside it went with it.
+fn removed_by_git(item: &PlanItem, outcome: &Outcome) -> bool {
+    matches!(item.action, Action::Native { cmd, .. } if cmd.location == Some(Location::GitWorktree))
+        && matches!(outcome, Outcome::Native { commands } if !commands.is_empty() && commands.iter().all(|c| c.success))
+}
+
 fn act(
     item: &PlanItem,
     v: &guard::Verified,
     guard: &guard::Guard<'_>,
     ports: &Ports<'_>,
     installs: &crate::conda::Installs<'_>,
-    opts: &ExecOptions<'_>,
+    worktrees: &WorktreeRecheck<'_>,
     progress: &ExecProgress,
 ) -> Outcome {
+    let opts = worktrees.opts;
     let path = item.finding.path.as_path();
     // Anything slow (a probe subprocess) may have run: re-check before acting.
     let fallback = |fb: Fallback, program: &str| {
@@ -551,9 +621,24 @@ fn act(
                 return Outcome::NotRun;
             }
             progress.tool(Some(cmd.program));
-            let ran = native::run(&cmd, path, ports.commands, installs, opts);
+            let ran = if cmd.location == Some(Location::GitWorktree) {
+                match worktrees.check(item) {
+                    Ok(removable) => native::run_worktree(&removable, &item.finding, ports.commands, opts),
+                    Err(reason) => native::Native::Skip(reason),
+                }
+            } else {
+                native::run(&cmd, path, ports.commands, installs, opts)
+            };
             progress.tool(None);
             match ran {
+                // git exits 0 once the folder and its administrative folder are gone.
+                native::Native::Ran(result)
+                    if result.success
+                        && cmd.location == Some(Location::GitWorktree)
+                        && std::fs::symlink_metadata(path).is_ok() =>
+                {
+                    Outcome::Failed { error: "git exited 0 and the worktree is still there".to_owned() }
+                }
                 // conda can exit 0 having removed nothing (an environment it
                 // cannot write): an environment still there is not removed.
                 native::Native::Ran(result)

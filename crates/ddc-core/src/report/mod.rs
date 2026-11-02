@@ -314,6 +314,29 @@ pub(crate) fn scan_inner(
     Ok(Scanned { report, index, errors: out.errors })
 }
 
+/// The artifacts inside the folder at `path` that ddc removes on its own
+/// (`safe` or `rebuildable`, method `delete`), from a fresh walk of that
+/// folder with the scan's rules: what a linked worktree's ignored content
+/// may lie inside at the re-check before its removal (condition 5 of ADR
+/// "Agent footprint", §2). The walk starts at its parent and is pruned to
+/// the folder, so the folder is the region a scan makes it. `skips` are not
+/// opened. Empty when the walk fails, so every ignored path stays
+/// unaccounted: fail closed.
+pub fn removable_inside(env: &Env, path: &Path, skips: &[PathBuf]) -> Vec<PathBuf> {
+    let Some(parent) = path.parent() else { return Vec::new() };
+    let catalog = Catalog::builtin(env.home());
+    let visitor = RuleVisitor::new(&catalog, Vec::new()).with_skips(skips.to_vec());
+    let reach = recheck::Reach::subtree(path);
+    let pruned = recheck::Pruned { inner: &visitor, reach: &reach };
+    match scan::walk(&[parent.to_path_buf()], &pruned, &WalkOptions::default(), &Progress::default()) {
+        Ok(out) if !out.cancelled => worktree::removable_owners(&crate::rules::classify(&out, &visitor))
+            .into_iter()
+            .filter(|owner| owner.starts_with(path))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// The roots a scan walks: the home when none are given.
 pub(crate) fn roots_of(env: &Env, opts: &ScanOptions) -> Vec<PathBuf> {
     if opts.roots.is_empty() { vec![env.home().to_path_buf()] } else { opts.roots.clone() }

@@ -19,8 +19,9 @@ use crate::platform::{Capability, Platform};
 /// 5: the skip reason `agent-live` and the entry locks `live-session` and
 /// `liveness-unknown` (ADR "Agent footprint: worktrees, harness data and
 /// bounded consent for agents", §3). 6: the skip reason `foreign-owner`
-/// (safety ADR, amendment of 2026-10-31).
-pub const CLEAN_SCHEMA_VERSION: u32 = 6;
+/// (safety ADR, amendment of 2026-10-31). 7: the skip reason `worktree-kept`
+/// (ADR "Agent footprint", §2, amendment of 2026-11-01).
+pub const CLEAN_SCHEMA_VERSION: u32 = 7;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CleanReport {

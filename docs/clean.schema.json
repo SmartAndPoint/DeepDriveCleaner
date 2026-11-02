@@ -1145,6 +1145,30 @@
             "harness",
             "by"
           ]
+        },
+        {
+          "description": "A linked worktree that one of the six conditions of ADR \"Agent\nfootprint\", §2, holds back, re-checked right before `git worktree\nremove` (decision 8 of story \"Worktree findings and provenance\"):\n`condition` is its number, 1 to 6, `detail` says why in words.",
+          "type": "object",
+          "properties": {
+            "condition": {
+              "type": "integer",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            },
+            "detail": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "const": "worktree-kept"
+            }
+          },
+          "required": [
+            "reason",
+            "condition",
+            "detail"
+          ]
         }
       ]
     },

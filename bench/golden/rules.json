@@ -190,8 +190,8 @@
       "group": "Git worktrees",
       "id": "git.worktree",
       "listed": true,
-      "removal": "none",
-      "switchable": false
+      "removal": "native",
+      "switchable": true
     },
     {
       "category": "project-artifact",
@@ -199,8 +199,8 @@
       "group": "Git worktrees",
       "id": "git.worktree-orphan",
       "listed": true,
-      "removal": "none",
-      "switchable": false
+      "removal": "trash",
+      "switchable": true
     },
     {
       "category": "package-cache",

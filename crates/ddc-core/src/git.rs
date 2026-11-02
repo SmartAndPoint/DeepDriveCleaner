@@ -232,6 +232,26 @@ impl<'a> Git<'a> {
             .into()
     }
 
+    /// Every worktree path `worktree list --porcelain` lists in `main`, the
+    /// main checkout's included, as git spells them. A quoted path cannot
+    /// be compared: unknown.
+    pub fn worktree_paths(&self, main: &Path) -> Probe<Vec<PathBuf>> {
+        self.run(main, &["worktree", "list", "--porcelain"]).known().and_then(|out| parse_worktree_paths(&out)).into()
+    }
+
+    /// `git -C <main> worktree remove <path>` under the contract: no
+    /// `--force`, never `prune`. The whole argument list, for the journal,
+    /// and git's output whatever its exit code; `Err` when it did not start
+    /// or was killed by the timeout.
+    pub fn remove_worktree(&self, main: &Path, path: &Path) -> (Vec<String>, Result<CmdOutput, String>) {
+        let Some(spelled) = path.to_str() else {
+            return (Vec::new(), Err(format!("{} is not UTF-8", path.display())));
+        };
+        let args = ["worktree", "remove", spelled];
+        let all = Self::args(main, &args).unwrap_or_default();
+        (all, self.output(main, &args))
+    }
+
     /// [`Refs::survivors`] of the repository `from` belongs to.
     pub fn survivors(&self, from: &Path, candidate: &Path, branch: Option<&str>) -> Probe<Vec<String>> {
         self.refs(from).known().map(|refs| refs.survivors(candidate, branch)).into()
@@ -392,6 +412,21 @@ fn parse_worktrees(out: &str) -> Result<Vec<(PathBuf, String)>, String> {
     Ok(heads)
 }
 
+/// The `worktree <path>` line of every block of `worktree list --porcelain`.
+fn parse_worktree_paths(out: &str) -> Result<Vec<PathBuf>, String> {
+    let garbage = |line: &str| format!("worktree list printed {:?}", short(line));
+    let mut paths = Vec::new();
+    for block in out.split("\n\n").filter(|b| !b.trim().is_empty()) {
+        let first = block.lines().next().unwrap_or("");
+        let path = first.strip_prefix("worktree ").ok_or_else(|| garbage(first))?;
+        if path.is_empty() || path.starts_with('"') {
+            return Err(garbage(first));
+        }
+        paths.push(PathBuf::from(path));
+    }
+    Ok(paths)
+}
+
 /// `<tag> <path>\0` entries; the paths whose tag is `S` (skip-worktree) or
 /// a lowercase letter (assume-unchanged).
 fn parse_unwatched(out: &str) -> Result<Vec<String>, String> {
@@ -547,6 +582,18 @@ mod tests {
         assert!(parse_worktrees("worktree \"quoted\\npath\"\nHEAD x\n\n").is_err());
         assert!(parse_worktrees("garbage\n\n").is_err());
         assert!(parse_worktrees(&format!("worktree {}\nHEAD nothex\n\n", main.display())).is_err());
+    }
+
+    #[test]
+    fn worktree_paths_are_every_blocks_first_line() {
+        let out = format!(
+            "worktree /m\nHEAD {A}\nbranch refs/heads/main\n\nworktree /m/wt\nHEAD {B}\ndetached\n\nworktree /bare\nbare\n\n"
+        );
+        assert_eq!(parse_worktree_paths(&out), Ok(vec!["/m".into(), "/m/wt".into(), "/bare".into()]));
+        assert_eq!(parse_worktree_paths(""), Ok(Vec::new()));
+        assert!(parse_worktree_paths("worktree \"q\\n\"\n\n").is_err());
+        assert!(parse_worktree_paths("HEAD x\n\n").is_err());
+        assert!(parse_worktree_paths("worktree \n\n").is_err());
     }
 
     #[test]

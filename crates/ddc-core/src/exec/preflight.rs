@@ -9,7 +9,10 @@
 //! rescans and re-checks; pins only a whole-tree walk sees may skip an item
 //! this predicted, and a tool reporting another location runs the fallback.
 //! A runtime's readiness probe is the executor's only: here its process and
-//! its context's metadata file stand in for it.
+//! its context's metadata file stand in for it. A listed linked worktree is
+//! the one exception: git's read-only probes run, under the probe contract,
+//! so the sheet shows the condition that would keep it (decision 6 of story
+//! "Worktree findings and provenance"); `git worktree remove` never does.
 //!
 //! A picked entry of the user's own folders gets the clean's entry checks
 //! instead (safety ADR, amendment of 2026-10-20), with its lock derived as
@@ -37,7 +40,7 @@ use crate::plan::{Action, ActionKind, ListedItem, PlanItem, action_for};
 use crate::platform::PLATFORM;
 use crate::report::backups;
 use crate::rules::entries::{self, BACKUP_RULE, EntryFacts, EntryShape, lock_of};
-use crate::rules::{Catalog, KEEP_MARKER, LockFiles, Rule, effective_class, protected_in_home};
+use crate::rules::{Catalog, KEEP_MARKER, LockFiles, Rule, effective_class, protected_in_home, worktree};
 use crate::scan::DirReader;
 use crate::scan::reader::SF_DATALESS;
 
@@ -149,17 +152,32 @@ pub fn preflight_skipping(
         ports,
         env,
         locks: RefCell::new(LockFiles::default()),
+        skips,
     };
     // Picked entries first, as the clean runs them: an item inside one that
-    // would go to the Trash would be skipped.
+    // would go to the Trash would be skipped. So would one inside a listed
+    // worktree git would remove (decision 8 of story "Worktree findings and
+    // provenance").
     let entries: Vec<Option<(Option<u64>, Prediction)>> = listed
         .iter()
-        .map(|item| (item.class == RiskClass::UserData).then(|| settle(check_entry(item, &sheet))))
+        .map(|item| {
+            if item.class == RiskClass::UserData {
+                Some(settle(check_entry(item, &sheet)))
+            } else if item.rule == worktree::WORKTREE_RULE {
+                Some(settle(check(item, &sheet)))
+            } else {
+                None
+            }
+        })
         .collect();
     let trashed: Vec<&Path> = listed
         .iter()
         .zip(&entries)
-        .filter(|(_, e)| matches!(e, Some((_, Prediction::WouldTrash))))
+        .filter(|(item, e)| match e {
+            Some((_, Prediction::WouldTrash)) => item.class == RiskClass::UserData,
+            Some((_, Prediction::WouldRun)) => item.rule == worktree::WORKTREE_RULE,
+            _ => false,
+        })
         .map(|(item, _)| item.path.as_path())
         .collect();
     let withheld = guard.withheld();
@@ -208,6 +226,8 @@ struct Sheet<'a> {
     ports: &'a PreflightPorts<'a>,
     env: &'a Env,
     locks: RefCell<LockFiles>,
+    /// The scan's skips: a worktree's walk for its artifacts opens none.
+    skips: &'a [PathBuf],
 }
 
 fn settle(checked: Checked) -> (Option<u64>, Prediction) {
@@ -218,7 +238,7 @@ fn settle(checked: Checked) -> (Option<u64>, Prediction) {
 }
 
 fn check(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
-    let Sheet { catalog, roots, excludes, guard, ports, env, locks } = sheet;
+    let Sheet { catalog, roots, excludes, guard, ports, env, locks, .. } = sheet;
     let path = item.path.as_path();
     let skip = |reason| Err((None, reason));
     if excludes.iter().any(|e| path.starts_with(e) || e.starts_with(path)) {
@@ -232,6 +252,11 @@ fn check(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
         return skip(SkipReason::ChangedSinceScan);
     }
     let class = effective_class(rule, path, roots, env.home(), &mut locks.borrow_mut());
+    // A worktree's class is the six conditions' verdict, re-checked below
+    // as the person's list asks for them (decision 6).
+    let verdict = |c| matches!(c, RiskClass::Review | RiskClass::Rebuildable);
+    let worktree = rule.id == worktree::WORKTREE_RULE && verdict(item.class);
+    let class = if worktree { item.class } else { class };
     if class != item.class {
         return skip(SkipReason::ChangedSinceScan);
     }
@@ -253,6 +278,21 @@ fn check(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
     let prediction = match action {
         Action::Delete { .. } => Prediction::WouldDelete,
         Action::Trash | Action::TrashEntry => Prediction::WouldTrash,
+        // A linked worktree: its conditions 2, 4, 5 and 6, through git's
+        // read-only probes, as the clean re-checks them; the in-use half of 2
+        // was the guard's.
+        Action::Native { cmd, .. } if cmd.location == Some(Location::GitWorktree) => {
+            let rc = worktree::Recheck {
+                commands: ports.commands,
+                tool_dirs: env.tool_dirs(),
+                timeout: crate::git::PROBE_TIMEOUT,
+                now: env.now(),
+                min_age: std::time::Duration::ZERO,
+            };
+            let owners = || std::borrow::Cow::Owned(crate::report::removable_inside(env, path, sheet.skips));
+            worktree::recheck(path, None, true, &rc, &owners).map_err(|reason| (Some(walked.bytes), reason))?;
+            Prediction::WouldRun
+        }
         Action::Native { cmd, fallback } => {
             // conda is never run here: a candidate install's `bin/conda`
             // existing predicts it, as every tool is predicted by its presence.

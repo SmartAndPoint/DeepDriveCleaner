@@ -2,7 +2,7 @@
 //! as its own location (ADR §6).
 
 use crate::platform::Canonical as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 use super::{CommandRunner, ExecOptions, NATIVE_TIMEOUT, PROBE_TIMEOUT, READY_TIMEOUT, SkipReason};
 use crate::class::{CondaFolder, Location, LocationCompare, NativeCommand, ReadyProbe};
 use crate::conda::{self, EnvironmentClaim, Installs};
+use crate::git::{Git, Probe};
+use crate::model::Finding;
+use crate::rules::worktree::Removable;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CommandResult {
@@ -85,6 +88,9 @@ pub(super) fn run(
 ) -> Native {
     let probe = match cmd.location {
         Some(Location::Conda(folder)) => return run_conda(cmd, folder, target, commands, installs, opts),
+        // Reached only through the worktree's re-check ([`run_worktree`]):
+        // without it nothing runs.
+        Some(Location::GitWorktree) => return Native::LocationMismatch,
         Some(Location::Probe(probe)) => Some(probe),
         None => None,
     };
@@ -150,6 +156,46 @@ fn run_conda(
         }
     }
     command(install.exe.to_string_lossy().into_owned(), &install.exe, cmd, target, commands)
+}
+
+/// A linked worktree, through git alone (ADR "Agent footprint", §2,
+/// "Removal"): `git -C <main> worktree list --porcelain` must list the
+/// finding, told by the `(dev, ino)` the scan recorded rather than by its
+/// spelling (case folding, relative links), and then `git -C <main>
+/// worktree remove <path>`, as git lists it, runs once under the probe
+/// contract with the native timeout. Never `--force`, never `prune`: a
+/// worktree git refuses stays, and another worktree's administrative
+/// folder is never touched. `removable` comes from the six conditions'
+/// re-check, which derived `<main>` again from disk.
+pub(super) fn run_worktree(
+    removable: &Removable,
+    finding: &Finding,
+    commands: &dyn CommandRunner,
+    opts: &ExecOptions<'_>,
+) -> Native {
+    let probe = Git::new(commands, removable.git.clone(), opts.probe_timeout);
+    let listed = probe.worktree_paths(&removable.main);
+    if opts.cancelled() {
+        return Native::Cancelled;
+    }
+    let Probe::Known(listed) = listed else { return Native::LocationMismatch };
+    let id = (finding.dev, finding.ino);
+    let ours = |p: &PathBuf| crate::platform::meta::lstat(p).is_ok_and(|st| st.md.is_dir() && st.id() == id);
+    // The main checkout is listed too; it is never the finding.
+    let Some(spelled) = listed.iter().skip(1).find(|p| ours(p)) else { return Native::LocationMismatch };
+    let remove = Git::new(commands, removable.git.clone(), NATIVE_TIMEOUT);
+    let (args, ran) = remove.remove_worktree(&removable.main, spelled);
+    let program = removable.git.to_string_lossy().into_owned();
+    Native::Ran(match ran {
+        Ok(out) => CommandResult {
+            program,
+            args,
+            success: out.success,
+            code: out.code,
+            output: tail(&out.stdout, &out.stderr),
+        },
+        Err(e) => CommandResult { program, args, success: false, code: None, output: e },
+    })
 }
 
 fn not_ready(detail: &str) -> SkipReason {

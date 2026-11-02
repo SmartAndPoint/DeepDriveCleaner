@@ -272,12 +272,13 @@ pub fn reason(r: &SkipReason) -> String {
         SkipReason::ForeignOwner => "it holds another user's files".to_owned(),
         SkipReason::NotAnEntry => "no longer a file or folder you can pick in its folder".to_owned(),
         SkipReason::EntryLocked { lock } => format!("locked: {}", lock_text(lock)),
-        SkipReason::InsideAnotherItem => "inside a folder that went to the Trash".to_owned(),
+        SkipReason::InsideAnotherItem => "removed with the folder it is in".to_owned(),
         SkipReason::AgentLive { harness, by } => match by {
             AgentLiveBy::Running => format!("{} is running; quit it and run again", harness_name(*harness)),
             AgentLiveBy::LockHeld => format!("{} holds a lock on it", harness_name(*harness)),
             AgentLiveBy::Unknown => format!("could not tell whether {} is using it", harness_name(*harness)),
         },
+        SkipReason::WorktreeKept { condition, detail } => format!("kept by condition {condition}: {detail}"),
     }
 }
 
@@ -448,6 +449,7 @@ mod tests {
                 ),
                 item("/h/c/node_modules", RiskClass::Review, "node.node_modules-orphan", Action::Trash, false),
             ],
+            dropped: Vec::new(),
         }
     }
 

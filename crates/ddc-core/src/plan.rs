@@ -2,6 +2,7 @@
 //! model", §1 and §5). Building a plan touches nothing.
 
 use crate::platform::Canonical as _;
+use std::borrow::Cow;
 use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
@@ -18,7 +19,7 @@ use crate::model::{Finding, NotSelected, RemovalKind, ScanReport};
 use crate::platform::procs::ProcInfo;
 use crate::report::contents::{EntryIndex, EntryState, NotAnEntry};
 use crate::rules::entries;
-use crate::rules::{Catalog, KEPT, Rule};
+use crate::rules::{Catalog, KEPT, Rule, worktree};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
@@ -108,10 +109,27 @@ pub struct PlanItem {
     pub selected: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Plan {
     pub roots: Vec<PathBuf>,
     pub items: Vec<PlanItem>,
+    /// Findings left out of `items`, and why.
+    pub dropped: Vec<Dropped>,
+}
+
+/// A finding a plan leaves out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dropped {
+    pub finding: Finding,
+    pub reason: DropReason,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DropReason {
+    /// It lies inside a selected linked worktree, which `git worktree
+    /// remove` removes with it (ADR "Agent footprint", §2): its bytes are
+    /// the worktree item's.
+    Contained { worktree: PathBuf },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -145,7 +163,57 @@ pub fn build_plan(report: &ScanReport, catalog: &Catalog, opts: &PlanOptions) ->
             Some(PlanItem { finding: f.clone(), action, default_selected: f.selected, selected: f.selected })
         })
         .collect();
-    Plan { roots: report.scan_roots.clone(), items }
+    let (items, dropped) = contain(items, &report.findings);
+    Plan { roots: report.scan_roots.clone(), items, dropped }
+}
+
+/// The findings strictly inside `dir`.
+fn inside<'f>(findings: &'f [Finding], dir: &'f Path) -> impl Iterator<Item = &'f Finding> + 'f {
+    findings.iter().filter(move |f| f.path != dir && f.path.starts_with(dir))
+}
+
+/// The items inside a selected linked worktree leave the plan as
+/// `contained`: `git worktree remove` removes them with it. The worktree
+/// item's bytes then hold every finding inside it, whose bytes a region's
+/// own finding never counted, so the plan's total counts each byte once.
+fn contain(items: Vec<PlanItem>, findings: &[Finding]) -> (Vec<PlanItem>, Vec<Dropped>) {
+    let worktrees: Vec<PathBuf> = items
+        .iter()
+        .filter(|i| i.selected && i.finding.rule == worktree::WORKTREE_RULE)
+        .map(|i| i.finding.path.clone())
+        .collect();
+    if worktrees.is_empty() {
+        return (items, Vec::new());
+    }
+    // The outermost selected worktree holding `path`.
+    let within = |path: &Path| {
+        worktrees
+            .iter()
+            .filter(|w| path != w.as_path() && path.starts_with(w))
+            .min_by_key(|w| w.as_os_str().len())
+            .cloned()
+    };
+    let (mut kept, mut dropped) = (Vec::new(), Vec::new());
+    for item in items {
+        match within(&item.finding.path) {
+            Some(worktree) => {
+                dropped.push(Dropped { finding: item.finding, reason: DropReason::Contained { worktree } })
+            }
+            None => kept.push(item),
+        }
+    }
+    // A worktree inside another one left with what it holds.
+    for item in kept.iter_mut().filter(|i| worktrees.contains(&i.finding.path)) {
+        let wt = &mut item.finding;
+        for inner in inside(findings, &wt.path).filter(|f| within(&f.path).as_deref() == Some(wt.path.as_path())) {
+            wt.bytes = wt.bytes.saturating_add(inner.bytes);
+            wt.shared_bytes = wt.shared_bytes.saturating_add(inner.shared_bytes);
+            wt.private_bytes = wt.private_bytes.zip(inner.private_bytes).map(|(a, b)| a.saturating_add(b));
+            wt.files = wt.files.saturating_add(inner.files);
+            wt.dirs = wt.dirs.saturating_add(inner.dirs);
+        }
+    }
+    (kept, dropped)
 }
 
 /// `clean --items`: the items the user confirmed in the app (ADR "Menu bar
@@ -282,6 +350,28 @@ pub fn plan_listed_with(
     procs: &dyn ProcessTable,
     skips: &[PathBuf],
 ) -> ListedPlan {
+    plan_listed_checked(report, entries, catalog, listed, procs, skips, None)
+}
+
+/// [`plan_listed_with`], and a listed linked worktree's conditions 2, 4, 5
+/// and 6 run through `worktrees`' git (decision 6 of story "Worktree
+/// findings and provenance"): a person's list waives 1 and 3, never the
+/// rest, so the plan already refuses what the executor would keep, as
+/// `worktree-kept`. Its class is the conditions' verdict, which the list
+/// answers for: `review` and `rebuildable` match each other. An item
+/// inside a planned worktree is refused `inside-another-item`: git removes
+/// it with the worktree. With `worktrees` `None` only the executor checks
+/// the conditions.
+#[allow(clippy::too_many_arguments)]
+pub fn plan_listed_checked(
+    report: &ScanReport,
+    entries: &EntryIndex,
+    catalog: &Catalog,
+    listed: &[ListedItem],
+    procs: &dyn ProcessTable,
+    skips: &[PathBuf],
+    worktrees: Option<&worktree::Recheck<'_>>,
+) -> ListedPlan {
     let table: OnceCell<Vec<ProcInfo>> = OnceCell::new();
     let mut harnesses: HashMap<HarnessId, HarnessLiveness> = HashMap::new();
     let mut harness_of = |h: HarnessId| {
@@ -302,7 +392,7 @@ pub fn plan_listed_with(
             f.path.as_os_str() == item.path.as_os_str()
                 && (f.dev, f.ino) == (item.dev, item.ino)
                 && f.rule == item.rule
-                && f.class == item.class
+                && (f.class == item.class || worktree_verdicts(&f.rule, f.class, item.class))
         });
         let Some(f) = fresh else {
             let kept = report.findings.iter().any(|f| f.rule == crate::rules::KEPT && item.path.starts_with(&f.path));
@@ -326,9 +416,54 @@ pub fn plan_listed_with(
             refused.push(Refused { item: item.clone(), reason });
             continue;
         }
+        if f.rule == worktree::WORKTREE_RULE
+            && let Some(rc) = worktrees
+        {
+            let main = f.project.as_ref().map(|p| p.root.as_path());
+            let owners = || Cow::Owned(removable_findings(&report.findings, &f.path));
+            let checked = match main {
+                Some(main) => worktree::recheck(&f.path, Some(main), true, rc, &owners).map(|_| ()),
+                None => Err(SkipReason::ChangedSinceScan),
+            };
+            if let Err(reason) = checked {
+                refused.push(Refused { item: item.clone(), reason });
+                continue;
+            }
+        }
         items.push(PlanItem { finding: f.clone(), action, default_selected: f.selected, selected: true });
     }
-    ListedPlan { plan: Plan { roots: report.scan_roots.clone(), items }, refused }
+    // What git removes with a listed worktree is not removed again.
+    let worktrees: Vec<PathBuf> =
+        items.iter().filter(|i| i.finding.rule == worktree::WORKTREE_RULE).map(|i| i.finding.path.clone()).collect();
+    let (inner, items): (Vec<PlanItem>, Vec<PlanItem>) = items
+        .into_iter()
+        .partition(|i| worktrees.iter().any(|w| i.finding.path != *w && i.finding.path.starts_with(w)));
+    for planned in inner {
+        if let Some(item) = listed.iter().find(|l| l.path == planned.finding.path) {
+            refused.push(Refused { item: item.clone(), reason: SkipReason::InsideAnotherItem });
+        }
+    }
+    ListedPlan { plan: Plan { roots: report.scan_roots.clone(), items, dropped: Vec::new() }, refused }
+}
+
+/// A linked worktree's class is the six conditions' verdict: under a
+/// person's list `review` and `rebuildable` name the same item.
+fn worktree_verdicts(rule: &str, fresh: RiskClass, listed: RiskClass) -> bool {
+    let verdict = |c| matches!(c, RiskClass::Review | RiskClass::Rebuildable);
+    rule == worktree::WORKTREE_RULE && verdict(fresh) && verdict(listed)
+}
+
+/// The findings inside `dir` ddc removes on its own (`safe` or
+/// `rebuildable`, removed by `delete`), as the scan's accounting of a
+/// worktree's ignored content counts them.
+fn removable_findings(findings: &[Finding], dir: &Path) -> Vec<PathBuf> {
+    let mut owners: Vec<PathBuf> = inside(findings, dir)
+        .filter(|f| f.rule != KEPT && matches!(f.class, RiskClass::Safe | RiskClass::Rebuildable))
+        .filter(|f| f.removal == RemovalKind::Delete)
+        .map(|f| f.path.clone())
+        .collect();
+    owners.sort();
+    owners
 }
 
 /// A picked entry, checked in the order the dry run checks it: the action,
