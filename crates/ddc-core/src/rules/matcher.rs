@@ -125,7 +125,9 @@ pub(crate) fn matches(m: &Matcher, dir: &dyn DirView, home: &Path) -> bool {
 /// Out-of-source CMake build: `CMAKE_HOME_DIRECTORY` exists and lies outside
 /// the directory (an in-source or `-S src -B .` tree is never a build dir).
 fn cmake_out_of_source(dir: &Path) -> bool {
-    let Ok(text) = fs::read_to_string(dir.join("CMakeCache.txt")) else { return false };
+    let Ok(text) = crate::platform::read_found(&dir.join("CMakeCache.txt"), crate::platform::FOUND_MAX) else {
+        return false;
+    };
     let Some(source) = text.lines().find_map(|l| l.strip_prefix("CMAKE_HOME_DIRECTORY:")) else { return false };
     let source = source.split_once('=').map_or(source, |(_, v)| v).trim();
     match (Path::new(source).canonical(), dir.canonical()) {
@@ -139,7 +141,8 @@ pub(crate) fn cachedir_tag_valid(tag: &Path) -> bool {
         return false;
     }
     let mut head = [0u8; CACHEDIR_SIGNATURE.len()];
-    fs::File::open(tag).and_then(|mut f| f.read_exact(&mut head)).is_ok() && head == CACHEDIR_SIGNATURE
+    crate::platform::fsops::open_read(tag).and_then(|mut f| f.read_exact(&mut head)).is_ok()
+        && head == CACHEDIR_SIGNATURE
 }
 
 /// Simple glob: at most one `*`.

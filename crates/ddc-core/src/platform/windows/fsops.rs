@@ -81,6 +81,17 @@ pub fn open_nofollow_nonblock(path: &Path) -> io::Result<File> {
     Ok(file)
 }
 
+/// Opens `path` to read a file a walk found, as [`open_nofollow_nonblock`]:
+/// a cloud placeholder is never recalled, so a dehydrated file fails to read
+/// instead of downloading, and a link is refused. Unlike Unix, where a
+/// symlinked marker is followed, a Windows symlink may name a share on
+/// another machine (the open would connect to it and offer the user's
+/// credentials) or a named pipe that never answers; symlinked markers are
+/// rare on Windows, so none is read.
+pub fn open_read(path: &Path) -> io::Result<File> {
+    open_nofollow_nonblock(path)
+}
+
 /// Whether the user may write in `path`, as `access(W_OK)` answers on
 /// Unix: an open asking to add a file (a folder) or to write data (a file)
 /// succeeds, which checks the ACL and a read-only volume. The read-only
