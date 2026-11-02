@@ -344,13 +344,14 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
       printf '%s' "$ctable"; } >>"$GITHUB_STEP_SUMMARY"
 fi
 mib=$((1 << 20))
-near() { [ $(($1 * 10)) -ge $(($2 * 9)) ] && [ $(($1 * 10)) -le $(($2 * 11)) ]; }
+# Counted $1 against freed $2: at most 2% under what the delete freed, at most 10% over.
+near() { [ $(($1 * 100)) -ge $(($2 * 98)) ] && [ $(($1 * 10)) -le $(($2 * 11)) ]; }
 [ "$m_btrfs_text_bytes" -ge $((16 * mib)) ] || fail "compressed btrfs: ddc counted $m_btrfs_text_bytes bytes of 16 MiB of text, not its uncompressed size"
 [ "$m_btrfs_text_freed" -lt $((4 * mib)) ] || fail "compressed btrfs: the delete freed $m_btrfs_text_freed bytes, as if the text had not been compressed"
 [ "$m_zfs_text_bytes" -lt $((4 * mib)) ] || fail "ZFS with lz4: ddc counted $m_zfs_text_bytes bytes of 16 MiB of text, not its compressed size"
 for fs in btrfs zfs; do
     eval "b=\$m_${fs}_random_bytes f=\$m_${fs}_random_freed"
-    near "$f" "$b" || fail "$fs: random bytes were counted as $b and freed $f, more than 10% apart"
+    near "$b" "$f" || fail "$fs: random bytes were counted as $b and freed $f, more than 2% under or 10% over"
 done
 
 say DDC_MOUNTS "$base"

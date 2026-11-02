@@ -175,8 +175,8 @@ pub struct Finding {
     pub removal: RemovalKind,
     /// Allocated bytes belonging to this finding alone. On Linux btrfs with
     /// compression it is the uncompressed size, which can be far more than a
-    /// delete frees; on ZFS it is the size on disk after compression. On both,
-    /// a delete frees nothing of the blocks a snapshot still holds.
+    /// delete frees; on ZFS it is the size on disk after compression. A
+    /// delete frees nothing of the blocks a snapshot still holds.
     pub bytes: u64,
     /// Allocated bytes of hard-linked files also linked elsewhere.
     pub shared_bytes: u64,
@@ -425,8 +425,8 @@ pub struct FolderEntry {
     pub path: PathBuf,
     pub kind: FolderEntryKind,
     /// Allocated bytes, findings inside it included; a session's, its
-    /// companions' too. Counted as a finding's `bytes` are, compression
-    /// and snapshots included.
+    /// companions' too. Counted as a finding's `bytes` is, with the same
+    /// compression and snapshot caveats.
     pub bytes: u64,
     /// The device, with `ino` the identity at scan time: `st_dev`, except
     /// on Linux btrfs and ZFS, where it is the filesystem's `f_fsid` folded
