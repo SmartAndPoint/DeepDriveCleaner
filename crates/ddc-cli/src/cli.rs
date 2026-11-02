@@ -112,7 +112,7 @@ pub struct ScanArgs {
     /// Write progress events to stderr, one JSON line each (docs/progress.schema.json).
     #[arg(long, value_enum, value_name = "FORMAT", conflicts_with = "background")]
     pub progress: Option<ProgressFormat>,
-    /// Run as the scheduled LaunchAgent: no output, skip TCC-protected folders, notify.
+    /// Run as the scheduled scan (the app's or the LaunchAgent's): no output, skip TCC-protected folders, notify.
     #[arg(long, hide = true)]
     pub background: bool,
     /// Background mode: do not show a notification.
