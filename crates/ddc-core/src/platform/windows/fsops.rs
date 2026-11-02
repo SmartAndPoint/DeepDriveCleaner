@@ -28,8 +28,9 @@ use std::time::SystemTime;
 
 use windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES;
 use windows_sys::Wdk::Storage::FileSystem::{
-    FILE_NON_DIRECTORY_FILE, FILE_OPEN, FILE_OPEN_NO_RECALL, FILE_OPEN_REPARSE_POINT, FILE_RENAME_INFORMATION,
-    FILE_SYNCHRONOUS_IO_NONALERT, FileRenameInformation, NtCreateFile, NtSetInformationFile,
+    FILE_INFORMATION_CLASS, FILE_NON_DIRECTORY_FILE, FILE_OPEN, FILE_OPEN_NO_RECALL, FILE_OPEN_REPARSE_POINT,
+    FILE_RENAME_INFORMATION, FILE_STAT_INFORMATION, FILE_SYNCHRONOUS_IO_NONALERT, FileRenameInformation,
+    FileStatInformation, NtCreateFile, NtSetInformationFile,
 };
 use windows_sys::Win32::Foundation::{
     ERROR_INVALID_FUNCTION, ERROR_INVALID_PARAMETER, ERROR_NOT_SUPPORTED, HANDLE, INVALID_HANDLE_VALUE,
@@ -44,6 +45,7 @@ use windows_sys::Win32::Storage::FileSystem::{
     FileDispositionInfo, FileDispositionInfoEx, OPEN_EXISTING, SYNCHRONIZE, SetFileInformationByHandle,
 };
 use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
+use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 
 use super::meta::{id_of, info};
 use crate::platform::types::EntryStat;
@@ -216,22 +218,16 @@ impl DirFd {
         let mut wide: Vec<u16> = name.encode_wide().collect();
         let bytes = u16::try_from(wide.len() * 2).map_err(|_| io::Error::from_raw_os_error(206))?;
         let object = UNICODE_STRING { Length: bytes, MaximumLength: bytes, Buffer: wide.as_mut_ptr() };
-        let attributes = OBJECT_ATTRIBUTES {
-            Length: u32::try_from(std::mem::size_of::<OBJECT_ATTRIBUTES>()).expect("a small struct"),
-            RootDirectory: self.0.as_raw_handle(),
-            ObjectName: &object,
-            Attributes: OBJ_CASE_INSENSITIVE,
-            SecurityDescriptor: std::ptr::null(),
-            SecurityQualityOfService: std::ptr::null(),
-        };
+        let attributes = self.relative(&object, OBJ_CASE_INSENSITIVE);
         let mut handle: HANDLE = std::ptr::null_mut();
         // SAFETY: IO_STATUS_BLOCK is plain data (a union of a status and a
         // pointer, and a length); all zeroes is a valid value.
         let mut status_block: IO_STATUS_BLOCK = unsafe { std::mem::zeroed() };
         // SAFETY: every pointer is to a local that outlives the call: the
         // name's buffer (`wide`), its UNICODE_STRING, the OBJECT_ATTRIBUTES
-        // naming the parent handle (open for the call), the out handle and
-        // the status block. No allocation size, no extended attributes.
+        // (raw pointers to both and to the parent handle, open for the call;
+        // only this scope keeps them alive), the out handle and the status
+        // block. No allocation size, no extended attributes.
         let status = unsafe {
             NtCreateFile(
                 &mut handle,
@@ -251,6 +247,89 @@ impl DirFd {
         // SAFETY: NtCreateFile succeeded and returned a handle nobody else owns.
         Ok(unsafe { OwnedHandle::from_raw_handle(handle) })
     }
+
+    /// The child's id, attributes, sizes and link count in one call, by name
+    /// relative to this folder, without opening a handle to it
+    /// (`NtQueryInformationByName` with `FileStatInformation`, Windows 10
+    /// 1709 and later). The function is looked up at run time, so the binary
+    /// still starts on an older Windows: there, and where the class is
+    /// refused, the error is `ERROR_INVALID_FUNCTION` or a refused-class code, and the caller opens
+    /// the file instead. The caller compares `FileId` with what it listed,
+    /// since the name can change between the listing and this call.
+    pub(super) fn stat_by_name(&self, name: &OsStr) -> io::Result<FILE_STAT_INFORMATION> {
+        let query = query_by_name().ok_or_else(|| io::Error::from_raw_os_error(ERROR_INVALID_FUNCTION as i32))?;
+        single_name(name)?;
+        let mut wide: Vec<u16> = name.encode_wide().collect();
+        let bytes = u16::try_from(wide.len() * 2).map_err(|_| io::Error::from_raw_os_error(206))?;
+        let object = UNICODE_STRING { Length: bytes, MaximumLength: bytes, Buffer: wide.as_mut_ptr() };
+        let attributes = self.relative(&object, 0);
+        let mut out = FILE_STAT_INFORMATION::default();
+        // SAFETY: IO_STATUS_BLOCK is plain data; all zeroes is a valid value.
+        let mut status_block: IO_STATUS_BLOCK = unsafe { std::mem::zeroed() };
+        // SAFETY: `query` is ntdll's NtQueryInformationByName, of the stated
+        // signature. Every pointer is to a local that outlives the call: the
+        // name's buffer (`wide`) and its UNICODE_STRING, which the
+        // OBJECT_ATTRIBUTES point at (raw pointers: nothing but this scope
+        // keeps them alive), the parent handle (open for the call), the
+        // status block and the output struct, whose size is the stated length.
+        let status = unsafe {
+            query(
+                &attributes,
+                &mut status_block,
+                (&raw mut out).cast(),
+                u32::try_from(size_of::<FILE_STAT_INFORMATION>()).expect("a small struct"),
+                FileStatInformation,
+            )
+        };
+        nt(status)?;
+        Ok(out)
+    }
+
+    /// Object attributes naming `object` relative to this folder's handle.
+    /// They hold raw pointers to both: the caller keeps the name, its
+    /// UNICODE_STRING and this folder alive across the call that uses them.
+    /// A name taken from a listing is matched exactly (`flags` 0), so in a
+    /// case-sensitive folder it never finds the name's neighbour.
+    fn relative(&self, object: &UNICODE_STRING, flags: u32) -> OBJECT_ATTRIBUTES {
+        OBJECT_ATTRIBUTES {
+            Length: u32::try_from(std::mem::size_of::<OBJECT_ATTRIBUTES>()).expect("a small struct"),
+            RootDirectory: self.0.as_raw_handle(),
+            ObjectName: object,
+            Attributes: flags,
+            SecurityDescriptor: std::ptr::null(),
+            SecurityQualityOfService: std::ptr::null(),
+        }
+    }
+}
+
+pub(super) type QueryByName = unsafe extern "system" fn(
+    *const OBJECT_ATTRIBUTES,
+    *mut IO_STATUS_BLOCK,
+    *mut core::ffi::c_void,
+    u32,
+    FILE_INFORMATION_CLASS,
+) -> i32;
+
+/// ntdll's `NtQueryInformationByName`, looked up once; `None` before
+/// Windows 10 1703, which lacks it. A load-time import would stop the binary
+/// from starting there at all.
+pub(super) fn query_by_name() -> Option<QueryByName> {
+    static QUERY: std::sync::OnceLock<Option<QueryByName>> = std::sync::OnceLock::new();
+    *QUERY.get_or_init(|| {
+        let ntdll: Vec<u16> = "ntdll.dll".encode_utf16().chain([0]).collect();
+        // SAFETY: a NUL-terminated wide name; ntdll is mapped in every process
+        // and never unloaded, so the module handle needs no release.
+        let module = unsafe { GetModuleHandleW(ntdll.as_ptr()) };
+        if module.is_null() {
+            return None;
+        }
+        // SAFETY: a NUL-terminated ASCII name and a module handle that stays
+        // valid for the process's life.
+        let found = unsafe { GetProcAddress(module, c"NtQueryInformationByName".as_ptr().cast()) }?;
+        // SAFETY: the export has this signature (ntifs.h); both are
+        // `extern "system"` function pointers of the same size.
+        Some(unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, QueryByName>(found) })
+    })
 }
 
 /// An NT status as an `io::Error` with its Win32 code, so std's kinds

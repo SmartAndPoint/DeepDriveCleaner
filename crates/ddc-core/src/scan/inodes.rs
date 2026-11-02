@@ -1,8 +1,8 @@
-//! Deferred accounting for hard-linked files (`nlink > 1`, or 0 where the
-//! reader cannot tell, as the Windows listing cannot: such a file is counted
-//! once wherever it is seen and resolves complete). During the walk
-//! every sighting is only recorded; after the walk each inode is resolved
-//! once, independent of thread timing.
+//! Deferred accounting for hard-linked files (`nlink > 1`; a reader that
+//! cannot read a count reports `u32::MAX`, which never resolves complete).
+//! During the walk every sighting is only recorded, keeping the largest
+//! count any sighting gave; after the walk each inode is resolved once,
+//! independent of thread timing.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -51,6 +51,9 @@ impl InodeTable {
         let shard = &self.shards[(ino as usize ^ dev as usize) % SHARDS];
         let mut map = shard.lock().unwrap_or_else(|p| p.into_inner());
         let rec = map.entry((dev, ino)).or_insert_with(|| Rec { alloc, private, nlink, seen: 0, holders: Vec::new() });
+        // The largest count wins, whichever sighting came first: a link made
+        // during the walk, or one count that could not be read (`u32::MAX`).
+        rec.nlink = rec.nlink.max(nlink);
         rec.seen += 1;
         if !rec.holders.contains(&holder) {
             rec.holders.push(holder);
@@ -71,5 +74,38 @@ impl InodeTable {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn holder(root: usize) -> Holder {
+        Holder { root, owner: None, entry: None }
+    }
+
+    fn complete(sightings: &[u32]) -> bool {
+        let t = InodeTable::new();
+        for (i, n) in sightings.iter().enumerate() {
+            t.record(1, 7, 4096, None, *n, holder(i));
+        }
+        let r = t.resolve();
+        assert_eq!(r.len(), 1);
+        r[0].complete
+    }
+
+    #[test]
+    fn every_link_seen_is_complete() {
+        assert!(complete(&[2, 2]));
+        assert!(!complete(&[2]), "one link outside the scan");
+    }
+
+    #[test]
+    fn an_unreadable_count_is_never_complete_in_any_order() {
+        assert!(!complete(&[u32::MAX]));
+        assert!(!complete(&[u32::MAX, 2]));
+        assert!(!complete(&[2, u32::MAX]), "the larger count wins, whichever came first");
+        assert!(!complete(&[2, 3]) && !complete(&[3, 2]), "a link made during the walk");
     }
 }
