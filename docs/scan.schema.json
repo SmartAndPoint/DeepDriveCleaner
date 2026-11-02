@@ -612,6 +612,7 @@
           ]
         },
         "dev": {
+          "description": "The device, with `ino` the identity at scan time: `st_dev`, except\non Linux btrfs and ZFS, where it is the filesystem's `f_fsid` folded\ninto 64 bits, which a remount keeps and the anonymous `st_dev` does\nnot.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
@@ -801,6 +802,7 @@
           "minimum": 0
         },
         "dev": {
+          "description": "The device, with `ino` the identity at scan time: `st_dev`, except\non Linux btrfs and ZFS, where it is the filesystem's `f_fsid` folded\ninto 64 bits, which a remount keeps and the anonymous `st_dev` does\nnot.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
@@ -943,6 +945,7 @@
       "type": "object",
       "properties": {
         "dev": {
+          "description": "The device, with `ino` the identity at scan time: `st_dev`, except\non Linux btrfs and ZFS, where it is the filesystem's `f_fsid` folded\ninto 64 bits, which a remount keeps and the anonymous `st_dev` does\nnot.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0

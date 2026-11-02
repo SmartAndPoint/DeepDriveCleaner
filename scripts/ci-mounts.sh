@@ -9,7 +9,8 @@
 # except the tmpfs made to be root-owned. Prints one KEY=value line per mount and fixture
 # (tests/common/mounts.rs reads them), and a table of each mount's filesystem type to
 # stderr and to $GITHUB_STEP_SUMMARY when it is set. Every privileged step goes through
-# `sudo -n`, which fails instead of asking. CI only: it edits /etc/exports and Samba's
+# `sudo -n`, which fails instead of asking. It builds the CLI of this checkout once, for
+# the scan a remount must not make stale. CI only: it edits /etc/exports and Samba's
 # configuration, starts their servers and makes a zpool, with nothing to undo it, which
 # only a runner thrown away after the job can take.
 set -euo pipefail
@@ -94,6 +95,44 @@ mkdir -p "$t/data"
 sudo -n mount -o loop "$img/btrfs-inner.img" "$t/data"
 mine "$t/data"
 say DDC_MOUNT_BTRFS_TREE "$t"
+
+# A btrfs mounted again under a saved scan (the same story): a subvolume `home` with two
+# projects, one whose node_modules is kept, scanned by this checkout's ddc into
+# `state/data`; then the filesystem is unmounted and mounted again until `home` has
+# another anonymous device, each try holding one more freed device with a small tmpfs.
+# The test reads the scan and the kept folder's identity it recorded after the remount.
+loop btrfs-remount 300 mkfs.btrfs -q
+r="$base/btrfs-remount"
+btrfs subvolume create "$r/home" >/dev/null
+mkdir -p "$r/state"
+for p in p q; do
+    mkdir -p "$r/home/$p/node_modules/dep"
+    echo '{}' >"$r/home/$p/package.json"
+    echo '{}' >"$r/home/$p/package-lock.json"
+    touch -d '60 days ago' "$r/home/$p/package.json" "$r/home/$p/package-lock.json"
+    head -c 65536 /dev/zero >"$r/home/$p/node_modules/dep/index.js"
+done
+: >"$r/home/q/node_modules/.ddc-keep"
+repo="$(cd "$(dirname "$0")/.." && pwd -P)"
+cargo build --locked -q --manifest-path "$repo/Cargo.toml" -p ddc-cli --features ddc-core/op-stats >&2
+env -i PATH= NO_COLOR=1 HOME="$r/home" DDC_DATA_DIR="$r/state/data" \
+    "${CARGO_TARGET_DIR:-$repo/target}/debug/deepdrivecleaner" scan >/dev/null
+[ -f "$r/state/data/last-scan.json" ] || fail "the scan before the remount saved no last-scan.json"
+before="$(stat -c %d "$r/home")"
+echo "$before" >"$r/state/before-dev"
+moved=
+for i in 1 2 3 4 5 6 7 8; do
+    sudo -n umount "$r"
+    mkdir -p "$base/remount-hold/$i"
+    sudo -n mount -t tmpfs -o size=1m tmpfs "$base/remount-hold/$i"
+    sudo -n mount -o loop "$img/btrfs-remount.img" "$r"
+    if [ "$(stat -c %d "$r/home")" != "$before" ]; then
+        moved=1
+        break
+    fi
+done
+[ -n "$moved" ] || fail "btrfs-remount: home kept the anonymous device $before through 8 remounts"
+say DDC_MOUNT_BTRFS_REMOUNT "$r/home"
 
 # XFS refuses a filesystem under 300 MB; reflinks are on by default.
 loop xfs 320 mkfs.xfs -q
@@ -238,7 +277,7 @@ say DDC_FIXTURE_IMMUTABLE "$base/fixtures/immutable/file"
 say DDC_FIXTURE_APPEND_ONLY "$base/fixtures/append-only/file"
 say DDC_MOUNTS "$base"
 
-table="$(for m in btrfs btrfs-tree btrfs-tree/data xfs casefold exfat tmpfs tmpfs-root-top zfs zfs/child zfs/tree zfs/tree/work zfs/tree/moved zfs/del/work zfs/guard/p/node_modules nfs nfs-squash cifs bind-root/inner; do
+table="$(for m in btrfs btrfs-tree btrfs-tree/data btrfs-remount/home xfs casefold exfat tmpfs tmpfs-root-top zfs zfs/child zfs/tree zfs/tree/work zfs/tree/moved zfs/del/work zfs/guard/p/node_modules nfs nfs-squash cifs bind-root/inner; do
     printf '| %s | %s |\n' "$m" "$(stat -f -c %T "$base/$m")"
 done; printf '| autofs/trigger | autofs (from mountinfo, never stat'"'"'ed) |\n')"
 printf '%s\n' "$table" >&2

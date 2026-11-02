@@ -290,7 +290,8 @@ pub fn app_bundle(exe: &Path) -> Option<String> {
 /// in the Whole disk view").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenVnode {
-    /// As `MetadataExt::dev` gives it, so the pair compares with a `stat`.
+    /// As `meta::stat` gives it, so the pair compares with a scan's: on
+    /// Linux btrfs and ZFS the folded `f_fsid`, elsewhere `st_dev`.
     pub dev: u64,
     pub ino: u64,
     pub path: Option<PathBuf>,

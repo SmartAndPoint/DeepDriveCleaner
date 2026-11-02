@@ -89,7 +89,8 @@ pub enum SessionLiveness {
 /// One file of a session, its transcript or a companion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FileFact {
-    /// `(dev, ino)`, as `platform::meta::file_id` gives it.
+    /// `(dev, ino)`, as `platform::meta::lstat` gives it (on Linux btrfs and
+    /// ZFS, the folded `f_fsid` for the device).
     pub id: (u64, u64),
     /// Its own modification time, seconds since the epoch; `None` when not
     /// known, which counts as recent.

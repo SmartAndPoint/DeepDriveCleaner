@@ -25,8 +25,11 @@ use crate::scan::SkipReason;
 /// `builds-unknown`, and the origin kind `builds`, for a coding agent's old
 /// builds (safety ADR, amendment of 2026-11-02). 7: the skip reasons
 /// `snapshot` and `holds-subvolume`, for btrfs (safety ADR, amendment of
-/// 2026-11-02, "btrfs and ZFS on Linux").
-pub const SCHEMA_VERSION: u32 = 7;
+/// 2026-11-02, "btrfs and ZFS on Linux"). 8: `dev` on Linux btrfs and ZFS
+/// is the filesystem's folded `f_fsid`, so a report saved before reads as
+/// another version and is scanned again (same amendment, "Stable
+/// identities").
+pub const SCHEMA_VERSION: u32 = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ScanReport {
@@ -197,6 +200,10 @@ pub struct Finding {
     pub notes: Vec<Note>,
     /// How to get it back.
     pub hint: String,
+    /// The device, with `ino` the identity at scan time: `st_dev`, except
+    /// on Linux btrfs and ZFS, where it is the filesystem's `f_fsid` folded
+    /// into 64 bits, which a remount keeps and the anonymous `st_dev` does
+    /// not.
     pub dev: u64,
     pub ino: u64,
     /// Identity of the parent directory at scan time (re-checked before cleaning).
@@ -354,6 +361,10 @@ pub struct Protection {
 pub struct MarkerFolder {
     #[serde(serialize_with = "crate::json_path::path")]
     pub folder: PathBuf,
+    /// The device, with `ino` the identity at scan time: `st_dev`, except
+    /// on Linux btrfs and ZFS, where it is the filesystem's `f_fsid` folded
+    /// into 64 bits, which a remount keeps and the anonymous `st_dev` does
+    /// not.
     pub dev: u64,
     pub ino: u64,
 }
@@ -413,6 +424,10 @@ pub struct FolderEntry {
     /// Allocated bytes, findings inside it included; a session's, its
     /// companions' too.
     pub bytes: u64,
+    /// The device, with `ino` the identity at scan time: `st_dev`, except
+    /// on Linux btrfs and ZFS, where it is the filesystem's `f_fsid` folded
+    /// into 64 bits, which a remount keeps and the anonymous `st_dev` does
+    /// not.
     pub dev: u64,
     pub ino: u64,
     /// Last modification, RFC 3339; a session's, the newest of its files'

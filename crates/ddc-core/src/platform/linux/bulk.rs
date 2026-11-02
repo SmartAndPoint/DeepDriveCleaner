@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, RawDir, ResolveFlags, StatxAttributes, StatxFlags};
 use rustix::io::Errno;
 
+use super::fsid::ZFS_SUPER_MAGIC;
 use super::statfs::Mount;
 use crate::platform::types::{Boundary, DirListing, EntryKind, EntryMeta, EntryStat, ReadError, ReadErrorKind, Times};
 
@@ -32,9 +33,6 @@ const BUF_LEN: usize = 64 * 1024;
 
 /// Linux's `PATH_MAX`, the terminating NUL included.
 const PATH_MAX: usize = 4096;
-
-/// `statfs`'s `f_type` of ZFS (OpenZFS `ZFS_SUPER_MAGIC`).
-const ZFS_SUPER_MAGIC: u32 = 0x2FC1_2FC1;
 
 /// `statfs`'s `f_type` of an open folder's filesystem, as the 32-bit magic
 /// number it is.
@@ -264,11 +262,30 @@ fn mount_id(fd: &OwnedFd, statx: Option<u64>) -> Option<u64> {
     })
 }
 
-/// An open folder's `(dev, ino)` and mount id ([`mount_id`]), for the
-/// Trash's choice of a trash folder on the item's own mount.
+/// An open folder's `(dev, ino)`, its device the reported one
+/// (`super::fsid`), and mount id ([`mount_id`]), for the Trash's choice of
+/// a trash folder on the item's own mount.
 pub(super) fn fd_mount(fd: &OwnedFd) -> Result<((u64, u64), Option<u64>), Errno> {
     let st = stat(fd, c"", AtFlags::EMPTY_PATH, false)?;
-    Ok(((st.dev, st.ino), mount_id(fd, st.mnt_id)))
+    let mnt = mount_id(fd, st.mnt_id);
+    Ok(((super::fsid::of_fd(fd, st.dev, mnt)?, st.ino), mnt))
+}
+
+/// What an open file is, read once from its descriptor: [`held`].
+pub(super) struct Held {
+    /// `st_dev`, as the kernel gives it.
+    pub(super) raw: u64,
+    /// `(dev, ino)`, the device the reported one (`super::fsid`).
+    pub(super) id: (u64, u64),
+    pub(super) kind: EntryKind,
+}
+
+/// An open file (an `O_PATH` descriptor too): one `statx`, its mount id,
+/// and the reported device.
+pub(super) fn held(fd: &OwnedFd) -> Result<Held, Errno> {
+    let st = stat(fd, c"", AtFlags::EMPTY_PATH, false)?;
+    let dev = super::fsid::of_fd(fd, st.dev, mount_id(fd, st.mnt_id))?;
+    Ok(Held { raw: st.dev, id: (dev, st.ino), kind: st.kind })
 }
 
 /// An open folder is the root of its mount: `STATX_ATTR_MOUNT_ROOT` where
@@ -298,12 +315,18 @@ fn fdinfo_mnt_id(info: &[u8]) -> Option<u64> {
 /// triggering an automount: a mount root, an automount point or another
 /// mount than `dir`'s is `mount_root`. Without a mount id (no
 /// `STATX_MNT_ID`) only the kernel's own mark tells, and a bind mount there
-/// is caught by its `(dev, ino)` alone, as the amendment accepts.
+/// is caught by its `(dev, ino)` alone, as the amendment accepts. Its
+/// device is the reported one ([`child_device`]).
 pub(super) fn stat_child(dir: &OwnedFd, name: &OsStr) -> Result<EntryStat, Errno> {
-    let dir_mnt = stat(dir, c"", AtFlags::EMPTY_PATH, false)?.mnt_id;
+    let me = stat(dir, c"", AtFlags::EMPTY_PATH, false)?;
+    let dir_mnt = me.mnt_id;
     let st = stat(dir, name, AtFlags::SYMLINK_NOFOLLOW | AtFlags::NO_AUTOMOUNT, false)?;
+    let folder = (me.dev, super::fsid::of_fd(dir, me.dev, mount_id(dir, dir_mnt))?);
+    let name = rustix::ffi::CString::new(name.as_bytes()).map_err(|_| Errno::INVAL)?;
+    let dev =
+        child_device(dir, &name, (st.dev, st.ino), st.automount == Some(true), folder, &std::sync::Mutex::default())?;
     Ok(EntryStat {
-        dev: st.dev,
+        dev,
         ino: st.ino,
         is_dir: st.kind == EntryKind::Dir,
         is_file: st.kind == EntryKind::File,
@@ -343,8 +366,11 @@ fn list_fd(
     mounts: &std::sync::Mutex<Mounts>,
 ) -> Result<DirListing, ReadError> {
     let me = stat(fd, c"", AtFlags::EMPTY_PATH, false).map_err(read_error)?;
+    // This folder's mount, for the subvolume rule: unknown, nothing is entered.
+    let dir_mnt = mount_id(fd, me.mnt_id);
+    let dev = super::fsid::of_fd(fd, me.dev, dir_mnt).map_err(read_error)?;
     if let Some((want_dev, want_ino)) = expect {
-        if me.dev != want_dev {
+        if dev != want_dev {
             return Err(ReadError::new(ReadErrorKind::OtherFilesystem, None));
         }
         if me.ino != want_ino {
@@ -352,8 +378,6 @@ fn list_fd(
         }
     }
 
-    // This folder's mount, for the subvolume rule: unknown, nothing is entered.
-    let dir_mnt = mount_id(fd, me.mnt_id);
     let mut entries = Vec::new();
     let mut buf = vec![MaybeUninit::<u8>::uninit(); BUF_LEN];
     let mut names = RawDir::new(fd, &mut buf);
@@ -385,11 +409,55 @@ fn list_fd(
                 entry.boundary = Some(subvolume_edge(fd, name, (entry.dev, entry.ino), dir_mnt, mounts));
             }
         }
+        // The raw devices told the edges above; the reported one replaces it last.
+        if entry.error.is_none() {
+            let automount = entry.boundary == Some(Boundary::Automount);
+            match child_device(fd, name, (entry.dev, entry.ino), automount, (me.dev, dev), mounts) {
+                Ok(reported) => entry.dev = reported,
+                Err(e) => entry.error = Some(e.raw_os_error()),
+            }
+        }
         entries.push(entry);
     }
     // Counted once the listing is whole; a listing that fails part-way counts nothing.
     crate::stats::add(crate::stats::Counter::DirEntriesRead, entries.len() as u64);
-    Ok(DirListing { dev: me.dev, ino: me.ino, modified: Some(me.mtime), alloc: me.blocks * 512, entries })
+    Ok(DirListing { dev, ino: me.ino, modified: Some(me.mtime), alloc: me.blocks * 512, entries })
+}
+
+/// The device the entry `name` of the folder `dir` reports, `id` its raw
+/// `(dev, ino)` and `folder` the folder's raw and reported devices: the
+/// folder's where the raw devices agree (one subvolume, one dataset);
+/// else its own, read through an `O_PATH` descriptor, which triggers no
+/// automount, and refused (`ENOENT`) unless it is the entry stat'ed. Only a
+/// btrfs or ZFS mount, or one mountinfo does not name, is asked `fstatfs`:
+/// another one (NFS, SMB) may wait on its server, and keeps its raw device
+/// as it reports it anyway. An automount point keeps its raw device: it is
+/// never entered, nor opened.
+fn child_device(
+    dir: &OwnedFd,
+    name: &CStr,
+    id: (u64, u64),
+    automount: bool,
+    folder: (u64, u64),
+    mounts: &std::sync::Mutex<Mounts>,
+) -> Result<u64, Errno> {
+    if id.0 == folder.0 {
+        return Ok(folder.1);
+    }
+    if automount {
+        return Ok(id.0);
+    }
+    let fd = retry(|| rustix::fs::openat(dir, name, OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty()))?;
+    let st = stat(&fd, c"", AtFlags::EMPTY_PATH | AtFlags::STATX_DONT_SYNC, false)?;
+    if (st.dev, st.ino) != id {
+        return Err(Errno::NOENT);
+    }
+    let mnt = mount_id(&fd, st.mnt_id);
+    let kind = mnt.and_then(|m| mounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner).type_of(m));
+    match kind.as_deref() {
+        Some("btrfs" | "zfs") | None => super::fsid::of_fd(&fd, st.dev, mnt),
+        Some(_) => Ok(st.dev),
+    }
 }
 
 /// One entry, stat'ed relative to `dir` without following a symlink or
@@ -805,7 +873,7 @@ fn kind(ft: FileType) -> EntryKind {
 }
 
 /// Retried on `EINTR`, as std does: a signal is not an unreadable directory.
-fn retry<T>(mut call: impl FnMut() -> Result<T, Errno>) -> Result<T, Errno> {
+pub(super) fn retry<T>(mut call: impl FnMut() -> Result<T, Errno>) -> Result<T, Errno> {
     loop {
         match call() {
             Err(Errno::INTR) => continue,
@@ -892,7 +960,7 @@ mod tests {
     #[test]
     fn the_listing_carries_the_directorys_identity() {
         let d = tempfile::tempdir().unwrap();
-        let id = meta::file_id(&fs::symlink_metadata(d.path()).unwrap()).unwrap();
+        let id = meta::lstat(d.path()).unwrap().id();
         let l = list(d.path(), Some(id), false, Times::None).unwrap();
         assert_eq!((l.dev, l.ino), id);
         assert!(l.entries.is_empty());
@@ -906,7 +974,7 @@ mod tests {
         let a = d.path().join("a");
         fs::create_dir(&a).unwrap();
         fs::write(a.join("inside"), b"x").unwrap();
-        let id = meta::file_id(&fs::symlink_metadata(&a).unwrap()).unwrap();
+        let id = meta::lstat(&a).unwrap().id();
         fs::rename(&a, d.path().join("old")).unwrap();
         fs::create_dir(&a).unwrap();
         assert_eq!(list(&a, Some(id), false, Times::None).unwrap_err().kind, ReadErrorKind::Changed);

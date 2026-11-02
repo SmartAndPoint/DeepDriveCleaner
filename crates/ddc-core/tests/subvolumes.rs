@@ -208,3 +208,85 @@ fn the_subvolume_rule_tells_each_step_for_work() {
     let trace = ddc_core::platform::bulk::subvolume_trace(&t, std::ffi::OsStr::new("work"));
     assert!(trace.ends_with("edge: Subvolume"), "{trace}");
 }
+
+/// A file held open inside a subvolume is in use: one identity for the
+/// guard, the walk and the process table, its device the subvolume's
+/// `f_fsid` folded (safety ADR, amendment of 2026-11-02, "Stable
+/// identities").
+#[test]
+fn a_file_held_open_inside_a_subvolume_is_in_use() {
+    let Some(t) = common::mount("a_file_held_open_inside_a_subvolume_is_in_use", Mount::BtrfsTree) else {
+        return;
+    };
+    let tree = TreeBuilder::new_in(&t);
+    let made =
+        std::process::Command::new("btrfs").args(["subvolume", "create"]).arg(tree.path("sv")).output().expect("btrfs");
+    assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+    common::mounts::held_open_is_in_use("a_file_held_open_inside_a_subvolume_is_in_use", &tree.file("sv/held", 4096));
+}
+
+/// A scan saved before the btrfs under it was mounted again, with another
+/// anonymous device for the subvolume `home` (`scripts/ci-mounts.sh`),
+/// still matches: its finding is deleted, never `changed-since-scan`, and
+/// the identity it recorded for a kept folder removes that folder's
+/// `.ddc-keep`, as `ddc keep remove --folder-dev --folder-ino` does.
+#[test]
+fn a_saved_scan_and_a_keep_record_still_match_after_a_remount() {
+    use std::os::unix::fs::MetadataExt as _;
+    use std::time::SystemTime;
+
+    use common::fakes::{FakeCommands, FakeProcs, FakeTrash};
+    use ddc_core::class::RiskClass;
+    use ddc_core::env::Env;
+    use ddc_core::exec::{self, Consent, ExecOptions, MemoryJournal, MemoryKeepJournal, Outcome, Ports};
+    use ddc_core::keep::{self, KeepResult, Target};
+    use ddc_core::plan::{PlanOptions, build_plan};
+    use ddc_core::platform::meta;
+    use ddc_core::rules::Catalog;
+    use ddc_core::store;
+
+    let test = "a_saved_scan_and_a_keep_record_still_match_after_a_remount";
+    let Some(home) = common::mount(test, Mount::BtrfsRemount) else {
+        return;
+    };
+    let state = home.parent().unwrap().join("state");
+    let before: u64 = std::fs::read_to_string(state.join("before-dev")).unwrap().trim().parse().unwrap();
+    assert_ne!(std::fs::symlink_metadata(&home).unwrap().dev(), before, "the remount moved the anonymous device");
+
+    let env = Env::with_paths(&home, &state.join("data"), &state.join("logs"), SystemTime::now()).unwrap();
+    let saved = store::read_last_scan(&env).unwrap().expect("the scan made before the remount");
+    let found = |rel: &str| {
+        let path = home.join(rel);
+        saved.findings.iter().find(|f| f.path == path).unwrap_or_else(|| panic!("{rel}: {:#?}", saved.findings))
+    };
+    let nm = found("p/node_modules");
+    assert_ne!(nm.dev, before, "the scan recorded no anonymous device");
+    assert_eq!((nm.dev, nm.ino), meta::lstat(&nm.path).unwrap().id());
+
+    let opts = PlanOptions { permanent: true, ..PlanOptions::default() };
+    let plan = build_plan(&saved, &Catalog::builtin(&home), &opts);
+    assert!(plan.items.iter().any(|i| i.finding.path == nm.path), "{plan:#?}");
+    let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
+    let data = tempfile::tempdir().unwrap();
+    let trash = FakeTrash(data.path().join("FakeTrash"));
+    let mut journal = MemoryJournal::default();
+    let ports = Ports {
+        commands: &FakeCommands::default(),
+        trash: &trash,
+        procs: &FakeProcs::new(vec![]),
+        journal: &mut journal,
+    };
+    let report =
+        exec::execute(&env, &Catalog::builtin(&home), &plan, &consent, ports, &ExecOptions::default()).unwrap();
+    let item = report.items.iter().find(|i| i.path == nm.path).expect("planned");
+    assert_eq!(item.outcome, Outcome::Deleted, "{report:#?}");
+    assert!(!nm.path.exists());
+
+    let kept = found("q/node_modules");
+    let marker = kept.protection.as_ref().and_then(|p| p.markers.iter().find(|m| m.folder == kept.path));
+    let marker = marker.unwrap_or_else(|| panic!("no marker of its own: {kept:#?}"));
+    let target = Target { folder: kept.path.clone(), identity: Some((marker.dev, marker.ino)), rule: None };
+    let removed = keep::unprotect(&target, std::slice::from_ref(&home), &mut MemoryKeepJournal::default()).unwrap();
+    assert_eq!(removed.result, KeepResult::Removed, "{removed:#?}");
+    assert!(!kept.path.join(".ddc-keep").exists());
+}

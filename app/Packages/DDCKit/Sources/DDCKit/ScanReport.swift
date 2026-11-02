@@ -9,7 +9,7 @@ import Foundation
 /// their defaults, so a report of this version without them still reads.
 public struct ScanReport: Decodable, Sendable, Equatable {
     /// `SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 7
+    public static let schemaVersion = 8
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)

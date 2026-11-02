@@ -9,12 +9,6 @@ use std::io;
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::Path;
 
-/// `(dev, ino)`, as `stat` gives them, so the pair compares with a
-/// directory listing's.
-pub(super) fn file_id(md: &Metadata) -> io::Result<(u64, u64)> {
-    Ok((md.dev(), md.ino()))
-}
-
 /// Hard links to the file (`st_nlink`).
 pub(super) fn link_count(md: &Metadata) -> u64 {
     md.nlink()
@@ -59,25 +53,34 @@ pub fn is_executable(md: &Metadata) -> bool {
     md.permissions().mode() & 0o111 != 0
 }
 
-/// The path's own facts, links not followed (`lstat`).
+/// The path's own facts, links not followed (`lstat`). The device is the
+/// one every producer reports (`super::fsid`), read through the path
+/// opened again and checked to be the same file.
 pub fn lstat(path: &Path) -> io::Result<FileStat> {
-    std::fs::symlink_metadata(path).and_then(of)
+    let md = std::fs::symlink_metadata(path)?;
+    let dev = super::fsid::of_path(path, false, &md)?;
+    Ok(of(md, dev))
 }
 
-/// The facts of what the path names, links followed (`stat`).
+/// The facts of what the path names, links followed (`stat`), its device
+/// as [`lstat`]'s.
 pub fn stat(path: &Path) -> io::Result<FileStat> {
-    std::fs::metadata(path).and_then(of)
+    let md = std::fs::metadata(path)?;
+    let dev = super::fsid::of_path(path, true, &md)?;
+    Ok(of(md, dev))
 }
 
 /// A listed entry's facts, links not followed, read through the listing:
 /// std's `DirEntry::metadata`, which is `fstatat` on the listing's
 /// descriptor (glibc and macOS) and reaches past `PATH_MAX`; on musl std
-/// stats the path instead.
+/// stats the path instead. The device as [`lstat`]'s, through the
+/// entry's folder past `PATH_MAX`.
 pub fn entry(entry: &std::fs::DirEntry) -> io::Result<FileStat> {
-    entry.metadata().and_then(of)
+    let md = entry.metadata()?;
+    let dev = super::fsid::of_path(&entry.path(), false, &md)?;
+    Ok(of(md, dev))
 }
 
-fn of(md: Metadata) -> io::Result<FileStat> {
-    let (dev, ino) = file_id(&md)?;
-    Ok(FileStat { dev, ino, nlink: link_count(&md), alloc: alloc_bytes(&md), md })
+fn of(md: Metadata, dev: u64) -> FileStat {
+    FileStat { dev, ino: md.ino(), nlink: link_count(&md), alloc: alloc_bytes(&md), md }
 }

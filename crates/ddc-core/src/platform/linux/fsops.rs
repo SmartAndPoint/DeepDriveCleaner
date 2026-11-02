@@ -90,10 +90,10 @@ impl DirFd {
         &self.0
     }
 
-    /// `(dev, ino)` of the directory itself.
+    /// `(dev, ino)` of the directory itself, its device the reported one
+    /// (`super::fsid`).
     pub fn identity(&self) -> io::Result<(u64, u64)> {
-        let st = rustix::fs::fstat(&self.0)?;
-        Ok((st.st_dev, st.st_ino))
+        Ok(super::bulk::held(&self.0)?.id)
     }
 
     pub fn stat_child(&self, name: &OsStr) -> io::Result<EntryStat> {
@@ -148,13 +148,10 @@ mod tests {
         testing::symlink(Path::new("/"), &d.path().join("sym")).unwrap();
         let dir = DirFd::open(d.path()).unwrap();
 
-        assert_eq!(dir.identity().unwrap(), meta::file_id(&fs::symlink_metadata(d.path()).unwrap()).unwrap());
+        assert_eq!(dir.identity().unwrap(), meta::lstat(d.path()).unwrap().id());
         let f = dir.stat_child(OsStr::new("f")).unwrap();
-        let md = fs::symlink_metadata(d.path().join("f")).unwrap();
-        assert_eq!(
-            (f.dev, f.ino, f.alloc),
-            (meta::file_id(&md).unwrap().0, meta::file_id(&md).unwrap().1, meta::alloc_bytes(&md))
-        );
+        let st = meta::lstat(&d.path().join("f")).unwrap();
+        assert_eq!((f.dev, f.ino, f.alloc), (st.dev, st.ino, st.alloc));
         assert!(f.is_file && !f.is_dir && !f.is_symlink);
         assert!(dir.stat_child(OsStr::new("sub")).unwrap().is_dir);
         assert!(dir.stat_child(OsStr::new("sym")).unwrap().is_symlink, "never followed");

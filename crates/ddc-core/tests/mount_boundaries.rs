@@ -183,12 +183,11 @@ fn a_stale_plan_into_a_bind_mount_is_refused_and_nothing_moves() {
 /// One file in a fresh tree on `dir`'s filesystem, its folder open, and
 /// its identity: what the Trash is given after the guard's check.
 fn item_on(dir: &Path) -> (TreeBuilder, ddc_core::platform::fsops::DirFd, std::path::PathBuf, (u64, u64)) {
-    use std::os::unix::fs::MetadataExt as _;
     let tree = TreeBuilder::new_in(dir);
     let file = tree.file("cache/blob", 4096);
-    let md = std::fs::symlink_metadata(&file).unwrap();
+    let id = ddc_core::platform::meta::lstat(&file).unwrap().id();
     let folder = ddc_core::platform::fsops::DirFd::open(file.parent().unwrap()).unwrap();
-    (tree, folder, file, (md.dev(), md.ino()))
+    (tree, folder, file, id)
 }
 
 fn uid() -> u32 {
@@ -202,7 +201,6 @@ fn uid() -> u32 {
 #[test]
 fn a_tmpfs_item_moves_into_its_own_trash_with_its_identity() {
     use ddc_core::platform::trash;
-    use std::os::unix::fs::MetadataExt as _;
     let Some(top) = common::mount("a_tmpfs_item_moves_into_its_own_trash_with_its_identity", Mount::Tmpfs) else {
         return;
     };
@@ -211,8 +209,8 @@ fn a_tmpfs_item_moves_into_its_own_trash_with_its_identity() {
     trash::would_trash(&folder, name, &file).unwrap();
     let place = trash::trash_item(&folder, name, &file, id).unwrap().expect("Linux tells the place");
     assert_eq!(place.trash, top.join(format!(".Trash-{}", uid())));
-    let landed = std::fs::symlink_metadata(place.trash.join("files").join(&place.name)).unwrap();
-    assert_eq!((landed.dev(), landed.ino()), id);
+    let landed = ddc_core::platform::meta::lstat(&place.trash.join("files").join(&place.name)).unwrap();
+    assert_eq!(landed.id(), id);
     assert!(!file.exists());
     let info =
         std::fs::read_to_string(place.trash.join("info").join(format!("{}.trashinfo", place.name.to_string_lossy())))
@@ -260,7 +258,6 @@ fn a_btrfs_subvolume_item_is_refused_and_stays() {
 #[test]
 fn an_nfs_item_moves_into_the_exports_trash() {
     use ddc_core::platform::trash;
-    use std::os::unix::fs::MetadataExt as _;
     let Some(top) = common::mount("an_nfs_item_moves_into_the_exports_trash", Mount::Nfs) else {
         return;
     };
@@ -269,7 +266,7 @@ fn an_nfs_item_moves_into_the_exports_trash() {
     trash::would_trash(&folder, name, &file).unwrap();
     let place = trash::trash_item(&folder, name, &file, id).unwrap().expect("Linux tells the place");
     assert_eq!(place.trash, top.join(format!(".Trash-{}", uid())));
-    let landed = std::fs::symlink_metadata(place.trash.join("files").join(&place.name)).unwrap();
-    assert_eq!((landed.dev(), landed.ino()), id);
+    let landed = ddc_core::platform::meta::lstat(&place.trash.join("files").join(&place.name)).unwrap();
+    assert_eq!(landed.id(), id);
     assert!(!file.exists());
 }

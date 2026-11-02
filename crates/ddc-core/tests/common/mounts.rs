@@ -22,6 +22,12 @@ pub enum Mount {
     /// `holds/node_modules/inner` a subvolume, the snapshots `snap-ro`,
     /// `snap-rw` and `recv/snap-ro` (received), and another btrfs at `data`.
     BtrfsTree,
+    /// The subvolume `home` of a btrfs mounted again after a scan of it, so
+    /// `home` has another anonymous device: projects `p` and `q`, whose
+    /// `node_modules` is kept, and beside `home` the folder `state`, which
+    /// holds the scan's data folder `data` and the device `home` had,
+    /// `before-dev`.
+    BtrfsRemount,
     Xfs,
     /// A folder with ext4's casefold flag (`chattr +F`).
     Casefold,
@@ -64,6 +70,7 @@ impl Mount {
             Mount::BtrfsSnapshotRo => "DDC_MOUNT_BTRFS_SNAPSHOT_RO",
             Mount::BtrfsSnapshotRw => "DDC_MOUNT_BTRFS_SNAPSHOT_RW",
             Mount::BtrfsTree => "DDC_MOUNT_BTRFS_TREE",
+            Mount::BtrfsRemount => "DDC_MOUNT_BTRFS_REMOUNT",
             Mount::Xfs => "DDC_MOUNT_XFS",
             Mount::Casefold => "DDC_MOUNT_CASEFOLD",
             Mount::Exfat => "DDC_MOUNT_EXFAT",
@@ -89,6 +96,7 @@ impl Mount {
             Mount::BtrfsSnapshotRo => "btrfs read-only snapshot",
             Mount::BtrfsSnapshotRw => "btrfs writable snapshot",
             Mount::BtrfsTree => "btrfs tree",
+            Mount::BtrfsRemount => "remounted btrfs",
             Mount::Xfs => "xfs",
             Mount::Casefold => "casefold ext4",
             Mount::Exfat => "exfat",
@@ -113,6 +121,7 @@ impl Mount {
         match self {
             Mount::Btrfs
             | Mount::BtrfsTree
+            | Mount::BtrfsRemount
             | Mount::BtrfsSubvolume
             | Mount::BtrfsSnapshotRo
             | Mount::BtrfsSnapshotRw => 0x9123_683E,
@@ -148,6 +157,55 @@ pub fn mounted_at(path: &std::path::Path) -> Vec<String> {
             (std::path::Path::new(&point) == path).then(|| right.split(' ').next().unwrap_or("").to_owned())
         })
         .collect()
+}
+
+/// `file`, inside a btrfs subvolume or a ZFS dataset, has one identity for
+/// the guard, the walk, `lstat` and the process table, whose device is the
+/// filesystem's `f_fsid` folded, never the anonymous `st_dev`; and a
+/// process that holds it open is found holding it, so the guard's liveness
+/// check calls a session of that file live (safety ADR, amendment of
+/// 2026-11-02, "btrfs and ZFS on Linux", "Stable identities").
+pub fn held_open_is_in_use(test: &str, file: &std::path::Path) {
+    use std::os::unix::fs::MetadataExt as _;
+    use std::time::{Duration, Instant, SystemTime};
+
+    use ddc_core::agents::liveness::{self, FileFact, LiveBy, SessionFacts, SessionLiveness};
+    use ddc_core::platform::{bulk, fsops::DirFd, meta, procs};
+    use ddc_core::scan::Times;
+
+    let (dir, name) = (file.parent().unwrap(), file.file_name().unwrap());
+    let key = DirFd::open(dir).unwrap().stat_child(name).unwrap();
+    let id = (key.dev, key.ino);
+    let folded = rustix::fs::statvfs(file).unwrap().f_fsid;
+    assert_eq!(id.0, folded, "{test}: the device is f_fsid folded");
+    assert_ne!(id.0, std::fs::symlink_metadata(file).unwrap().dev(), "{test}: never the anonymous st_dev");
+    assert_eq!(meta::lstat(file).unwrap().id(), id, "{test}: lstat");
+    let listing = bulk::list(dir, Some(meta::lstat(dir).unwrap().id()), false, Times::None).unwrap();
+    let entry = listing.entries.iter().find(|e| e.name == name).unwrap();
+    assert_eq!((entry.dev, entry.ino), id, "{test}: the walk");
+
+    let mut holder =
+        std::process::Command::new("/bin/sh").args(["-c", "exec 3<\"$0\"; exec sleep 30"]).arg(file).spawn().unwrap();
+    let pid = i32::try_from(holder.id()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let found = loop {
+        if procs::open_vnodes(pid).iter().any(|v| (v.dev, v.ino) == id) {
+            break true;
+        }
+        if Instant::now() > deadline {
+            break false;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let seen = procs::open_vnodes(pid);
+    // The guard's verdict on a session whose one file is that file, old
+    // enough not to count as recent: live, because it is open.
+    let session = SessionFacts { session: "s".into(), files: vec![FileFact { id, modified: Some(0) }] };
+    let verdict = liveness::claude(Ok(&[][..]), &[session], &[pid], procs::open_vnodes, SystemTime::now());
+    let _ = holder.kill();
+    let _ = holder.wait();
+    assert!(found, "{test}: {id:?} not among {seen:?}");
+    assert_eq!(verdict, [SessionLiveness::Live { by: LiveBy::OpenFile }], "{test}: the guard's verdict");
 }
 
 /// Where the job made `kind`, or `None` after printing why the test skips.
