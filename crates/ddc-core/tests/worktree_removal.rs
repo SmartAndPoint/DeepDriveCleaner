@@ -359,6 +359,49 @@ fn a_worktree_git_does_not_list_is_skipped_and_nothing_runs() {
     assert!(wt.join("README").exists());
 }
 
+/// A worktree whose folder is another one since the scan, at the same path,
+/// is refused by the guard before any git command runs.
+#[test]
+fn a_worktree_in_another_folder_since_the_scan_is_changed_since_scan() {
+    let Some(h) = Home::ready("a_worktree_in_another_folder_since_the_scan_is_changed_since_scan") else { return };
+    let (main, wt) = project(&h);
+    let plan = build_plan(&h.scan(), &h.catalog(), &PlanOptions::default());
+    assert!(plan.items.iter().any(|i| i.finding.path == wt && i.selected));
+    // Its files move into a new folder at the same path: git still lists it.
+    let fresh = h.t.path("fresh-x");
+    fs::create_dir(&fresh).unwrap();
+    for entry in fs::read_dir(&wt).unwrap() {
+        let entry = entry.unwrap();
+        fs::rename(entry.path(), fresh.join(entry.file_name())).unwrap();
+    }
+    fs::rename(&wt, h.t.path("old-x")).unwrap();
+    fs::rename(&fresh, &wt).unwrap();
+    let commands = SharedCommands::system(&h.env());
+
+    let (run, _) = h.execute(&plan, yes(), &commands);
+
+    assert_eq!(outcome(&run, &wt), &Outcome::Skipped(SkipReason::ChangedSinceScan));
+    assert!(commands.git_calls().is_empty(), "{:?}", commands.git_calls());
+    assert!(wt.join("README").exists());
+    let list = git::git(&main, &["worktree", "list", "--porcelain"]);
+    assert!(list.contains(".claude/worktrees/x"), "{list}");
+}
+
+/// A `.ddc-keep` in a worktree keeps it out of every plan, as for any folder.
+#[test]
+fn a_kept_worktree_is_never_planned() {
+    let Some(h) = Home::ready("a_kept_worktree_is_never_planned") else { return };
+    let (_, wt) = project(&h);
+    h.write(&wt.join(".ddc-keep"), "");
+
+    let r = h.scan();
+
+    let f = h.finding(&r, &wt);
+    assert_eq!((f.class, f.selected), (RiskClass::UserData, false), "{f:?}");
+    let plan = build_plan(&r, &h.catalog(), &PlanOptions::default());
+    assert!(!plan.items.iter().any(|i| i.finding.path == wt), "{:?}", plan.items);
+}
+
 #[test]
 fn delete_or_trash_on_a_worktree_is_not_allowed() {
     let Some(h) = Home::ready("delete_or_trash_on_a_worktree_is_not_allowed") else { return };

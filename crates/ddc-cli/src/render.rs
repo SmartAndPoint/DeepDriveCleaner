@@ -1,6 +1,6 @@
 //! Human-readable scan, disk, agents and disk-free reports.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
@@ -12,8 +12,9 @@ use ddc_core::brew::{BrewPackages, NotOffered, Service, ServicesState};
 use ddc_core::class::{Category, RiskClass};
 use ddc_core::disk::{ActionId, DiskReport, HeldKind, HomeSource, SimulatorStatus};
 use ddc_core::free::{ActionReport, ActionResult, FreeReport, Refusal, ReportEdit};
-use ddc_core::model::{Finding, NotSelected, ScanReport};
+use ddc_core::model::{Finding, NotSelected, OriginHarness, ScanReport};
 use ddc_core::rules::Note;
+use ddc_core::rules::worktree::{self, ORPHAN_RULE, WORKTREE_RULE};
 
 use crate::size::{count, human};
 
@@ -108,8 +109,16 @@ pub fn use_color(is_terminal: bool, no_color: bool) -> bool {
     is_terminal && !no_color
 }
 
-fn status(f: &Finding) -> String {
+fn status(f: &Finding, home: &Path) -> String {
     let mut parts = Vec::new();
+    if f.rule == WORKTREE_RULE
+        && let Some(project) = &f.project
+    {
+        parts.push(format!("worktree of {}", tilde(&project.root, home)));
+    }
+    if let Some(reason) = worktree_reason(f) {
+        parts.push(reason);
+    }
     if f.ignored {
         parts.push("ignored".to_owned());
     }
@@ -140,6 +149,122 @@ fn status(f: &Finding) -> String {
         parts.push("incomplete".to_owned());
     }
     parts.join(" · ")
+}
+
+/// Why a worktree is not selected: it lost its repository (both causes, as
+/// its hint names them), was moved or copied, is the person's own, or the
+/// condition it failed, from its hint.
+fn worktree_reason(f: &Finding) -> Option<String> {
+    if f.selected {
+        return None;
+    }
+    let reason = if f.rule == ORPHAN_RULE {
+        f.hint.as_str()
+    } else if f.rule != WORKTREE_RULE {
+        return None;
+    } else if f.worktree.as_ref().is_some_and(|w| !w.linked) {
+        "moved or copied: git worktree repair relinks it"
+    } else if f.origin.is_some_and(|o| o.harness == OriginHarness::Git) {
+        "yours: list it to remove it"
+    } else {
+        f.project.as_ref().and_then(|p| worktree::kept_reason(&f.hint, &p.root))?
+    };
+    Some(escaped(reason))
+}
+
+/// The findings inside each worktree the report lists, keyed by the
+/// innermost one: shown indented under it, not in their own groups (story
+/// "Worktree findings and provenance").
+fn inside_worktrees(findings: &[Finding]) -> BTreeMap<&Path, Vec<&Finding>> {
+    let listed = |f: &&Finding| !f.ignored;
+    let worktrees: Vec<&Path> =
+        findings.iter().filter(listed).filter(|f| f.rule == WORKTREE_RULE).map(|f| f.path.as_path()).collect();
+    let mut inside: BTreeMap<&Path, Vec<&Finding>> = BTreeMap::new();
+    for f in findings.iter().filter(listed) {
+        let innermost = worktrees
+            .iter()
+            .filter(|wt| f.path != **wt && f.path.starts_with(wt))
+            .max_by_key(|wt| wt.components().count());
+        if let Some(wt) = innermost {
+            inside.entry(*wt).or_default().push(f);
+        }
+    }
+    inside
+}
+
+/// A finding's row, then what lies inside it when it is a worktree, each a
+/// level deeper, its path relative to the worktree and its class named.
+fn finding_rows(
+    w: &mut impl Write,
+    f: &Finding,
+    inside: &BTreeMap<&Path, Vec<&Finding>>,
+    depth: usize,
+    home: &Path,
+    style: &Style,
+) -> io::Result<()> {
+    let mark = if f.selected { "✓" } else { "·" };
+    let indent = "  ".repeat(depth);
+    if depth == 0 {
+        writeln!(
+            w,
+            "    {mark} {:>10}  {}  {}  {}",
+            human(f.bytes),
+            tilde(&f.path, home),
+            style.dim(&f.rule),
+            style.dim(&status(f, home))
+        )?;
+    } else {
+        let parent = f.path.ancestors().skip(1).find(|a| inside.contains_key(a)).unwrap_or(home);
+        let notes = [f.class.as_str().to_owned(), status(f, home)].into_iter().filter(|s| !s.is_empty());
+        writeln!(
+            w,
+            "    {indent}{mark} {:>10}  {}  {}  {}",
+            human(f.bytes),
+            tilde(f.path.strip_prefix(parent).unwrap_or(&f.path), home),
+            style.dim(&f.rule),
+            style.dim(&notes.collect::<Vec<_>>().join(" · "))
+        )?;
+    }
+    if let Some(items) = inside.get(f.path.as_path()) {
+        rows(w, items, inside, depth + 1, home, style)?;
+    }
+    Ok(())
+}
+
+/// `items`' rows, the largest [`PER_GROUP`] unless `--all`, then one line
+/// for the rest that counts what lies inside them too, so no finding is
+/// left out of both.
+fn rows(
+    w: &mut impl Write,
+    items: &[&Finding],
+    inside: &BTreeMap<&Path, Vec<&Finding>>,
+    depth: usize,
+    home: &Path,
+    style: &Style,
+) -> io::Result<()> {
+    let shown = if style.all { items.len() } else { PER_GROUP.min(items.len()) };
+    for f in &items[..shown] {
+        finding_rows(w, f, inside, depth, home, style)?;
+    }
+    if shown < items.len() {
+        let rest = &items[shown..];
+        let bytes: u64 = rest.iter().map(|f| f.bytes).sum();
+        let (count, within) = rest.iter().map(|f| nested(f, inside)).fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
+        let inner = if count > 0 { format!(", and {count} inside them, {}", human(within)) } else { String::new() };
+        let line = format!("… {} more, {}{inner} (--all shows them)", rest.len(), human(bytes));
+        writeln!(w, "    {}{}", "  ".repeat(depth), style.dim(&line))?;
+    }
+    Ok(())
+}
+
+/// How many findings lie inside `f`, at any depth, and their bytes.
+fn nested(f: &Finding, inside: &BTreeMap<&Path, Vec<&Finding>>) -> (usize, u64) {
+    inside.get(f.path.as_path()).map_or((0, 0), |items| {
+        items.iter().fold((0, 0), |(n, b), item| {
+            let (inner_n, inner_b) = nested(item, inside);
+            (n + 1 + inner_n, b + item.bytes + inner_b)
+        })
+    })
 }
 
 /// `own_roots`: the scan was given paths other than the default ones, so the
@@ -184,9 +309,16 @@ pub fn report(w: &mut impl Write, r: &ScanReport, style: &Style, own_roots: bool
         clean_command(if own_roots { &r.scan_roots } else { &[] }, home)
     )?;
 
+    let inside = inside_worktrees(&r.findings);
+    let nested: HashSet<&Path> = inside.values().flatten().map(|f| f.path.as_path()).collect();
     for class in RiskClass::ALL {
         // Hidden by settings.json: counted on one line at the end, as in the totals.
-        let of: Vec<&Finding> = r.findings.iter().filter(|f| f.class == class && !f.ignored).collect();
+        // What lies in a worktree is listed under it instead.
+        let of: Vec<&Finding> = r
+            .findings
+            .iter()
+            .filter(|f| f.class == class && !f.ignored && !nested.contains(f.path.as_path()))
+            .collect();
         if of.is_empty() {
             continue;
         }
@@ -201,26 +333,7 @@ pub fn report(w: &mut impl Write, r: &ScanReport, style: &Style, own_roots: bool
         for (category, items) in categories {
             let total: u64 = items.iter().map(|f| f.bytes).sum();
             writeln!(w, "  {} · {} items · {}", style.bold(category.as_str()), items.len(), human(total))?;
-            let shown = if style.all { items.len() } else { PER_GROUP.min(items.len()) };
-            for f in &items[..shown] {
-                let mark = if f.selected { "✓" } else { "·" };
-                writeln!(
-                    w,
-                    "    {mark} {:>10}  {}  {}  {}",
-                    human(f.bytes),
-                    tilde(&f.path, home),
-                    style.dim(&f.rule),
-                    style.dim(&status(f))
-                )?;
-            }
-            if shown < items.len() {
-                let rest: u64 = items[shown..].iter().map(|f| f.bytes).sum();
-                writeln!(
-                    w,
-                    "    {}",
-                    style.dim(&format!("… {} more, {} (--all shows them)", items.len() - shown, human(rest)))
-                )?;
-            }
+            rows(w, &items, &inside, 0, home, style)?;
         }
     }
 
@@ -242,7 +355,7 @@ pub fn report(w: &mut impl Write, r: &ScanReport, style: &Style, own_roots: bool
                     human(f.bytes),
                     tilde(&f.path, home),
                     style.dim(&f.rule),
-                    style.dim(&status(f))
+                    style.dim(&status(f, home))
                 )?;
             }
         }
@@ -824,6 +937,151 @@ mod tests {
         let text = String::from_utf8(out).unwrap();
         assert!(!text.chars().any(|c| (c.is_control() && c != '\n') || bidi(c)), "{text:?}");
         assert!(text.contains("cod\\u{202e}fdp.exe") && text.contains("\\u{1b}[2Jbusy"), "{text}");
+    }
+
+    const NO_HINT: &str = r#","hint":"""#;
+
+    /// A finding as `--json` writes it; `extra` adds its `hint` and the rest.
+    fn finding(path: &str, rule: &str, class: &str, selected: bool, extra: &str) -> Finding {
+        serde_json::from_str(&format!(
+            r#"{{"path":"{path}","rule":"{rule}","category":"project-artifact","class":"{class}","rule_class":"{class}",
+               "removal":"delete","bytes":1048576,"shared_bytes":0,"files":1,"dirs":1,"incomplete":false,
+               "selected":{selected},"notes":[],"dev":1,"ino":1{extra}}}"#
+        ))
+        .unwrap()
+    }
+
+    /// `extra` for a worktree of `/h/p` whose hint is `hint`.
+    fn worktree_of_p(hint: &str, harness: &str, linked: bool) -> String {
+        format!(
+            r#","hint":{},"project":{{"root":"/h/p"}},"origin":{{"harness":"{harness}","kind":"worktree"}},"worktree":{{"linked":{linked},"probe":"known"}}"#,
+            serde_json::to_string(hint).unwrap()
+        )
+    }
+
+    fn report_of(findings: Vec<Finding>) -> ScanReport {
+        let mut r: ScanReport = serde_json::from_str(
+            r#"{"schema_version":1,"ddc_version":"0","platform":"linux","capabilities":[],"generated_at":"x",
+               "duration_ms":0,"home":"/h","scan_roots":["/h"],"full_disk_access":true,"min_age_days":14,
+               "totals":{"scanned_bytes":0,"files":0,"dirs":0,"unowned_bytes":0,"classes":[],"selected_bytes":0,
+                 "selected_reclaimable_bytes":0},
+               "findings":[],"large_files":[],"inaccessible":[],"errors_total":0,"skipped":[],"skipped_total":0,
+               "cancelled":false}"#,
+        )
+        .unwrap();
+        r.findings = findings;
+        r
+    }
+
+    fn rendered(r: &ScanReport, all: bool) -> String {
+        let mut out = Vec::new();
+        report(&mut out, r, &Style { color: false, all }, false).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn a_worktree_lists_what_lies_in_it_under_it_and_names_its_project_and_reason() {
+        let home = Path::new("/h");
+        let kept = worktree::kept_hint(Path::new("/h/p"), "it has uncommitted changes or untracked files");
+        let findings = vec![
+            finding(
+                "/h/p/.claude/worktrees/x",
+                "git.worktree",
+                "review",
+                false,
+                &worktree_of_p(&kept, "claude-code", true),
+            ),
+            finding("/h/p/.claude/worktrees/x/.venv", "python.venv", "rebuildable", true, NO_HINT),
+            finding("/h/p/.claude/worktrees/x/web/node_modules", "node.modules", "rebuildable", true, NO_HINT),
+            finding("/h/p/node_modules", "node.modules", "rebuildable", true, NO_HINT),
+        ];
+        let inside = inside_worktrees(&findings);
+        let nested: Vec<&Path> = inside.values().flatten().map(|f| f.path.as_path()).collect();
+        assert_eq!(
+            nested,
+            [Path::new("/h/p/.claude/worktrees/x/.venv"), Path::new("/h/p/.claude/worktrees/x/web/node_modules")]
+        );
+        let mut out = Vec::new();
+        finding_rows(&mut out, &findings[0], &inside, 0, home, &Style { color: false, all: false }).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 3, "{text}");
+        assert!(lines[0].starts_with("    · ") && lines[0].contains("~/p/.claude/worktrees/x  git.worktree"), "{text}");
+        assert!(lines[0].ends_with("worktree of ~/p · it has uncommitted changes or untracked files"), "{text}");
+        assert!(lines[1].starts_with("      ✓ ") && lines[1].contains("  .venv  python.venv  rebuildable"), "{text}");
+        assert!(lines[2].contains("  web/node_modules  node.modules  rebuildable"), "{text}");
+    }
+
+    #[test]
+    fn a_worktree_not_selected_says_why_and_a_selected_one_does_not() {
+        let main = Path::new("/h/p");
+        let linked = |harness, linked| {
+            worktree::hint(&worktree::Recognized::Linked(worktree::Linked {
+                gitdir: main.join(".git/worktrees/w"),
+                main: main.to_path_buf(),
+                harness,
+                linked,
+            }))
+        };
+        let mine = worktree_of_p(&linked(OriginHarness::Git, true), "git", true);
+        let moved = worktree_of_p(&linked(OriginHarness::ClaudeCode, false), "claude-code", false);
+        let evil_hint = worktree::kept_hint(main, "it holds ignored content no artifact accounts for: a\u{1b}[2J");
+        let evil = worktree_of_p(&evil_hint, "claude-code", true);
+        let picked = worktree_of_p(&linked(OriginHarness::ClaudeCode, true), "claude-code", true);
+        let orphan = worktree::hint(&worktree::Recognized::Orphan { harness: OriginHarness::ClaudeCode });
+        let orphan = format!(r#","hint":{}"#, serde_json::to_string(&orphan).unwrap());
+        let reason = |rule: &str, selected: bool, extra: &str| {
+            worktree_reason(&finding("/h/w", rule, "review", selected, extra))
+        };
+        assert_eq!(reason("git.worktree", false, &mine).as_deref(), Some("yours: list it to remove it"));
+        assert_eq!(
+            reason("git.worktree", false, &moved).as_deref(),
+            Some("moved or copied: git worktree repair relinks it")
+        );
+        let gone = reason("git.worktree-orphan", false, &orphan).unwrap();
+        assert!(gone.contains("not mounted") && gone.ends_with("git worktree repair"), "both causes: {gone}");
+        let shown = reason("git.worktree", false, &evil).unwrap();
+        assert!(!shown.chars().any(char::is_control) && shown.ends_with("a\\u{1b}[2J"), "{shown}");
+        assert_eq!(reason("git.worktree", true, &picked), None);
+        assert_eq!(reason("git.worktree", false, &picked), None, "no reason in its hint");
+        assert_eq!(reason("python.venv", false, NO_HINT), None);
+    }
+
+    /// Every finding inside a worktree is shown once, under it, or counted
+    /// in the line for the rows past the cut, never lost with a cut worktree.
+    #[test]
+    fn what_lies_in_a_worktree_past_the_cut_is_counted_not_lost() {
+        let mut findings = Vec::new();
+        for i in 0..10 {
+            let kept = worktree::kept_hint(Path::new("/h/p"), "it has uncommitted changes or untracked files");
+            let wt = format!("/h/p/.claude/worktrees/w{i}");
+            findings.push(finding(&wt, "git.worktree", "review", false, &worktree_of_p(&kept, "claude-code", true)));
+            findings.push(finding(&format!("{wt}/.venv"), "python.venv", "rebuildable", true, NO_HINT));
+        }
+        for j in 0..10 {
+            findings.push(finding(
+                &format!("/h/p/.claude/worktrees/w0/pkg{j}/node_modules"),
+                "node.modules",
+                "rebuildable",
+                true,
+                NO_HINT,
+            ));
+        }
+        let r = report_of(findings);
+
+        let text = rendered(&r, false);
+        assert!(!text.contains("REBUILDABLE"), "nothing inside a worktree is listed in its own group: {text}");
+        assert_eq!(text.matches("git.worktree").count(), 8, "{text}");
+        assert!(text.contains("    … 2 more, 2.0 MiB, and 2 inside them, 2.0 MiB (--all shows them)"), "{text}");
+        // w0 holds 11: its .venv and ten node_modules, cut at eight with the rest counted.
+        assert_eq!(text.matches("node.modules").count(), 7, "{text}");
+        assert!(text.contains("      … 3 more, 3.0 MiB (--all shows them)"), "{text}");
+
+        let all = rendered(&r, true);
+        assert_eq!(all.matches("git.worktree").count(), 10, "{all}");
+        assert_eq!(all.matches("python.venv").count(), 10, "{all}");
+        assert_eq!(all.matches("node.modules").count(), 10, "{all}");
+        assert!(!all.contains("more,"), "{all}");
     }
 
     #[test]

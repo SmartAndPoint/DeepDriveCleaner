@@ -593,8 +593,14 @@ fn harness_name(harness: OriginHarness) -> &'static str {
 }
 
 /// A harness's worktree that a condition keeps: the first one, named.
-fn kept_hint(main: &Path, reason: &str) -> String {
+pub fn kept_hint(main: &Path, reason: &str) -> String {
     format!("a linked worktree of {}; kept: {reason}", main.display())
+}
+
+/// The reason in a hint [`kept_hint`] wrote for a worktree of `main`, for
+/// the report to show; `None` for any other hint.
+pub fn kept_reason<'a>(hint: &'a str, main: &Path) -> Option<&'a str> {
+    hint.strip_prefix(&kept_hint(main, ""))
 }
 
 /// Why no probe ran: no git ddc may run.
@@ -727,6 +733,18 @@ mod tests {
         assert!(hint(&linked(OriginHarness::Git, true)).starts_with("yours: a linked worktree of /m;"));
         assert!(hint(&linked(OriginHarness::Git, false)).contains("git worktree repair"));
         assert_eq!(hint(&Recognized::Orphan { harness: OriginHarness::Git }), ORPHAN_HINT);
+    }
+
+    #[test]
+    fn the_kept_reason_is_read_back_whatever_the_paths_hold() {
+        let main = Path::new("/m; kept: x");
+        let reason = "it holds ignored content no artifact accounts for: a; kept: b";
+        assert_eq!(kept_reason(&kept_hint(main, reason), main), Some(reason));
+        assert_eq!(kept_reason(&kept_hint(main, reason), Path::new("/n")), None);
+        assert_eq!(
+            kept_reason(&format!("a linked worktree of {}; removed with git worktree remove", main.display()), main),
+            None
+        );
     }
 
     /// Only regular files of at most `MAX_COMPARED` bytes are compared; a
