@@ -275,9 +275,85 @@ sudo -n chattr +a "$base/fixtures/append-only/file"
 say DDC_FIXTURE_DEVICE "$base/fixtures/device/null"
 say DDC_FIXTURE_IMMUTABLE "$base/fixtures/immutable/file"
 say DDC_FIXTURE_APPEND_ONLY "$base/fixtures/append-only/file"
+
+# What a delete frees where the filesystem compresses (story "btrfs and ZFS on Linux:
+# subvolumes, datasets, snapshots and stable identities", DDC-010). 16 MiB is written
+# twice, as text that compresses well and as random bytes that do not, in a btrfs folder
+# with zstd and in a ZFS dataset with lz4. Each file is measured by this checkout's
+# `ddc du`, then removed, and the space in use is read before and after, each time once
+# the filesystem has committed and two readings in a row agree. The table goes to stderr
+# and to the step summary; the checks below it hold the direction the runs showed.
+loop btrfs-zstd 300 mkfs.btrfs -q
+mkdir "$base/btrfs-zstd/c"
+sudo -n btrfs property set "$base/btrfs-zstd/c" compression zstd
+sudo -n zfs create -o compression=lz4 ddcmounts/comp
+mine "$base/zfs/comp"
+ddc="${CARGO_TARGET_DIR:-$repo/target}/debug/deepdrivecleaner"
+btrfs_used() {
+    local blocks free size
+    sync -f "$1"
+    sudo -n btrfs filesystem sync "$1" >/dev/null
+    read -r blocks free size < <(stat -f -c '%b %f %S' "$1")
+    echo $(((blocks - free) * size))
+}
+zfs_used() {
+    sudo -n zpool sync ddcmounts
+    zfs get -Hp -o value used ddcmounts/comp
+}
+settled() {
+    local prev now i
+    prev="$("$@")"
+    for i in $(seq 30); do
+        sleep 1
+        now="$("$@")"
+        [ "$now" = "$prev" ] && break
+        prev="$now"
+    done
+    echo "$now"
+}
+ctable=
+# $1 filesystem, $2 its folder, $3 text or random, $4… prints the bytes in use there.
+measure() {
+    local fs="$1" kind="$3" dir="$2/$3" before after bytes freed
+    shift 3
+    mkdir "$dir"
+    if [ "$kind" = text ]; then
+        head -c 16M < <(yes 'ddc measures what a delete frees where the filesystem compresses') >"$dir/f"
+    else
+        head -c 16M /dev/urandom >"$dir/f"
+    fi
+    before="$(settled "$@")"
+    bytes=$(($(env -i PATH= NO_COLOR=1 HOME="$dir" "$ddc" du "$dir" | cut -f1) * 1024))
+    rm -r "$dir"
+    after="$(settled "$@")"
+    freed=$((before - after))
+    ctable+="$(printf '| %s | %s | %d | %d | %s |' "$fs" "$kind" "$bytes" "$freed" \
+        "$(awk -v b="$bytes" -v f="$freed" 'BEGIN { printf "%.2f", (f > 0 ? b / f : 0) }')")"$'\n'
+    eval "m_${fs}_${kind}_bytes=$bytes m_${fs}_${kind}_freed=$freed"
+}
+measure btrfs "$base/btrfs-zstd/c" text btrfs_used "$base/btrfs-zstd"
+measure btrfs "$base/btrfs-zstd/c" random btrfs_used "$base/btrfs-zstd"
+measure zfs "$base/zfs/comp" text zfs_used
+measure zfs "$base/zfs/comp" random zfs_used
+printf '| filesystem | data | ddc bytes | freed by the delete | bytes / freed |\n%s' "$ctable" >&2
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    { echo "### What a delete frees where the filesystem compresses"; echo
+      echo "| filesystem | data | ddc bytes | freed by the delete | bytes / freed |"; echo "|---|---|---|---|---|"
+      printf '%s' "$ctable"; } >>"$GITHUB_STEP_SUMMARY"
+fi
+mib=$((1 << 20))
+near() { [ $(($1 * 10)) -ge $(($2 * 9)) ] && [ $(($1 * 10)) -le $(($2 * 11)) ]; }
+[ "$m_btrfs_text_bytes" -ge $((16 * mib)) ] || fail "compressed btrfs: ddc counted $m_btrfs_text_bytes bytes of 16 MiB of text, not its uncompressed size"
+[ "$m_btrfs_text_freed" -lt $((4 * mib)) ] || fail "compressed btrfs: the delete freed $m_btrfs_text_freed bytes, as if the text had not been compressed"
+[ "$m_zfs_text_bytes" -lt $((4 * mib)) ] || fail "ZFS with lz4: ddc counted $m_zfs_text_bytes bytes of 16 MiB of text, not its compressed size"
+for fs in btrfs zfs; do
+    eval "b=\$m_${fs}_random_bytes f=\$m_${fs}_random_freed"
+    near "$f" "$b" || fail "$fs: random bytes were counted as $b and freed $f, more than 10% apart"
+done
+
 say DDC_MOUNTS "$base"
 
-table="$(for m in btrfs btrfs-tree btrfs-tree/data btrfs-remount/home xfs casefold exfat tmpfs tmpfs-root-top zfs zfs/child zfs/tree zfs/tree/work zfs/tree/moved zfs/del/work zfs/guard/p/node_modules nfs nfs-squash cifs bind-root/inner; do
+table="$(for m in btrfs btrfs-tree btrfs-zstd btrfs-tree/data btrfs-remount/home xfs casefold exfat tmpfs tmpfs-root-top zfs zfs/child zfs/tree zfs/tree/work zfs/tree/moved zfs/del/work zfs/guard/p/node_modules zfs/comp nfs nfs-squash cifs bind-root/inner; do
     printf '| %s | %s |\n' "$m" "$(stat -f -c %T "$base/$m")"
 done; printf '| autofs/trigger | autofs (from mountinfo, never stat'"'"'ed) |\n')"
 printf '%s\n' "$table" >&2
