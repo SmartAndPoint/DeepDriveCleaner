@@ -34,7 +34,7 @@ fn the_background_scan_runs_no_program_itself() {
     }
 }
 
-/// `ddc disk` and `ddc disk agents` only measure (story "Whole disk: what
+/// `ddc disk` and `ddc agent status` only measure (story "Whole disk: what
 /// lies outside the home folder"): its sources reach no cleanup, start no program themselves, and
 /// never run `xcrun` or a first launch, which can ask for a password.
 #[test]
@@ -42,10 +42,10 @@ fn the_disk_report_never_reaches_cleanup() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let mut files = vec![
         root.join("ddc-cli/src/cmd/disk.rs"),
-        root.join("ddc-cli/src/cmd/disk_agents.rs"),
+        root.join("ddc-cli/src/cmd/agent_status.rs"),
         root.join("ddc-cli/src/cmd/disk_brew_packages.rs"),
     ];
-    // `ddc disk agents` too (story "Coding agents in the Whole disk view").
+    // `ddc agent status` too (story "Coding agents in the Whole disk view").
     for dir in ["ddc-core/src/disk", "ddc-core/src/agents"] {
         for entry in std::fs::read_dir(root.join(dir)).unwrap() {
             files.push(entry.unwrap().path());
@@ -779,7 +779,7 @@ const GUIDANCE: [&str; 2] = ["agents/claude-code/ddc/SKILL.md", "agents/AGENTS.s
 /// values of it the guidance names.
 type Cited = (&'static str, &'static str, &'static [&'static str]);
 
-/// What the guidance cites of `ddc disk agents --json`.
+/// What the guidance cites of `ddc agent status --json`.
 const AGENTS_NAMES: &[Cited] = &[
     ("harnesses[]", "harnesses[]", &[]),
     ("id", "harnesses[].id", &["claude-code", "codex", "cursor", "opencode"]),
@@ -1038,7 +1038,7 @@ fn every_ddc_line_of_the_agent_guidance_parses() {
             }
         }
     }
-    for question in ["disk agents", "scan", "rules"] {
+    for question in ["agent status", "scan", "rules"] {
         assert!(asked.iter().any(|a| a == question), "the skill does not run `ddc {question} --json`");
     }
 }

@@ -13,7 +13,7 @@ use std::path::Path;
 pub use ddc_loadgen::unsupported;
 
 /// A test of a command or action that needs a capability (`ddc disk`, `ddc
-/// disk agents`, Homebrew) starts with
+/// agent status`, Homebrew) starts with
 /// `if common::lacks("name", Capability::WholeDisk) { return; }`.
 #[allow(unused_imports)] // only the capability tests use it
 pub use ddc_loadgen::lacks;

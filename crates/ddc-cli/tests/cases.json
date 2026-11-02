@@ -19,7 +19,7 @@
       {"path": "beside/work/__pycache__/a.cpython-312.pyc", "bytes": 5000}
     ]
   },
-  "data_dir_commands": ["scan", "clean", "disk", "disk agents", "disk free", "disk brew-packages", "keep remove", "notify ack", "notify snooze"],
+  "data_dir_commands": ["scan", "clean", "disk", "disk agents", "agent status", "disk free", "disk brew-packages", "keep remove", "notify ack", "notify snooze"],
   "cases": [
     {
       "name": "the owner's call: scan . in ~/Projects suggests the clean of ~/Projects",
@@ -191,7 +191,13 @@
       "expect": {"exit": 0, "schema": "disk", "stderr_schema": "progress"}
     },
     {
-      "name": "disk agents lists no harness in a fresh home",
+      "name": "agent status lists no harness in a fresh home",
+      "group": "commands",
+      "args": ["agent", "status", "--json", "--no-sizes", "--threads", "2", "--system-root", "{root}/sys"],
+      "expect": {"exit": 0, "schema": "agents"}
+    },
+    {
+      "name": "disk agents, the hidden alias of agent status, lists no harness in a fresh home",
       "group": "commands",
       "args": ["disk", "agents", "--json", "--no-sizes", "--threads", "2", "--system-root", "{root}/sys"],
       "expect": {"exit": 0, "schema": "agents"}

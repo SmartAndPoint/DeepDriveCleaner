@@ -1,13 +1,14 @@
-//! `ddc disk agents`: what coding-agent harnesses keep under the home
-//! folder, and which of their sessions are live (story "Coding agents in
-//! the Whole disk view"). Read-only and lock-free. It reads the named fields
-//! of Claude Code's session records, the names of Codex's lock files and
-//! rollouts, the process list with the open files of the user's processes,
-//! and allocated sizes; never a transcript's content, a `.key` file or a
-//! harness database. With sizes it also measures Claude Code's temporary
-//! folder outside the home, and each Claude Code session's bytes (story
-//! "Per-session footprint: what each agent session keeps in its
-//! transcripts, temporary folders and worktrees").
+//! `ddc agent status` (alias `ddc disk agents`): what coding-agent
+//! harnesses keep under the home folder, and which of their sessions are
+//! live (story "Coding agents in the Whole disk view"). Read-only and
+//! lock-free. It reads the named fields of Claude Code's session records,
+//! the names of Codex's lock files and rollouts, the process list with the
+//! open files of the user's processes, and allocated sizes; never a
+//! transcript's content, a `.key` file or a harness database. With sizes
+//! it also measures Claude Code's temporary folder outside the home, and
+//! each Claude Code session's bytes (story "Per-session footprint: what
+//! each agent session keeps in its transcripts, temporary folders and
+//! worktrees").
 
 mod claude;
 mod codex;

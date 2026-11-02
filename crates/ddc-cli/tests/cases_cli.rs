@@ -174,6 +174,7 @@ const COMMANDS: &[&str] = &[
     "disk agents",
     "disk free",
     "disk brew-packages",
+    "agent status",
     "keep remove",
     "schedule install",
     "schedule uninstall",
@@ -488,10 +489,10 @@ mod allow {
                 return Err(format!("{path} without --data-dir inside the temporary root"));
             }
             "keep remove" | "notify ack" | "notify snooze" => {}
-            "disk" | "disk agents" | "disk brew-packages" if !inside(value("--system-root")) => {
+            "disk" | "disk agents" | "agent status" | "disk brew-packages" if !inside(value("--system-root")) => {
                 return Err(format!("{path} without --system-root inside the temporary root"));
             }
-            "disk" | "disk agents" | "disk brew-packages" => {}
+            "disk" | "disk agents" | "agent status" | "disk brew-packages" => {}
             "" => return Err(format!("{} names no command", argv.join(" "))),
             other => return Err(format!("{other} is never run")),
         }
@@ -623,7 +624,7 @@ fn refusal(path: &str) -> Option<String> {
     let needs = match path {
         "schedule install" | "schedule uninstall" | "schedule status" => Capability::Schedule,
         "disk" => Capability::WholeDisk,
-        "disk agents" => Capability::CodingAgents,
+        "disk agents" | "agent status" => Capability::CodingAgents,
         "disk brew-packages" => Capability::Homebrew,
         "disk free" if !declared.contains(&Capability::WholeDisk) && !declared.contains(&Capability::Homebrew) => {
             Capability::WholeDisk
@@ -886,6 +887,7 @@ fn the_allowlist_refuses_each_forbidden_call() {
         (&["disk", "free", "--dry-run", "--system-root", &sys], "disk free is never run"),
         (&["disk", "--json"], "without --system-root"),
         (&["disk", "agents", "--json"], "without --system-root"),
+        (&["agent", "status", "--json"], "without --system-root"),
         (&["disk", "brew-packages", "--system-root", "/"], "without --system-root"),
         (&["keep", "remove", "x"], "without --data-dir"),
         (&["notify", "ack", "--bytes", "1", "--data-dir", "/tmp"], "without --data-dir"),

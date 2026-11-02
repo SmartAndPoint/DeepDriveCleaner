@@ -602,7 +602,7 @@ impl<'a> Guard<'a> {
 
 /// Whether `harness` is live: `table` is the process table the caller read,
 /// and Codex's thread locks are read here, unless a skip covers them (then
-/// Codex is unknown, as `ddc disk agents` says).
+/// Codex is unknown, as `ddc agent status` says).
 pub(crate) fn harness_state(
     home: &Path,
     harness: HarnessId,

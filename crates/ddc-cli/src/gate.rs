@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use ddc_core::platform::{self, Capability, Refusal, Unsupported};
 use ddc_core::refusal::ErrorReport;
 
-use crate::cli::{Command, DiskAction, DiskArgs};
+use crate::cli::{AgentAction, Command, DiskAction, DiskArgs};
 use crate::exit;
 
 /// The exit of a command this build refuses; `None` lets it run.
@@ -35,7 +35,8 @@ fn refusal_for(cmd: &Command, supported: Result<(), Unsupported>, declared: &[Ca
         | Command::Diag => None,
         Command::Schedule { .. } => Some(Capability::Schedule),
         Command::Disk(DiskArgs { action: None, .. }) => Some(Capability::WholeDisk),
-        Command::Disk(DiskArgs { action: Some(DiskAction::Agents(_)), .. }) => Some(Capability::CodingAgents),
+        Command::Disk(DiskArgs { action: Some(DiskAction::Agents(_)), .. })
+        | Command::Agent { action: AgentAction::Status(_) } => Some(Capability::CodingAgents),
         Command::Disk(DiskArgs { action: Some(DiskAction::BrewPackages(_)), .. }) => Some(Capability::Homebrew),
         // Gated per action in the core (`free::run`, `dry_run`, `available`);
         // refused whole only when no action could ever run.
@@ -104,6 +105,7 @@ mod tests {
         &["disk", "agents", "--json"],
         &["disk", "free", "--json"],
         &["disk", "brew-packages", "--json"],
+        &["agent", "status", "--json"],
         &["keep", "remove", "/p", "--folder-dev", "1", "--folder-ino", "2", "--json"],
         &["schedule", "status"],
         &["notify", "ack", "--bytes", "1"],
@@ -154,6 +156,24 @@ mod tests {
         assert_eq!(refusal_for(&command(&["disk", "agents"]), Ok(()), &[Capability::CodingAgents]), None);
         // The scan reads its absent capabilities in the report instead.
         assert_eq!(refusal_for(&command(&["scan"]), Ok(()), &[]), None);
+    }
+
+    /// `agent status` and its hidden alias `disk agents` are one command:
+    /// refused alike, with the JSON envelope when `--json` asks for it.
+    #[test]
+    fn agent_status_is_refused_as_its_alias_is() {
+        let absent = Some(Refusal::CapabilityAbsent(CapabilityAbsent {
+            platform: PLATFORM,
+            capability: Capability::CodingAgents,
+            action: None,
+        }));
+        let all_but: Vec<_> = Capability::ALL.into_iter().filter(|c| *c != Capability::CodingAgents).collect();
+        for args in [&["agent", "status"][..], &["agent", "status", "--json"], &["disk", "agents", "--json"]] {
+            assert_eq!(refusal_for(&command(args), Ok(()), &all_but), absent, "{args:?}");
+            assert_eq!(refusal_for(&command(args), Ok(()), &[Capability::CodingAgents]), None, "{args:?}");
+        }
+        assert!(command(&["agent", "status", "--json"]).prints_json());
+        assert!(!command(&["agent", "status"]).prints_json());
     }
 
     #[test]

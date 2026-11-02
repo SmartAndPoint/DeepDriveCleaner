@@ -1,11 +1,11 @@
 //! Subcommand dispatch.
 
+mod agent_status;
 mod background;
 mod clean;
 mod clean_items;
 mod diag;
 mod disk;
-mod disk_agents;
 mod disk_brew_packages;
 mod disk_free;
 mod du;
@@ -23,17 +23,18 @@ use ddc_core::model::ScanReport;
 use ddc_core::report::recheck::same_roots;
 use ddc_core::settings::{self, Resolved, ScanFlags, Settings};
 
-use crate::cli::{Cli, Command, DiskAction, DiskArgs, KeepAction};
+use crate::cli::{AgentAction, Cli, Command, DiskAction, DiskArgs, KeepAction};
 
 pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
         Command::Scan(args) => scan::run(args),
         Command::Clean(args) => clean::run(args),
         Command::Rules(args) => rules::run(&args),
-        Command::Disk(DiskArgs { action: Some(DiskAction::Agents(args)), .. }) => disk_agents::run(&args),
+        Command::Disk(DiskArgs { action: Some(DiskAction::Agents(args)), .. }) => agent_status::run(&args),
         Command::Disk(DiskArgs { action: Some(DiskAction::Free(args)), .. }) => disk_free::run(&args),
         Command::Disk(DiskArgs { action: Some(DiskAction::BrewPackages(args)), .. }) => disk_brew_packages::run(&args),
         Command::Disk(args) => disk::run(args),
+        Command::Agent { action: AgentAction::Status(args) } => agent_status::run(&args),
         Command::Keep { action: KeepAction::Remove(args) } => keep::remove(&args),
         Command::Notify { action } => notify::run(action),
         Command::Schedule { action } => schedule::run(action),

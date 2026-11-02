@@ -20,7 +20,7 @@ use crate::size::{count, human};
 /// Findings shown per group unless `--all`.
 const PER_GROUP: usize = 8;
 
-/// Sessions `ddc disk agents` lists per harness; `--json` has them all.
+/// Sessions `ddc agent status` lists per harness; `--json` has them all.
 const TOP_SESSIONS: usize = 10;
 
 pub struct Style {
@@ -412,7 +412,7 @@ pub fn disk(w: &mut impl Write, r: &DiskReport, style: &Style) -> io::Result<()>
     Ok(())
 }
 
-/// `ddc disk agents`: per harness, what runs, its folders and its live
+/// `ddc agent status`: per harness, what runs, its folders and its live
 /// sessions (story "Coding agents in the Whole disk view").
 pub fn agents(w: &mut impl Write, r: &AgentsReport, home: &Path, style: &Style) -> io::Result<()> {
     if r.harnesses.is_empty() {
