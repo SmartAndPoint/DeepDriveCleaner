@@ -27,7 +27,8 @@ use ddc_core::exec::{
 use ddc_core::git::{CLEARED, PROBE_CONFIG, PROBE_ENV};
 use ddc_core::model::{Finding, RemovalKind, ScanReport};
 use ddc_core::plan::{
-    Action, ActionKind, DropReason, ListedItem, ListedPlan, Plan, PlanOptions, build_plan, plan_listed_checked,
+    Action, ActionKind, DropReason, ListedItem, ListedPlan, Plan, PlanItem, PlanOptions, build_plan,
+    plan_listed_checked,
 };
 use ddc_core::report::{self, Commands, Processes, ScanOptions};
 use ddc_core::rules::{Catalog, worktree};
@@ -99,11 +100,21 @@ impl Home {
 
     /// `plan` executed under `consent` with `commands`.
     fn execute(&self, plan: &Plan, consent: Consent, commands: &dyn CommandRunner) -> (ExecReport, MemoryJournal) {
+        self.execute_with(plan, consent, commands, &ExecOptions::default())
+    }
+
+    fn execute_with(
+        &self,
+        plan: &Plan,
+        consent: Consent,
+        commands: &dyn CommandRunner,
+        opts: &ExecOptions<'_>,
+    ) -> (ExecReport, MemoryJournal) {
         let mut journal = MemoryJournal(Vec::new());
         let trash = self.trash();
         let procs = FakeProcs::new(vec![]);
         let ports = Ports { commands, trash: &trash, procs: &procs, journal: &mut journal };
-        let run = exec::execute(&self.env(), &self.catalog(), plan, &consent, ports, &ExecOptions::default()).unwrap();
+        let run = exec::execute(&self.env(), &self.catalog(), plan, &consent, ports, opts).unwrap();
         (run, journal)
     }
 
@@ -570,4 +581,117 @@ fn a_listed_orphan_goes_to_the_trash_or_is_deleted() {
     assert!(!a.exists() && !b.exists());
     assert!(h.trash().0.read_dir().unwrap().next().is_some());
     assert!(!commands.git_calls().iter().any(is_remove));
+}
+
+/// Conditions 2, 3 and 4 are checked again at the clean too: a lock taken,
+/// a window the worktree is now within, a submodule initialized.
+#[test]
+fn a_lock_a_window_or_a_submodule_since_the_scan_keeps_the_worktree() {
+    let Some(h) = Home::ready("a_lock_a_window_or_a_submodule_since_the_scan_keeps_the_worktree") else { return };
+    let (_, wt) = project(&h);
+    let plan = build_plan(&h.scan(), &h.catalog(), &PlanOptions::default());
+    let kept = |run: &ExecReport| match outcome(run, &wt) {
+        Outcome::Skipped(SkipReason::WorktreeKept { condition, .. }) => *condition,
+        other => panic!("{other:?}"),
+    };
+
+    // 3: within a window wider than its idle time.
+    let wide = ExecOptions { worktree_min_age: Duration::from_secs(30 * 86_400), ..ExecOptions::default() };
+    let (run, _) = h.execute_with(&plan, yes(), &SharedCommands::system(&h.env()), &wide);
+    assert_eq!(kept(&run), 3);
+
+    // 2: locked.
+    let lock = git::gitdir(&wt).join("locked");
+    fs::write(&lock, "claude session x").unwrap();
+    let (run, _) = h.execute(&plan, yes(), &SharedCommands::system(&h.env()));
+    assert_eq!(kept(&run), 2);
+    fs::rename(&lock, h.t.path("lock-away")).unwrap();
+
+    // 4: a submodule initialized in it.
+    let dep = git::repo(&h.t, "dep");
+    git::git(&wt, &["submodule", "add", "-q", dep.to_str().unwrap(), "dep"]);
+    let commands = SharedCommands::system(&h.env());
+    let (run, _) = h.execute(&plan, yes(), &commands);
+    assert_eq!(kept(&run), 4);
+    assert!(!commands.git_calls().iter().any(is_remove));
+    assert!(wt.join("README").exists());
+}
+
+/// Ignored content no artifact accounts for keeps the worktree out of a
+/// `clean --yes`: a unique `.env`, a file under an ignored folder, and a
+/// `.venv` its own rule leaves for review (no lock file) all stay.
+#[test]
+fn unaccounted_ignored_content_survives_a_clean() {
+    let Some(h) = Home::ready("unaccounted_ignored_content_survives_a_clean") else { return };
+    let main = git::repo(&h.t, "proj");
+    h.write(&main.join(".gitignore"), ".venv/\n.env\nstate/\n");
+    git::git(&main, &["add", ".gitignore"]);
+    git::git(&main, &["commit", "-q", "-m", "ignore"]);
+    let cases = [("a", ".env"), ("b", "state/local-only.txt"), ("c", ".venv/pyvenv.cfg")];
+    let files: Vec<PathBuf> = cases
+        .iter()
+        .map(|(name, rel)| {
+            let file = agent_worktree(&main, name).join(rel);
+            h.write(&file, "mine\n");
+            file
+        })
+        .collect();
+    let commands = SharedCommands::system(&h.env());
+
+    let (plan, _, _) = h.clean_yes(&commands);
+
+    assert!(!plan.items.iter().any(|i| i.selected && i.finding.rule == worktree::WORKTREE_RULE));
+    for file in &files {
+        assert_eq!(fs::read_to_string(file).unwrap(), "mine\n", "{}", file.display());
+    }
+    assert!(!commands.git_calls().iter().any(is_remove));
+}
+
+/// `--exclude` below a finding protects the whole finding: a worktree with
+/// an excluded folder inside is kept, and `git worktree remove` never runs.
+#[test]
+fn an_exclude_inside_a_worktree_keeps_it() {
+    let Some(h) = Home::ready("an_exclude_inside_a_worktree_keeps_it") else { return };
+    let (main, wt) = project(&h);
+    // Committed and merged: the worktree holds every other condition.
+    h.write(&wt.join("docs/notes.md"), "notes\n");
+    git::git(&wt, &["add", "docs"]);
+    git::git(&wt, &["commit", "-q", "-m", "docs"]);
+    git::git(&main, &["merge", "-q", "--ff-only", "worktree-x"]);
+    assert!(h.finding(&h.scan(), &wt).selected, "eligible without the exclude");
+    let env = h.env();
+    let shared = Arc::new(SharedCommands::system(&env));
+    let opts = ScanOptions { excludes: vec![wt.join("docs")], ..h.opts(&shared) };
+    let r = report::scan(&env, &opts, &Progress::default()).unwrap();
+
+    let f = h.finding(&r, &wt);
+
+    assert_eq!(f.rule, "user.kept");
+    assert!(!f.selected);
+    let plan = build_plan(&r, &h.catalog(), &PlanOptions::default());
+    let commands = SharedCommands::system(&env);
+    let (run, _) = h.execute(&plan, yes(), &commands);
+    assert!(!run.items.iter().any(|i| i.path == wt && matches!(i.outcome, Outcome::Native { .. })));
+    assert!(!commands.git_calls().iter().any(is_remove));
+    assert!(wt.join("README").exists());
+}
+
+/// A person may plan the item inside a selected worktree again (the
+/// interactive prompt): once git removed the worktree, it is skipped as
+/// `inside-another-item`, never acted on.
+#[test]
+fn an_item_inside_a_worktree_git_removed_is_skipped() {
+    let Some(h) = Home::ready("an_item_inside_a_worktree_git_removed_is_skipped") else { return };
+    let (_, wt) = project(&h);
+    let venv = venv(&h, &wt);
+    let mut plan = build_plan(&h.scan(), &h.catalog(), &PlanOptions::default());
+    let dropped = plan.dropped.iter().find(|d| d.finding.path == venv).expect("contained").finding.clone();
+    plan.items.push(PlanItem { finding: dropped, action: Action::Trash, default_selected: false, selected: true });
+    let commands = SharedCommands::system(&h.env());
+
+    let (run, _) = h.execute(&plan, Consent::Interactive, &commands);
+
+    assert!(matches!(outcome(&run, &wt), Outcome::Native { .. }), "{:?}", outcome(&run, &wt));
+    assert_eq!(outcome(&run, &venv), &Outcome::Skipped(SkipReason::InsideAnotherItem));
+    assert!(!h.trash().0.exists(), "nothing went to the Trash");
 }

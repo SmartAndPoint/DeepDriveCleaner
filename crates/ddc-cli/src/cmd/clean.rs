@@ -140,6 +140,9 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
     // tool running in its own process group.
     let cancel = ddc_core::platform::signals::install().context("cannot install the signal handler")?;
     let exec_progress = ExecProgress::default();
+    // The scan's skips: no harness's records are read under one, and a
+    // worktree's re-check walks none of them.
+    let skips: Vec<std::path::PathBuf> = opts.skip.iter().chain(&opts.user_skips).cloned().collect();
     let result = reporter.clean(&exec_progress, &scanned.home, cancel, |events| {
         exec::execute(
             &env,
@@ -153,7 +156,7 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
                 progress: Some(&exec_progress),
                 local_snapshots: Some(snapshots),
                 events,
-                skips: &[],
+                skips: &skips,
                 worktree_min_age: opts.worktree_min_age,
                 probe_timeout: opts.probe_timeout,
             },

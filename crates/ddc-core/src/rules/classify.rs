@@ -115,8 +115,10 @@ fn classify_in(
                     Note::KeptByMarker
                 },
             );
-        } else if owner.kind == OwnerKind::Claim && excluded_inside {
-            // `--exclude` below a finding protects the whole finding.
+        } else if (owner.kind == OwnerKind::Claim || worktree::is_worktree_rule(rule)) && excluded_inside {
+            // `--exclude` below a finding protects the whole finding: a
+            // linked worktree's region too, which `git worktree remove`
+            // would take with everything inside it.
             displaced = Some(Some(rule));
             rule = kept;
             notes.push(Note::Excluded);
