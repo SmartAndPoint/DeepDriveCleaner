@@ -10,7 +10,7 @@
 mod common;
 
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, SystemTime};
@@ -24,7 +24,7 @@ use ddc_core::env::Env;
 use ddc_core::exec::preflight::{self, Prediction, PreflightLine, PreflightPorts};
 use ddc_core::exec::{
     self, AgentLiveBy, Consent, ExecOptions, ExecReport, JournalEntry, MemoryJournal, OpenVnode, Outcome, Ports,
-    ProcStart, ProcessTable, SkipReason, Trasher,
+    ProcStart, ProcessTable, SkipReason, TrashError, TrashPlace, TrashTarget, Trasher,
 };
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{Action, ActionKind, ListedItem, ListedPlan, plan_listed_with};
@@ -189,9 +189,10 @@ struct RecordingTrash {
 }
 
 impl Trasher for RecordingTrash {
-    fn trash(&self, path: &Path) -> std::io::Result<()> {
+    fn trash(&self, target: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+        let path = target.path;
         if path.file_name() == self.fail.as_deref() {
-            return Err(std::io::Error::other("the Trash refused it"));
+            return Err(std::io::Error::other("the Trash refused it").into());
         }
         // Numbered, as two sessions' folders share a name.
         let mut moved = self.moved.lock().unwrap();
@@ -199,7 +200,7 @@ impl Trasher for RecordingTrash {
         std::fs::create_dir_all(&to)?;
         std::fs::rename(path, to.join(path.file_name().unwrap()))?;
         moved.push(path.to_path_buf());
-        Ok(())
+        Ok(None)
     }
 }
 

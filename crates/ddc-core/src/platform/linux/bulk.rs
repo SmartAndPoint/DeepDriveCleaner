@@ -11,19 +11,21 @@
 //! [`Boundary`] when it is an automount point or another mount, a bind
 //! mount of the same filesystem included; and [`list_in`] opens a folder
 //! beneath its scan root's descriptor with `openat2`, which refuses to
-//! cross a mount or follow a symlink on the way.
+//! cross a mount or follow a symlink on the way. The guard opens a parent
+//! the same way ([`open_in`]), stricter: without a mount id to compare, it
+//! refuses.
 
 use std::collections::HashMap;
 use std::ffi::{CStr, OsStr};
 use std::mem::MaybeUninit;
-use std::os::fd::{AsFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd as _, OwnedFd};
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, RawDir, ResolveFlags, StatxAttributes, StatxFlags};
 use rustix::io::Errno;
 
-use crate::platform::types::{Boundary, DirListing, EntryKind, EntryMeta, ReadError, ReadErrorKind, Times};
+use crate::platform::types::{Boundary, DirListing, EntryKind, EntryMeta, EntryStat, ReadError, ReadErrorKind, Times};
 
 const BUF_LEN: usize = 64 * 1024;
 
@@ -42,7 +44,8 @@ struct Stat {
     /// Asked for only with [`Times::ModifiedAndAdded`], and `None` where the
     /// filesystem keeps no birth time.
     btime: Option<i64>,
-    /// `stx_mnt_id`, where the kernel gives it (5.8 and later).
+    /// `stx_mnt_id`, where the kernel gives it (5.8 and later). An open
+    /// descriptor's is [`mount_id`].
     mnt_id: Option<u64>,
     /// `STATX_ATTR_AUTOMOUNT` and `STATX_ATTR_MOUNT_ROOT`, each `None` where
     /// the kernel does not tell (`stx_attributes_mask`, or `fstatat`).
@@ -71,7 +74,7 @@ pub fn anchor(root: &Path) -> std::io::Result<Anchor> {
     // `ENOSYS`, `EPERM` from a seccomp filter, or anything else a sandbox
     // gives: open by path and check the mount instead.
     let beneath = openat2(&fd, c".").is_ok();
-    let mnt_id = stat(&fd, c"", AtFlags::EMPTY_PATH, false)?.mnt_id;
+    let mnt_id = mount_id(&fd, stat(&fd, c"", AtFlags::EMPTY_PATH, false)?.mnt_id);
     Ok(Anchor { path: root.to_path_buf(), fd, beneath, mnt_id, mounts: std::sync::Mutex::default() })
 }
 
@@ -92,6 +95,19 @@ pub fn list_in(
     want_private: bool,
     times: Times,
 ) -> Result<DirListing, ReadError> {
+    let fd = open_in(anchor, dir, false)?;
+    list_fd(&fd, dir, expect, want_private, times, &anchor.mounts)
+}
+
+/// `dir`, a folder at or beneath `anchor`'s root, opened relative to the
+/// root's descriptor (`openat2`), or by path with its mount id checked
+/// against the root's; by path, only the last component is never a
+/// symlink, as before. `strict`, the guard's: the root's path must still
+/// name the anchor's folder, and a folder whose mount id or the root's is
+/// unknown (no `STATX_MNT_ID`, no `/proc`) is refused as another
+/// filesystem. The scan reads on there, with `dev` and mountinfo (safety
+/// ADR, amendment of 2026-11-01, completed on 2026-11-02).
+pub(super) fn open_in(anchor: &Anchor, dir: &Path, strict: bool) -> Result<OwnedFd, ReadError> {
     let Ok(rel) = dir.strip_prefix(&anchor.path) else {
         return Err(ReadError::new(ReadErrorKind::Changed, None));
     };
@@ -108,33 +124,74 @@ pub fn list_in(
         rel.as_os_str().as_bytes().to_vec()
     })
     .map_err(|_| ReadError::new(ReadErrorKind::Other, None))?;
-    let fd = if anchor.beneath {
+    if strict {
+        // The guard's anchor outlives the scan: a root renamed away or
+        // mounted over since is not the folder its path names now.
+        let now = retry(|| rustix::fs::lstat(&anchor.path)).map_err(read_error)?;
+        let held = retry(|| rustix::fs::fstat(&anchor.fd)).map_err(read_error)?;
+        if (now.st_dev, now.st_ino) != (held.st_dev, held.st_ino) {
+            return Err(ReadError::new(ReadErrorKind::Changed, None));
+        }
+    }
+    if anchor.beneath {
         // `EAGAIN`: a rename raced the lookup; the kernel asks for a retry.
         let mut tries = 0;
         loop {
             match openat2(&anchor.fd, &rel) {
                 Err(Errno::AGAIN) if tries < 3 => tries += 1,
-                done => break done.map_err(read_error)?,
+                done => return done.map_err(read_error),
             }
         }
-    } else {
-        let fd = retry(|| {
-            rustix::fs::open(
-                dir,
-                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-                Mode::empty(),
-            )
-        })
-        .map_err(read_error)?;
-        let me = stat(&fd, c"", AtFlags::EMPTY_PATH, false).map_err(read_error)?;
-        let crossed = (anchor.mnt_id.is_some() && me.mnt_id != anchor.mnt_id)
-            || (dir != anchor.path && me.mount_root == Some(true));
-        if crossed {
-            return Err(ReadError::new(ReadErrorKind::OtherFilesystem, None));
-        }
-        fd
-    };
-    list_fd(&fd, dir, expect, want_private, times, &anchor.mounts)
+    }
+    let fd = retry(|| {
+        rustix::fs::open(dir, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty())
+    })
+    .map_err(read_error)?;
+    let me = stat(&fd, c"", AtFlags::EMPTY_PATH, false).map_err(read_error)?;
+    let crossed = match (anchor.mnt_id, mount_id(&fd, me.mnt_id)) {
+        (Some(root), Some(id)) => id != root,
+        _ => strict,
+    } || (dir != anchor.path && me.mount_root == Some(true));
+    if crossed {
+        return Err(ReadError::new(ReadErrorKind::OtherFilesystem, None));
+    }
+    Ok(fd)
+}
+
+/// An open descriptor's mount id: `statx`'s, or where it gives none (below
+/// kernel 5.8, or a seccomp filter that refuses `statx`), the `mnt_id:`
+/// line of `/proc/self/fdinfo/<fd>` (3.15). The descriptor pins its mount,
+/// so the answer cannot be about a mount that came and went. `None` when
+/// neither tells.
+fn mount_id(fd: &OwnedFd, statx: Option<u64>) -> Option<u64> {
+    statx.or_else(|| {
+        let info = std::fs::read(format!("/proc/self/fdinfo/{}", fd.as_raw_fd())).ok()?;
+        fdinfo_mnt_id(&info)
+    })
+}
+
+fn fdinfo_mnt_id(info: &[u8]) -> Option<u64> {
+    std::str::from_utf8(info).ok()?.lines().find_map(|l| l.strip_prefix("mnt_id:")?.trim().parse().ok())
+}
+
+/// One child of `dir` for the guard, stat'ed without following a symlink or
+/// triggering an automount: a mount root, an automount point or another
+/// mount than `dir`'s is `mount_root`. Without a mount id (no
+/// `STATX_MNT_ID`) only the kernel's own mark tells, and a bind mount there
+/// is caught by its `(dev, ino)` alone, as the amendment accepts.
+pub(super) fn stat_child(dir: &OwnedFd, name: &OsStr) -> Result<EntryStat, Errno> {
+    let dir_mnt = stat(dir, c"", AtFlags::EMPTY_PATH, false)?.mnt_id;
+    let st = stat(dir, name, AtFlags::SYMLINK_NOFOLLOW | AtFlags::NO_AUTOMOUNT, false)?;
+    Ok(EntryStat {
+        dev: st.dev,
+        ino: st.ino,
+        is_dir: st.kind == EntryKind::Dir,
+        is_file: st.kind == EntryKind::File,
+        is_symlink: st.kind == EntryKind::Symlink,
+        flags: 0,
+        alloc: st.blocks * 512,
+        mount_root: boundary(st.automount, st.mount_root, st.mnt_id, dir_mnt).is_some(),
+    })
 }
 
 fn openat2(dir: &OwnedFd, rel: &CStr) -> Result<OwnedFd, Errno> {
@@ -309,7 +366,7 @@ impl Mounts {
 /// `statx` (`ENOSYS`, `EPERM`). `dev` is `makedev` of the major and minor
 /// numbers, which is what std's `MetadataExt::dev` gives. The birth time
 /// only when `btime` asks for it and `statx` returns it.
-fn stat(dir: &impl AsFd, name: &CStr, flags: AtFlags, btime: bool) -> Result<Stat, Errno> {
+fn stat<P: rustix::path::Arg + Copy>(dir: &impl AsFd, name: P, flags: AtFlags, btime: bool) -> Result<Stat, Errno> {
     let mut want = StatxFlags::TYPE
         | StatxFlags::NLINK
         | StatxFlags::UID
@@ -565,6 +622,57 @@ mod tests {
             if a.beneath {
                 assert_eq!(err(&root.join("via/b")), ReadErrorKind::Changed, "a symlink on the way");
             }
+        }
+    }
+
+    /// Without `STATX_MNT_ID` the mount id is fdinfo's (safety ADR,
+    /// amendment of 2026-11-01, completed on 2026-11-02): the line is read
+    /// as the kernel writes it, and both answers agree where both exist.
+    #[test]
+    fn the_fdinfo_mount_id_is_the_statx_one() {
+        assert_eq!(fdinfo_mnt_id(b"pos:\t0\nflags:\t02100000\nmnt_id:\t31\nino:\t2\n"), Some(31));
+        assert_eq!(fdinfo_mnt_id(b"pos:\t0\nflags:\t02100000\n"), None, "below 3.15");
+        let d = tempfile::tempdir().unwrap();
+        let fd =
+            rustix::fs::open(d.path(), OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC, Mode::empty()).unwrap();
+        let statx = stat(&fd, c"", AtFlags::EMPTY_PATH, false).unwrap().mnt_id;
+        let info = fdinfo_mnt_id(&std::fs::read(format!("/proc/self/fdinfo/{}", fd.as_raw_fd())).unwrap());
+        assert!(info.is_some(), "fdinfo tells");
+        if statx.is_some() {
+            assert_eq!(mount_id(&fd, None), statx);
+        }
+    }
+
+    /// The guard's open is strict: with no mount id for the root, a folder
+    /// opened by path is refused, where the scan reads on with `dev`.
+    #[test]
+    fn without_a_mount_id_the_guards_open_refuses_and_the_scans_reads_on() {
+        let d = tempfile::tempdir().unwrap();
+        let root = crate::platform::Canonical::canonical(d.path()).unwrap();
+        fs::create_dir(root.join("a")).unwrap();
+        let untold = Anchor { mnt_id: None, ..anchor_by_path(&root).unwrap() };
+        assert!(open_in(&untold, &root.join("a"), false).is_ok());
+        assert_eq!(open_in(&untold, &root.join("a"), true).unwrap_err().kind, ReadErrorKind::OtherFilesystem);
+        let told = anchor_by_path(&root).unwrap();
+        assert!(open_in(&told, &root.join("a"), true).is_ok(), "fdinfo or statx tells it");
+    }
+
+    /// A root renamed away and replaced since the guard anchored it: its
+    /// path names another folder now, and the guard's open refuses it.
+    #[test]
+    fn a_root_replaced_since_the_anchor_is_refused_by_the_guards_open() {
+        let d = tempfile::tempdir().unwrap();
+        let base = crate::platform::Canonical::canonical(d.path()).unwrap();
+        let root = base.join("root");
+        fs::create_dir_all(root.join("a")).unwrap();
+        for (n, held) in [anchor(&root).unwrap(), anchor_by_path(&root).unwrap()].into_iter().enumerate() {
+            assert!(open_in(&held, &root.join("a"), true).is_ok());
+            fs::rename(&root, base.join("old")).unwrap();
+            fs::create_dir_all(root.join("a")).unwrap();
+            assert_eq!(open_in(&held, &root.join("a"), true).unwrap_err().kind, ReadErrorKind::Changed);
+            assert!(open_in(&held, &root.join("a"), false).is_ok(), "the scan's open is not the guard's");
+            fs::rename(&root, base.join(format!("new-{n}"))).unwrap();
+            fs::rename(base.join("old"), &root).unwrap();
         }
     }
 

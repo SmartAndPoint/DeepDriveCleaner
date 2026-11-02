@@ -159,6 +159,44 @@ pub struct EntryStat {
     pub flags: u32,
     /// Allocated bytes (`st_blocks * 512`).
     pub alloc: u64,
+    /// A mount root, an automount point or another mount than its folder's
+    /// (Linux; safety ADR §5, amendment of 2026-11-01). Always `false` on
+    /// macOS and Windows, where `dev` tells a volume.
+    pub mount_root: bool,
+}
+
+// ---- The Trash (`platform::trash`) ----
+
+/// Where an item went: the Trash folder it was moved into and its name
+/// there, where the Trash tells.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrashPlace {
+    pub trash: PathBuf,
+    pub name: OsString,
+}
+
+/// Why a move to the Trash did not happen. Nothing was moved either way.
+#[derive(Debug)]
+pub enum TrashError {
+    /// The item's filesystem has no Trash ddc may use, or the move would
+    /// cross into another (safety ADR §5, amendment of 2026-11-01).
+    CrossesFilesystem,
+    Other(io::Error),
+}
+
+impl fmt::Display for TrashError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CrossesFilesystem => f.write_str("no Trash on the item's filesystem"),
+            Self::Other(e) => e.fmt(f),
+        }
+    }
+}
+
+impl From<io::Error> for TrashError {
+    fn from(e: io::Error) -> Self {
+        Self::Other(e)
+    }
 }
 
 // ---- Volumes (`platform::statfs`) ----

@@ -102,6 +102,16 @@ impl DirFd {
         if fd < 0 { Err(io::Error::last_os_error()) } else { Ok(Self(fd)) }
     }
 
+    /// `dir`, at or beneath `anchor`'s root, opened as [`Self::open`] opens
+    /// it: a volume is a device here, which the caller's `(dev, ino)`
+    /// checks tell.
+    pub fn open_beneath(anchor: &super::bulk::Anchor, dir: &Path) -> io::Result<Self> {
+        if !dir.starts_with(&anchor.path) {
+            return Err(io::Error::other("outside the scan root"));
+        }
+        Self::open(dir)
+    }
+
     /// `(dev, ino)` of the directory itself.
     pub fn identity(&self) -> io::Result<(u64, u64)> {
         let mut st = MaybeUninit::<libc::stat>::zeroed();
@@ -132,6 +142,7 @@ impl DirFd {
             is_symlink: fmt == libc::S_IFLNK,
             flags: st.st_flags,
             alloc: u64::try_from(st.st_blocks).unwrap_or(0) * 512,
+            mount_root: false,
         })
     }
 

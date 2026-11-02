@@ -100,6 +100,7 @@ mod pins {
     const _: fn(&Path) -> bool = imp::fsops::can_write;
     const _: fn(&Path) -> io::Result<File> = imp::fsops::open_nofollow_nonblock;
     const _: fn(&Path) -> io::Result<DirFd> = DirFd::open;
+    const _: fn(&imp::bulk::Anchor, &Path) -> io::Result<DirFd> = DirFd::open_beneath;
     const _: fn(&DirFd) -> io::Result<(u64, u64)> = DirFd::identity;
     const _: fn(&DirFd, &OsStr) -> io::Result<EntryStat> = DirFd::stat_child;
     const _: fn(&DirFd, &OsStr) -> io::Result<ChildTimes> = DirFd::child_times;

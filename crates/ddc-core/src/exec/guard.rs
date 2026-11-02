@@ -19,6 +19,7 @@ use crate::env::Env;
 use crate::model::NotSelected;
 use crate::plan::{Action, PlanItem};
 use crate::platform::PLATFORM;
+use crate::platform::bulk::{self, Anchor};
 use crate::platform::fsops::DirFd;
 use crate::platform::procs::ProcInfo;
 use crate::platform::types::EntryStat;
@@ -91,6 +92,10 @@ pub struct Guard<'a> {
     /// The run's start, against which an entry is "recent".
     now: SystemTime,
     roots: Vec<PathBuf>,
+    /// Each root's anchor, opened once: an item's parent opens beneath it.
+    /// A root whose anchor could not be opened has none, and every item
+    /// under it is `parent-changed`.
+    anchors: Vec<(PathBuf, Option<Anchor>)>,
     protected_paths: HashSet<String>,
     protected_ids: HashSet<(u64, u64)>,
     /// Directories containing a keep marker inside planned findings.
@@ -172,6 +177,7 @@ impl<'a> Guard<'a> {
             home: env.home().to_path_buf(),
             now: env.now(),
             roots: roots.to_vec(),
+            anchors: roots.iter().map(|r| (r.clone(), bulk::anchor(r).ok())).collect(),
             protected_paths: paths.iter().map(|p| fold(p)).collect(),
             protected_ids,
             markers,
@@ -253,6 +259,19 @@ impl<'a> Guard<'a> {
             .map(|u| SkipReason::InUse { pid: u.pid, name: u.name.clone() })
     }
 
+    /// `parent` opened beneath the anchor of the innermost root it lies in
+    /// (safety ADR §5, amendment of 2026-11-01): a mount crossed or a
+    /// symlink on the way is `parent-changed`, as is a root without an
+    /// anchor. Never a walk by path, as the scan's fallback is.
+    pub(super) fn open_parent(&self, parent: &Path) -> Result<DirFd, SkipReason> {
+        self.anchors
+            .iter()
+            .filter(|(root, _)| parent.starts_with(root))
+            .max_by_key(|(root, _)| root.as_os_str().len())
+            .and_then(|(_, anchor)| DirFd::open_beneath(anchor.as_ref()?, parent).ok())
+            .ok_or(SkipReason::ParentChanged)
+    }
+
     pub fn check(&self, item: &PlanItem) -> Result<Verified, SkipReason> {
         if item.action == Action::TrashEntry {
             return self.check_entry(item);
@@ -283,7 +302,7 @@ impl<'a> Guard<'a> {
         if parent.canonical().ok().as_deref() != Some(parent) {
             return Err(SkipReason::ParentChanged);
         }
-        let parent_fd = DirFd::open(parent).map_err(|_| SkipReason::ParentChanged)?;
+        let parent_fd = self.open_parent(parent)?;
         let parent_id = parent_fd.identity().map_err(|_| SkipReason::ParentChanged)?;
         if f.parent_dev.zip(f.parent_ino).is_some_and(|id| id != parent_id) {
             return Err(SkipReason::ParentChanged);
@@ -301,6 +320,12 @@ impl<'a> Guard<'a> {
         }
         if (st.dev, st.ino) != (f.dev, f.ino) {
             return Err(SkipReason::ChangedSinceScan);
+        }
+        if st.mount_root {
+            // A mount made at the finding since the scan, a bind mount of
+            // the same filesystem included: what is there is not what was
+            // walked.
+            return Err(SkipReason::Incomplete);
         }
         if self.protected_ids.contains(&(st.dev, st.ino)) {
             return Err(SkipReason::Protected);
@@ -360,7 +385,7 @@ impl<'a> Guard<'a> {
         if parent.canonical().ok().as_deref() != Some(parent) {
             return Err(SkipReason::ParentChanged);
         }
-        let parent_fd = DirFd::open(parent).map_err(|_| SkipReason::ParentChanged)?;
+        let parent_fd = self.open_parent(parent)?;
         let parent_id = parent_fd.identity().map_err(|_| SkipReason::ParentChanged)?;
         if f.parent_dev.zip(f.parent_ino).is_some_and(|id| id != parent_id) {
             return Err(SkipReason::ParentChanged);
@@ -413,7 +438,7 @@ impl<'a> Guard<'a> {
                 || session.as_ref().is_some_and(|s| s.kept),
             protected: protected_in_home(PLATFORM).iter().any(|rel| self.home.join(rel).starts_with(path))
                 || session.as_ref().is_some_and(|s| s.protected),
-            other_volume: st.dev != parent_id.0 || session.as_ref().is_some_and(|s| s.other_volume),
+            other_volume: st.dev != parent_id.0 || st.mount_root || session.as_ref().is_some_and(|s| s.other_volume),
             session: session.as_ref().map(|s| s.liveness),
             finished: rule == BACKUP_RULE && st.is_dir && backups::finished(path),
         };
@@ -499,7 +524,7 @@ impl<'a> Guard<'a> {
                 || (st.is_dir && fs::symlink_metadata(at.join(KEEP_MARKER)).is_ok());
             check.protected |= self.protected_ids.contains(&(st.dev, st.ino))
                 || protected_in_home(PLATFORM).iter().any(|rel| self.home.join(rel).starts_with(&at));
-            check.other_volume |= walked.other_fs || st.dev != parent_dev;
+            check.other_volume |= walked.other_fs || st.dev != parent_dev || st.mount_root;
             check.modified = check.modified.max(modified);
             files.push(FileFact { id: (st.dev, st.ino), modified });
             check.parts.companions.push(Companion { name, id: (st.dev, st.ino), is_dir: st.is_dir, bytes });

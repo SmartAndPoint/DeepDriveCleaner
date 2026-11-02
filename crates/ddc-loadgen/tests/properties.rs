@@ -47,7 +47,7 @@ use ddc_core::class::{Category, Removal, RiskClass};
 use ddc_core::env::Env;
 use ddc_core::exec::{
     self, CmdOutput, CommandRunner, Consent, ExecOptions, MemoryJournal, OpenVnode, Outcome, Ports, ProcInfo,
-    ProcStart, ProcessTable, SkipReason, Trasher,
+    ProcStart, ProcessTable, SkipReason, TrashError, TrashPlace, TrashTarget, Trasher,
 };
 use ddc_core::model::{Finding, RemovalKind, ScanReport};
 use ddc_core::plan::{
@@ -805,11 +805,12 @@ struct FakeTrash {
 }
 
 impl Trasher for FakeTrash {
-    fn trash(&self, path: &Path) -> io::Result<()> {
+    fn trash(&self, target: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
         fs::create_dir_all(&self.dir)?;
         let n = self.moved.get();
         self.moved.set(n + 1);
-        fs::rename(path, self.dir.join(n.to_string()))
+        fs::rename(target.path, self.dir.join(n.to_string()))?;
+        Ok(None)
     }
 }
 

@@ -12,6 +12,7 @@ pub mod report;
 pub mod system;
 
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -34,8 +35,11 @@ use crate::agents::HarnessId;
 use crate::class::{CondaFolder, Fallback, Location, Removal, RiskClass};
 use crate::env::Env;
 use crate::plan::{Action, Plan, PlanItem};
+use crate::platform::fsops::DirFd;
 /// What a [`ProcessTable`] lists: a fake table names it here, not under `platform`.
 pub use crate::platform::procs::{OpenVnode, ProcInfo, ProcStart};
+/// What a [`Trasher`] answers: a fake Trash names it here, not under `platform`.
+pub use crate::platform::types::{TrashError, TrashPlace};
 use crate::rules::entries::{self, EntryLock};
 use crate::rules::{Catalog, KEEP_MARKER};
 use crate::scan::{self, EntryMeta, OwnerKind, Progress, Tag, Visitor, WalkOptions};
@@ -208,8 +212,25 @@ pub trait CommandRunner {
     ) -> io::Result<CmdOutput>;
 }
 
+/// What a move to the Trash moves: `name` in the verified folder `parent`
+/// (at `path`), with the identity the guard checked.
+pub struct TrashTarget<'a> {
+    pub path: &'a Path,
+    pub parent: &'a DirFd,
+    pub name: &'a OsStr,
+    pub id: (u64, u64),
+    pub is_dir: bool,
+}
+
 pub trait Trasher {
-    fn trash(&self, path: &Path) -> io::Result<()>;
+    /// Moves `target` to the Trash, and tells where it went when it can.
+    fn trash(&self, target: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError>;
+
+    /// The dry run's question: would [`Self::trash`] find a Trash for
+    /// `target`? Moves nothing. A Trash that always has one says yes.
+    fn would_trash(&self, _target: &TrashTarget<'_>) -> Result<(), TrashError> {
+        Ok(())
+    }
 }
 
 pub trait ProcessTable {
@@ -630,7 +651,8 @@ fn trash_session(
             };
             return (outcome, moved);
         }
-        if let Err(e) = ports.trash.trash(&at) {
+        let target = TrashTarget { path: &at, parent: &v.parent, name: &c.name, id: c.id, is_dir: c.is_dir };
+        if let Err(e) = ports.trash.trash(&target) {
             return (Outcome::Failed { error: format!("{}: {e}", at.display()) }, moved);
         }
         moved.push(MovedCompanion { path: at, id: c.id, bytes: c.bytes });
@@ -649,8 +671,9 @@ fn trash(ports: &Ports<'_>, v: &guard::Verified, path: &Path) -> Outcome {
     if !v.unchanged() {
         return Outcome::Skipped(SkipReason::ChangedSinceScan);
     }
-    match ports.trash.trash(path) {
-        Ok(()) => Outcome::Trashed,
+    let target = TrashTarget { path, parent: &v.parent, name: &v.name, id: v.id, is_dir: v.is_dir };
+    match ports.trash.trash(&target) {
+        Ok(_) => Outcome::Trashed,
         Err(e) => Outcome::Failed { error: e.to_string() },
     }
 }
