@@ -174,6 +174,7 @@ const COMMANDS: &[&str] = &[
     "disk agents",
     "disk free",
     "disk brew-packages",
+    "space",
     "agent status",
     "keep remove",
     "schedule install",
@@ -485,10 +486,10 @@ mod allow {
                     return Err(format!("clean {f}"));
                 }
             }
-            "keep remove" | "notify ack" | "notify snooze" if !inside(value("--data-dir")) => {
+            "keep remove" | "notify ack" | "notify snooze" | "space" if !inside(value("--data-dir")) => {
                 return Err(format!("{path} without --data-dir inside the temporary root"));
             }
-            "keep remove" | "notify ack" | "notify snooze" => {}
+            "keep remove" | "notify ack" | "notify snooze" | "space" => {}
             "disk" | "disk agents" | "agent status" | "disk brew-packages" if !inside(value("--system-root")) => {
                 return Err(format!("{path} without --system-root inside the temporary root"));
             }
@@ -665,7 +666,7 @@ fn text_failures(what: &str, text: &str, t: &Text) -> Vec<String> {
 }
 
 fn schema(name: &str, json: &[u8]) {
-    use ddc_core::{agents, brew, disk, keep, model, notify, progress, refusal, rules};
+    use ddc_core::{agents, brew, disk, keep, model, notify, progress, refusal, rules, space};
     match name {
         "scan" => drop(contract::holds::<model::ScanReport>(name, json)),
         "notify" => drop(contract::holds::<notify::NotifyReport>(name, json)),
@@ -676,6 +677,7 @@ fn schema(name: &str, json: &[u8]) {
         "brew-packages" => drop(contract::holds::<brew::BrewPackages>(name, json)),
         "error" => drop(contract::holds::<refusal::ErrorReport>(name, json)),
         "progress" => drop(contract::holds::<progress::ProgressLine>(name, json)),
+        "space" => drop(contract::holds::<space::SpaceReport>(name, json)),
         other => panic!("no schema {other}"),
     }
 }
@@ -891,6 +893,7 @@ fn the_allowlist_refuses_each_forbidden_call() {
         (&["disk", "brew-packages", "--system-root", "/"], "without --system-root"),
         (&["keep", "remove", "x"], "without --data-dir"),
         (&["notify", "ack", "--bytes", "1", "--data-dir", "/tmp"], "without --data-dir"),
+        (&["space", "--json"], "without --data-dir"),
         (&["scan", "/"], "/ is outside"),
         (&["scan", "--skip", "/", &home], "/ is outside"),
         (&["clean", "--dry-run", "--exclude=/etc", &home], "/etc is outside"),
@@ -915,6 +918,7 @@ fn the_allowlist_refuses_each_forbidden_call() {
         &["schedule", "status"],
         &["disk", "--system-root", &sys],
         &["keep", "remove", ".", "--data-dir", &data],
+        &["space", "--json", "--data-dir", &data],
         &["--help"],
     ] {
         assert!(check(allowed).is_ok(), "{allowed:?} is refused: {:?}", check(allowed));

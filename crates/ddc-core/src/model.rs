@@ -119,6 +119,12 @@ pub struct Volume {
     /// Bytes available to an unprivileged user.
     pub free_bytes: u64,
     pub total_bytes: u64,
+    /// RFC 3339, UTC: when `free_bytes` was read again after the scan. Set
+    /// only by a `clean --items` edit of the volumes it touched; absent in a
+    /// scan, whose volumes are read at `generated_at` (ADR "Menu bar app:
+    /// Swift shell over the ddc CLI", §6 item 13).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

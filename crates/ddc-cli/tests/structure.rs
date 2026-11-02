@@ -73,6 +73,33 @@ fn the_disk_report_never_reaches_cleanup() {
     }
 }
 
+/// `ddc space` reads one `statfs` and the saved report's head (story
+/// "Popover: say when used space grew since the last scan"): it reaches no
+/// cleanup, starts no program, takes no lock and never writes a report.
+#[test]
+fn space_reaches_no_cleanup_lock_or_report_write() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    for file in [root.join("ddc-cli/src/cmd/space.rs"), root.join("ddc-core/src/space.rs")] {
+        let text = std::fs::read_to_string(&file).unwrap();
+        let code: String = text.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+        for forbidden in [
+            "Executor",
+            "build_plan",
+            "plan::",
+            "trash",
+            "Consent",
+            "remove_",
+            "Command::new",
+            "try_lock",
+            "write_last_scan",
+            "write_last_disk",
+            "Notifier",
+        ] {
+            assert!(!code.contains(forbidden), "{} mentions {forbidden}", file.display());
+        }
+    }
+}
+
 /// `ddc disk free` runs only the commands the safety ADR names (amendments
 /// of 2026-10-28 and 2026-10-29): no item cleanup, no program started by
 /// hand, no `xcrun` or first launch, no `simctl runtime delete

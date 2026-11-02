@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-11-03T10:00:00Z",
+  "volume": {
+    "mount_point": "/System/Volumes/Data",
+    "total_bytes": 536870912000,
+    "free_bytes": 214748364800
+  },
+  "baseline": null,
+  "in_use_delta": null,
+  "grew": false,
+  "state": "quiet"
+}

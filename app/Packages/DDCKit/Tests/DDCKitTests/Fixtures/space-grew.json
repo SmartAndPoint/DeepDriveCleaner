@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-11-03T10:00:00Z",
+  "volume": {
+    "mount_point": "/System/Volumes/Data",
+    "total_bytes": 536870912000,
+    "free_bytes": 107374182400
+  },
+  "baseline": {
+    "source": "scan",
+    "at": "2026-11-02T08:00:00Z",
+    "free_bytes": 319975063552
+  },
+  "in_use_delta": 212600881152,
+  "grew": true,
+  "state": "grew"
+}

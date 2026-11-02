@@ -812,6 +812,42 @@ fn a_pruned_clean_edits_the_report_it_read() {
     assert_eq!(total(&after, "dirs"), total(&before, "dirs") - sum("dirs"));
 }
 
+/// Story "Popover: say when used space grew since the last scan": the clean
+/// reads the home volume's free space again and dates it (`read_at`), and
+/// `ddc space` then compares with that reading, not the scan's.
+#[test]
+fn a_clean_of_a_list_dates_the_volume_and_space_compares_with_it() {
+    if common::unsupported("a_clean_of_a_list_dates_the_volume_and_space_compares_with_it") {
+        return;
+    }
+    let fx = Fx::new();
+    let list = fx.list(&["q/__pycache__"]);
+    let home = fx.home.to_str().unwrap();
+    let volume_of_home = |report: &serde_json::Value| -> serde_json::Value {
+        let volumes = report["volumes"].as_array().unwrap();
+        volumes.iter().find(|v| v["roots"].as_array().unwrap().iter().any(|r| r == home)).unwrap().clone()
+    };
+    assert!(volume_of_home(&fx.last_scan()).get("read_at").is_none(), "a scan's volume carries no time of its own");
+
+    let (clean, _, _) = fx.clean_json(&list);
+
+    assert!(clean.last_scan_saved && clean.items.iter().all(|i| i.outcome == Outcome::Deleted), "{:?}", clean.items);
+    let after = fx.last_scan();
+    let volume = volume_of_home(&after);
+    let read_at = volume["read_at"].as_str().unwrap_or_else(|| panic!("no read_at: {volume}"));
+    let read = humantime::parse_rfc3339(read_at).unwrap();
+    let scanned = humantime::parse_rfc3339(after["generated_at"].as_str().unwrap()).unwrap();
+    assert!(read >= scanned, "read at {read_at}, scanned at {}", after["generated_at"]);
+
+    let out = fx.ddc(&["space", "--json"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let space: ddc_core::space::SpaceReport = contract::holds("space", &out.stdout);
+    let baseline = space.baseline.expect("a baseline");
+    assert_eq!(baseline.source, ddc_core::space::BaselineSource::Clean);
+    assert_eq!(baseline.at, read_at);
+    assert_eq!(serde_json::json!(baseline.free_bytes), volume["free_bytes"]);
+}
+
 /// Story "Review window: after a clean, only skips that can clear stay
 /// selected": an item the clean skipped as changed takes the re-check's
 /// identity, so the app's next list from the saved report cleans it; a

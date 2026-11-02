@@ -29,6 +29,7 @@ fn refusal_for(cmd: &Command, supported: Result<(), Unsupported>, declared: &[Ca
         Command::Rules(_) => return None,
         Command::Scan(_)
         | Command::Clean(_)
+        | Command::Space(_)
         | Command::Keep { .. }
         | Command::Du(_)
         | Command::Notify { .. }
@@ -120,6 +121,8 @@ mod tests {
         &["disk", "agents", "--json"],
         &["disk", "free", "--json"],
         &["disk", "brew-packages", "--json"],
+        &["space"],
+        &["space", "--json"],
         &["agent", "status", "--json"],
         &["keep", "remove", "/p", "--folder-dev", "1", "--folder-ino", "2", "--json"],
         &["schedule", "status"],

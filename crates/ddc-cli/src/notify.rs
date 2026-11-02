@@ -129,7 +129,8 @@ pub fn message(d: &Decision, clean: &str) -> String {
     }
 }
 
-fn volume_name(mount_point: &Path) -> String {
+/// "The startup disk" for the startup disk; another volume by its path.
+pub(crate) fn volume_name(mount_point: &Path) -> String {
     match mount_point.to_str() {
         Some("/" | "/System/Volumes/Data") => "The startup disk".to_owned(),
         _ => mount_point.display().to_string(),

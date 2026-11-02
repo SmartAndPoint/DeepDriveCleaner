@@ -41,6 +41,7 @@ pub fn volumes(roots: &[&Path], statfs: &dyn StatFs) -> Vec<Volume> {
                 roots: vec![root.to_path_buf()],
                 free_bytes: st.available_bytes,
                 total_bytes: st.total_bytes,
+                read_at: None,
             }),
         }
     }

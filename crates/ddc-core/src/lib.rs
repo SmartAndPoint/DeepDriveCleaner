@@ -28,5 +28,6 @@ pub mod report;
 pub mod rules;
 pub mod scan;
 pub mod settings;
+pub mod space;
 pub mod stats;
 pub mod store;

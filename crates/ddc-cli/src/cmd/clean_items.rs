@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::io::{IsTerminal as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::SystemTime;
 
 use anyhow::Context as _;
 use ddc_core::env::Env;
@@ -158,6 +159,9 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
             },
         )
     })?;
+    // The volumes' free space was read again at the end of the run: the
+    // saved report's volumes say when (`Volume::read_at`, for `ddc space`).
+    let read_at = humantime::format_rfc3339_seconds(SystemTime::now()).to_string();
     let mut clean = CleanReport::new(&list.items, &listed.refused, &result, journal_path.clone());
     // `last-scan.json` follows what was done, after a cancel too.
     // An older report takes the re-check's findings for the items not touched.
@@ -171,7 +175,7 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
         .filter(|i| matches!(i.outcome, Outcome::Native { .. }))
         .map(|i| (i.path.clone(), after_clean::remeasure(&catalog, &i.rule, &i.path, &opts.walk)))
         .collect();
-    after_clean::edit(&mut base, &clean, fresh.as_ref(), &remeasured, &opts);
+    after_clean::edit(&mut base, &clean, fresh.as_ref(), &remeasured, &opts, Some(&read_at));
     clean.last_scan_saved = match store::write_last_scan(&env, &base) {
         Ok(_) => true,
         Err(e) => {
