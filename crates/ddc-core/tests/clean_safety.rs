@@ -1547,3 +1547,32 @@ fn a_finding_evicted_to_the_cloud_after_the_plan_is_never_deleted() {
     assert_eq!(outcome(&r, &nm), &Outcome::Skipped(SkipReason::Incomplete));
     assert!(nm.join("dep/index.js").exists());
 }
+
+#[cfg(windows)]
+#[test]
+fn a_junction_inside_a_finding_goes_with_it_and_its_target_stays() {
+    if common::unsupported("a_junction_inside_a_finding_goes_with_it_and_its_target_stays") {
+        return;
+    }
+    let fx = Fx::new();
+    let nm = fx.node_project("p");
+    let precious = fx.t.file("precious/data.db", 5000);
+    // cmd takes only `\` as a separator; the tree builder joins with `/`.
+    let backslashed = |p: PathBuf| p.to_string_lossy().replace('/', "\\");
+    let made = std::process::Command::new("cmd")
+        .arg("/C")
+        .arg("mklink")
+        .arg("/J")
+        .arg(backslashed(nm.join("linked")))
+        .arg(backslashed(fx.t.path("precious")))
+        .output()
+        .unwrap();
+    assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stdout));
+    let plan = fx.plan();
+
+    let (r, _) = fx.run_yes(&plan);
+
+    assert_eq!(outcome(&r, &nm), &Outcome::Deleted);
+    assert!(!nm.exists(), "the finding and the junction in it are gone");
+    assert!(precious.exists(), "the junction's target is not followed");
+}
