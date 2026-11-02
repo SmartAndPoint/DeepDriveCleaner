@@ -59,7 +59,7 @@ pub fn git_dir(root: &Path) -> Option<PathBuf> {
     if md.is_dir() {
         return Some(dot_git);
     }
-    let text = fs::read_to_string(&dot_git).ok()?;
+    let text = crate::platform::read_found(&dot_git, crate::platform::FOUND_MAX).ok()?;
     let target = text.lines().find_map(|l| l.strip_prefix("gitdir:"))?.trim();
     let target = Path::new(target);
     Some(if target.is_absolute() { target.to_path_buf() } else { root.join(target) })

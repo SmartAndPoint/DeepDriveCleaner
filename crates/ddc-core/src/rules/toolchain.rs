@@ -55,7 +55,7 @@ fn file_name(p: &Path) -> String {
 }
 
 fn read_trimmed(path: &Path) -> String {
-    fs::read_to_string(path).map(|s| s.trim().to_owned()).unwrap_or_default()
+    crate::platform::read_found(path, crate::platform::FOUND_MAX).map(|s| s.trim().to_owned()).unwrap_or_default()
 }
 
 pub(crate) fn version_key(v: &str) -> Vec<u64> {
@@ -137,7 +137,7 @@ fn rustup_protected(names: &[String], home: &Path, pins: &[String]) -> Option<Ha
     if names.len() <= 1 {
         return None;
     }
-    let settings = fs::read_to_string(home.join(".rustup/settings.toml")).unwrap_or_default();
+    let settings = read_trimmed(&home.join(".rustup/settings.toml"));
     let default = settings.lines().find_map(|l| {
         let l = l.trim();
         l.strip_prefix("default_toolchain")
@@ -203,7 +203,10 @@ fn server_build(name: &str, current_layout: bool) -> Option<&str> {
 /// two clients of different versions use two builds at once.
 fn servers_kept(names: &[String], parent: &Path) -> Option<HashSet<String>> {
     if parent.ends_with("cli/servers") {
-        let lru: Vec<String> = serde_json::from_str(&fs::read_to_string(parent.join("lru.json")).ok()?).ok()?;
+        let lru: Vec<String> = serde_json::from_str(
+            &crate::platform::read_found(&parent.join("lru.json"), crate::platform::FOUND_MAX).ok()?,
+        )
+        .ok()?;
         let head = lru.first()?;
         return Some(names.iter().filter(|n| *n == head || server_build(n, true).is_none()).cloned().collect());
     }

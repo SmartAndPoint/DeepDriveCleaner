@@ -501,7 +501,7 @@ fn is_hex(text: &str) -> bool {
 /// or is empty.
 fn read_line(path: &Path) -> Option<String> {
     let mut text = String::new();
-    fs::File::open(path).ok()?.take(MAX_READ).read_to_string(&mut text).ok()?;
+    crate::platform::fsops::open_read(path).ok()?.take(MAX_READ).read_to_string(&mut text).ok()?;
     let line = text.lines().next()?.trim();
     (!line.is_empty()).then(|| line.to_owned())
 }

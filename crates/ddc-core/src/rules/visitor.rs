@@ -302,9 +302,11 @@ impl Visitor for RuleVisitor<'_> {
         match rule.clones {
             Clones::Never => false,
             Clones::Always => true,
-            Clones::UvVenv => fs::read_to_string(dir.path.join("pyvenv.cfg")).is_ok_and(|cfg| {
-                cfg.lines().any(|l| l.trim_start().strip_prefix("uv").is_some_and(|r| r.trim_start().starts_with('=')))
-            }),
+            Clones::UvVenv => crate::platform::read_found(&dir.path.join("pyvenv.cfg"), crate::platform::FOUND_MAX)
+                .is_ok_and(|cfg| {
+                    cfg.lines()
+                        .any(|l| l.trim_start().strip_prefix("uv").is_some_and(|r| r.trim_start().starts_with('=')))
+                }),
             Clones::PnpmModules => {
                 [".pnpm", ".modules.yaml"].iter().any(|n| fs::symlink_metadata(dir.path.join(n)).is_ok())
                     || dir.path.parent().is_some_and(|p| {
@@ -366,7 +368,7 @@ impl Visitor for RuleVisitor<'_> {
         {
             return;
         }
-        let Ok(text) = fs::read_to_string(dir.join(name)) else {
+        let Ok(text) = crate::platform::read_found(&dir.join(name), crate::platform::FOUND_MAX) else {
             return;
         };
         let mut pins = self.pins.lock().unwrap_or_else(|p| p.into_inner());

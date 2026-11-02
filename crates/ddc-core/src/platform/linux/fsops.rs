@@ -37,6 +37,13 @@ pub fn open_nofollow_nonblock(path: &Path) -> io::Result<File> {
     std::fs::OpenOptions::new().read(true).custom_flags(i32::try_from(flags).unwrap_or(0)).open(path)
 }
 
+/// Opens `path` to read a file a walk found: a symlink is followed, as std
+/// does, but a FIFO cannot block the open (`O_NONBLOCK`).
+pub fn open_read(path: &Path) -> io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    std::fs::OpenOptions::new().read(true).custom_flags(i32::try_from(OFlags::NONBLOCK.bits()).unwrap_or(0)).open(path)
+}
+
 /// The user running ddc may write in `path`, as `access(2)` with `W_OK`
 /// answers: the mode bits, the ACLs and a read-only mount. `false` when it
 /// does not exist.

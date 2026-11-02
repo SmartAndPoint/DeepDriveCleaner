@@ -80,6 +80,15 @@ pub fn open_nofollow_nonblock(path: &Path) -> io::Result<std::fs::File> {
     std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path)
 }
 
+/// Opens `path` to read a file a walk found: a symlink is followed, as std
+/// does, but a FIFO cannot block the open (`O_NONBLOCK`). A dataless file is
+/// never materialised: the process disables that at start
+/// ([`super::iopolicy`]).
+pub fn open_read(path: &Path) -> io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(path)
+}
+
 /// The user running ddc may write in `path`, as `access(2)` with `W_OK`
 /// answers: the mode bits, the ACLs and a read-only volume. `false` when
 /// it does not exist.

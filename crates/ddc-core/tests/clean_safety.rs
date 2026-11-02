@@ -1447,3 +1447,28 @@ fn another_users_entries_keep_a_finding_unselected_and_unremoved() {
     assert_eq!(outcome(&r, &nm), &Outcome::Skipped(SkipReason::ForeignOwner));
     assert!(nm.join("dep/index.js").exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn a_fifo_where_a_marker_should_be_never_blocks_the_scan() {
+    if common::unsupported("a_fifo_where_a_marker_should_be_never_blocks_the_scan") {
+        return;
+    }
+    let fx = Fx::new();
+    let fifo = |p: &Path| assert!(std::process::Command::new("/usr/bin/mkfifo").arg(p).status().unwrap().success());
+    // A uv project's venv, as `venv_project` makes it, with a FIFO for its
+    // `pyvenv.cfg`, which the scan reads to tell a uv venv.
+    fx.t.write("uvproj/uv.lock", "");
+    fx.t.file("uvproj/.venv/lib/x.py", 10_000);
+    fifo(&fx.t.path("uvproj/.venv/pyvenv.cfg"));
+    fx.old("uvproj/uv.lock");
+    let venv = fx.t.path("uvproj/.venv");
+    // A worktree's `.git` is a file the scan reads; here a symlink to a FIFO.
+    fx.node_project("wt");
+    fifo(&fx.t.path("pipe"));
+    common::symlink(fx.t.path("pipe"), fx.t.path("wt/.git"));
+    // No writer on either FIFO: a blocking open would wait forever, and
+    // nextest's timeout fails the test.
+    let report = fx.scan();
+    assert!(report.findings.iter().any(|f| f.path == venv), "the venv is still found");
+}

@@ -59,6 +59,26 @@ impl Canonical for std::path::Path {
     }
 }
 
+/// The most [`read_found`] reads where a caller has no smaller bound: far
+/// above any marker a rule reads (a large `CMakeCache.txt` is a few hundred
+/// KiB).
+pub const FOUND_MAX: u64 = 4 << 20;
+
+/// The text of a small file that a walk found (a marker such as
+/// `CMakeCache.txt`, `pyvenv.cfg` or a worktree's `.git`), read through
+/// [`fsops::open_read`], at most `max` bytes: never a downloaded placeholder,
+/// never a FIFO that blocks. Longer or not UTF-8 is an error, as an
+/// unreadable file is: a matcher then answers "no".
+pub fn read_found(path: &std::path::Path, max: u64) -> std::io::Result<String> {
+    use std::io::Read as _;
+    let mut text = String::new();
+    imp::fsops::open_read(path)?.take(max + 1).read_to_string(&mut text)?;
+    if text.len() as u64 > max {
+        return Err(std::io::Error::new(std::io::ErrorKind::FileTooLarge, "larger than a marker"));
+    }
+    Ok(text)
+}
+
 /// What in-source tests need from the OS (a symlink, a non-UTF-8 name, POSIX
 /// path shapes): `Unsupported` where it is missing, and the test skips
 /// through [`skipped_without`].
@@ -99,6 +119,7 @@ mod pins {
     const _: fn(&Path, SystemTime, SystemTime) -> io::Result<()> = imp::fsops::set_times;
     const _: fn(&Path) -> bool = imp::fsops::can_write;
     const _: fn(&Path) -> io::Result<File> = imp::fsops::open_nofollow_nonblock;
+    const _: fn(&Path) -> io::Result<File> = imp::fsops::open_read;
     const _: fn(&Path) -> io::Result<DirFd> = DirFd::open;
     const _: fn(&imp::bulk::Anchor, &Path) -> io::Result<DirFd> = DirFd::open_beneath;
     const _: fn(&DirFd) -> io::Result<(u64, u64)> = DirFd::identity;
@@ -455,6 +476,29 @@ fn refusal_at(err: &(dyn std::error::Error + 'static)) -> Option<Refusal> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_found_file_is_read_up_to_its_bound() {
+        let d = tempfile::tempdir().unwrap();
+        let f = d.path().join("pyvenv.cfg");
+        std::fs::write(&f, "uv = 0.9\n").unwrap();
+        assert_eq!(read_found(&f, 64).unwrap(), "uv = 0.9\n");
+        assert_eq!(read_found(&f, 9).unwrap().len(), 9, "exactly the bound");
+        assert_eq!(read_found(&f, 8).unwrap_err().kind(), std::io::ErrorKind::FileTooLarge);
+        assert!(read_found(&d.path().join("gone"), 64).is_err());
+        std::fs::write(&f, [0xffu8, 0xfe]).unwrap();
+        assert!(read_found(&f, 64).is_err(), "not UTF-8");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_found_by_a_walk_never_blocks_the_read() {
+        let d = tempfile::tempdir().unwrap();
+        let fifo = d.path().join("CMakeCache.txt");
+        assert!(std::process::Command::new("/usr/bin/mkfifo").arg(&fifo).status().unwrap().success());
+        // No writer: a blocking open would wait for one forever.
+        assert_eq!(read_found(&fifo, FOUND_MAX).unwrap_or_default(), "");
+    }
 
     #[test]
     fn the_names_are_those_of_the_json() {

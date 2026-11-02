@@ -125,7 +125,7 @@ pub(crate) fn records(
 /// The record as a JSON map, read up to [`RECORD_CAP`].
 fn read_record(path: &Path) -> Option<Map<String, Value>> {
     let mut bytes = Vec::new();
-    std::fs::File::open(path).ok()?.take(RECORD_CAP + 1).read_to_end(&mut bytes).ok()?;
+    crate::platform::fsops::open_read(path).ok()?.take(RECORD_CAP + 1).read_to_end(&mut bytes).ok()?;
     if bytes.len() as u64 > RECORD_CAP {
         return None;
     }
