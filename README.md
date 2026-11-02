@@ -353,7 +353,7 @@ ddc schedule uninstall
 - `install` installs (or updates) a LaunchAgent that scans daily, or weekly with `--interval weekly`. It notifies when at least `--threshold` can be freed (default: the settings' threshold, else 10G), or when a scanned disk is under 10 % free with something on it to clean. A threshold notification repeats after a fifth more or a week; a disk under 10 % free notifies at every scheduled scan until it is cleaned (`notify_low_disk: false` in `settings.json` turns that off). The background scan **never deletes anything**, and it skips the folders where macOS would show a permission prompt, because a prompt would block it. Once the Mac app runs the scheduled scan itself (0.3.0), `install` refuses: one scheduler at a time.
 - `status` shows whether the LaunchAgent is installed, loaded and runs this binary.
 - `uninstall` removes the LaunchAgent.
-- The Mac app's own schedule (Settings → Schedule) replaces this agent: the app offers Replace It while the agent exists, and `ddc schedule install` refuses while the app schedules.
+- The Mac app's own schedule (Settings → Schedule) replaces this LaunchAgent: the app offers Replace It while the LaunchAgent exists, and `ddc schedule install` refuses while the app schedules.
 
 ```
 ddc schedule install --interval weekly --threshold 20G
@@ -446,7 +446,7 @@ These checks lower the risk; they do not remove it. See the [Disclaimer](#discla
 Without Full Disk Access some of `~/Library` cannot be read; the report lists those folders instead of guessing. Grant it to the app: System Settings → Privacy & Security → Full Disk Access → DeepDriveCleaner. The grant is tied to the app's identity (its Developer ID signature and bundle id) rather than to one copy of it, so it should survive an update, by Update and Relaunch or by `brew upgrade`: both replace the app with a copy of the same identity. If the app reports no Full Disk Access after an update, switch it off and on again in that list.
 
 - Run from Terminal, `ddc` is covered by Terminal's own grant, not the app's.
-- The app's own scheduled scans (Settings → Schedule) use the app's grant; they replace the agent of `ddc schedule install`, which refuses while the app schedules.
+- The app's own scheduled scans (Settings → Schedule) use the app's grant; they replace the LaunchAgent of `ddc schedule install`, which refuses while the app schedules.
 - The background agent of `ddc schedule install` runs the binary inside the app. To let it scan everything, add `/Applications/DeepDriveCleaner.app/Contents/Helpers/deepdrivecleaner` to Full Disk Access (press ⇧⌘G in the file picker to type the path). Since 0.2.0 that path stays the same across upgrades. If you upgraded from 0.1.0, remove the old `Caskroom/deepdrivecleaner/0.1.0` entry.
 - A local `make install` build is not signed with the Developer ID and has to be granted again after every build.
 - The install script keeps the binary at one path, `~/.local/bin/deepdrivecleaner` by default, and it is signed with the Developer ID: a grant to it survives updates by the script, and moving it loses the grant.

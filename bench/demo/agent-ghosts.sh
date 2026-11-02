@@ -8,7 +8,7 @@
 # Then, in the same shell:
 #
 #   export HOME=<dir>/home CLAUDE_CODE_TMPDIR=<dir>/tmp
-#   ddc disk agents
+#   ddc agent status
 #
 # It builds Claude Code, Codex, Cursor and opencode data: three Claude Code projects with
 # five sessions, one of them live (a record naming a `sleep` this script starts), their
