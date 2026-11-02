@@ -25,12 +25,23 @@ use std::path::{Path, PathBuf};
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, RawDir, ResolveFlags, StatxAttributes, StatxFlags};
 use rustix::io::Errno;
 
+use super::statfs::Mount;
 use crate::platform::types::{Boundary, DirListing, EntryKind, EntryMeta, EntryStat, ReadError, ReadErrorKind, Times};
 
 const BUF_LEN: usize = 64 * 1024;
 
 /// Linux's `PATH_MAX`, the terminating NUL included.
 const PATH_MAX: usize = 4096;
+
+/// `statfs`'s `f_type` of ZFS (OpenZFS `ZFS_SUPER_MAGIC`).
+const ZFS_SUPER_MAGIC: u32 = 0x2FC1_2FC1;
+
+/// `statfs`'s `f_type` of an open folder's filesystem, as the 32-bit magic
+/// number it is.
+fn fs_magic(fd: &OwnedFd) -> Option<u32> {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a magic number fits 32 bits
+    rustix::fs::fstatfs(fd).ok().map(|st| st.f_type as u32)
+}
 
 /// What one `statx` (or the `fstatat` fallback) says of an entry.
 struct Stat {
@@ -83,6 +94,89 @@ pub fn anchor(root: &Path) -> std::io::Result<Anchor> {
 /// real mount checks too.
 pub fn anchor_by_path(root: &Path) -> std::io::Result<Anchor> {
     Ok(Anchor { beneath: false, ..anchor(root)? })
+}
+
+/// The anchor of the ZFS child dataset mounted at `dir`, a folder beneath
+/// `parent`'s root, for the walk inside it (safety ADR, amendment of
+/// 2026-11-02, "btrfs and ZFS on Linux"): its folder above opened beneath
+/// `parent`, the dataset's root opened from there, and refused unless it
+/// is the root of `vouched`, the mount mountinfo vouched for. Every folder
+/// inside opens beneath it, crossing no further mount.
+pub fn anchor_beneath(parent: &Anchor, dir: &Path, vouched: u64) -> std::io::Result<Anchor> {
+    dataset_anchor(parent, dir, vouched, false)
+}
+
+/// The anchor of the innermost ZFS child dataset `dir` lies in below
+/// `root`'s folder, each one anchored beneath the one above, as the walk
+/// anchors them: where the guard opens an item's parent. `None` when `dir`
+/// lies in none; an error when mountinfo cannot be read or a dataset on the
+/// way is not the one it lists.
+pub fn anchor_for(root: &Anchor, dir: &Path) -> std::io::Result<Option<Anchor>> {
+    // Only a ZFS mount has child datasets: any other root reads no mountinfo.
+    let Some(mut id) = root.mnt_id else { return Ok(None) };
+    if fs_magic(&root.fd) != Some(ZFS_SUPER_MAGIC) {
+        return Ok(None);
+    }
+    let vouches = |lines: &[Mount], parent: u64, child: u64, at: &Path| {
+        let line = |id: u64| lines.iter().find(|m| m.id == id);
+        line(child).zip(line(parent)).is_some_and(|(c, p)| super::statfs::zfs_child(c, p) && c.mount_point == at)
+    };
+    let mut lines = super::statfs::lines()?;
+    let mut inner: Option<Anchor> = None;
+    loop {
+        let here = inner.as_ref().unwrap_or(root);
+        let Some(parent) = lines.iter().find(|m| m.id == id) else { break };
+        let Some(next) = lines.iter().find(|c| {
+            super::statfs::zfs_child(c, parent)
+                && c.mount_point != here.path
+                && c.mount_point.starts_with(&here.path)
+                && dir.starts_with(&c.mount_point)
+        }) else {
+            break;
+        };
+        let (next, at) = (next.id, next.mount_point.clone());
+        let held = dataset_anchor(here, &at, next, true)?;
+        // The descriptor pins mount `next`: mountinfo read again must still
+        // vouch for it, so a dataset swapped between the read and the open
+        // is refused.
+        lines = super::statfs::lines()?;
+        if !vouches(&lines, id, next, &at) {
+            return Err(std::io::Error::other(format!("{} changed since mountinfo was read", at.display())));
+        }
+        id = next;
+        inner = Some(held);
+    }
+    Ok(inner)
+}
+
+/// [`anchor_beneath`]; `strict`, the guard's ([`open_in`]).
+fn dataset_anchor(parent: &Anchor, dir: &Path, vouched: u64, strict: bool) -> std::io::Result<Anchor> {
+    let (Some(up), Some(name)) = (dir.parent(), dir.file_name()) else {
+        return Err(std::io::ErrorKind::InvalidInput.into());
+    };
+    let up = open_in(parent, up, strict).map_err(|e| {
+        e.errno.map_or_else(|| std::io::Error::other(format!("{:?}", e.kind)), std::io::Error::from_raw_os_error)
+    })?;
+    let name = rustix::ffi::CString::new(name.as_bytes()).map_err(|_| std::io::ErrorKind::InvalidInput)?;
+    let fd = retry(|| {
+        rustix::fs::openat(
+            &up,
+            &*name,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+    })?;
+    let st = stat(&fd, c"", AtFlags::EMPTY_PATH, false)?;
+    if mount_id(&fd, st.mnt_id) != Some(vouched) || is_mount_root(&fd) != Some(true) {
+        return Err(std::io::Error::other(format!("{} is not the root of mount {vouched}", dir.display())));
+    }
+    Ok(Anchor {
+        path: dir.to_path_buf(),
+        fd,
+        beneath: parent.beneath,
+        mnt_id: Some(vouched),
+        mounts: std::sync::Mutex::default(),
+    })
 }
 
 /// [`list`] of `dir`, a folder at or beneath `anchor`'s root, opened
@@ -275,12 +369,16 @@ fn list_fd(
         }
         let (mut entry, seen) = entry_meta(fd, name, times, me.mnt_id);
         if entry.kind == EntryKind::Dir {
-            entry.boundary = mounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner).boundary(
-                entry.boundary,
-                seen,
-                dir,
-                &entry.name,
-            );
+            let mut cache = mounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            entry.boundary = cache.boundary(entry.boundary, seen, dir, &entry.name, dir_mnt);
+            // `.zfs` at a dataset's root: its snapshots mount as they are
+            // opened, and the kernel marks none of them as an automount
+            // point. Told by its name, never entered (safety ADR, amendment
+            // of 2026-11-02, "btrfs and ZFS on Linux").
+            if name == c".zfs" && cache.zfs_root(dir_mnt, dir, me.mount_root, || fs_magic(fd)) {
+                entry.boundary = Some(Boundary::Snapshot);
+            }
+            drop(cache);
             // Same mount, another device: a btrfs subvolume reached by path,
             // or something else the walk must not enter.
             if entry.boundary.is_none() && entry.error.is_none() && entry.dev != me.dev {
@@ -446,7 +544,7 @@ pub fn subvolume_trace(dir: &Path, name: &OsStr) -> String {
         }
     }
     let (meta, seen) = entry_meta(&fd, &cname, Times::None, me_mnt);
-    let edge = mounts.boundary(meta.boundary, seen, dir, &meta.name);
+    let edge = mounts.boundary(meta.boundary, seen, dir, &meta.name, dir_mnt);
     let _ = writeln!(out, "entry_meta: boundary {:?} then mounts.boundary {edge:?} told {}", meta.boundary, seen.told);
     match retry(|| {
         rustix::fs::openat(
@@ -484,6 +582,45 @@ pub fn subvolume_trace(dir: &Path, name: &OsStr) -> String {
     out
 }
 
+/// The dataset rule for `name` in `dir`, condition by condition, with the
+/// mountinfo lines it read and the anchor it gives, for a CI test that can
+/// only see a real ZFS on the runner: the walk never calls it.
+#[doc(hidden)]
+pub fn dataset_trace(dir: &Path, name: &OsStr) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let held = match anchor(dir) {
+        Ok(held) => held,
+        Err(e) => return format!("anchor {}: {e}", dir.display()),
+    };
+    let _ = writeln!(out, "folder: mount {:?} beneath {}", held.mnt_id, held.beneath);
+    let Ok(cname) = rustix::ffi::CString::new(name.as_bytes()) else { return out + "name has a NUL" };
+    let (meta, seen) = entry_meta(&held.fd, &cname, Times::None, held.mnt_id);
+    let _ = writeln!(
+        out,
+        "entry: dev {} ino {} mnt_id {:?} told {} boundary {:?}",
+        meta.dev, meta.ino, seen.mnt_id, seen.told, meta.boundary
+    );
+    let mut mounts = Mounts::default();
+    let child = seen.mnt_id.and_then(|id| mounts.line(id).cloned());
+    let parent = held.mnt_id.and_then(|id| mounts.line(id).cloned());
+    let _ = writeln!(out, "child line: {child:?}\nparent line: {parent:?}");
+    if let (Some(c), Some(p)) = (&child, &parent) {
+        for (what, holds) in super::statfs::zfs_conditions(c, p) {
+            let _ = writeln!(out, "  {what}: {holds}");
+        }
+        let _ = writeln!(out, "  mounted at the entry: {}", c.mount_point == dir.join(name));
+    }
+    let edge = mounts.boundary(meta.boundary, seen, dir, &meta.name, held.mnt_id);
+    let _ = writeln!(out, "edge: {edge:?}");
+    let held_inside = match edge {
+        Some(Boundary::Dataset(id)) => format!("{:?}", anchor_beneath(&held, &dir.join(name), id).map(|a| a.mnt_id)),
+        _ => "none".to_owned(),
+    };
+    let _ = write!(out, "anchor: {held_inside}");
+    out
+}
+
 /// What the entry's own stat told of its mount.
 #[derive(Clone, Copy)]
 struct Seen {
@@ -517,28 +654,62 @@ fn boundary(
 /// id it has not seen, one made during the walk.
 #[derive(Debug, Default)]
 struct Mounts {
-    by_id: Option<HashMap<u64, String>>,
+    by_id: Option<HashMap<u64, Mount>>,
     points: Option<HashMap<PathBuf, String>>,
 }
 
 impl Mounts {
-    /// The type of mount `id`, from mountinfo read again for an id it has
-    /// not seen.
-    fn type_of(&mut self, id: u64) -> Option<String> {
+    /// mountinfo's line for mount `id`, read again for an id it has not
+    /// seen.
+    fn line(&mut self, id: u64) -> Option<&Mount> {
         if self.by_id.as_ref().is_none_or(|m| !m.contains_key(&id)) {
-            self.by_id = Some(super::statfs::types_by_id().unwrap_or_default());
+            let lines = super::statfs::lines().unwrap_or_default();
+            self.by_id = Some(lines.into_iter().map(|m| (m.id, m)).collect());
         }
-        self.by_id.as_ref().and_then(|m| m.get(&id)).cloned()
+        self.by_id.as_ref()?.get(&id)
     }
 
-    fn boundary(&mut self, found: Option<Boundary>, seen: Seen, dir: &Path, name: &OsStr) -> Option<Boundary> {
+    /// The type of mount `id`.
+    fn type_of(&mut self, id: u64) -> Option<String> {
+        self.line(id).map(|m| m.fs_type.clone())
+    }
+
+    /// The folder `dir`, on mount `dir_mnt`, is the root of a ZFS dataset
+    /// ([`zfs_root`]).
+    fn zfs_root(
+        &mut self,
+        dir_mnt: Option<u64>,
+        dir: &Path,
+        mount_root: Option<bool>,
+        magic: impl FnOnce() -> Option<u32>,
+    ) -> bool {
+        zfs_root(dir_mnt.and_then(|id| self.line(id)), dir, mount_root, magic)
+    }
+
+    /// What mountinfo makes of an entry `name` of `dir`, a folder on mount
+    /// `dir_mnt`: an autofs root is an automount point, a ZFS child dataset
+    /// of the folder's mount, mounted at the entry, is [`Boundary::Dataset`]
+    /// (safety ADR, amendment of 2026-11-02, "btrfs and ZFS on Linux"), any
+    /// other mount root stays a mount.
+    fn boundary(
+        &mut self,
+        found: Option<Boundary>,
+        seen: Seen,
+        dir: &Path,
+        name: &OsStr,
+        dir_mnt: Option<u64>,
+    ) -> Option<Boundary> {
         let autofs = |t: &str| if t == "autofs" { Boundary::Automount } else { Boundary::Mount };
         match (found, seen) {
             (Some(Boundary::Mount), Seen { mnt_id: Some(id), .. }) => {
-                if self.by_id.as_ref().is_none_or(|m| !m.contains_key(&id)) {
-                    self.by_id = Some(super::statfs::types_by_id().unwrap_or_default());
+                let Some(child) = self.line(id).cloned() else { return Some(Boundary::Mount) };
+                if child.fs_type != "zfs" {
+                    return Some(autofs(&child.fs_type));
                 }
-                Some(self.by_id.as_ref().and_then(|m| m.get(&id)).map_or(Boundary::Mount, |t| autofs(t)))
+                let parent = dir_mnt.and_then(|d| self.line(d));
+                let dataset =
+                    parent.is_some_and(|p| super::statfs::zfs_child(&child, p) && child.mount_point == dir.join(name));
+                Some(if dataset { Boundary::Dataset(id) } else { Boundary::Mount })
             }
             (None, Seen { told: false, .. }) => {
                 let points = self.points.get_or_insert_with(|| super::statfs::points().unwrap_or_default());
@@ -546,6 +717,18 @@ impl Mounts {
             }
             (found, _) => found,
         }
+    }
+}
+
+/// The folder `dir` is the root of a ZFS dataset, where `.zfs` is the
+/// snapshot folder: by mountinfo's `line` for its mount, ZFS and mounted
+/// there or a mount root the kernel tells; without a line, by its own
+/// filesystem's `magic` and a mount root the kernel does not deny. An
+/// unknown answer, of either, is a dataset's root: `.zfs` is never entered.
+fn zfs_root(line: Option<&Mount>, dir: &Path, mount_root: Option<bool>, magic: impl FnOnce() -> Option<u32>) -> bool {
+    match line {
+        Some(m) => m.fs_type == "zfs" && (mount_root == Some(true) || m.mount_point == dir),
+        None => magic().is_none_or(|m| m == ZFS_SUPER_MAGIC) && mount_root != Some(false),
     }
 }
 
@@ -754,8 +937,17 @@ mod tests {
     /// or `fstatat`), the mount points of mountinfo do.
     #[test]
     fn mountinfo_tells_an_autofs_root_and_a_mount_the_kernel_did_not_mark() {
+        let line = |id: u64, fs_type: &str| Mount {
+            id,
+            parent: 1,
+            root: "/".into(),
+            mount_point: format!("/m/{id}").into(),
+            fs_type: fs_type.to_owned(),
+            source: "none".to_owned(),
+            super_options: String::new(),
+        };
         let mut m = Mounts {
-            by_id: Some(HashMap::from([(40, "autofs".to_owned()), (41, "nfs4".to_owned())])),
+            by_id: Some(HashMap::from([(40, line(40, "autofs")), (41, line(41, "nfs4"))])),
             points: Some(HashMap::from([
                 (PathBuf::from("/r/auto"), "autofs".to_owned()),
                 (PathBuf::from("/r/bind"), "ext4".to_owned()),
@@ -763,22 +955,62 @@ mod tests {
         };
         let marked = |id| Seen { mnt_id: Some(id), told: true };
         assert_eq!(
-            m.boundary(Some(Boundary::Mount), marked(40), Path::new("/r"), OsStr::new("x")),
+            m.boundary(Some(Boundary::Mount), marked(40), Path::new("/r"), OsStr::new("x"), Some(30)),
             Some(Boundary::Automount)
         );
         assert_eq!(
-            m.boundary(Some(Boundary::Mount), marked(41), Path::new("/r"), OsStr::new("x")),
+            m.boundary(Some(Boundary::Mount), marked(41), Path::new("/r"), OsStr::new("x"), Some(30)),
             Some(Boundary::Mount)
         );
         assert_eq!(
-            m.boundary(None, marked(30), Path::new("/r"), OsStr::new("bind")),
+            m.boundary(None, marked(30), Path::new("/r"), OsStr::new("bind"), Some(30)),
             None,
             "the kernel said: no mount"
         );
         let untold = Seen { mnt_id: None, told: false };
-        assert_eq!(m.boundary(None, untold, Path::new("/r"), OsStr::new("auto")), Some(Boundary::Automount));
-        assert_eq!(m.boundary(None, untold, Path::new("/r"), OsStr::new("bind")), Some(Boundary::Mount));
-        assert_eq!(m.boundary(None, untold, Path::new("/r"), OsStr::new("plain")), None);
+        assert_eq!(m.boundary(None, untold, Path::new("/r"), OsStr::new("auto"), None), Some(Boundary::Automount));
+        assert_eq!(m.boundary(None, untold, Path::new("/r"), OsStr::new("bind"), None), Some(Boundary::Mount));
+        assert_eq!(m.boundary(None, untold, Path::new("/r"), OsStr::new("plain"), None), None);
+    }
+
+    /// A ZFS child dataset of the folder's mount, mounted at the entry, is
+    /// one the walk enters; a bind mount of its mount point is another
+    /// mount; `.zfs` is told only at a dataset's root.
+    #[test]
+    fn mountinfo_tells_a_zfs_child_dataset_from_a_bind_of_it() {
+        let lines = super::super::statfs::parse(
+            b"\
+70 22 0:60 / /tank rw - zfs tank rw
+71 70 0:61 / /tank/home rw - zfs tank/home rw
+73 70 0:61 / /tank/bound rw - zfs tank/home rw
+",
+        );
+        let mut m = Mounts { by_id: Some(lines.into_iter().map(|l| (l.id, l)).collect()), points: None };
+        let marked = |id| Seen { mnt_id: Some(id), told: true };
+        let edge = |m: &mut Mounts, id, name: &str| {
+            m.boundary(Some(Boundary::Mount), marked(id), Path::new("/tank"), OsStr::new(name), Some(70))
+        };
+        assert_eq!(edge(&mut m, 71, "home"), Some(Boundary::Dataset(71)));
+        assert_eq!(edge(&mut m, 73, "bound"), Some(Boundary::Mount), "a bind of its mount point");
+        assert_eq!(edge(&mut m, 71, "elsewhere"), Some(Boundary::Mount), "not mounted at the entry");
+        let unasked = || -> Option<u32> { panic!("mountinfo told") };
+        assert!(m.zfs_root(Some(70), Path::new("/tank"), None, unasked), "by mountinfo");
+        assert!(m.zfs_root(Some(70), Path::new("/x"), Some(true), unasked), "by the kernel");
+        assert!(!m.zfs_root(Some(70), Path::new("/tank/sub"), Some(false), unasked));
+    }
+
+    /// Without mountinfo's line, `.zfs` is the snapshot folder of any ZFS
+    /// folder the kernel does not deny is a mount root: an unknown answer
+    /// fails closed.
+    #[test]
+    fn without_mountinfo_a_zfs_folder_not_denied_a_mount_root_hides_its_snapshots() {
+        let zfs = || Some(ZFS_SUPER_MAGIC);
+        let dir = Path::new("/tank");
+        assert!(zfs_root(None, dir, Some(true), zfs), "a mount root");
+        assert!(zfs_root(None, dir, None, zfs), "the kernel does not tell: closed");
+        assert!(!zfs_root(None, dir, Some(false), zfs), "the kernel says not a root");
+        assert!(!zfs_root(None, dir, None, || Some(0xEF53)), "ext4");
+        assert!(zfs_root(None, dir, None, || None), "no statfs either: closed");
     }
 
     /// A folder opens beneath its root, with `openat2` and without: the same

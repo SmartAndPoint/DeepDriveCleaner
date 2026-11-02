@@ -33,6 +33,16 @@ pub enum Mount {
     Zfs,
     /// A child dataset of [`Mount::Zfs`], with a snapshot `ddc`.
     ZfsChild,
+    /// A ZFS scan root: child dataset `work` (with `app/node_modules` and
+    /// the grandchild `nested`), `whole/node_modules` a dataset,
+    /// `holds/node_modules/inner` a dataset, `snapdir` with `snapdir=visible`
+    /// and a snapshot `ddc`, `bound` a bind mount of `work`, and the child
+    /// `away` mounted at `moved` by a `mountpoint=` of its own.
+    ZfsTree,
+    /// A ZFS home for the delete test, with the child dataset `work`.
+    ZfsDelete,
+    /// A ZFS home for the guard test, whose `p/node_modules` is a dataset.
+    ZfsGuard,
     Nfs,
     /// An NFS export with `all_squash`: what the user writes belongs to nobody.
     NfsSquash,
@@ -61,6 +71,9 @@ impl Mount {
             Mount::TmpfsRootTop => "DDC_MOUNT_TMPFS_ROOT_TOP",
             Mount::Zfs => "DDC_MOUNT_ZFS",
             Mount::ZfsChild => "DDC_MOUNT_ZFS_CHILD",
+            Mount::ZfsTree => "DDC_MOUNT_ZFS_TREE",
+            Mount::ZfsDelete => "DDC_MOUNT_ZFS_DELETE",
+            Mount::ZfsGuard => "DDC_MOUNT_ZFS_GUARD",
             Mount::Nfs => "DDC_MOUNT_NFS",
             Mount::NfsSquash => "DDC_MOUNT_NFS_SQUASH",
             Mount::Cifs => "DDC_MOUNT_CIFS",
@@ -83,6 +96,9 @@ impl Mount {
             Mount::TmpfsRootTop => "root-topped tmpfs",
             Mount::Zfs => "zfs",
             Mount::ZfsChild => "zfs child dataset",
+            Mount::ZfsTree => "zfs tree",
+            Mount::ZfsDelete => "zfs delete home",
+            Mount::ZfsGuard => "zfs guard home",
             Mount::Nfs => "nfs",
             Mount::NfsSquash => "squashed nfs",
             Mount::Cifs => "cifs",
@@ -104,7 +120,7 @@ impl Mount {
             Mount::Casefold | Mount::Bind => 0xEF53,
             Mount::Exfat => 0x2011_BAB0,
             Mount::Tmpfs | Mount::TmpfsRootTop => 0x0102_1994,
-            Mount::Zfs | Mount::ZfsChild => 0x2FC1_2FC1,
+            Mount::Zfs | Mount::ZfsChild | Mount::ZfsTree | Mount::ZfsDelete | Mount::ZfsGuard => 0x2FC1_2FC1,
             Mount::Nfs | Mount::NfsSquash => 0x6969,
             Mount::Cifs => 0xFE53_4D42,
             Mount::Autofs => 0x0187,

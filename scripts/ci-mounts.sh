@@ -133,6 +133,52 @@ sudo -n zfs snapshot ddcmounts/child@ddc
 say DDC_MOUNT_ZFS "$base/zfs"
 say DDC_MOUNT_ZFS_CHILD "$base/zfs/child"
 
+# A ZFS scan root (story "btrfs and ZFS on Linux: subvolumes, datasets, snapshots and
+# stable identities", DDC-010): a child dataset with a project and a grandchild; a
+# node_modules that is a dataset and one that holds one, each below a dataset that is
+# never mounted (canmount=off); a dataset with snapdir=visible and a snapshot; a bind
+# mount of a dataset's mount point; and a child mounted where it does not inherit
+# (mountpoint= of its own). Then a home for the delete test, with a child dataset, and
+# one for the guard test, whose node_modules is a dataset. Compression off, and random
+# bytes: OpenZFS 2.2 compresses by default and stores a block of zeros as a hole, and a
+# tiny file in its block pointer, so the byte counts the tests check would be zero.
+z="$base/zfs/tree"
+sudo -n zfs create -o compression=off ddcmounts/tree
+sudo -n zfs create ddcmounts/tree/work
+sudo -n zfs create ddcmounts/tree/work/nested
+sudo -n zfs create -o canmount=off ddcmounts/tree/whole
+sudo -n zfs create ddcmounts/tree/whole/node_modules
+sudo -n zfs create -o canmount=off ddcmounts/tree/holds
+sudo -n zfs create -o canmount=off ddcmounts/tree/holds/node_modules
+sudo -n zfs create ddcmounts/tree/holds/node_modules/inner
+sudo -n zfs create -o snapdir=visible ddcmounts/tree/snapdir
+sudo -n zfs create -o mountpoint="$z/moved" ddcmounts/tree/away
+for d in "$z" "$z/work" "$z/work/nested" "$z/whole/node_modules" "$z/holds/node_modules/inner" "$z/snapdir" "$z/moved"; do
+    mine "$d"
+done
+mkdir -p "$z/work/app/node_modules/dep" "$z/bound"
+head -c 65536 /dev/urandom >"$z/work/app/node_modules/dep/index.js"
+head -c 65536 /dev/urandom >"$z/work/nested/file"
+echo data >"$z/whole/node_modules/index.js"
+echo data >"$z/holds/node_modules/inner/index.js"
+echo data >"$z/snapdir/file"
+echo data >"$z/moved/file"
+sudo -n zfs snapshot ddcmounts/tree/snapdir@ddc
+sudo -n mount --bind "$z/work" "$z/bound"
+sudo -n zfs create ddcmounts/del
+sudo -n zfs create ddcmounts/del/work
+mine "$base/zfs/del"
+mine "$base/zfs/del/work"
+sudo -n zfs create ddcmounts/guard
+sudo -n zfs create -o canmount=off ddcmounts/guard/p
+sudo -n zfs create ddcmounts/guard/p/node_modules
+mine "$base/zfs/guard"
+mine "$base/zfs/guard/p"
+mine "$base/zfs/guard/p/node_modules"
+say DDC_MOUNT_ZFS_TREE "$z"
+say DDC_MOUNT_ZFS_DELETE "$base/zfs/del"
+say DDC_MOUNT_ZFS_GUARD "$base/zfs/guard"
+
 # NFS on loopback: an export as the user, and one with all_squash, where every file the
 # user writes belongs to nobody.
 mkdir -p "$base/export/plain" "$base/export/squash" "$base/nfs" "$base/nfs-squash"
@@ -192,7 +238,7 @@ say DDC_FIXTURE_IMMUTABLE "$base/fixtures/immutable/file"
 say DDC_FIXTURE_APPEND_ONLY "$base/fixtures/append-only/file"
 say DDC_MOUNTS "$base"
 
-table="$(for m in btrfs btrfs-tree btrfs-tree/data xfs casefold exfat tmpfs tmpfs-root-top zfs zfs/child nfs nfs-squash cifs bind-root/inner; do
+table="$(for m in btrfs btrfs-tree btrfs-tree/data xfs casefold exfat tmpfs tmpfs-root-top zfs zfs/child zfs/tree zfs/tree/work zfs/tree/moved zfs/del/work zfs/guard/p/node_modules nfs nfs-squash cifs bind-root/inner; do
     printf '| %s | %s |\n' "$m" "$(stat -f -c %T "$base/$m")"
 done; printf '| autofs/trigger | autofs (from mountinfo, never stat'"'"'ed) |\n')"
 printf '%s\n' "$table" >&2

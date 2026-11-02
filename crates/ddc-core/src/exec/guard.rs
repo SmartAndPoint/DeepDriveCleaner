@@ -283,16 +283,21 @@ impl<'a> Guard<'a> {
     }
 
     /// `parent` opened beneath the anchor of the innermost root it lies in
-    /// (safety ADR §5, amendment of 2026-11-01): a mount crossed or a
+    /// (safety ADR §5, amendment of 2026-11-01), or of the innermost ZFS
+    /// dataset below that root, anchored as the walk anchors it (amendment
+    /// of 2026-11-02, "btrfs and ZFS on Linux"): a mount crossed or a
     /// symlink on the way is `parent-changed`, as is a root without an
     /// anchor. Never a walk by path, as the scan's fallback is.
     pub(super) fn open_parent(&self, parent: &Path) -> Result<DirFd, SkipReason> {
-        self.anchors
+        let root = self
+            .anchors
             .iter()
             .filter(|(root, _)| parent.starts_with(root))
             .max_by_key(|(root, _)| root.as_os_str().len())
-            .and_then(|(_, anchor)| DirFd::open_beneath(anchor.as_ref()?, parent).ok())
-            .ok_or(SkipReason::ParentChanged)
+            .and_then(|(_, anchor)| anchor.as_ref())
+            .ok_or(SkipReason::ParentChanged)?;
+        let inner = bulk::anchor_for(root, parent).map_err(|_| SkipReason::ParentChanged)?;
+        DirFd::open_beneath(inner.as_ref().unwrap_or(root), parent).map_err(|_| SkipReason::ParentChanged)
     }
 
     pub fn check(&self, item: &PlanItem) -> Result<Verified, SkipReason> {
