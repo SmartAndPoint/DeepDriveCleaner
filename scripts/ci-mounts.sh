@@ -282,7 +282,9 @@ say DDC_FIXTURE_APPEND_ONLY "$base/fixtures/append-only/file"
 # with zstd and in a ZFS dataset with lz4. Each file is measured by this checkout's
 # `ddc du`, then removed, and the space in use is read before and after, each time once
 # the filesystem has committed and two readings in a row agree. The table goes to stderr
-# and to the step summary; the checks below it hold the direction the runs showed.
+# and to the step summary; the checks below it hold the direction the runs showed. The
+# first run: btrfs counted 16 MiB of text and freed 512 KiB, ZFS counted 136 KiB and
+# freed 135 KiB, and random bytes freed what was counted on both.
 loop btrfs-zstd 300 mkfs.btrfs -q
 mkdir "$base/btrfs-zstd/c"
 sudo -n btrfs property set "$base/btrfs-zstd/c" compression zstd
