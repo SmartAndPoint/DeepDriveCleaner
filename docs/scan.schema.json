@@ -588,7 +588,7 @@
       "type": "object",
       "properties": {
         "bytes": {
-          "description": "Allocated bytes belonging to this finding alone. On Linux btrfs with\ncompression it is the uncompressed size, which can be far more than a\ndelete frees; on ZFS it is the size on disk after compression. On both,\na delete frees nothing of the blocks a snapshot still holds.",
+          "description": "Allocated bytes belonging to this finding alone. On Linux btrfs with\ncompression it is the uncompressed size, which can be far more than a\ndelete frees; on ZFS it is the size on disk after compression. A\ndelete frees nothing of the blocks a snapshot still holds.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
@@ -796,7 +796,7 @@
           ]
         },
         "bytes": {
-          "description": "Allocated bytes, findings inside it included; a session's, its\ncompanions' too. Counted as a finding's `bytes` are, compression\nand snapshots included.",
+          "description": "Allocated bytes, findings inside it included; a session's, its\ncompanions' too. Counted as a finding's `bytes` is, with the same\ncompression and snapshot caveats.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
