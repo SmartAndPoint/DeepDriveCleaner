@@ -125,7 +125,11 @@ impl Home {
     /// A Claude Code record for `pid`, started after the process did.
     fn record(&self, pid: i32, session: Option<&str>) {
         let session = session.map(|s| format!(r#", "sessionId": "{s}""#)).unwrap_or_default();
-        self.t.write(&format!("{RECORDS}/{pid}.json"), &format!(r#"{{"pid": {pid}, "startedAt": 1000500{session}}}"#));
+        let rel = format!("{RECORDS}/{pid}.json");
+        self.t.write(&rel, &format!(r#"{{"pid": {pid}, "startedAt": 1000500{session}}}"#));
+        // Written an hour ago: on Linux a fresh record of a pid not seen here
+        // may be a container's, and is undecidable.
+        self.t.age(&rel, common::secs_ago(3600));
     }
 
     /// The session entry as an entry is listed today: the `user-data`

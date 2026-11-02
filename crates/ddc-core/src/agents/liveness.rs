@@ -106,13 +106,14 @@ pub struct SessionFacts {
 }
 
 /// Claude Code's records under `dir` (`~/.claude/sessions`), each decided
-/// for this user: the facts [`claude()`] takes. `start` gives a pid's
-/// process start (the process table's `process_start`).
+/// for this user at `now`: the facts [`claude()`] takes. `start` gives a
+/// pid's process start (the process table's `process_start`).
 pub fn claude_records(
     dir: &Path,
     start: impl Fn(i32) -> Option<ProcStart>,
+    now: SystemTime,
 ) -> Result<Vec<RecordOutcome>, UnknownCause> {
-    claude::records(dir, start, procs::uid())
+    claude::records(dir, start, procs::uid(), now)
 }
 
 /// Codex's thread locks under `dir` (`~/.codex/thread-writer-locks`), the
@@ -326,7 +327,11 @@ mod tests {
     const CURSOR_AGENT: &str = "/Users/example/.local/share/cursor-agent";
 
     fn installs() -> Installs<'static> {
-        Installs { codex_packages: Path::new(PACKAGES), cursor_agent: Path::new(CURSOR_AGENT) }
+        Installs {
+            codex_packages: Path::new(PACKAGES),
+            cursor_agent: Path::new(CURSOR_AGENT),
+            claude_versions: Path::new("/Users/example/.local/share/claude/versions"),
+        }
     }
 
     fn now() -> SystemTime {
