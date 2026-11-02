@@ -1530,3 +1530,20 @@ fn a_fifo_where_a_marker_should_be_never_blocks_the_scan() {
     let report = fx.scan();
     assert!(report.findings.iter().any(|f| f.path == venv), "the venv is still found");
 }
+
+#[cfg(windows)]
+#[test]
+fn a_finding_evicted_to_the_cloud_after_the_plan_is_never_deleted() {
+    if common::unsupported("a_finding_evicted_to_the_cloud_after_the_plan_is_never_deleted") {
+        return;
+    }
+    let fx = Fx::new();
+    let nm = fx.node_project("p");
+    let plan = fx.plan();
+    common::offline(&nm);
+
+    let (r, _) = fx.run_yes(&plan);
+
+    assert_eq!(outcome(&r, &nm), &Outcome::Skipped(SkipReason::Incomplete));
+    assert!(nm.join("dep/index.js").exists());
+}

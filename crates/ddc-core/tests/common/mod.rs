@@ -337,6 +337,20 @@ pub fn try_symlink(_target: impl AsRef<Path>, _link: impl AsRef<Path>) -> std::i
     Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "the test harness makes symlinks on Unix only"))
 }
 
+/// Marks `path` `OFFLINE` (`attrib +O`), the one cloud-placeholder
+/// attribute a user may set on Windows: ddc then sees it as dataless.
+#[cfg(windows)]
+pub fn offline(path: &Path) {
+    let out = std::process::Command::new("attrib").arg("+O").arg(path).output().unwrap();
+    assert!(
+        out.status.success(),
+        "attrib +O {}: {}{}",
+        path.display(),
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// The folders' own blocks, as `du` counts each folder itself: none on
 /// APFS, a few KiB each on ext4. A test adds them where a size holds folders
 /// the walk read.

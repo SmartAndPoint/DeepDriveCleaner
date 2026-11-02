@@ -79,10 +79,15 @@ pub(super) struct SessionCheck {
 }
 
 impl Verified {
-    /// The same directory or file is still at the same place (through the parent fd).
+    /// The same directory or file is still at the same place (through the
+    /// parent fd), and not evicted to the cloud since the guard checked it.
     pub fn unchanged(&self) -> bool {
         self.parent.stat_child(&self.name).is_ok_and(|st| {
-            !st.is_symlink && st.is_dir == self.is_dir && (st.is_dir || st.is_file) && (st.dev, st.ino) == self.id
+            !st.is_symlink
+                && st.is_dir == self.is_dir
+                && (st.is_dir || st.is_file)
+                && (st.dev, st.ino) == self.id
+                && st.flags & SF_DATALESS == 0
         })
     }
 }
@@ -337,6 +342,13 @@ impl<'a> Guard<'a> {
         if (st.dev, st.ino) != (f.dev, f.ino) {
             return Err(SkipReason::ChangedSinceScan);
         }
+        if st.flags & SF_DATALESS != 0 {
+            // Evicted to the cloud since the scan: deleting it would make
+            // the provider download it first, and delete it in the cloud
+            // too. On macOS the process's iopolicy also refuses that
+            // download; Windows has no such backstop.
+            return Err(SkipReason::Incomplete);
+        }
         if st.mount_root {
             // A mount made at the finding since the scan, a bind mount of
             // the same filesystem included: what is there is not what was
@@ -422,6 +434,11 @@ impl<'a> Guard<'a> {
             return Err(SkipReason::Symlink);
         }
         if !st.is_dir && !st.is_file {
+            return Err(SkipReason::NotAnEntry);
+        }
+        if st.flags & SF_DATALESS != 0 {
+            // A dataless entry is never picked (safety ADR, amendment of
+            // 2026-10-20), as preflight says too.
             return Err(SkipReason::NotAnEntry);
         }
         if (st.dev, st.ino) != (f.dev, f.ino) {
