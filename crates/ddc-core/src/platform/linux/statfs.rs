@@ -11,14 +11,19 @@ pub use crate::platform::types::VolumeStats;
 
 /// One line of `mountinfo`: what `statvfs` leaves out.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Mount {
+pub(crate) struct Mount {
     /// Field 1, the mount id `statx` gives as `stx_mnt_id`.
-    id: u64,
-    mount_point: PathBuf,
-    fs_type: String,
-    source: String,
+    pub(crate) id: u64,
+    /// Field 2, the mount this one is mounted on.
+    pub(crate) parent: u64,
+    /// Field 4, the part of the filesystem this mount shows: `/` but for a
+    /// bind mount of a folder inside it.
+    pub(crate) root: PathBuf,
+    pub(crate) mount_point: PathBuf,
+    pub(crate) fs_type: String,
+    pub(crate) source: String,
     /// The super options after the source (`rw,hidepid=2`).
-    super_options: String,
+    pub(crate) super_options: String,
 }
 
 pub fn statfs(path: &Path) -> io::Result<VolumeStats> {
@@ -38,10 +43,41 @@ pub fn mounts() -> io::Result<Vec<VolumeStats>> {
     Ok(mounts.iter().filter_map(|m| rustix::fs::statvfs(&m.mount_point).ok().map(|st| stats(&st, m))).collect())
 }
 
-/// The file system type of each mount, by mount id: what tells an autofs
-/// mount root from another mount (safety ADR, amendment of 2026-11-01).
-pub(crate) fn types_by_id() -> io::Result<std::collections::HashMap<u64, String>> {
-    Ok(parse(&read_mountinfo()?).into_iter().map(|m| (m.id, m.fs_type)).collect())
+/// Every line of mountinfo, read now: by mount id, what tells an autofs
+/// mount root from another mount (safety ADR, amendment of 2026-11-01) and
+/// a ZFS child dataset from both (amendment of 2026-11-02).
+pub(crate) fn lines() -> io::Result<Vec<Mount>> {
+    Ok(parse(&read_mountinfo()?))
+}
+
+/// `child` is a ZFS child dataset of `parent` the walk may enter (safety
+/// ADR, amendment of 2026-11-02, "btrfs and ZFS on Linux"): both ZFS, mounted
+/// directly on it, the whole dataset (root `/`), its source the parent's
+/// source and a name below it, no snapshot (`@`), and mounted where it
+/// inherits its mount point, which is what a bind mount of its mount point
+/// or a `mountpoint=` elsewhere fails.
+pub(crate) fn zfs_child(child: &Mount, parent: &Mount) -> bool {
+    zfs_conditions(child, parent).iter().all(|(_, holds)| *holds)
+}
+
+/// Each condition of [`zfs_child`], named, for a trace of the one that
+/// refused.
+pub(crate) fn zfs_conditions(child: &Mount, parent: &Mount) -> [(&'static str, bool); 5] {
+    let rest = child
+        .source
+        .strip_prefix(parent.source.as_str())
+        .and_then(|r| r.strip_prefix('/'))
+        .filter(|r| !r.is_empty() && !r.contains('@'));
+    [
+        ("type zfs", child.fs_type == "zfs" && parent.fs_type == "zfs"),
+        ("mounted on the folder's mount", child.parent == parent.id),
+        ("root /", child.root == Path::new("/")),
+        ("source <parent source>/<rest>, no @", rest.is_some()),
+        (
+            "mount point <parent mount point>/<rest>",
+            rest.is_some_and(|r| child.mount_point == parent.mount_point.join(r)),
+        ),
+    ]
 }
 
 /// Every mount point, with its type: below kernel 5.8, which tells no mount
@@ -127,7 +163,7 @@ fn mount_of<'a>(mounts: &'a [Mount], path: &Path) -> Option<&'a Mount> {
 /// Parses `mountinfo` (proc(5)): `id parent major:minor root mount-point
 /// options [optional fields…] - fs-type source super-options`. A line it
 /// cannot read is skipped.
-fn parse(text: &[u8]) -> Vec<Mount> {
+pub(super) fn parse(text: &[u8]) -> Vec<Mount> {
     text.split(|&b| b == b'\n')
         .filter_map(|line| {
             let fields: Vec<&[u8]> = line.split(|&b| b == b' ').collect();
@@ -137,8 +173,12 @@ fn parse(text: &[u8]) -> Vec<Mount> {
             let source = fields.get(dash + 2)?;
             let super_options = fields.get(dash + 3).copied().unwrap_or_default();
             let id = std::str::from_utf8(fields.first()?).ok()?.parse().ok()?;
+            let parent = std::str::from_utf8(fields.get(1)?).ok()?.parse().ok()?;
+            let root = PathBuf::from(OsStr::from_bytes(&unescape(fields.get(3)?)));
             Some(Mount {
                 id,
+                parent,
+                root,
                 mount_point: PathBuf::from(OsStr::from_bytes(&unescape(mount_point))),
                 fs_type: String::from_utf8_lossy(&unescape(fs_type)).into_owned(),
                 source: String::from_utf8_lossy(&unescape(source)).into_owned(),
@@ -203,6 +243,8 @@ garbage line
             m[0],
             Mount {
                 id: 22,
+                parent: 1,
+                root: "/".into(),
                 mount_point: "/".into(),
                 fs_type: "ext4".into(),
                 source: "/dev/nvme0n1p2".into(),
@@ -220,6 +262,39 @@ garbage line
         assert_eq!((m[4].fs_type.as_str(), m[4].source.as_str()), ("overlay", "overlay"));
         assert_eq!(m[1].super_options, "rw,hidepid=2");
         assert_eq!(unescape(b"a\\011b\\134c\\9"), b"a\tb\\c\\9");
+    }
+
+    /// The amendment's five conditions, one at a time: a child and a
+    /// grandchild under an intermediate `canmount=off` dataset pass; a bind of
+    /// a dataset's mount point, a `mountpoint=` elsewhere, a snapshot, another
+    /// pool, a bound subtree and a non-ZFS parent do not.
+    #[test]
+    fn a_zfs_child_dataset_is_mounted_where_it_inherits_its_mount_point() {
+        let m = parse(
+            b"\
+70 22 0:60 / /tank rw - zfs tank rw
+71 70 0:61 / /tank/home rw - zfs tank/home rw
+72 71 0:62 / /tank/home/a/b rw - zfs tank/home/a/b rw
+73 71 0:62 / /tank/home/bound rw - zfs tank/home/a/b rw
+74 71 0:63 / /srv/elsewhere rw - zfs tank/home/c rw
+75 71 0:64 / /tank/home/d rw - zfs tank/home/d@snap ro
+76 71 0:65 / /tank/home/e rw - zfs other/home/e rw
+77 71 0:61 /x /tank/home/x rw - zfs tank/home/x rw
+78 22 259:2 / /data rw - ext4 /dev/sda1 rw
+79 78 0:66 / /data/z rw - zfs tank/z rw
+",
+        );
+        let by = |id: u64| m.iter().find(|l| l.id == id).unwrap();
+        assert!(zfs_child(by(71), by(70)), "a child");
+        assert!(zfs_child(by(72), by(71)), "a grandchild under canmount=off");
+        assert!(!zfs_child(by(73), by(71)), "a bind of a dataset's mount point");
+        assert!(!zfs_child(by(74), by(71)), "its own mountpoint= elsewhere");
+        assert!(!zfs_child(by(75), by(71)), "a snapshot");
+        assert!(!zfs_child(by(76), by(71)), "another pool");
+        assert!(!zfs_child(by(77), by(71)), "a bound subtree");
+        assert!(!zfs_child(by(79), by(78)), "a parent that is not ZFS");
+        assert!(!zfs_child(by(72), by(70)), "mounted on another mount");
+        assert_eq!((by(77).parent, by(77).root.as_path()), (71, Path::new("/x")));
     }
 
     #[test]

@@ -64,12 +64,18 @@ pub enum Boundary {
     Automount,
     /// Another mount: a bind mount of the same filesystem keeps its device.
     Mount,
-    /// A btrfs snapshot (read-only, writable or received): never entered
-    /// (safety ADR, amendment of 2026-11-02, "btrfs and ZFS on Linux").
+    /// A btrfs snapshot (read-only, writable or received), or `.zfs` at a
+    /// ZFS dataset's root: never entered (safety ADR, amendment of
+    /// 2026-11-02, "btrfs and ZFS on Linux").
     Snapshot,
     /// A plain btrfs subvolume of this mount: entered and counted, and the
     /// finding that holds it, or is it, is never planned (same amendment).
     Subvolume,
+    /// A ZFS child dataset of this mount, by mountinfo's line for the mount
+    /// id it carries: entered beneath an anchor of its own, held on that
+    /// mount, and kept from a plan as [`Boundary::Subvolume`] is (same
+    /// amendment).
+    Dataset(u64),
 }
 
 /// The times a listing reads for each entry. Each one adds bytes to every

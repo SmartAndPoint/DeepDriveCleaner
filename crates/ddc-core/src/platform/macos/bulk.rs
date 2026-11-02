@@ -84,6 +84,19 @@ pub fn anchor(root: &Path) -> std::io::Result<Anchor> {
     Ok(Anchor { path: root.to_path_buf() })
 }
 
+/// No ZFS child dataset is entered here: the walk never asks (Linux,
+/// safety ADR, amendment of 2026-11-02, "btrfs and ZFS on Linux").
+pub fn anchor_beneath(parent: &Anchor, dir: &Path, vouched: u64) -> std::io::Result<Anchor> {
+    let _ = (parent, dir, vouched);
+    Err(std::io::ErrorKind::Unsupported.into())
+}
+
+/// No dataset lies inside a root here: the guard opens beneath the root.
+pub fn anchor_for(root: &Anchor, dir: &Path) -> std::io::Result<Option<Anchor>> {
+    let _ = (root, dir);
+    Ok(None)
+}
+
 /// [`list`] of `dir`, which must lie at or beneath `anchor`'s root.
 pub fn list_in(
     anchor: &Anchor,

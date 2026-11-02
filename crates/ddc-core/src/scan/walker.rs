@@ -86,7 +86,7 @@ struct RootAcc {
     path: PathBuf,
     /// The root held open, which every folder of the walk opens beneath;
     /// `None` when it cannot be opened, and the walk reads by path.
-    anchor: Option<Anchor>,
+    anchor: Option<Arc<Anchor>>,
     bytes: AtomicU64,
     files: AtomicU64,
     dirs: AtomicU64,
@@ -136,10 +136,13 @@ struct Task {
     /// read, as `du` still counts an unreadable folder itself. Once read,
     /// its listing's own count is the one taken.
     blocks: u64,
-    /// The root of a btrfs subvolume, entered: an owner rooted here is never
-    /// planned (safety ADR, amendment of 2026-11-02, "btrfs and ZFS on
-    /// Linux").
+    /// The root of a btrfs subvolume or a ZFS dataset, entered: an owner
+    /// rooted here is never planned (safety ADR, amendment of 2026-11-02,
+    /// "btrfs and ZFS on Linux").
     subvol: bool,
+    /// What the directory opens beneath: its root's anchor, or the
+    /// innermost ZFS dataset's it lies in (same amendment).
+    anchor: Option<Arc<Anchor>>,
 }
 
 /// Walks `roots` (canonicalized; roots nested in other roots are dropped)
@@ -182,7 +185,7 @@ pub fn walk_with_reader(
             .iter()
             .map(|(path, st)| RootAcc {
                 path: path.clone(),
-                anchor: st.md.is_dir().then(|| crate::platform::bulk::anchor(path).ok()).flatten(),
+                anchor: st.md.is_dir().then(|| crate::platform::bulk::anchor(path).ok().map(Arc::new)).flatten(),
                 bytes: AtomicU64::new(0),
                 files: AtomicU64::new(0),
                 dirs: AtomicU64::new(0),
@@ -214,6 +217,7 @@ pub fn walk_with_reader(
                         hooks: true,
                         blocks: st.alloc,
                         subvol: false,
+                        anchor: sh.roots[i].anchor.clone(),
                     };
                     let sh = &sh;
                     s.spawn(move |s| visit(s, sh, task));
@@ -271,7 +275,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         sh.pruned.fetch_add(1, Relaxed);
         return;
     }
-    let Task { dir, expect, parent, depth, root, mut owner, entry, mut hooks, uid, blocks, subvol } = task;
+    let Task { dir, expect, parent, depth, root, mut owner, entry, mut hooks, uid, blocks, subvol, anchor } = task;
     let foreign_dir = uid.is_some_and(|u| u != sh.me);
     let name = dir.file_name().unwrap_or(dir.as_os_str());
     let mut lists = false;
@@ -312,7 +316,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
     } else {
         Times::None
     };
-    let mut listing = match sh.read(root, &dir, Some(expect), want_private, times) {
+    let mut listing = match sh.read(anchor.as_deref(), &dir, Some(expect), want_private, times) {
         Ok(listing) => listing,
         Err(err) => {
             sh.read_failed(dir, err, root, owner.as_deref(), entry.as_deref(), blocks);
@@ -332,7 +336,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
                 // The listing was read before we knew this is a finding: re-read
                 // this one directory with what the claim wants.
                 let again_times = if claim.want_times { Times::Modified } else { Times::None };
-                match sh.read(root, &dir, Some(expect), want_private || claim.want_private, again_times) {
+                match sh.read(anchor.as_deref(), &dir, Some(expect), want_private || claim.want_private, again_times) {
                     Ok(again) => listing = again,
                     Err(err) if for_private => {
                         // Keep the first listing; its files then count as "private unknown".
@@ -403,7 +407,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             let why = match edge {
                 Boundary::Automount => SkipReason::Automount,
                 Boundary::Snapshot => SkipReason::Snapshot,
-                Boundary::Mount | Boundary::Subvolume => SkipReason::OtherFilesystem,
+                Boundary::Mount | Boundary::Subvolume | Boundary::Dataset(_) => SkipReason::OtherFilesystem,
             };
             sh.skip(dir.join(&meta.name), why);
             continue;
@@ -416,14 +420,26 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         match meta.kind {
             EntryKind::Dir => {
                 let child = dir.join(&meta.name);
+                // A ZFS child dataset opens beneath an anchor of its own, held
+                // on the mount mountinfo vouched for; without the root's
+                // anchor, or on another mount since, it is another
+                // filesystem (safety ADR, amendment of 2026-11-02, "btrfs and
+                // ZFS on Linux").
+                let inside = match (meta.boundary, anchor.as_deref()) {
+                    (Some(Boundary::Dataset(id)), Some(a)) if meta.flags & SF_DATALESS == 0 => {
+                        crate::platform::bulk::anchor_beneath(a, &child, id).ok().map(Arc::new)
+                    }
+                    _ => None,
+                };
+                let enters = inside.is_some() || meta.boundary == Some(Boundary::Subvolume);
                 if meta.flags & SF_DATALESS != 0 {
                     skipped += 1;
                     sh.skip(child, SkipReason::Dataless);
-                } else if let Some(edge) = meta.boundary.filter(|e| *e != Boundary::Subvolume) {
+                } else if let Some(edge) = meta.boundary.filter(|_| !enters) {
                     // An automount point or another mount, a bind mount of
-                    // this filesystem included, or a btrfs snapshot: never
-                    // opened (safety ADR, amendments of 2026-11-01 and of
-                    // 2026-11-02, "btrfs and ZFS on Linux").
+                    // this filesystem included, or a btrfs or ZFS snapshot:
+                    // never opened (safety ADR, amendments of 2026-11-01 and
+                    // of 2026-11-02, "btrfs and ZFS on Linux").
                     skipped += 1;
                     if let Some(e) = within {
                         e.other_fs.fetch_add(1, Relaxed);
@@ -431,20 +447,20 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
                     let why = match edge {
                         Boundary::Automount => SkipReason::Automount,
                         Boundary::Snapshot => SkipReason::Snapshot,
-                        Boundary::Mount | Boundary::Subvolume => SkipReason::OtherFilesystem,
+                        Boundary::Mount | Boundary::Subvolume | Boundary::Dataset(_) => SkipReason::OtherFilesystem,
                     };
                     sh.skip(child, why);
-                } else if meta.dev != here.0 && meta.boundary != Some(Boundary::Subvolume) {
+                } else if meta.dev != here.0 && !enters {
                     skipped += 1;
                     if let Some(e) = within {
                         e.other_fs.fetch_add(1, Relaxed);
                     }
                     sh.skip(child, SkipReason::OtherFilesystem);
                 } else {
-                    // A plain btrfs subvolume is entered and counted, and
-                    // listed, so the finding that holds it is never planned.
-                    let subvol = meta.boundary == Some(Boundary::Subvolume);
-                    if subvol {
+                    // A plain btrfs subvolume or a ZFS dataset is entered and
+                    // counted, and listed, so the finding that holds it is
+                    // never planned.
+                    if enters {
                         skipped += 1;
                         if let Some(e) = within {
                             e.other_fs.fetch_add(1, Relaxed);
@@ -462,7 +478,8 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
                         hooks,
                         uid: meta.uid,
                         blocks: meta.alloc,
-                        subvol,
+                        subvol: enters,
+                        anchor: inside.or_else(|| anchor.clone()),
                     };
                     s.spawn(move |s| visit(s, sh, task));
                 }
@@ -530,16 +547,16 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl Shared<'_> {
-    /// Lists `dir` beneath its root's anchor, or by path without one.
+    /// Lists `dir` beneath its anchor, or by path without one.
     fn read(
         &self,
-        root: usize,
+        anchor: Option<&Anchor>,
         dir: &Path,
         expect: Option<(u64, u64)>,
         want_private: bool,
         times: Times,
     ) -> Result<DirListing, ReadError> {
-        match &self.roots[root].anchor {
+        match anchor {
             Some(anchor) => self.reader.read_in(anchor, dir, expect, want_private, times),
             None => self.reader.read(dir, expect, want_private, times),
         }
