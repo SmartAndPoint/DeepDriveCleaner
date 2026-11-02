@@ -7,45 +7,35 @@ use std::process::ExitCode;
 
 use anyhow::Context as _;
 use ddc_core::env::Env;
-use ddc_core::platform::procs;
 use ddc_core::settings;
 use ddc_core::store;
 
 use crate::cli::{IntervalArg, ScheduleAction};
 use crate::exit;
-use crate::platform::launchd::{self, AgentSpec, Launchctl, ProgramState, SystemLaunchctl};
+use crate::platform::scheduler::{ScheduleSpec, Scheduler};
 use crate::size::human;
 
 pub fn run(action: ScheduleAction) -> anyhow::Result<ExitCode> {
     let env = Env::from_process(None)?;
-    let uid = procs::uid();
-    let lc = SystemLaunchctl;
+    let scheduler = crate::platform::scheduler(&env);
     match action {
         ScheduleAction::Install { interval, threshold } => {
             let exe = std::env::current_exe()?.canonical().context("cannot resolve the ddc binary")?;
             let (mut out, mut err) = (std::io::stdout().lock(), std::io::stderr().lock());
-            return install_with(interval, threshold, &exe, &env, uid, &lc, &mut out, &mut err);
+            return install_with(interval, threshold, &exe, &env, scheduler.as_ref(), &mut out, &mut err);
         }
         ScheduleAction::Uninstall => {
-            let existed = launchd::uninstall(env.home(), uid, &lc)?;
+            let existed = scheduler.uninstall()?;
             println!("{}", if existed { "Removed the background scan." } else { "No background scan was installed." });
         }
         ScheduleAction::Status => {
-            let path = launchd::plist_path(env.home());
-            let Ok(text) = std::fs::read_to_string(&path) else {
+            let current = std::env::current_exe().ok();
+            let Some(lines) = scheduler.status(current.as_deref()) else {
                 println!("Not installed. Run `ddc schedule install`.");
                 return Ok(ExitCode::SUCCESS);
             };
-            println!("Agent:   {}", path.display());
-            println!("Loaded:  {}", if lc.loaded(&launchd::target(uid)) { "yes" } else { "no" });
-            let current = std::env::current_exe().ok();
-            match launchd::installed_program(&text) {
-                Some(p) => match launchd::program_state(&p, current.as_deref()) {
-                    ProgramState::Missing => println!("Binary:  {} (missing! reinstall)", p.display()),
-                    ProgramState::Other => println!("Binary:  {} (not this ddc)", p.display()),
-                    ProgramState::Current => println!("Binary:  {}", p.display()),
-                },
-                None => println!("Binary:  unreadable plist"),
+            for line in lines {
+                println!("{line}");
             }
             match store::read_last_scan(&env)? {
                 Some(r) => {
@@ -58,16 +48,14 @@ pub fn run(action: ScheduleAction) -> anyhow::Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// Installs the CLI's own agent, unless the app runs the scheduled scan
+/// Installs the CLI's own schedule, unless the app runs the scheduled scan
 /// (ADR "Menu bar app: Swift shell over the ddc CLI", §5): one scheduler at a time.
-#[allow(clippy::too_many_arguments)] // the seams a test replaces
 pub fn install_with(
     interval: IntervalArg,
     threshold: Option<u64>,
     exe: &Path,
     env: &Env,
-    uid: u32,
-    lc: &dyn Launchctl,
+    scheduler: &dyn Scheduler,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> anyhow::Result<ExitCode> {
@@ -83,25 +71,15 @@ pub fn install_with(
         settings::clear_scheduler(env)?;
         writeln!(out, "Note: {} is gone; cleared its scheduler record.", record.app.display())?;
     }
-    let spec = AgentSpec {
-        exe: exe.to_path_buf(),
-        interval,
-        threshold,
-        log_dir: env.log_dir().to_path_buf(),
-        associated_bundle: launchd::app_bundle_of(exe).map(|_| launchd::APP_BUNDLE_ID),
-    };
-    let path = launchd::install(&spec, env.home(), uid, lc)?;
+    let spec = ScheduleSpec { exe: exe.to_path_buf(), interval, threshold, log_dir: env.log_dir().to_path_buf() };
+    let installed = scheduler.install(&spec)?;
     let every = match interval {
         IntervalArg::Daily => "daily",
         IntervalArg::Weekly => "weekly",
     };
     let from = threshold.map_or_else(|| "the settings' threshold (10.0 GiB unless set)".to_owned(), human);
-    writeln!(out, "Installed {} ({every}, notify from {from}).", path.display())?;
-    writeln!(
-        out,
-        "It only scans; clean with `ddc clean`. Test it now: launchctl kickstart -k {}",
-        launchd::target(uid)
-    )?;
+    writeln!(out, "Installed {} ({every}, notify from {from}).", installed.path.display())?;
+    writeln!(out, "It only scans; clean with `ddc clean`. Test it now: {}", installed.try_now)?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -112,7 +90,7 @@ mod tests {
     use ddc_core::settings::{SchedulerOwner, SchedulerRecord, Settings};
 
     use super::*;
-    use crate::platform::launchd::fake::FakeLaunchctl;
+    use crate::platform::launchd::{self, Launchctl as _, Launchd, fake::FakeLaunchctl};
 
     struct Fx {
         tmp: tempfile::TempDir,
@@ -148,7 +126,8 @@ mod tests {
         /// The exit code, stdout and stderr.
         fn install(&self, exe: &Path, lc: &FakeLaunchctl) -> (ExitCode, String, String) {
             let (mut out, mut err) = (Vec::new(), Vec::new());
-            let code = install_with(IntervalArg::Daily, None, exe, &self.env, 501, lc, &mut out, &mut err).unwrap();
+            let launchd = Launchd { home: self.env.home().to_path_buf(), uid: 501, lc };
+            let code = install_with(IntervalArg::Daily, None, exe, &self.env, &launchd, &mut out, &mut err).unwrap();
             (code, String::from_utf8(out).unwrap(), String::from_utf8(err).unwrap())
         }
 

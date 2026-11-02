@@ -112,7 +112,7 @@ pub struct ScanArgs {
     /// Write progress events to stderr, one JSON line each (docs/progress.schema.json).
     #[arg(long, value_enum, value_name = "FORMAT", conflicts_with = "background")]
     pub progress: Option<ProgressFormat>,
-    /// Run as the scheduled scan (the app's or the LaunchAgent's): no output, skip TCC-protected folders, notify.
+    /// Run as the scheduled scan (the app's or `ddc schedule`'s): no output, skip TCC-protected folders, notify.
     #[arg(long, hide = true)]
     pub background: bool,
     /// Background mode: do not show a notification.
@@ -215,7 +215,7 @@ fn parse_utc(s: &str) -> Result<u64, String> {
 
 #[derive(Debug, Subcommand)]
 pub enum ScheduleAction {
-    /// Install (or update) the LaunchAgent that scans on a schedule.
+    /// Install (or update) the background scan that runs on a schedule.
     Install {
         #[arg(long, value_enum, default_value_t = IntervalArg::Daily)]
         interval: IntervalArg,
@@ -224,9 +224,9 @@ pub enum ScheduleAction {
         #[arg(long, value_name = "SIZE", value_parser = parse_size)]
         threshold: Option<u64>,
     },
-    /// Remove the LaunchAgent.
+    /// Remove the scheduled background scan.
     Uninstall,
-    /// Show whether the LaunchAgent is installed, loaded and current.
+    /// Show whether the scheduled scan is installed, loaded and current.
     Status,
 }
 
