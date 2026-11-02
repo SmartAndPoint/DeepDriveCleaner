@@ -13,6 +13,13 @@ pub fn canonicalize(path: &Path) -> io::Result<PathBuf> {
     std::fs::canonicalize(path)
 }
 
+/// Whether `path`, read from a file's content (a `gitdir:` line, a
+/// `CMakeCache.txt`), may be opened. Always on macOS and Linux for now: an
+/// NFS mount or an autofs trigger there is a shared story's.
+pub fn is_local(_path: &Path) -> bool {
+    true
+}
+
 /// The path itself.
 pub fn key(path: &Path) -> Cow<'_, Path> {
     Cow::Borrowed(path)

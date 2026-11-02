@@ -130,8 +130,12 @@ fn cmake_out_of_source(dir: &Path) -> bool {
     };
     let Some(source) = text.lines().find_map(|l| l.strip_prefix("CMAKE_HOME_DIRECTORY:")) else { return false };
     let source = source.split_once('=').map_or(source, |(_, v)| v).trim();
+    if !crate::platform::paths::is_local(Path::new(source)) {
+        return false; // a source on another machine is never opened: never a build dir
+    }
     match (Path::new(source).canonical(), dir.canonical()) {
-        (Ok(src), Ok(dir)) => !src.starts_with(&dir),
+        // Canonical, checked again: a local symlink may lead to a share.
+        (Ok(src), Ok(dir)) => crate::platform::paths::is_local(&src) && !src.starts_with(&dir),
         _ => false, // cannot tell: never a build dir
     }
 }

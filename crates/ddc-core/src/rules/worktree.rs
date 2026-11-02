@@ -69,7 +69,9 @@ pub fn recognize(path: &Path) -> Option<Recognized> {
     }
     let named = git_dir(path)?;
     let gitdir = match fs::metadata(&named) {
-        Ok(md) if md.is_dir() => named.canonical().ok()?,
+        // Canonical, checked again: a local symlink may lead to a share
+        // (one open reached it; nothing more goes there).
+        Ok(md) if md.is_dir() => named.canonical().ok().filter(|g| crate::platform::paths::is_local(g))?,
         Ok(_) => return None,
         // Only a worktree's gitdir, `…/worktrees/<name>`: a submodule copied
         // out of its superproject names a missing `…/modules/<name>` and is
@@ -84,11 +86,20 @@ pub fn recognize(path: &Path) -> Option<Recognized> {
     };
     // A submodule's gitdir (`.git/modules/<n>`) has no `commondir`: never a worktree.
     let common = resolve(&gitdir, read_line(&gitdir.join("commondir"))?.as_str());
+    // `commondir` and the `gitdir` back-reference come from files' content:
+    // a path on another machine is never followed (`git_dir` checked the
+    // `.git` file's own line).
+    if !crate::platform::paths::is_local(&common) {
+        return None;
+    }
     let main = if common.file_name().is_some_and(|n| n == ".git") { common.parent()?.to_path_buf() } else { common };
     let main = main.canonical().unwrap_or(main);
+    if !crate::platform::paths::is_local(&main) {
+        return None;
+    }
     let linked = read_line(&gitdir.join("gitdir"))
         .map(|back| resolve(&gitdir, &back))
-        .is_some_and(|back| same_file(&back, &dot_git));
+        .is_some_and(|back| crate::platform::paths::is_local(&back) && same_file(&back, &dot_git));
     let harness = harness(path, &gitdir, &main);
     Some(Recognized::Linked(Linked { gitdir, main, harness, linked }))
 }
