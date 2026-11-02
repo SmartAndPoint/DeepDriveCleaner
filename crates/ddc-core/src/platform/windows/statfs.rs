@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use windows_sys::Win32::Foundation::{ERROR_MORE_DATA, ERROR_NO_MORE_FILES, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{
     FindFirstVolumeW, FindNextVolumeW, FindVolumeClose, GetDiskFreeSpaceExW, GetVolumeInformationW,
-    GetVolumeNameForVolumeMountPointW, GetVolumePathNameW, GetVolumePathNamesForVolumeNameW,
+    GetVolumeNameForVolumeMountPointW, GetVolumePathNameW, GetVolumePathNamesForVolumeNameW, QueryDosDeviceW,
 };
 
 pub use crate::platform::types::VolumeStats;
@@ -78,6 +78,48 @@ pub fn mounts() -> io::Result<Vec<VolumeStats>> {
             return if e.raw_os_error() == Some(ERROR_NO_MORE_FILES as i32) { Ok(out) } else { Err(e) };
         }
     }
+}
+
+/// Every volume's NT device (`\Device\HarddiskVolume3`) with each of its
+/// mount points (`C:\`, and a folder, or only a folder for a volume
+/// without a letter), for turning a mapped file's device path into paths
+/// (`modules`). A volume mounted nowhere is left out.
+pub(super) fn devices() -> Vec<(Vec<u16>, PathBuf)> {
+    let mut out = Vec::new();
+    let mut volume = vec![0u16; NAME];
+    // SAFETY: the buffer is writable for its stated length.
+    let find = unsafe { FindFirstVolumeW(volume.as_mut_ptr(), NAME as u32) };
+    if find == INVALID_HANDLE_VALUE {
+        return out;
+    }
+    let _close = Search(find);
+    loop {
+        let name = until_nul(&volume);
+        if let Some(device) = device_of(&name) {
+            for point in mount_points(&name) {
+                out.push((device.clone(), PathBuf::from(OsString::from_wide(&point))));
+            }
+        }
+        // SAFETY: `find` is the open search handle; the buffer as above.
+        if unsafe { FindNextVolumeW(find, volume.as_mut_ptr(), NAME as u32) } == 0 {
+            return out;
+        }
+    }
+}
+
+/// The NT device of the volume `name` (`\\?\Volume{…}\`), from
+/// `QueryDosDeviceW` of `Volume{…}`.
+fn device_of(name: &[u16]) -> Option<Vec<u16>> {
+    let text = String::from_utf16(name).ok()?;
+    let guid = text.strip_prefix(r"\\?\")?.strip_suffix('\\')?;
+    let mut query: Vec<u16> = guid.encode_utf16().collect();
+    query.push(0);
+    let mut target = vec![0u16; NAME];
+    // SAFETY: a NUL-terminated device name; the buffer is writable for its
+    // stated length.
+    let len = unsafe { QueryDosDeviceW(query.as_ptr(), target.as_mut_ptr(), NAME as u32) } as usize;
+    // The answer is a list of NUL-terminated names; the first is the device.
+    (len > 0).then(|| until_nul(&target)).filter(|d| !d.is_empty())
 }
 
 /// A volume search, closed once whichever way [`mounts`] leaves.

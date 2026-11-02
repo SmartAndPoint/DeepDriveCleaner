@@ -14,6 +14,7 @@ pub mod errno;
 pub mod folders;
 pub mod fsops;
 pub mod meta;
+mod modules;
 pub mod paths;
 mod peb;
 pub mod procs;
