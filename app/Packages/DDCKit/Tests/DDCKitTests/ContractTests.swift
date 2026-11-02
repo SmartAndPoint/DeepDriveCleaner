@@ -295,6 +295,10 @@ struct ContractTests {
         #expect(Set(try values(scan, "EntryLock", key: "reason")) == Set(EntryLock.tags))
         #expect(Set(try values(scan, "LiveBy")) == Set(EntryLock.LiveBy.allCases.map(\.rawValue)))
         #expect(Set(try values(scan, "UnknownCause")) == Set(EntryLock.LivenessCause.allCases.map(\.rawValue)))
+        #expect(Set(try values(scan, "BuildBy")) == Set(EntryLock.BuildBy.allCases.map(\.rawValue)))
+        #expect(Set(try values(scan, "BuildsCause")) == Set(EntryLock.BuildsCause.allCases.map(\.rawValue)))
+        // Read open: the app keeps a kind it does not know.
+        #expect(Set(try values(scan, "OriginKind")).isSuperset(of: ["worktree", "session-data", "runtime-cache", "builds"]))
         #expect(Set(try values(scan, "SkipReason")) == Set(ScanReport.SkipArea.allCases.map(\.rawValue)))
         #expect(Set(try values(scan, "FolderEntryKind")) == ["file", "folder"])
         #expect(Set(try values(scan, "ExclusionKind")) == Set(ScanReport.ExclusionKind.allCases.map(\.rawValue)))
@@ -348,12 +352,16 @@ struct ContractTests {
     /// app tells a session folder from the report and `rules --json`, never
     /// from a list of ids. A finding of every rule that is not user data, with
     /// no `contents`, must lock as a session folder exactly for the core's
-    /// `SESSION_ENTRY_RULES`.
-    @Test("the session folders the app derives from the rules are the core's SESSION_ENTRY_RULES")
+    /// `SESSION_ENTRY_RULES`; a builds folder (origin kind `builds`, story
+    /// "Coding agents on Linux") locks as one exactly for `BUILD_ENTRY_RULES`.
+    @Test("the session and builds folders the app derives from the rules are the core's")
     func sessionFolders() throws {
         let source = try rustSource("crates/ddc-core/src/rules/entries.rs")
         let list = try #require(source.firstMatch(of: /pub const SESSION_ENTRY_RULES: &\[&str\] = &\[(.*?)\];/))
         let core = Set(String(list.1).matches(of: /"([^"]+)"/).map { String($0.1) })
+        let buildList = try #require(source.firstMatch(of: /pub const BUILD_ENTRY_RULES: &\[&str\] = &\[(.*?)\];/))
+        let builds = Set(String(buildList.1).matches(of: /"([^"]+)"/).map { String($0.1) })
+        #expect(builds == ["agent.claude-code-builds", "agent.cursor-agent-builds"])
         #expect(core == ["agent.claude-code-file-history", "agent.claude-code-transcripts"])
         // The sheet names each by a plain name of its own, never its id.
         for id in core {
@@ -376,11 +384,15 @@ struct ContractTests {
                 finding["ino"] = 1_000 + index
                 finding["selected"] = false
                 finding.removeValue(forKey: "contents")
+                if builds.contains(id) {
+                    finding["origin"] = ["harness": "claude-code", "kind": "builds"]
+                }
                 return finding
             }
         }
         let items = ReviewItems.make(report: try ScanReport.read(report), settings: nil, rules: try Fixture.rules())
         #expect(Set(items.rows.filter { $0.lock == .sessions }.map(\.finding.rule)) == core)
+        #expect(Set(items.rows.filter { $0.lock == .builds }.map(\.finding.rule)) == builds)
     }
 
     @Test("every user-data rule of the catalog has a sidebar name")

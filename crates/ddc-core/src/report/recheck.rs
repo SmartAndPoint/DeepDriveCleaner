@@ -98,7 +98,15 @@ impl Reach {
             // A session's entry of a coding agent's session folder: its
             // companions are its siblings named after its session, which its
             // bytes and its lock hold. The user's own folders' entries have none.
-            if entries::policy(rule.id).is_some_and(|p| p.shape != EntryShape::Child)
+            // A build of a builds folder: which builds are still needed is
+            // decided over all of them, so the folder's other builds are read.
+            if entries::policy(rule.id).is_some_and(|p| matches!(p.shape, EntryShape::Build(_)))
+                && let Some(parent) = item.path.parent()
+            {
+                reach.families.insert(parent.to_path_buf());
+            }
+            if entries::policy(rule.id)
+                .is_some_and(|p| matches!(p.shape, EntryShape::Transcript | EntryShape::SessionDir))
                 && let Some(session) = item.path.file_name().and_then(|n| entries::session_of(n.as_encoded_bytes()))
                 && let Some(parent) = item.path.parent()
             {

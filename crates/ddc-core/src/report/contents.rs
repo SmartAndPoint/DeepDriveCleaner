@@ -11,6 +11,10 @@
 //! lock. Its liveness is read once per scan, only when a session was found
 //! (ADR "Agent footprint: worktrees, harness data and bounded consent for
 //! agents", §3).
+//!
+//! A builds folder's entry is one build of a coding agent; whether each is
+//! still needed is decided once per folder, only when a build was found
+//! (safety ADR, amendment of 2026-11-02).
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -19,10 +23,12 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use super::backups;
+use crate::agents::builds::{self, BuildHarness, BuildsUse, Host};
 use crate::agents::liveness::{self, FileFact, SessionFacts, SessionLiveness, UnknownCause};
 use crate::exec::ProcessTable;
 use crate::model::{Backup, Contents, Finding, FolderEntry, FolderEntryKind};
 use crate::platform::PLATFORM;
+use crate::platform::procs::ProcInfo;
 use crate::rules::AtOrAbove;
 use crate::rules::entries::{
     BACKUP_RULE, EntryFacts, EntryLiveness, EntryLock, EntryPolicy, EntryShape, SessionPart, lock_of, policy,
@@ -101,6 +107,8 @@ pub enum NotAnEntry {
     /// In a session folder: no session's entry or companion (`memory/`,
     /// `sessions-index.json`, a companion without its session's key).
     NotASession,
+    /// In a builds folder: not named as a build (an installer's temporary file).
+    NotABuild,
 }
 
 impl EntryIndex {
@@ -142,7 +150,18 @@ struct Unit<'w> {
 /// its session's liveness.
 enum Pending {
     Done(EntryState),
-    Session { session: String, kept: bool, protected: bool, other_volume: bool },
+    Session {
+        session: String,
+        kept: bool,
+        protected: bool,
+        other_volume: bool,
+    },
+    /// A build's lock reasons, waiting for its folder's builds to be decided.
+    Build {
+        kept: bool,
+        protected: bool,
+        other_volume: bool,
+    },
 }
 
 /// One folder's children, read into units, before the liveness is read.
@@ -181,12 +200,24 @@ pub(crate) fn attach(findings: &mut [Finding], walked: &[OwnerEntries], cx: &Con
         folders.push(match policy.shape {
             EntryShape::Child => read.children(i, policy, &children.entries),
             EntryShape::Transcript | EntryShape::SessionDir => read.sessions(i, policy, &children.entries),
+            EntryShape::Build(harness) => read.builds(i, policy, harness, &children.entries),
         });
     }
     let live = sessions_liveness(&folders, cx);
+    // The processes and the machine are read once per scan, only when a
+    // build was found.
+    let any_build = folders.iter().any(|f| matches!(f.policy.shape, EntryShape::Build(_)) && !f.units.is_empty());
+    let machine = any_build.then(|| (cx.processes.processes(), cx.processes.host(cx.home)));
+    let in_use: Vec<Option<BuildsUse>> = folders
+        .iter()
+        .map(|f| {
+            let (procs, host) = machine.as_ref()?;
+            builds_in_use(f, &findings[f.finding].path, procs, host, cx)
+        })
+        .collect();
 
     let mut index = EntryIndex::default();
-    for folder in folders {
+    for (folder, in_use) in folders.into_iter().zip(in_use) {
         let finding = &findings[folder.finding];
         let (path, rule) = (finding.path.clone(), finding.rule.clone());
         // Only the findings inside this folder can be at or in one of its entries.
@@ -233,6 +264,29 @@ pub(crate) fn attach(findings: &mut [Finding], walked: &[OwnerEntries], cx: &Con
                                 .copied()
                                 .unwrap_or(SessionLiveness::Unknown { cause: UnknownCause::SessionWithoutFiles }),
                         ),
+                        build: None,
+                    };
+                    lock_of(&facts).map_or(EntryState::Pickable, EntryState::Locked)
+                }
+                Pending::Build { kept, protected, other_volume } => {
+                    let build = match &in_use {
+                        Some(Ok(map)) => Some(Ok(map.get(&unit.key.name).copied().flatten())),
+                        Some(Err(cause)) => Some(Err(*cause)),
+                        None => None,
+                    };
+                    let facts = EntryFacts {
+                        home: cx.home,
+                        rule: &rule,
+                        path: &unit.path,
+                        modified: unit.modified,
+                        added: unit.key.added,
+                        now: cx.now,
+                        kept,
+                        protected,
+                        other_volume,
+                        finished: false,
+                        session: None,
+                        build,
                     };
                     lock_of(&facts).map_or(EntryState::Pickable, EntryState::Locked)
                 }
@@ -375,7 +429,7 @@ impl Reading<'_> {
             unit.modified = files.iter().filter_map(|(c, _)| c.modified).max();
             let session = match &unit.state {
                 Pending::Session { session, .. } => session.clone(),
-                Pending::Done(_) => continue,
+                Pending::Done(_) | Pending::Build { .. } => continue,
             };
             unit.incomplete =
                 files.iter().any(|(c, _)| c.errors > 0 || c.skipped > 0) || broken.contains(&session.as_str());
@@ -389,6 +443,45 @@ impl Reading<'_> {
             };
         }
         units.sort_by(|a, b| a.path.cmp(&b.path));
+        Folder { finding, policy, units, others }
+    }
+
+    /// A builds folder: each child named as a build is an entry of its own;
+    /// every other child is no entry.
+    fn builds<'w>(
+        &self,
+        finding: usize,
+        policy: &'static EntryPolicy,
+        harness: BuildHarness,
+        children: &'w [EntryResult],
+    ) -> Folder<'w> {
+        let mut units = Vec::new();
+        let mut others = Vec::new();
+        for child in children {
+            let path = self.folder.join(&child.name);
+            if let Some(why) = not_an_entry(child, &path, self.known) {
+                others.push((child, why));
+                continue;
+            }
+            if !harness.is_build(child.name.as_encoded_bytes(), child.kind == EntryKind::Dir) {
+                others.push((child, NotAnEntry::NotABuild));
+                continue;
+            }
+            let state = Pending::Build {
+                kept: self.kept(&path),
+                protected: self.protected.iter().any(|p| p.starts_with(crate::platform::paths::key(&path))),
+                other_volume: child.other_fs > 0,
+            };
+            units.push(Unit {
+                path,
+                key: child,
+                companions: Vec::new(),
+                state,
+                bytes: child.bytes,
+                incomplete: child.errors > 0 || child.skipped > 0,
+                modified: child.modified,
+            });
+        }
         Folder { finding, policy, units, others }
     }
 
@@ -410,7 +503,7 @@ fn sessions_liveness(folders: &[Folder<'_>], cx: &Context<'_>) -> HashMap<String
         .flat_map(|f| &f.units)
         .filter_map(|u| match &u.state {
             Pending::Session { session, .. } => Some((session.as_str(), u)),
-            Pending::Done(_) => None,
+            Pending::Done(_) | Pending::Build { .. } => None,
         })
         .map(|(session, u)| {
             let files = std::iter::once(u.key)
@@ -449,6 +542,24 @@ fn sessions_liveness(folders: &[Folder<'_>], cx: &Context<'_>) -> HashMap<String
         cx.now,
     );
     merged.into_iter().map(|m| m.session).zip(states).collect()
+}
+
+/// Which builds of a builds folder are still needed, decided once, only when
+/// a build was found; `None` for any other folder.
+fn builds_in_use(
+    folder: &Folder<'_>,
+    path: &Path,
+    procs: &[ProcInfo],
+    host: &Host,
+    cx: &Context<'_>,
+) -> Option<BuildsUse> {
+    let EntryShape::Build(harness) = folder.policy.shape else { return None };
+    let names: Vec<OsString> = folder.units.iter().map(|u| u.key.name.clone()).collect();
+    if names.is_empty() {
+        return None;
+    }
+    let live = |pid: i32| cx.processes.process_start(pid).is_some();
+    Some(builds::decide(harness, cx.home, path, &names, procs, &live, host))
 }
 
 /// Why a child is never an entry, from what the walk saw of it alone.
@@ -495,6 +606,7 @@ fn state_of(
         other_volume: child.other_fs > 0,
         finished: rule == BACKUP_RULE && child.kind == EntryKind::Dir && backups::finished(path),
         session: None,
+        build: None,
     };
     match lock_of(&facts) {
         Some(lock) => EntryState::Locked(lock),

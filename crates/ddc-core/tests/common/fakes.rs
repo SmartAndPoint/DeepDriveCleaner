@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use ddc_core::agents::builds::Host;
 use ddc_core::env::Env;
 use ddc_core::exec::{
     CmdOutput, CommandRunner, OpenVnode, ProcInfo, ProcStart, ProcessTable, SystemCommands, TrashError, TrashPlace,
@@ -314,6 +315,9 @@ pub struct FakeProcs {
     pub procs: Vec<ProcInfo>,
     pub starts: HashMap<i32, ProcStart>,
     pub vnodes: HashMap<i32, Vec<OpenVnode>>,
+    /// The machine beyond the user's processes; `None`: no other user's
+    /// process, `/proc` not hidden, a local home.
+    pub host: Option<Host>,
 }
 
 impl FakeProcs {
@@ -346,6 +350,9 @@ impl ProcessTable for FakeProcs {
     }
     fn open_vnodes(&self, pid: i32) -> Vec<OpenVnode> {
         self.vnodes.get(&pid).cloned().unwrap_or_default()
+    }
+    fn host(&self, _home: &Path) -> Host {
+        self.host.clone().unwrap_or(Host { others: Vec::new(), hidden: false, home_fs: Some("apfs".to_owned()) })
     }
 }
 

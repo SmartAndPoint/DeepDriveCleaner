@@ -10,6 +10,7 @@
 //! each agent session keeps in its transcripts, temporary folders and
 //! worktrees").
 
+pub mod builds;
 mod claude;
 mod codex;
 mod footprint;

@@ -5,6 +5,7 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
 use ddc_core::agents::HarnessId;
+use ddc_core::agents::builds::{BuildBy, BuildsCause};
 use ddc_core::agents::liveness::{LiveBy, UnknownCause};
 use ddc_core::class::Fallback;
 use ddc_core::class::RiskClass;
@@ -311,6 +312,26 @@ fn lock_text(lock: &EntryLock) -> String {
         EntryLock::LivenessUnknown { cause } => {
             format!("could not tell whether the session is in use ({})", cause_text(*cause))
         }
+        EntryLock::BuildInUse { by } => match by {
+            BuildBy::Launcher => "the build its launcher starts".to_owned(),
+            BuildBy::Process => "a running process uses this build".to_owned(),
+            BuildBy::Lock => "its installer marks this build in use".to_owned(),
+            BuildBy::Newest => "the newest build".to_owned(),
+        },
+        EntryLock::BuildsUnknown { cause } => {
+            format!("could not tell which builds are in use ({})", builds_cause_text(*cause))
+        }
+    }
+}
+
+fn builds_cause_text(cause: BuildsCause) -> &'static str {
+    match cause {
+        BuildsCause::NoLauncher => "no launcher",
+        BuildsCause::CustomLauncher => "the launcher points outside the builds folder",
+        BuildsCause::ProcessWithheld => "a process of the agent could not be read",
+        BuildsCause::OtherUserProcess => "another user runs the agent",
+        BuildsCause::HiddenProcessTable => "other users' processes are hidden",
+        BuildsCause::NetworkHome => "the home is on a network drive",
     }
 }
 

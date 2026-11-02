@@ -3,10 +3,12 @@
 //! harness keeps it in the same home-relative folders on every OS.
 
 use super::super::rule;
+use super::PerOs;
 use crate::class::Category::*;
 use crate::class::RiskClass::*;
 use crate::class::{Removal, RiskClass};
 use crate::model::{Origin, OriginHarness, OriginKind};
+use crate::platform::Platform;
 use crate::rules::{Matcher, Rule};
 
 /// A rule of a coding agent's harness. Its `review` rules are `listed_only`:
@@ -138,6 +140,45 @@ pub(crate) const AGENT_CURSOR_AGENT_DATA: Rule = Rule {
         OriginKind::SessionData,
     )
 };
+
+// Old builds are the entries of these two (safety ADR, amendment of
+// 2026-11-02): the folders have no method, each hint speaks of one build,
+// and a build still needed is locked. Windows keeps Claude Code's builds
+// elsewhere, with a launcher that is a copy: no path there yet.
+pub(crate) const fn agent_claude_code_builds(p: Platform) -> Rule {
+    let paths =
+        PerOs { macos: &[".local/share/claude/versions"], linux: &[".local/share/claude/versions"], windows: &[] };
+    Rule {
+        hint: "An old Claude Code build. claude install <version> fetches it again.",
+        ..agent(
+            "agent.claude-code-builds",
+            Review,
+            Removal::None,
+            Matcher::KnownPaths(paths.of(p)),
+            OriginHarness::ClaudeCode,
+            OriginKind::Builds,
+        )
+    }
+}
+
+pub(crate) const fn agent_cursor_agent_builds(p: Platform) -> Rule {
+    let paths = PerOs {
+        macos: &[".local/share/cursor-agent/versions"],
+        linux: &[".local/share/cursor-agent/versions"],
+        windows: &[],
+    };
+    Rule {
+        hint: "An old build of Cursor's agent. Its installer fetches a build again only when asked.",
+        ..agent(
+            "agent.cursor-agent-builds",
+            Review,
+            Removal::None,
+            Matcher::KnownPaths(paths.of(p)),
+            OriginHarness::Cursor,
+            OriginKind::Builds,
+        )
+    }
+}
 
 // Sealed, like app bundles: never a finding, and no rule fires inside.
 // The live session records; the shell snapshots a live session sources

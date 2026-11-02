@@ -50,6 +50,8 @@ public struct GroupLayout: Sendable, Equatable {
             case rule(String)
             /// A coding agent's session folder: its sessions.
             case sessions
+            /// A coding agent's builds folder: its old builds.
+            case builds
         }
 
         public let key: Key
@@ -76,7 +78,7 @@ public struct GroupLayout: Sendable, Equatable {
 
         /// Its fold button's accessibility hint: what pressing it shows or hides.
         public func foldHint(expanded: Bool) -> String {
-            let what = kind == .sessions ? "sessions" : "folders"
+            let what = kind == .sessions ? "sessions" : kind == .builds ? "builds" : "folders"
             return expanded ? "Hides its \(what)" : "Shows its \(what)"
         }
     }
@@ -236,9 +238,10 @@ extension ReviewItems {
         }
         // A coding agent's session folder is a subgroup of its sessions, each
         // picked one by one; the folder itself is never a row to select.
-        let sessionFolders = all.filter { $0.userEntry == nil && $0.lock == .sessions }
-        let sessions = all.filter { $0.userEntry?.isSession == true && matches($0, query) }
-        let plain = all.filter { $0.userEntry == nil && $0.lock != .sessions }
+        // A builds folder is laid out as a session folder, its builds as its rows.
+        let sessionFolders = all.filter { $0.userEntry == nil && ($0.lock == .sessions || $0.lock == .builds) }
+        let sessions = all.filter { ($0.userEntry?.isSession == true || $0.userEntry?.isBuild == true) && matches($0, query) }
+        let plain = all.filter { $0.userEntry == nil && $0.lock != .sessions && $0.lock != .builds }
         let shown = plain.filter { matches($0, query) }
         let rules = Dictionary(grouping: plain, by: { $0.finding.rule })
         // By the rule, not the label: an entry that holds the Trash only.
@@ -297,22 +300,34 @@ extension ReviewItems {
             let members = byFolder[folder.id] ?? []
             if filtered && members.isEmpty { return nil }
             let contents = folder.finding.contents
-            var subtitle = [folder.finding.rule, CleanWording.sessionCount(contents.map { $0.entries.count })]
+            let builds = folder.lock == .builds
+            let count = contents.map { $0.entries.count }
+            var subtitle = [folder.finding.rule, builds ? CleanWording.buildCount(count) : CleanWording.sessionCount(count)]
             if let contents, contents.restCount > 0 {
                 subtitle.append(CleanWording.sessionsRest(count: contents.restCount, bytes: contents.restBytes))
             }
             return .subgroup(GroupLayout.Subgroup(
                 key: GroupLayout.Key(entry: entry, tag: Array("s".utf8) + Array(folder.finding.path.utf8)),
-                kind: .sessions,
+                kind: builds ? .builds : .sessions,
                 title: Wording.tilde(folder.finding.path, home: report.home),
                 subtitle: subtitle.joined(separator: " · "),
                 hint: CleanWording.hint(folder.finding.hint),
                 checkable: false,
                 items: Self.ordered(members.map { row in
-                    GroupLayout.Item(row: row, shown: Self.sessionName(row.finding.path), detail: CleanWording.entryDetail(row))
+                    GroupLayout.Item(
+                        row: row,
+                        shown: builds ? Self.entryName(row.finding.path) : Self.sessionName(row.finding.path),
+                        detail: CleanWording.entryDetail(row)
+                    )
                 }, sort)
             ))
         }
+    }
+
+    /// A build's name as its row shows it: the whole entry name (`2.1.126`).
+    static func entryName(_ path: String) -> String {
+        let name = Array(path.utf8).split(separator: UInt8(ascii: "/")).last.map(Array.init) ?? Array(path.utf8)
+        return Wording.escaped(String(decoding: name, as: UTF8.self))
     }
 
     /// A session's name as its row shows it: its id, the entry's name up to

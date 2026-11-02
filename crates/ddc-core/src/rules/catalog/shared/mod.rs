@@ -62,7 +62,7 @@ impl PerOs {
 }
 
 /// How many rules every platform shares.
-pub(super) const COUNT: usize = 75;
+pub(super) const COUNT: usize = 77;
 
 /// Every shared rule resolved for `p`, in the macOS order.
 pub(super) const fn all(p: Platform) -> [Rule; COUNT] {
@@ -129,6 +129,8 @@ pub(super) const fn all(p: Platform) -> [Rule; COUNT] {
         AGENT_CODEX_RUNTIMES,
         AGENT_OPENCODE_DATA,
         AGENT_CURSOR_AGENT_DATA,
+        agent_claude_code_builds(p),
+        agent_cursor_agent_builds(p),
         AGENT_CLAUDE_CODE_SEALED,
         AGENT_CURSOR_SEALED,
         app_chrome_cache(p),

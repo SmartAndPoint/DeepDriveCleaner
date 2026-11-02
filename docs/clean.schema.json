@@ -134,6 +134,66 @@
         }
       ]
     },
+    "BuildBy": {
+      "description": "Why a build is in use.",
+      "oneOf": [
+        {
+          "description": "A launcher points to it.",
+          "type": "string",
+          "const": "launcher"
+        },
+        {
+          "description": "A process of the user runs it.",
+          "type": "string",
+          "const": "process"
+        },
+        {
+          "description": "Claude Code's installer lock names a live process for it.",
+          "type": "string",
+          "const": "lock"
+        },
+        {
+          "description": "The newest build.",
+          "type": "string",
+          "const": "newest"
+        }
+      ]
+    },
+    "BuildsCause": {
+      "description": "Why no build of a harness can be told free: each locks them all.",
+      "oneOf": [
+        {
+          "description": "No launcher: the build in use cannot be told.",
+          "type": "string",
+          "const": "no-launcher"
+        },
+        {
+          "description": "The launcher does not resolve inside the folder (a custom one, or\nbuilds moved by `XDG_DATA_HOME`).",
+          "type": "string",
+          "const": "custom-launcher"
+        },
+        {
+          "description": "A process of the user named as the harness could not be inspected.",
+          "type": "string",
+          "const": "process-withheld"
+        },
+        {
+          "description": "A readable process of another user carries the harness's name.",
+          "type": "string",
+          "const": "other-user-process"
+        },
+        {
+          "description": "`/proc` hides other users' processes (Linux `hidepid`).",
+          "type": "string",
+          "const": "hidden-process-table"
+        },
+        {
+          "description": "The home is on a network filesystem, which other machines may run builds from.",
+          "type": "string",
+          "const": "network-home"
+        }
+      ]
+    },
     "Capability": {
       "description": "What a platform can do beyond listing, measuring and removing files\n(ADR \"Platform seam\", §3). A closed list in declaration order: a new\nvalue bumps the schema version of every report that carries the list.",
       "oneOf": [
@@ -485,6 +545,40 @@
             "reason": {
               "type": "string",
               "const": "liveness-unknown"
+            }
+          },
+          "required": [
+            "reason",
+            "cause"
+          ]
+        },
+        {
+          "description": "A coding agent's build still needed: a launcher points to it, a\nprocess of the user runs it, its installer lock names a live process,\nor it is the newest.",
+          "type": "object",
+          "properties": {
+            "by": {
+              "$ref": "#/$defs/BuildBy"
+            },
+            "reason": {
+              "type": "string",
+              "const": "build-in-use"
+            }
+          },
+          "required": [
+            "reason",
+            "by"
+          ]
+        },
+        {
+          "description": "Whether any build of the harness is still needed could not be told:\nevery build is locked.",
+          "type": "object",
+          "properties": {
+            "cause": {
+              "$ref": "#/$defs/BuildsCause"
+            },
+            "reason": {
+              "type": "string",
+              "const": "builds-unknown"
             }
           },
           "required": [

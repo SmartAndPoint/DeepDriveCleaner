@@ -996,3 +996,49 @@ fn an_item_at_under_or_above_a_skip_is_kept_in_the_dry_run_and_the_clean() {
     }
     assert_eq!(fx.snapshot(), before, "nothing removed");
 }
+
+/// Story "Coding agents on Linux" (DDC-010): a picked old Claude Code build
+/// is predicted to go to the Trash and the launcher's build is locked, and
+/// `permanent` refuses the list. The real move through ddc's own Trash is
+/// `ddc-core/tests/agent_builds_trash.rs`: a build made by the test is
+/// `recent` by its birth time here. Linux only, as its neighbour.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_picked_old_build_is_predicted_and_permanent_is_refused() {
+    if common::unsupported("a_picked_old_build_is_predicted_and_permanent_is_refused") {
+        return;
+    }
+    let fx = Fx::new();
+    let versions = ".local/share/claude/versions";
+    let day_ago = SystemTime::now() - Duration::from_secs(86_400);
+    for b in ["2.1.100", "2.1.130"] {
+        fx.write(&format!("{versions}/{b}"), &[7u8; 20_000]);
+        ddc_core::platform::fsops::set_times(&fx.path(&format!("{versions}/{b}")), day_ago, day_ago).unwrap();
+    }
+    fs::create_dir_all(fx.path(".local/bin")).unwrap();
+    common::symlink(fx.path(&format!("{versions}/2.1.130")), fx.path(".local/bin/claude"));
+    let old = fx.path(&format!("{versions}/2.1.100"));
+    let items = [
+        picked(&old, "agent.claude-code-builds", "trash"),
+        picked(&fx.path(&format!("{versions}/2.1.130")), "agent.claude-code-builds", "trash"),
+    ];
+    let list = fx.root.join("picked.json");
+    fs::write(&list, serde_json::json!({ "schema_version": 1, "items": items }).to_string()).unwrap();
+    let before = fx.snapshot();
+
+    let out = fx.ddc(&["clean", "--items", list.to_str().unwrap(), "--dry-run", "--json"]).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let lines: Vec<serde_json::Value> =
+        String::from_utf8(out.stdout).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let predictions: Vec<&str> = lines.iter().filter_map(|l| l["prediction"].as_str()).collect();
+    assert_eq!(predictions, ["would-trash", "would-skip"], "{lines:?}");
+    assert_eq!(lines[1]["lock"], serde_json::json!({ "reason": "build-in-use", "by": "launcher" }));
+
+    let mut permanent = items[0].clone();
+    permanent["permanent"] = true.into();
+    let refused = fx.root.join("permanent.json");
+    fs::write(&refused, serde_json::json!({ "schema_version": 1, "items": [permanent] }).to_string()).unwrap();
+    let out = fx.ddc(&["clean", "--items", refused.to_str().unwrap()]).output().unwrap();
+    assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(fx.snapshot(), before, "neither the dry run nor a refused list changes anything");
+}

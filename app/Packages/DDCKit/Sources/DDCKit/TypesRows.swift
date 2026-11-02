@@ -61,6 +61,6 @@ public enum TypesRows {
         "Old toolchains": "Node, Python and Rust versions no project uses",
         "ML models": "Ollama, Hugging Face, PyTorch",
         "VM and container images": "Docker Desktop, Podman: image and builder prune only",
-        "Coding agents": "Claude Code debug logs, and the sessions and history of Claude Code, Codex, opencode and Cursor when you pick them and the agent is not running",
+        "Coding agents": "Claude Code debug logs, and the sessions and history of Claude Code, Codex, opencode and Cursor when you pick them and the agent is not running, and the old builds of Claude Code and Cursor's agent you pick",
     ]
 }

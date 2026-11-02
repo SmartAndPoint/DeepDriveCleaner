@@ -21,8 +21,10 @@ use crate::scan::SkipReason;
 /// (ADR "Agent footprint: worktrees, harness data and bounded consent for
 /// agents", §3). 4: the reason `foreign-owner` in `not_selected` (safety
 /// ADR, amendment of 2026-10-31). 5: the skip reason `automount` (safety
-/// ADR, amendment of 2026-11-01).
-pub const SCHEMA_VERSION: u32 = 5;
+/// ADR, amendment of 2026-11-01). 6: the entry locks `build-in-use` and
+/// `builds-unknown`, and the origin kind `builds`, for a coding agent's old
+/// builds (safety ADR, amendment of 2026-11-02).
+pub const SCHEMA_VERSION: u32 = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ScanReport {
@@ -318,6 +320,9 @@ pub enum OriginKind {
     SessionData,
     /// What the harness downloads or writes for itself and can make again.
     RuntimeCache,
+    /// What the harness installs for itself and fetches again only by hand:
+    /// its old builds (safety ADR, amendment of 2026-11-02).
+    Builds,
 }
 
 /// What protects a `user.kept` finding: its keep markers, the exclusions and

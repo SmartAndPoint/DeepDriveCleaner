@@ -154,6 +154,9 @@ fn each_path_of_the_eight_rules_is_found_with_its_rule_and_origin() {
         (".cache/opencode", "agent.opencode-data", Review, Trash, Opencode, SessionData),
         (".cursor/projects", "agent.cursor-agent-data", Review, Trash, Cursor, SessionData),
         (".cursor/ai-tracking", "agent.cursor-agent-data", Review, Trash, Cursor, SessionData),
+        // Old builds are entries; `payload` is not one.
+        (".local/share/claude/versions", "agent.claude-code-builds", Review, none, ClaudeCode, Builds),
+        (".local/share/cursor-agent/versions", "agent.cursor-agent-builds", Review, none, Cursor, Builds),
     ];
     for (rel, ..) in table {
         h.t.file(&format!("{rel}/payload"), 1_000);
@@ -422,7 +425,7 @@ fn every_platform_lists_the_agent_rules() {
     use ddc_core::rules::rules_of;
     let agent =
         |p: Platform| rules_of(p).iter().filter(|r| r.id.starts_with("agent.")).map(|r| r.id).collect::<Vec<_>>();
-    assert_eq!(agent(Platform::Macos).len(), 10);
+    assert_eq!(agent(Platform::Macos).len(), 12);
     for p in [Platform::Linux, Platform::Windows] {
         assert_eq!(agent(p), agent(Platform::Macos), "{p}");
     }

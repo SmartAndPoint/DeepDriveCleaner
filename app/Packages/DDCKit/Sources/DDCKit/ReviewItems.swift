@@ -29,6 +29,9 @@ public struct ReviewItems: Sendable, Equatable {
         /// are picked one by one (story "Review window: pick a coding agent's
         /// sessions one by one").
         case sessions
+        /// A coding agent's builds folder: never cleaned whole, its old
+        /// builds are picked one by one (safety ADR, amendment of 2026-11-02).
+        case builds
         /// "Protect this folder" put a `.ddc-keep` in it since the scan.
         case protected
         /// The last clean deleted it or moved it to the Trash; the next scan drops it.
@@ -44,6 +47,7 @@ public struct ReviewItems: Sendable, Equatable {
             case .scanRoot: "A scanned folder itself"
             case .noAction: "Manual only: ddc has no command for it"
             case .sessions: "Not cleaned whole · pick its sessions one by one"
+            case .builds: "Not cleaned whole · pick its old builds one by one"
             case .protected: "Protected by .ddc-keep"
             case .cleaned: "Cleaned just now"
             case .entry(let lock): CleanWording.entryLock(lock)
@@ -69,9 +73,11 @@ public struct ReviewItems: Sendable, Equatable {
         public let findings: UInt64
         public let git: Bool
         public let backup: ScanReport.Backup?
+        /// An old build of a coding agent's builds folder.
+        public let isBuild: Bool
 
-        /// A coding agent's session, not a file of the user's own.
-        public var isSession: Bool { folderClass != .userData }
+        /// A coding agent's session, not a file of the user's own nor a build.
+        public var isSession: Bool { folderClass != .userData && !isBuild }
     }
 
     public struct Row: Identifiable, Sendable, Equatable {
@@ -117,7 +123,7 @@ public struct ReviewItems: Sendable, Equatable {
                 } else if report.scanRoots.contains(finding.path) {
                     .scanRoot
                 } else if action == nil, sessionFolder(finding, switchable: switchable[finding.rule]) {
-                    .sessions
+                    finding.isBuildsFolder ? .builds : .sessions
                 } else if action == nil {
                     .noAction
                 } else {
@@ -168,7 +174,7 @@ public struct ReviewItems: Sendable, Equatable {
     /// Each is to the Trash, never selected by default, locked by its own lock.
     private static func entryRows(of rows: [Row], report: ScanReport) -> [Row] {
         var out: [Row] = []
-        for folder in rows where folder.lock == .userData || folder.lock == .sessions {
+        for folder in rows where folder.lock == .userData || folder.lock == .sessions || folder.lock == .builds {
             guard let contents = folder.finding.contents else { continue }
             for entry in contents.entries {
                 // Findings inside it have rows of their own: its own bytes leave them out.
@@ -191,7 +197,8 @@ public struct ReviewItems: Sendable, Equatable {
                         modified: entry.modified,
                         findings: entry.findings,
                         git: entry.git,
-                        backup: entry.backup
+                        backup: entry.backup,
+                        isBuild: folder.lock == .builds
                     )
                 ))
             }
@@ -295,7 +302,7 @@ public struct ReviewItems: Sendable, Equatable {
     /// a session: a `.ddc-keep` would be written into the agent's own data.
     public func canProtect(_ row: Row) -> Bool {
         guard let entry = row.userEntry else { return true }
-        return entry.kind == .folder && row.finding.rule != "user.ios-backups" && !entry.isSession
+        return entry.kind == .folder && row.finding.rule != "user.ios-backups" && !entry.isSession && !entry.isBuild
     }
 
     /// The rows of an entry, ignored findings left out (the Items view shows

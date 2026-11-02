@@ -422,6 +422,16 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
     if (st.dev, st.ino) != (item.dev, item.ino) {
         return skip(SkipReason::ChangedSinceScan);
     }
+    // A coding agent's build: the guard's own check decides its use again,
+    // as the clean does; a folder build's bytes are walked.
+    if matches!(policy.shape, EntryShape::Build(_)) {
+        let verified = guard
+            .check(&planned(item, rule, RiskClass::UserData, Action::TrashEntry))
+            .map_err(|reason| (None, reason))?;
+        would_trash(ports.trash, &verified, path).map_err(|reason| (None, reason))?;
+        let bytes = if st.is_dir { walk_item(path, ports.reader).map_or(st.alloc, |w| w.bytes) } else { st.alloc };
+        return Ok((bytes, Prediction::WouldTrash));
+    }
     // A session's entry: the guard's own check finds its companions, walks
     // them with it and reads its liveness, as the clean does.
     if policy.shape != EntryShape::Child {
@@ -464,8 +474,9 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
             .iter()
             .any(|rel| crate::platform::paths::key(&home.join(rel)).starts_with(crate::platform::paths::key(path))),
         other_volume: walked.other_fs,
-        // A session's entry took the guard's check above.
+        // A session's entry and a build took the guard's check above.
         session: None,
+        build: None,
         finished: rule.id == BACKUP_RULE && st.is_dir && backups::finished(path),
     };
     if let Some(lock) = lock_of(&facts) {
