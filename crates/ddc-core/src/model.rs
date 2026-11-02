@@ -23,8 +23,10 @@ use crate::scan::SkipReason;
 /// ADR, amendment of 2026-10-31). 5: the skip reason `automount` (safety
 /// ADR, amendment of 2026-11-01). 6: the entry locks `build-in-use` and
 /// `builds-unknown`, and the origin kind `builds`, for a coding agent's old
-/// builds (safety ADR, amendment of 2026-11-02).
-pub const SCHEMA_VERSION: u32 = 6;
+/// builds (safety ADR, amendment of 2026-11-02). 7: the skip reasons
+/// `snapshot` and `holds-subvolume`, for btrfs (safety ADR, amendment of
+/// 2026-11-02, "btrfs and ZFS on Linux").
+pub const SCHEMA_VERSION: u32 = 7;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ScanReport {

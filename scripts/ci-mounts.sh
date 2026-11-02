@@ -67,6 +67,34 @@ say DDC_MOUNT_BTRFS_SUBVOLUME "$base/btrfs/subvolume"
 say DDC_MOUNT_BTRFS_SNAPSHOT_RO "$base/btrfs/snapshot-ro"
 say DDC_MOUNT_BTRFS_SNAPSHOT_RW "$base/btrfs/snapshot-rw"
 
+# A btrfs scan root (story "btrfs and ZFS on Linux: subvolumes, datasets, snapshots and
+# stable identities", DDC-010): a plain subvolume with a project and a nested one; a
+# node_modules that is a subvolume and one that holds one; read-only, writable and
+# received snapshots; and a second btrfs mounted inside. All made by the user but the
+# send and receive and the inner mount, which need root.
+loop btrfs-tree 300 mkfs.btrfs -q
+t="$base/btrfs-tree"
+btrfs subvolume create "$t/work" >/dev/null
+mkdir -p "$t/work/app/node_modules/dep"
+head -c 65536 /dev/zero >"$t/work/app/node_modules/dep/index.js"
+btrfs subvolume create "$t/work/nested" >/dev/null
+head -c 65536 /dev/zero >"$t/work/nested/file"
+mkdir -p "$t/whole" "$t/holds/node_modules"
+btrfs subvolume create "$t/whole/node_modules" >/dev/null
+echo data >"$t/whole/node_modules/index.js"
+btrfs subvolume create "$t/holds/node_modules/inner" >/dev/null
+echo data >"$t/holds/node_modules/inner/index.js"
+btrfs subvolume snapshot -r "$t/work" "$t/snap-ro" >/dev/null
+btrfs subvolume snapshot "$t/work" "$t/snap-rw" >/dev/null
+mkdir -p "$t/recv"
+sudo -n btrfs send -q "$t/snap-ro" | sudo -n btrfs receive -q "$t/recv"
+truncate -s 300M "$img/btrfs-inner.img"
+mkfs.btrfs -q "$img/btrfs-inner.img" >/dev/null
+mkdir -p "$t/data"
+sudo -n mount -o loop "$img/btrfs-inner.img" "$t/data"
+mine "$t/data"
+say DDC_MOUNT_BTRFS_TREE "$t"
+
 # XFS refuses a filesystem under 300 MB; reflinks are on by default.
 loop xfs 320 mkfs.xfs -q
 say DDC_MOUNT_XFS "$base/xfs"
@@ -164,7 +192,7 @@ say DDC_FIXTURE_IMMUTABLE "$base/fixtures/immutable/file"
 say DDC_FIXTURE_APPEND_ONLY "$base/fixtures/append-only/file"
 say DDC_MOUNTS "$base"
 
-table="$(for m in btrfs xfs casefold exfat tmpfs tmpfs-root-top zfs zfs/child nfs nfs-squash cifs bind-root/inner; do
+table="$(for m in btrfs btrfs-tree btrfs-tree/data xfs casefold exfat tmpfs tmpfs-root-top zfs zfs/child nfs nfs-squash cifs bind-root/inner; do
     printf '| %s | %s |\n' "$m" "$(stat -f -c %T "$base/$m")"
 done; printf '| autofs/trigger | autofs (from mountinfo, never stat'"'"'ed) |\n')"
 printf '%s\n' "$table" >&2

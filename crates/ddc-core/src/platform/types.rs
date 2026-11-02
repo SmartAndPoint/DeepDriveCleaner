@@ -64,6 +64,12 @@ pub enum Boundary {
     Automount,
     /// Another mount: a bind mount of the same filesystem keeps its device.
     Mount,
+    /// A btrfs snapshot (read-only, writable or received): never entered
+    /// (safety ADR, amendment of 2026-11-02, "btrfs and ZFS on Linux").
+    Snapshot,
+    /// A plain btrfs subvolume of this mount: entered and counted, and the
+    /// finding that holds it, or is it, is never planned (same amendment).
+    Subvolume,
 }
 
 /// The times a listing reads for each entry. Each one adds bytes to every

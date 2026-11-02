@@ -357,6 +357,18 @@ impl<'a> Guard<'a> {
             // walked.
             return Err(SkipReason::Incomplete);
         }
+        if st.dev != parent_id.0 {
+            // The finding is itself a btrfs subvolume (or another volume):
+            // ddc never removes one, whatever the plan says (safety ADR,
+            // amendment of 2026-11-02, "btrfs and ZFS on Linux"). The walk
+            // never claims a folder of another device than its parent's
+            // otherwise, so this refuses nothing else. Known gap, as for
+            // mounts: `execute` does not walk the finding again, so a
+            // subvolume made inside it after the scan would be emptied and
+            // removed by path; story "Linux file kinds: special files,
+            // immutable flags, sparse files and odd names" owns that removal.
+            return Err(SkipReason::Incomplete);
+        }
         if self.protected_ids.contains(&(st.dev, st.ino)) {
             return Err(SkipReason::Protected);
         }
@@ -725,10 +737,15 @@ pub(super) fn walk_item(path: &Path, reader: &dyn DirReader) -> Option<Walked> {
         bytes: out.total_bytes,
         kept,
         incomplete: out.errors_total > 0 || out.skipped_total > 0 || out.vanished > 0,
-        other_fs: out
-            .skipped
-            .iter()
-            .any(|s| matches!(s.reason, scan::SkipReason::OtherFilesystem | scan::SkipReason::Automount)),
+        other_fs: out.skipped.iter().any(|s| {
+            matches!(
+                s.reason,
+                scan::SkipReason::OtherFilesystem
+                    | scan::SkipReason::Automount
+                    | scan::SkipReason::Snapshot
+                    | scan::SkipReason::HoldsSubvolume
+            )
+        }),
     })
 }
 
