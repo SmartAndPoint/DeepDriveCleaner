@@ -17,6 +17,11 @@ pub enum Mount {
     BtrfsSubvolume,
     BtrfsSnapshotRo,
     BtrfsSnapshotRw,
+    /// A btrfs scan root: subvolume `work` (with `app/node_modules` and the
+    /// nested subvolume `nested`), `whole/node_modules` a subvolume,
+    /// `holds/node_modules/inner` a subvolume, the snapshots `snap-ro`,
+    /// `snap-rw` and `recv/snap-ro` (received), and another btrfs at `data`.
+    BtrfsTree,
     Xfs,
     /// A folder with ext4's casefold flag (`chattr +F`).
     Casefold,
@@ -48,6 +53,7 @@ impl Mount {
             Mount::BtrfsSubvolume => "DDC_MOUNT_BTRFS_SUBVOLUME",
             Mount::BtrfsSnapshotRo => "DDC_MOUNT_BTRFS_SNAPSHOT_RO",
             Mount::BtrfsSnapshotRw => "DDC_MOUNT_BTRFS_SNAPSHOT_RW",
+            Mount::BtrfsTree => "DDC_MOUNT_BTRFS_TREE",
             Mount::Xfs => "DDC_MOUNT_XFS",
             Mount::Casefold => "DDC_MOUNT_CASEFOLD",
             Mount::Exfat => "DDC_MOUNT_EXFAT",
@@ -69,6 +75,7 @@ impl Mount {
             Mount::BtrfsSubvolume => "btrfs subvolume",
             Mount::BtrfsSnapshotRo => "btrfs read-only snapshot",
             Mount::BtrfsSnapshotRw => "btrfs writable snapshot",
+            Mount::BtrfsTree => "btrfs tree",
             Mount::Xfs => "xfs",
             Mount::Casefold => "casefold ext4",
             Mount::Exfat => "exfat",
@@ -88,7 +95,11 @@ impl Mount {
     /// folder and the bind mount are ext4: their tests prove the rest.
     pub fn magic(self) -> u32 {
         match self {
-            Mount::Btrfs | Mount::BtrfsSubvolume | Mount::BtrfsSnapshotRo | Mount::BtrfsSnapshotRw => 0x9123_683E,
+            Mount::Btrfs
+            | Mount::BtrfsTree
+            | Mount::BtrfsSubvolume
+            | Mount::BtrfsSnapshotRo
+            | Mount::BtrfsSnapshotRw => 0x9123_683E,
             Mount::Xfs => 0x5846_5342,
             Mount::Casefold | Mount::Bind => 0xEF53,
             Mount::Exfat => 0x2011_BAB0,

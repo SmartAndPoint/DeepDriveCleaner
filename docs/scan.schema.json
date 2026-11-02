@@ -1259,6 +1259,16 @@
           "description": "An automount point (an autofs map, an NFS or SMB referral): opening\nit would mount it, so the walk never does (Linux).",
           "type": "string",
           "const": "automount"
+        },
+        {
+          "description": "A btrfs snapshot (read-only, writable or received): never entered,\ncounted or planned (Linux; safety ADR, amendment of 2026-11-02).",
+          "type": "string",
+          "const": "snapshot"
+        },
+        {
+          "description": "A btrfs subvolume, entered and counted: listed so that the finding\nthat holds it, or is it, is never planned; ddc does not remove a\nsubvolume (Linux; same amendment).",
+          "type": "string",
+          "const": "holds-subvolume"
         }
       ]
     },

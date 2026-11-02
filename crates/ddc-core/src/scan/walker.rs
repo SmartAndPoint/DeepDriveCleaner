@@ -31,6 +31,17 @@ struct Wants {
     times: bool,
 }
 
+impl OwnerAcc {
+    /// An owner rooted on a btrfs subvolume is incomplete, so never planned
+    /// (safety ADR, amendment of 2026-11-02, "btrfs and ZFS on Linux").
+    fn on_subvolume(self: Arc<Self>, subvol: bool) -> Arc<Self> {
+        if subvol {
+            self.skipped.fetch_add(1, Relaxed);
+        }
+        self
+    }
+}
+
 struct OwnerAcc {
     id: usize,
     tag: Tag,
@@ -73,7 +84,6 @@ struct EntryAcc {
 
 struct RootAcc {
     path: PathBuf,
-    dev: u64,
     /// The root held open, which every folder of the walk opens beneath;
     /// `None` when it cannot be opened, and the walk reads by path.
     anchor: Option<Anchor>,
@@ -126,6 +136,10 @@ struct Task {
     /// read, as `du` still counts an unreadable folder itself. Once read,
     /// its listing's own count is the one taken.
     blocks: u64,
+    /// The root of a btrfs subvolume, entered: an owner rooted here is never
+    /// planned (safety ADR, amendment of 2026-11-02, "btrfs and ZFS on
+    /// Linux").
+    subvol: bool,
 }
 
 /// Walks `roots` (canonicalized; roots nested in other roots are dropped)
@@ -168,7 +182,6 @@ pub fn walk_with_reader(
             .iter()
             .map(|(path, st)| RootAcc {
                 path: path.clone(),
-                dev: st.dev,
                 anchor: st.md.is_dir().then(|| crate::platform::bulk::anchor(path).ok()).flatten(),
                 bytes: AtomicU64::new(0),
                 files: AtomicU64::new(0),
@@ -200,6 +213,7 @@ pub fn walk_with_reader(
                         uid: None,
                         hooks: true,
                         blocks: st.alloc,
+                        subvol: false,
                     };
                     let sh = &sh;
                     s.spawn(move |s| visit(s, sh, task));
@@ -257,7 +271,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         sh.pruned.fetch_add(1, Relaxed);
         return;
     }
-    let Task { dir, expect, parent, depth, root, mut owner, entry, mut hooks, uid, blocks } = task;
+    let Task { dir, expect, parent, depth, root, mut owner, entry, mut hooks, uid, blocks, subvol } = task;
     let foreign_dir = uid.is_some_and(|u| u != sh.me);
     let name = dir.file_name().unwrap_or(dir.as_os_str());
     let mut lists = false;
@@ -275,7 +289,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             Pre::Claim(tag) => {
                 let wants = sh.claim_wants(&ctx, tag);
                 lists = sh.visitor.lists_entries(&ctx, tag);
-                let claim = sh.new_owner(tag, OwnerKind::Claim, &dir, expect, parent, wants);
+                let claim = sh.new_owner(tag, OwnerKind::Claim, &dir, expect, parent, wants).on_subvolume(subvol);
                 claim.foreign.fetch_add(u64::from(foreign_dir), Relaxed);
                 owner = Some(claim);
                 hooks = false;
@@ -283,7 +297,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             Pre::Region(tag) => {
                 lists = sh.visitor.lists_entries(&ctx, tag);
                 let wants = Wants { private: false, times: false };
-                owner = Some(sh.new_owner(tag, OwnerKind::Region, &dir, expect, parent, wants));
+                owner = Some(sh.new_owner(tag, OwnerKind::Region, &dir, expect, parent, wants).on_subvolume(subvol));
                 region_here = true;
             }
         }
@@ -311,7 +325,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         let post = sh.visitor.after_read(&ctx, &listing);
         if let Post::Claim(tag) = post {
             let wants = sh.claim_wants(&ctx, tag);
-            let claim = sh.new_owner(tag, OwnerKind::Claim, &dir, expect, parent, wants);
+            let claim = sh.new_owner(tag, OwnerKind::Claim, &dir, expect, parent, wants).on_subvolume(subvol);
             let for_private = !want_private && claim.want_private;
             let for_times = times == Times::None && claim.want_times;
             if for_private || for_times {
@@ -341,7 +355,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         {
             // Rules keep working inside, as under a `Pre::Region`.
             let wants = Wants { private: false, times: false };
-            owner = Some(sh.new_owner(tag, OwnerKind::Region, &dir, expect, parent, wants));
+            owner = Some(sh.new_owner(tag, OwnerKind::Region, &dir, expect, parent, wants).on_subvolume(subvol));
         }
     }
 
@@ -354,7 +368,6 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
 
     let ctx_owner = owner_ctx(&owner);
     let owner_id = owner.as_ref().map(|o| o.id);
-    let root_dev = sh.roots[root].dev;
     // The folder's own blocks, as `du` counts them (none on APFS).
     let (mut files, mut bytes, mut private, mut errors) = (0u64, listing.alloc, 0u64, 0u64);
     let (mut linked_bytes, mut skipped, mut private_missing, mut foreign) = (0u64, 0u64, 0u64, 0u64);
@@ -389,7 +402,8 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             }
             let why = match edge {
                 Boundary::Automount => SkipReason::Automount,
-                Boundary::Mount => SkipReason::OtherFilesystem,
+                Boundary::Snapshot => SkipReason::Snapshot,
+                Boundary::Mount | Boundary::Subvolume => SkipReason::OtherFilesystem,
             };
             sh.skip(dir.join(&meta.name), why);
             continue;
@@ -405,26 +419,38 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
                 if meta.flags & SF_DATALESS != 0 {
                     skipped += 1;
                     sh.skip(child, SkipReason::Dataless);
-                } else if let Some(edge) = meta.boundary {
+                } else if let Some(edge) = meta.boundary.filter(|e| *e != Boundary::Subvolume) {
                     // An automount point or another mount, a bind mount of
-                    // this filesystem included: never opened (safety ADR,
-                    // amendment of 2026-11-01).
+                    // this filesystem included, or a btrfs snapshot: never
+                    // opened (safety ADR, amendments of 2026-11-01 and of
+                    // 2026-11-02, "btrfs and ZFS on Linux").
                     skipped += 1;
                     if let Some(e) = within {
                         e.other_fs.fetch_add(1, Relaxed);
                     }
                     let why = match edge {
                         Boundary::Automount => SkipReason::Automount,
-                        Boundary::Mount => SkipReason::OtherFilesystem,
+                        Boundary::Snapshot => SkipReason::Snapshot,
+                        Boundary::Mount | Boundary::Subvolume => SkipReason::OtherFilesystem,
                     };
                     sh.skip(child, why);
-                } else if meta.dev != root_dev {
+                } else if meta.dev != here.0 && meta.boundary != Some(Boundary::Subvolume) {
                     skipped += 1;
                     if let Some(e) = within {
                         e.other_fs.fetch_add(1, Relaxed);
                     }
                     sh.skip(child, SkipReason::OtherFilesystem);
                 } else {
+                    // A plain btrfs subvolume is entered and counted, and
+                    // listed, so the finding that holds it is never planned.
+                    let subvol = meta.boundary == Some(Boundary::Subvolume);
+                    if subvol {
+                        skipped += 1;
+                        if let Some(e) = within {
+                            e.other_fs.fetch_add(1, Relaxed);
+                        }
+                        sh.skip(child.clone(), SkipReason::HoldsSubvolume);
+                    }
                     let task = Task {
                         dir: child,
                         expect: (meta.dev, meta.ino),
@@ -436,6 +462,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
                         hooks,
                         uid: meta.uid,
                         blocks: meta.alloc,
+                        subvol,
                     };
                     s.spawn(move |s| visit(s, sh, task));
                 }

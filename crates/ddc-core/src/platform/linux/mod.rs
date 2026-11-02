@@ -11,6 +11,7 @@
 
 use super::{Capability, Platform};
 
+mod btrfs;
 pub mod bulk;
 pub mod errno;
 pub mod folders;

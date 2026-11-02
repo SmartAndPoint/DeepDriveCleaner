@@ -52,6 +52,7 @@ struct ScanReportTests {
     /// Story "Worktree findings and provenance" (epic DDC-003): a report the
     /// released ddc 0.25.0 wrote over a Claude Code worktree with a `.venv`
     /// reads, with the fields the app reads of the worktree finding.
+    /// Only its `schema_version` moves with each scan-schema bump.
     @Test("a report with a coding agent's worktree and what lies in it reads")
     func decodesReportWithWorktree() throws {
         let report = try ScanReport.read(try Data(contentsOf: try Self.fixture("scan-report-0.25.0-worktree")))

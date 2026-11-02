@@ -258,6 +258,8 @@ fn list_fd(
         }
     }
 
+    // This folder's mount, for the subvolume rule: unknown, nothing is entered.
+    let dir_mnt = mount_id(fd, me.mnt_id);
     let mut entries = Vec::new();
     let mut buf = vec![MaybeUninit::<u8>::uninit(); BUF_LEN];
     let mut names = RawDir::new(fd, &mut buf);
@@ -273,8 +275,17 @@ fn list_fd(
         }
         let (mut entry, seen) = entry_meta(fd, name, times, me.mnt_id);
         if entry.kind == EntryKind::Dir {
-            let mut mounts = mounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            entry.boundary = mounts.boundary(entry.boundary, seen, dir, &entry.name);
+            entry.boundary = mounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner).boundary(
+                entry.boundary,
+                seen,
+                dir,
+                &entry.name,
+            );
+            // Same mount, another device: a btrfs subvolume reached by path,
+            // or something else the walk must not enter.
+            if entry.boundary.is_none() && entry.error.is_none() && entry.dev != me.dev {
+                entry.boundary = Some(subvolume_edge(fd, name, (entry.dev, entry.ino), dir_mnt, mounts));
+            }
         }
         entries.push(entry);
     }
@@ -332,6 +343,147 @@ fn entry_meta(dir: &OwnedFd, name: &CStr, times: Times, dir_mnt: Option<u64>) ->
     }
 }
 
+/// A folder on this folder's mount but another device (safety ADR,
+/// amendment of 2026-11-02, "btrfs and ZFS on Linux"). Entered only when the
+/// mount is btrfs, the child opened beneath this folder is still the listed
+/// one on the same known mount, and the kernel calls it a plain subvolume;
+/// a snapshot is never entered; anything else, an error included, is
+/// another filesystem.
+/// The walk-wide mountinfo cache is locked for the type alone, never across
+/// the open, the stat or the ioctl.
+fn subvolume_edge(
+    dir: &OwnedFd,
+    name: &CStr,
+    id: (u64, u64),
+    dir_mnt: Option<u64>,
+    mounts: &std::sync::Mutex<Mounts>,
+) -> Boundary {
+    let Some(dir_mnt) = dir_mnt else { return Boundary::Mount };
+    let kind = mounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner).type_of(dir_mnt);
+    if kind.as_deref() != Some("btrfs") {
+        return Boundary::Mount;
+    }
+    let Ok(child) = retry(|| {
+        rustix::fs::openat(
+            dir,
+            name,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+    }) else {
+        return Boundary::Mount;
+    };
+    let Ok(st) = stat(&child, c"", AtFlags::EMPTY_PATH, false) else { return Boundary::Mount };
+    if (st.dev, st.ino) != id || mount_id(&child, st.mnt_id) != Some(dir_mnt) {
+        return Boundary::Mount;
+    }
+    match super::btrfs::subvolume(&child) {
+        Ok(super::btrfs::Subvolume::Plain) => Boundary::Subvolume,
+        Ok(super::btrfs::Subvolume::Snapshot) => Boundary::Snapshot,
+        Err(_) => Boundary::Mount,
+    }
+}
+
+/// Every step of [`subvolume_edge`] for `name` in `dir`, with its values,
+/// for a CI test that can only see a real btrfs on the runner: the walk
+/// never calls it.
+#[doc(hidden)]
+pub fn subvolume_trace(dir: &Path, name: &OsStr) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let fd = match retry(|| {
+        rustix::fs::open(dir, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty())
+    }) {
+        Ok(fd) => fd,
+        Err(e) => return format!("open {}: {e}", dir.display()),
+    };
+    let fdinfo = |fd: &OwnedFd| {
+        std::fs::read(format!("/proc/self/fdinfo/{}", fd.as_raw_fd())).ok().and_then(|i| fdinfo_mnt_id(&i))
+    };
+    let me = stat(&fd, c"", AtFlags::EMPTY_PATH, false);
+    let me_mnt = me.as_ref().ok().and_then(|m| m.mnt_id);
+    match &me {
+        Ok(m) => {
+            let _ = writeln!(
+                out,
+                "parent: dev {} ino {} statx mnt_id {:?} mount_root {:?} fdinfo mnt_id {:?}",
+                m.dev,
+                m.ino,
+                m.mnt_id,
+                m.mount_root,
+                fdinfo(&fd)
+            );
+        }
+        Err(e) => {
+            let _ = writeln!(out, "parent stat: {e}");
+        }
+    }
+    let dir_mnt = mount_id(&fd, me_mnt);
+    let mut mounts = Mounts::default();
+    let kind = dir_mnt.and_then(|id| mounts.type_of(id));
+    let line = dir_mnt.and_then(|id| {
+        let info = std::fs::read_to_string("/proc/self/mountinfo").ok()?;
+        info.lines().find(|l| l.split(' ').next() == Some(id.to_string().as_str())).map(str::to_owned)
+    });
+    let _ = writeln!(out, "parent mount: {dir_mnt:?} type {kind:?} line {line:?}");
+    let Ok(cname) = rustix::ffi::CString::new(name.as_bytes()) else { return out + "name has a NUL" };
+    let flags = AtFlags::SYMLINK_NOFOLLOW | AtFlags::STATX_DONT_SYNC | AtFlags::NO_AUTOMOUNT;
+    match stat(&fd, &*cname, flags, false) {
+        Ok(st) => {
+            let _ = writeln!(
+                out,
+                "entry: dev {} ino {} statx mnt_id {:?} mount_root {:?} automount {:?} boundary {:?}",
+                st.dev,
+                st.ino,
+                st.mnt_id,
+                st.mount_root,
+                st.automount,
+                boundary(st.automount, st.mount_root, st.mnt_id, me_mnt)
+            );
+        }
+        Err(e) => {
+            let _ = writeln!(out, "entry stat: {e}");
+        }
+    }
+    let (meta, seen) = entry_meta(&fd, &cname, Times::None, me_mnt);
+    let edge = mounts.boundary(meta.boundary, seen, dir, &meta.name);
+    let _ = writeln!(out, "entry_meta: boundary {:?} then mounts.boundary {edge:?} told {}", meta.boundary, seen.told);
+    match retry(|| {
+        rustix::fs::openat(
+            &fd,
+            &*cname,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+    }) {
+        Ok(child) => {
+            match stat(&child, c"", AtFlags::EMPTY_PATH, false) {
+                Ok(st) => {
+                    let _ = writeln!(
+                        out,
+                        "child opened: dev {} ino {} statx mnt_id {:?} fdinfo mnt_id {:?} mount_id {:?}",
+                        st.dev,
+                        st.ino,
+                        st.mnt_id,
+                        fdinfo(&child),
+                        mount_id(&child, st.mnt_id)
+                    );
+                }
+                Err(e) => {
+                    let _ = writeln!(out, "child stat: {e}");
+                }
+            }
+            let _ = writeln!(out, "ioctl: {:?}", super::btrfs::subvolume(&child));
+        }
+        Err(e) => {
+            let _ = writeln!(out, "child open: {e}");
+        }
+    }
+    let shared = std::sync::Mutex::new(Mounts::default());
+    let _ = write!(out, "edge: {:?}", subvolume_edge(&fd, &cname, (meta.dev, meta.ino), dir_mnt, &shared));
+    out
+}
+
 /// What the entry's own stat told of its mount.
 #[derive(Clone, Copy)]
 struct Seen {
@@ -370,6 +522,15 @@ struct Mounts {
 }
 
 impl Mounts {
+    /// The type of mount `id`, from mountinfo read again for an id it has
+    /// not seen.
+    fn type_of(&mut self, id: u64) -> Option<String> {
+        if self.by_id.as_ref().is_none_or(|m| !m.contains_key(&id)) {
+            self.by_id = Some(super::statfs::types_by_id().unwrap_or_default());
+        }
+        self.by_id.as_ref().and_then(|m| m.get(&id)).cloned()
+    }
+
     fn boundary(&mut self, found: Option<Boundary>, seen: Seen, dir: &Path, name: &OsStr) -> Option<Boundary> {
         let autofs = |t: &str| if t == "autofs" { Boundary::Automount } else { Boundary::Mount };
         match (found, seen) {

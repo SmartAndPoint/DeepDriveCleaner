@@ -9,7 +9,7 @@ import Foundation
 /// their defaults, so a report of this version without them still reads.
 public struct ScanReport: Decodable, Sendable, Equatable {
     /// `SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 6
+    public static let schemaVersion = 7
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)
@@ -84,8 +84,9 @@ public struct ScanReport: Decodable, Sendable, Equatable {
 
     /// The scan's `SkipReason`. An unknown value is a decoding error.
     public enum SkipArea: String, Decodable, Sendable, CaseIterable {
-        case excluded, dataless, changed, automount
+        case excluded, dataless, changed, automount, snapshot
         case otherFilesystem = "other-filesystem"
+        case holdsSubvolume = "holds-subvolume"
     }
 
     public struct Totals: Decodable, Sendable, Equatable {

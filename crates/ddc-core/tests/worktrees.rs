@@ -484,6 +484,8 @@ fn a_report_with_worktrees_holds_its_schema() {
 /// Claude Code worktree with a `.venv` (its paths scrubbed to `/h`): this
 /// build reads it as a `ScanReport`, it holds the schema, and its worktree
 /// finding keeps `origin` and `worktree`. The app's tests read the same file.
+/// Only its `schema_version` moves with each scan-schema bump (7 since
+/// 0.27.0); the rest is byte for byte what 0.25.0 wrote.
 #[test]
 fn a_report_ddc_0_25_0_wrote_of_a_worktree_still_reads() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))

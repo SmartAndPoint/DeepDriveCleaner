@@ -47,6 +47,13 @@ pub enum SkipReason {
     /// An automount point (an autofs map, an NFS or SMB referral): opening
     /// it would mount it, so the walk never does (Linux).
     Automount,
+    /// A btrfs snapshot (read-only, writable or received): never entered,
+    /// counted or planned (Linux; safety ADR, amendment of 2026-11-02).
+    Snapshot,
+    /// A btrfs subvolume, entered and counted: listed so that the finding
+    /// that holds it, or is it, is never planned; ddc does not remove a
+    /// subvolume (Linux; same amendment).
+    HoldsSubvolume,
 }
 
 /// Decision taken before a directory is read.
