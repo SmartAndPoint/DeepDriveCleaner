@@ -86,6 +86,12 @@ public final class PopoverModel {
     public private(set) var notices: [Notice] = []
     public private(set) var now: Date
     public private(set) var badgePending = false
+    /// Used space grew, or the disk is nearly full, and the popover has not
+    /// opened since (`AppPreferences.growthBadgePending`).
+    public private(set) var growthPending = false
+    /// The last `space --json` result; nil before the first, and dropped as
+    /// soon as a reloaded report gives the volume another baseline.
+    public private(set) var space: SpaceReport?
     public private(set) var showSize = true
     public private(set) var showBadge = true
     /// The prompting areas the app's last own scan could not read (`NotReadable`).
@@ -111,6 +117,12 @@ public final class PopoverModel {
     private var settingsUnreadable = false
     @ObservationIgnored private var scanTask: Task<Void, Never>?
     @ObservationIgnored private var scheduledTask: Task<ScheduledScan, Never>?
+    /// The growth check in flight: a second call waits for it and runs none.
+    @ObservationIgnored private var spaceTask: Task<Void, Never>?
+    /// When the last growth check ran, by the injected clock.
+    @ObservationIgnored private var lastSpaceCheck: Date?
+    /// The popover is on screen: a result whose band it shows needs no badge.
+    @ObservationIgnored private var popoverShown = false
     /// A notice's button: the app runs it (Allow Notifications, Replace It).
     @ObservationIgnored public var onNoticeAction: (@MainActor (Notice.Action) -> Void)?
     @ObservationIgnored private var started = false
@@ -233,6 +245,21 @@ public final class PopoverModel {
         return "This scan ran without Full Disk Access; part of ~/Library was not read."
     }
 
+    /// The band between the header and the main block (story "Popover: say
+    /// when used space grew since the last scan"). Only while the `space`
+    /// result compared with the report the popover shows: its baseline is the
+    /// loaded report's for that volume, or null with no report that lists it.
+    /// None while a scan runs, before the first result, and for `quiet`.
+    public var growthBand: GrowthBand? {
+        guard scan == nil, let space else { return nil }
+        switch report {
+        case .loaded, .none: break
+        case .loading, .unreadable: return nil
+        }
+        guard GrowthBadge.Key(report: loadedReport, mountPoint: space.volume.mountPoint) == GrowthBadge.Key(space) else { return nil }
+        return GrowthBand.make(space, now: now, paused: paused, canScan: canScan)
+    }
+
     public var nextScanText: String { Wording.nextScan(nextScan(), now: now) }
 
     /// The due function's next scan, as the footer reads it; Settings' Next scan too.
@@ -250,6 +277,7 @@ public final class PopoverModel {
             threshold: threshold,
             showSize: showSize,
             badgePending: badgePending,
+            growthPending: growthPending,
             showBadge: showBadge
         )
     }
@@ -288,6 +316,10 @@ public final class PopoverModel {
     /// the probe again, and whatever changed on disk (a scheduled scan or a
     /// terminal `ddc scan` writes `last-scan.json` too).
     public func refresh() async {
+        await refresh(forceSpace: false)
+    }
+
+    private func refresh(forceSpace: Bool) async {
         now = clock()
         probeAccess()
         readPreferences()
@@ -297,6 +329,25 @@ public final class PopoverModel {
         if scan == nil, !cleaning, DataDirectory.modified(data.lastScan) != reportModified { await loadReport() }
         // A disk plugged in or out changes the app's roots with no file changed.
         updateScope()
+        await checkSpace(force: forceSpace)
+    }
+
+    /// The popover opened: the growth badge goes, and the check it runs, or
+    /// any check while it stays open, badges only what its band cannot show.
+    public func popoverOpened() async {
+        popoverShown = true
+        clearGrowthBadge()
+        await refresh(forceSpace: true)
+    }
+
+    /// The popover closed: the next new baseline badges again.
+    public func popoverClosed() {
+        popoverShown = false
+    }
+
+    /// `NSWorkspace.didWakeNotification`: hours may have passed.
+    public func spaceAfterWake() async {
+        await checkSpace(force: true)
     }
 
     /// The report a clean edited and saved, read at once, during the clean
@@ -332,6 +383,8 @@ public final class PopoverModel {
         showSize = preferences.showSize
         showBadge = preferences.showBadge
         badgePending = preferences.badgePending
+        // A `--scheduled` instance may have set it.
+        growthPending = preferences.growthBadgePending
         notReadable = preferences.notReadable
     }
 
@@ -394,6 +447,25 @@ public final class PopoverModel {
             log("last-scan.json unreadable: \(error)")
         }
         recompute()
+        followBaseline()
+    }
+
+    /// A report read again may give the home volume another baseline (a
+    /// scan, or a clean that read the free space again): the band of the old
+    /// one goes at once, before the next `space` result, and so does a
+    /// growth badge set for it. An unreadable report changes neither.
+    private func followBaseline() {
+        switch report {
+        case .loaded, .none: break
+        case .loading, .unreadable: return
+        }
+        if let space, GrowthBadge.Key(report: loadedReport, mountPoint: space.volume.mountPoint) != GrowthBadge.Key(space) {
+            self.space = nil
+        }
+        if growthPending, let badged = preferences.growthBadgedFor,
+           GrowthBadge.Key(report: loadedReport, mountPoint: badged.mountPoint) != badged {
+            clearGrowthBadge()
+        }
     }
 
     private func recompute() {
@@ -455,6 +527,8 @@ public final class PopoverModel {
         scanTask = task
         await task.value
         scanTask = nil
+        // The report may have a new baseline: compare with it now.
+        await checkSpace(force: true)
     }
 
     private func runScan(_ runner: any CLIRunning) async {
@@ -573,6 +647,67 @@ public final class PopoverModel {
         }
     }
 
+    // MARK: - The growth check ("Popover: say when used space grew since the last scan")
+
+    /// The refresh's growth check runs at most once per this interval.
+    public static let spaceInterval: TimeInterval = 600
+
+    /// `space --json`: on the hourly tick, on wake, when the popover opens,
+    /// after a scan or clean this app ran, and from the refresh at most once
+    /// per `spaceInterval` (`force` false). Never while a scan, a scheduled
+    /// task or a clean runs, nor while an update waits to install: the
+    /// relaunch waits for the runner to go idle. The rule is the CLI's; this
+    /// keeps the result for the band and sets the growth badge once per baseline.
+    public func checkSpace(force: Bool) async {
+        if let spaceTask {
+            await spaceTask.value
+            return
+        }
+        guard let runner, scan == nil, scanTask == nil, scheduledTask == nil, !cleaning, !updateWaiting else { return }
+        let at = clock()
+        if !force, let last = lastSpaceCheck, at.timeIntervalSince(last) < Self.spaceInterval { return }
+        lastSpaceCheck = at
+        let task = Task { await runSpace(runner) }
+        spaceTask = task
+        await task.value
+        spaceTask = nil
+    }
+
+    private func runSpace(_ runner: any CLIRunning) async {
+        let result = await runner.run(.space, ["space", "--json"])
+        now = clock()
+        guard result.outcome == .done else {
+            log("space --json failed: \(result.outcome); \(result.stderrTail.suffix(3).joined(separator: " | "))")
+            return
+        }
+        let read: SpaceReport
+        do {
+            read = try SpaceReport.read(result.stdout)
+        } catch {
+            log("space --json did not read: \(error)")
+            return
+        }
+        space = read
+        // Another baseline than the badge's: that badge is of the past.
+        if growthPending, preferences.growthBadgedFor != GrowthBadge.Key(read) { clearGrowthBadge() }
+        if let key = GrowthBadge.next(read, badgedFor: preferences.growthBadgedFor) {
+            // Set whatever "Show a badge" says: `IconState` decides whether it shows.
+            preferences.setGrowthBadge(for: key)
+            if popoverShown && growthBand != nil {
+                // Seen in the open popover: recorded, not badged.
+                clearGrowthBadge()
+            } else {
+                growthPending = true
+                log("growth badge set: \(read.state.rawValue)")
+            }
+        }
+    }
+
+    private func clearGrowthBadge() {
+        preferences.clearGrowthBadge()
+        growthPending = false
+    }
+
     // MARK: - The review seam
 
     /// Review…, "See what was found", or a biggest find. `keepingSelection`:
@@ -621,7 +756,10 @@ public final class PopoverModel {
 
     /// The Review window's clean started or ended, its rescan included.
     public func setCleaning(_ on: Bool) {
+        let ended = cleaning && !on
         cleaning = on
+        // A clean changed the disk: the growth check compares with the report it left.
+        if ended { Task { await checkSpace(force: true) } }
     }
 
     /// `UpdateModel.onJobsHeld`.

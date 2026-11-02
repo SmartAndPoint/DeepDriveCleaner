@@ -20,8 +20,7 @@ public struct NotificationText: Codable, Sendable, Equatable {
         if decision.reason == .lowDisk, let volume = decision.volume {
             let disk = Wording.volume(volume)
             let title: String
-            if let free = decision.free, let total = decision.total, total > 0 {
-                let full = Int((Double(total - min(free, total)) / Double(total) * 100).rounded(.down))
+            if let free = decision.free, let total = decision.total, let full = Wording.percentFull(free: free, total: total) {
                 title = "\(disk) is \(full)% full"
             } else {
                 title = "\(disk) is almost full"

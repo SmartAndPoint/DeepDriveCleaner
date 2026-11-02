@@ -125,6 +125,26 @@ struct ScheduledScanTests {
         #expect(await rig.runner.arguments(of: .backgroundScan) == [["scan", "--background", "--notify", "json"]])
     }
 
+    /// Story "Popover: say when used space grew since the last scan".
+    @Test("a due tick checks the space after its scheduled scan, not before; a tick with nothing due checks it too")
+    func spaceAfterTheTick() async throws {
+        let rig = try Rig(self, now: at(20, 10))
+        rig.preferences.setLastScheduledScan(at(19, 10))
+        await rig.reply(decision(notify: false))
+        #expect(await rig.work.tick() == .scanned)
+        let calls = await rig.runner.calls
+        let scan = try #require(calls.firstIndex(of: .backgroundScan))
+        let space = try #require(calls.firstIndex(of: .space))
+        #expect(scan < space, "\(calls)")
+        #expect(await rig.runner.arguments(of: .space) == [["space", "--json"]])
+
+        // As a `--scheduled` launch whose slot is not due: the check still runs.
+        rig.clock.now = at(20, 11)
+        #expect(await rig.work.tick() == .notDue)
+        #expect(await rig.runner.count(.space) == 2)
+        #expect(await rig.runner.count(.backgroundScan) == 1)
+    }
+
     @Test("with a weekly schedule, Remind Me Tomorrow adds one reminder scan at the first tick after the snooze; the weekly slot stays")
     func weeklyReminder() async throws {
         let rig = try Rig(self, now: at(19, 10, 5))

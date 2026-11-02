@@ -129,6 +129,9 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         public let roots: [String]
         public let freeBytes: UInt64
         public let totalBytes: UInt64
+        /// RFC 3339: set only when a `clean --items` edit read `free_bytes`
+        /// again; a scan leaves it absent (its volumes are read at `generated_at`).
+        public let readAt: String?
     }
 
     public struct Finding: Decodable, Sendable, Equatable {

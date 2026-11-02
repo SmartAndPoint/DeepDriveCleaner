@@ -13,6 +13,7 @@ struct IconStateTests {
         var reclaimable: UInt64? = nil
         var showSize = true
         var badgePending = false
+        var growthPending = false
         var showBadge = true
         let inner: IconState.Inner
         let mark: IconState.Mark
@@ -37,6 +38,10 @@ struct IconStateTests {
         Case(name: "the warning wins over the badge", attention: [.scanFailed], reclaimable: threshold, badgePending: true, inner: .none, mark: .warning, label: "10.0 GiB"),
         Case(name: "the badge", badgePending: true, inner: .none, mark: .badge, label: nil),
         Case(name: "the badge preference off", reclaimable: threshold, badgePending: true, showBadge: false, inner: .dot, mark: .none, label: "10.0 GiB"),
+        Case(name: "used space grew: the same badge", growthPending: true, inner: .none, mark: .badge, label: nil),
+        Case(name: "both reasons: one badge", badgePending: true, growthPending: true, inner: .none, mark: .badge, label: nil),
+        Case(name: "the warning wins over the growth badge", attention: [.fullDiskAccess], growthPending: true, inner: .none, mark: .warning, label: nil),
+        Case(name: "the badge preference off hides the growth badge too", growthPending: true, showBadge: false, inner: .dot, mark: .none, label: nil),
         Case(name: "paused", paused: true, inner: .dot, mark: .none, label: nil),
         Case(name: "paused keeps its warning", paused: true, attention: [.fullDiskAccess], inner: .none, mark: .warning, label: nil),
         Case(name: "paused while a scan finishes: a grey arc", busy: true, paused: true, inner: .arc, mark: .none, label: nil),
@@ -52,6 +57,7 @@ struct IconStateTests {
             threshold: Self.threshold,
             showSize: c.showSize,
             badgePending: c.badgePending,
+            growthPending: c.growthPending,
             showBadge: c.showBadge
         )
         #expect(state.inner == c.inner)
@@ -68,6 +74,20 @@ struct IconStateTests {
             threshold: Self.threshold, showSize: false, badgePending: false, showBadge: true
         )
         #expect(state.accessibility == "DeepDriveCleaner, paused, scanning, needs Full Disk Access, 10.0 GiB can be freed")
+    }
+
+    @Test("VoiceOver names the badge's reason: new results, used space grew, or both; nothing when the badge is off")
+    func badgeWords() {
+        func words(badge: Bool, growth: Bool, show: Bool = true) -> String {
+            IconState.make(
+                busy: false, reclaimable: nil, threshold: Self.threshold, showSize: false,
+                badgePending: badge, growthPending: growth, showBadge: show
+            ).accessibility
+        }
+        #expect(words(badge: true, growth: false) == "DeepDriveCleaner, new results to review")
+        #expect(words(badge: false, growth: true) == "DeepDriveCleaner, used space grew")
+        #expect(words(badge: true, growth: true) == "DeepDriveCleaner, new results to review, used space grew")
+        #expect(words(badge: true, growth: true, show: false) == "DeepDriveCleaner")
     }
 
     @Test("a clean in flight turns the arc and is named as a clean")

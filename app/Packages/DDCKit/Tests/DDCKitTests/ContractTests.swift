@@ -702,6 +702,76 @@ struct ContractTests {
         }
     }
 
+    // MARK: - The growth check ("Popover: say when used space grew since the last scan")
+
+    @Test("the space report is the CLI's: version, states, sources, and the fixtures validate against its schema")
+    func spaceContracts() throws {
+        let source = try rustSource("crates/ddc-core/src/space.rs")
+        let version = try #require(source.firstMatch(of: /pub const SPACE_SCHEMA_VERSION: u32 = (\d+);/))
+        #expect(Int(version.1) == SpaceReport.schemaVersion)
+        let space = try schema("space")
+        #expect(try values(space, "SpaceState") == SpaceReport.State.allCases.map(\.rawValue))
+        #expect(Set(try values(space, "BaselineSource")) == Set(SpaceReport.Baseline.Source.allCases.map(\.rawValue)))
+        for name in ["space-grew", "space-low-disk", "space-quiet"] {
+            let data = try Fixture.data(name)
+            #expect(try validate(JSONSerialization.jsonObject(with: data), against: space) == [], "\(name)")
+            _ = try SpaceReport.read(data)
+        }
+        // What the schema refuses, the app refuses too.
+        let refusals: [(String, (inout [String: Any]) -> Void)] = [
+            ("space-grew", { $0["state"] = "shrank" }),
+            ("space-grew", { $0["baseline"] = ["source": "disk-free", "at": "2026-11-02T08:00:00Z", "free_bytes": 1] }),
+            ("space-grew", { $0.removeValue(forKey: "volume") }),
+            ("space-grew", { $0.removeValue(forKey: "state") }),
+        ]
+        for (name, edit) in refusals {
+            let data = try Fixture.edited(name, edit)
+            #expect(try validate(JSONSerialization.jsonObject(with: data), against: space) != [], "\(name)")
+            #expect(throws: (any Error).self, "\(name)") { try SpaceReport.read(data) }
+        }
+        // The scan report's `read_at` is the clean's baseline time.
+        let scan = try schema("scan")
+        let volume = try #require((scan["$defs"] as? [String: Any])?["Volume"] as? [String: Any])
+        #expect((volume["properties"] as? [String: Any])?["read_at"] != nil)
+    }
+
+    @Test("only the popover model runs ddc space; the app checks it on open and on wake, and the band's Scan Now follows canScan")
+    func spaceCallers() throws {
+        let sources = try appSources()
+        func files(_ pattern: Regex<Substring>) -> Set<String> {
+            Set(sources.filter { $0.value.contains(pattern) }.map(\.key))
+        }
+        #expect(files(/run\(\s*\.space\b/) == ["PopoverModel.swift"])
+        #expect(files(/"space"/) == ["PopoverModel.swift"])
+        #expect(try #require(sources["PopoverModel.swift"]).matches(of: /\.run\(\.space\b/).count == 1, "one run of space")
+        // The hourly tick checks after its scan, through the model.
+        let work = try #require(sources["ScheduledWork.swift"])
+        #expect(work.contains(/popover\.checkSpace\(force: true\)\s*\n\s*await flushPending\(\)/), "after the scan block, before the notification")
+        // Opening the popover clears the growth badge and checks again.
+        let controller = try #require(sources["StatusItemController.swift"])
+        let show = try #require(controller.firstMatch(of: /func showPopover\(\)[\s\S]*?\n    }\n/))
+        #expect(show.output.contains("await model.popoverOpened()"))
+        #expect(!show.output.contains("model.refresh()"), "popoverOpened() refreshes")
+        // Wake is posted on NSWorkspace's centre only.
+        #expect(controller.contains(/NSWorkspace\.shared\.notificationCenter\.addObserver\(\s*forName: NSWorkspace\.didWakeNotification/))
+        #expect(controller.contains("await model.spaceAfterWake()"))
+        // Closing it tells the model, so a result while open badges only what its band cannot show.
+        #expect(controller.contains(/final class StatusItemController: NSObject, NSMenuDelegate, NSPopoverDelegate \{/))
+        #expect(controller.contains("popover.delegate = self"))
+        let close = try #require(controller.firstMatch(of: /func popoverDidClose\(_ notification: Notification\) \{[\s\S]*?\n    }\n/))
+        #expect(close.output.contains("model.popoverClosed()"))
+        #expect(files(/\.popoverClosed\(\)/) == ["StatusItemController.swift"])
+        #expect(files(/didWakeNotification/) == ["StatusItemController.swift"])
+        // The band sits between the header and the main block.
+        let view = try #require(sources["PopoverView.swift"])
+        #expect(view.contains(/header\n\s*if let band = model\.growthBand \{\n\s*GrowthBandView\(model: model, band: band\)\n\s*\}\n\s*content\n/))
+        let band = try #require(view.firstMatch(of: /private struct GrowthBandView: View \{[\s\S]*?\n}\n/))
+        #expect(band.output.contains(/Button\("Scan Now"\) \{ Task \{ await model\.scanNow\(\) \} \}\s*\n\s*\.disabled\(!model\.canScan\)/))
+        #expect(band.output.contains("ReportClassStyle.ink(.review)"), "low disk in the warning ink")
+        #expect(band.output.matches(of: /\.accessibilityLabel\(band\.spokenText\)/).count == 2, "the arrow is drawn, not read")
+        #expect(band.output.contains(".accessibilityLabel(band.spokenDetail ?? detail)"))
+    }
+
     /// The app's Swift sources, comment lines stripped, by file name.
     private func appSources() throws -> [String: String] {
         let root = repositoryRoot()

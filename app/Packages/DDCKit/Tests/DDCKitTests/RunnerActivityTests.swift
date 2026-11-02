@@ -163,6 +163,19 @@ struct RunnerActivityTests {
         #expect(await inner.cancelled == [ticket])
     }
 
+    @Test("a growth check (space --json) reads as scanning, never as cleaning")
+    func spaceIsScanning() async throws {
+        let activity = RunnerActivity(inner)
+        let run = Task { await activity.run(.space, ["space", "--json"]) }
+        try await inner.waitFor(1)
+        #expect(activity.busy)
+        #expect(activity.reason == .scanning)
+        await inner.releaseOne()
+        _ = await run.value
+        try await waitIdle(activity)
+        #expect(activity.reason == nil)
+    }
+
     @Test("the popover's scan through it is counted, and the popover sees the same result")
     func modelsSeeTheWrappedRunner() async throws {
         let data = try TempDataDirectory()

@@ -121,7 +121,7 @@ actor FakeRunner: CLIRunning {
     private var released = false
     private let blocks: Bool
     /// Replies to the scheduler's kinds (`backgroundScan`, `notify`,
-    /// `schedule`), to `disk`, `brewPackages` and `keepRemove`, each with what the run does first; done and
+    /// `schedule`), to `disk`, `brewPackages`, `keepRemove` and `space`, each with what the run does first; done and
     /// empty by default.
     private var replies: [CLIRunner.Kind: (result: CLIRunner.Result, effect: @Sendable () -> Void)] = [:]
 
@@ -144,7 +144,7 @@ actor FakeRunner: CLIRunning {
         case .dryRun, .clean:
             // The review tests that run these use `FakeCLI`; here they only count.
             return CLIRunner.Result(outcome: .done, stdout: Data(), stderrTail: [])
-        case .backgroundScan, .notify, .schedule, .disk, .brewPackages, .keepRemove:
+        case .backgroundScan, .notify, .schedule, .disk, .brewPackages, .keepRemove, .space:
             guard let reply = replies[kind] else { return Self.done(Data()) }
             reply.effect()
             return reply.result
