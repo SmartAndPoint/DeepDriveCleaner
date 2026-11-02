@@ -19,7 +19,7 @@
       {"path": "beside/work/__pycache__/a.cpython-312.pyc", "bytes": 5000}
     ]
   },
-  "data_dir_commands": ["scan", "clean", "disk", "disk agents", "agent status", "disk free", "disk brew-packages", "keep remove", "notify ack", "notify snooze"],
+  "data_dir_commands": ["scan", "clean", "disk", "disk agents", "agent status", "disk free", "disk brew-packages", "keep remove", "notify ack", "notify snooze", "space"],
   "cases": [
     {
       "name": "the owner's call: scan . in ~/Projects suggests the clean of ~/Projects",
@@ -225,6 +225,12 @@
       "group": "commands",
       "args": ["notify", "snooze", "--until", "2026-10-20T09:00:00Z"],
       "expect": {"exit": 0}
+    },
+    {
+      "name": "space --json in a fresh home has no saved scan to compare with",
+      "group": "commands",
+      "args": ["space", "--json"],
+      "expect": {"exit": 0, "schema": "space", "stdout": {"contains": ["\"baseline\": null", "\"in_use_delta\": null", "\"grew\": false"]}}
     },
     {
       "name": "schedule status in a fresh home is not installed",

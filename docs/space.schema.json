@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SpaceReport",
+  "description": "What `ddc space --json` prints. The optional fields are always written,\nas null when absent.",
+  "type": "object",
+  "properties": {
+    "baseline": {
+      "description": "What the saved report recorded for that volume. Null with no saved\nreport, or with none that lists this volume.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Baseline"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "checked_at": {
+      "description": "RFC 3339, UTC: when the free space was read.",
+      "type": "string"
+    },
+    "grew": {
+      "description": "In-use space grew by at least max(20 GiB, 5 % of `total_bytes`) since\nthe baseline, also when `low-disk` wins; false with no baseline.",
+      "type": "boolean"
+    },
+    "in_use_delta": {
+      "description": "In-use bytes now minus in-use bytes at the baseline, in-use being\ntotal minus free on each side: positive when in-use space grew. Null\nexactly when `baseline` is.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "int64"
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "state": {
+      "$ref": "#/$defs/SpaceState"
+    },
+    "volume": {
+      "description": "The home folder's volume, read now.",
+      "$ref": "#/$defs/SpaceVolume"
+    }
+  },
+  "required": [
+    "schema_version",
+    "checked_at",
+    "volume",
+    "grew",
+    "state"
+  ],
+  "$defs": {
+    "Baseline": {
+      "type": "object",
+      "properties": {
+        "at": {
+          "description": "RFC 3339, copied from the saved report as it is written there: the\nvolume's `read_at` for `clean`, the report's `generated_at` for `scan`.",
+          "type": "string"
+        },
+        "free_bytes": {
+          "description": "The volume's `free_bytes` in the saved report.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "source": {
+          "$ref": "#/$defs/BaselineSource"
+        }
+      },
+      "required": [
+        "source",
+        "at",
+        "free_bytes"
+      ]
+    },
+    "BaselineSource": {
+      "oneOf": [
+        {
+          "description": "The scan read the free space, at the report's `generated_at`.",
+          "type": "string",
+          "const": "scan"
+        },
+        {
+          "description": "A `clean --items` edit read it again, at the volume's `read_at`.",
+          "type": "string",
+          "const": "clean"
+        }
+      ]
+    },
+    "SpaceState": {
+      "oneOf": [
+        {
+          "description": "Neither of the others.",
+          "type": "string",
+          "const": "quiet"
+        },
+        {
+          "description": "In-use space grew by at least the threshold since the baseline.",
+          "type": "string",
+          "const": "grew"
+        },
+        {
+          "description": "Under 10 % free, unless `notify_low_disk` is false; it wins over\n`grew`.",
+          "type": "string",
+          "const": "low-disk"
+        }
+      ]
+    },
+    "SpaceVolume": {
+      "type": "object",
+      "properties": {
+        "free_bytes": {
+          "description": "Bytes available to an unprivileged user, as a scan reads them.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "mount_point": {
+          "type": "string"
+        },
+        "total_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "mount_point",
+        "total_bytes",
+        "free_bytes"
+      ]
+    }
+  }
+}

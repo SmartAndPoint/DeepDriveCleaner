@@ -1410,6 +1410,13 @@
         "mount_point": {
           "type": "string"
         },
+        "read_at": {
+          "description": "RFC 3339, UTC: when `free_bytes` was read again after the scan. Set\nonly by a `clean --items` edit of the volumes it touched; absent in a\nscan, whose volumes are read at `generated_at` (ADR \"Menu bar app:\nSwift shell over the ddc CLI\", §6 item 13).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "roots": {
           "description": "The scan roots on this volume; the walk never crosses into another,\nso every finding under them lies on it.",
           "type": "array",

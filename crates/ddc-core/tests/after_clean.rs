@@ -60,7 +60,7 @@ impl Home {
     fn edited(&self, report: &ScanReport, items: Vec<CleanItem>, remeasured: &[(&Path, Remeasured)]) -> ScanReport {
         let remeasured: HashMap<PathBuf, Remeasured> = remeasured.iter().map(|(p, m)| (p.to_path_buf(), *m)).collect();
         let mut edited = report.clone();
-        after_clean::edit(&mut edited, &clean(items), None, &remeasured, &self.opts());
+        after_clean::edit(&mut edited, &clean(items), None, &remeasured, &self.opts(), None);
         edited
     }
 }
@@ -227,7 +227,7 @@ fn skipped_and_not_run_items_take_the_rechecks_finding_or_leave() {
     ];
 
     let mut after = before.clone();
-    after_clean::edit(&mut after, &clean(items), Some(&fresh), &HashMap::new(), &home.opts());
+    after_clean::edit(&mut after, &clean(items), Some(&fresh), &HashMap::new(), &home.opts(), None);
 
     assert_eq!(finding(&after, &a), finding(&fresh, &a), "the re-check's identity and size");
     // Story "Review window: sort a group's rows by name, size or last change":
@@ -250,7 +250,7 @@ fn skipped_and_not_run_items_take_the_rechecks_finding_or_leave() {
     // Without the re-check's walk (the report is the rescan's own), nothing moves.
     let mut same = before.clone();
     let items = vec![item(&a, "python.pycache", Some(10_000), Outcome::Skipped(SkipReason::ChangedSinceScan))];
-    after_clean::edit(&mut same, &clean(items), None, &HashMap::new(), &home.opts());
+    after_clean::edit(&mut same, &clean(items), None, &HashMap::new(), &home.opts(), None);
     assert_eq!(same, before);
 }
 
@@ -335,7 +335,7 @@ fn a_tool_cleaned_item_is_at_its_new_size_or_gone() {
     opts.min_size = 8_192;
     let mut hidden = before.clone();
     let remeasured = HashMap::from([(path.clone(), Remeasured::Measured(small))]);
-    after_clean::edit(&mut hidden, &clean(native()), None, &remeasured, &opts);
+    after_clean::edit(&mut hidden, &clean(native()), None, &remeasured, &opts, None);
     let f = finding(&hidden, &path);
     assert!(f.ignored && !f.selected);
     assert_eq!((hidden.totals.ignored_count, hidden.totals.ignored_bytes), (1, 4_096));
@@ -491,12 +491,54 @@ fn lines_under_a_removed_path_leave_and_the_volumes_take_the_cleans_free_space()
     ];
 
     let mut after = before.clone();
-    after_clean::edit(&mut after, &done, None, &HashMap::new(), &home.opts());
+    after_clean::edit(&mut after, &done, None, &HashMap::new(), &home.opts(), Some("2026-11-03T10:00:00Z"));
 
     assert_eq!(after.inaccessible.iter().map(|l| l.path.clone()).collect::<Vec<_>>(), [home.t.path("r/locked")]);
     assert_eq!(after.errors_total, before.errors_total - 1);
     assert_eq!(after.volumes.len(), before.volumes.len());
     assert_eq!(after.volumes[0].free_bytes, 123_456);
+    // Story "Popover: say when used space grew since the last scan": the
+    // volume read again says when; a scan's volumes carry no time of their own.
+    assert_eq!(before.volumes[0].read_at, None);
+    assert_eq!(after.volumes[0].read_at.as_deref(), Some("2026-11-03T10:00:00Z"));
+}
+
+/// Story "Popover: say when used space grew since the last scan": only the
+/// volumes a clean read again take its time; a volume it did not touch, and
+/// every volume after `ddc disk free`'s edit, keep the scan's.
+#[test]
+fn only_a_volume_the_clean_read_again_takes_its_read_time() {
+    if common::unsupported("only_a_volume_the_clean_read_again_takes_its_read_time") {
+        return;
+    }
+    let home = Home::new();
+    home.t.file("q/__pycache__/m.pyc", 10_000);
+    let mut before = home.scan();
+    let other = ddc_core::model::Volume {
+        mount_point: PathBuf::from("/Volumes/Other"),
+        roots: Vec::new(),
+        free_bytes: 7,
+        total_bytes: 70,
+        read_at: None,
+    };
+    before.volumes.push(other.clone());
+    let mount = before.volumes[0].mount_point.clone();
+    let mut done = clean(Vec::new());
+    done.volumes = vec![VolumeSpace { mount_point: mount, free_before: 1, free_after: 99 }];
+    let mut after = before.clone();
+    after_clean::edit(&mut after, &done, None, &HashMap::new(), &home.opts(), Some("2026-11-03T10:00:00Z"));
+    assert_eq!((after.volumes[0].free_bytes, after.volumes[0].read_at.as_deref()), (99, Some("2026-11-03T10:00:00Z")));
+    assert_eq!(after.volumes[1], other, "a volume the clean did not read keeps the scan's figures");
+    let json = serde_json::to_value(&after).unwrap();
+    assert_eq!(json["volumes"][0]["read_at"], "2026-11-03T10:00:00Z");
+    assert!(json["volumes"][1].get("read_at").is_none(), "absent, not null: {}", json["volumes"][1]);
+
+    let mut tool = after.clone();
+    after_clean::edit_tool_cleaned(&mut tool, &HashMap::new(), &home.opts());
+    assert_eq!(tool.volumes, after.volumes, "disk free's edit leaves the volumes as they are");
+    let mut scanned = before.clone();
+    after_clean::edit_tool_cleaned(&mut scanned, &HashMap::new(), &home.opts());
+    assert!(scanned.volumes.iter().all(|v| v.read_at.is_none()));
 }
 
 #[test]

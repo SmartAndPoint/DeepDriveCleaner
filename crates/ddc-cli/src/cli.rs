@@ -26,6 +26,8 @@ pub enum Command {
     Rules(RulesArgs),
     /// Show what uses the whole startup disk, outside your home folder too (read-only).
     Disk(DiskArgs),
+    /// Say whether used space on your home folder's disk grew since the last scan (no scan, no cleanup).
+    Space(SpaceArgs),
     /// For coding agents: what their harnesses keep, and their live sessions.
     Agent {
         #[command(subcommand)]
@@ -71,6 +73,7 @@ impl Command {
                 Some(DiskAction::Free(a)) => a.json,
                 Some(DiskAction::BrewPackages(a)) => a.json,
             },
+            Command::Space(args) => args.json,
             Command::Agent { action: AgentAction::Status(a) } => a.json,
             Command::Keep { action: KeepAction::Remove(a) } => a.json,
             Command::Schedule { .. } | Command::Notify { .. } | Command::Du(_) | Command::Diag => false,
@@ -342,6 +345,16 @@ fn parse_size(s: &str) -> Result<u64, String> {
     };
     let n: f64 = num.trim().parse().map_err(|_| format!("not a size: {s:?}"))?;
     Ok((n * mult as f64) as u64)
+}
+
+#[derive(Debug, Args)]
+pub struct SpaceArgs {
+    /// Print the result as JSON (schema: docs/space.schema.json).
+    #[arg(long)]
+    pub json: bool,
+    /// Where the last scan and the space samples live (default: ~/Library/Application Support/DeepDriveCleaner).
+    #[arg(long, value_name = "DIR")]
+    pub data_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

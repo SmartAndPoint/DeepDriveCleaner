@@ -14,6 +14,7 @@ mod notify;
 mod rules;
 mod scan;
 mod schedule;
+mod space;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -34,6 +35,7 @@ pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Disk(DiskArgs { action: Some(DiskAction::Free(args)), .. }) => disk_free::run(&args),
         Command::Disk(DiskArgs { action: Some(DiskAction::BrewPackages(args)), .. }) => disk_brew_packages::run(&args),
         Command::Disk(args) => disk::run(args),
+        Command::Space(args) => space::run(&args),
         Command::Agent { action: AgentAction::Status(args) } => agent_status::run(&args),
         Command::Keep { action: KeepAction::Remove(args) } => keep::remove(&args),
         Command::Notify { action } => notify::run(action),

@@ -127,13 +127,16 @@ impl Visitor for Alone<'_> {
 /// Edits `report` by what `clean` did (gate decision 6). `fresh` is the
 /// re-check's walk when `report` is an older one: a skipped or not-run item
 /// takes its finding from there. `remeasured` holds the tool-cleaned items;
-/// `opts` decides `ignored` for a finding whose size changed.
+/// `opts` decides `ignored` for a finding whose size changed. `read_at`
+/// (RFC 3339) is when the clean read its volumes' free space again: each
+/// volume that takes `free_after` takes it as its `read_at`.
 pub fn edit(
     report: &mut ScanReport,
     clean: &CleanReport,
     fresh: Option<&ScanReport>,
     remeasured: &HashMap<PathBuf, Remeasured>,
     opts: &ScanOptions,
+    read_at: Option<&str>,
 ) {
     let mut edit = Edit { report, opts, removed: HashSet::new(), lines: Vec::new() };
     for item in &clean.items {
@@ -151,12 +154,13 @@ pub fn edit(
             Outcome::Failed { .. } => {}
         }
     }
-    edit.finish(&clean.volumes);
+    edit.finish(&clean.volumes, read_at);
 }
 
 /// Edits `report` for findings a tool changed outside a clean: `ddc disk
 /// free`'s `brew cleanup` and the `cache.homebrew` finding (safety ADR,
-/// amendment of 2026-10-28). As [`edit`] does for a tool-cleaned item.
+/// amendment of 2026-10-28). As [`edit`] does for a tool-cleaned item; the
+/// volumes, their free space and `read_at` stay as they are.
 pub fn edit_tool_cleaned(report: &mut ScanReport, remeasured: &HashMap<PathBuf, Remeasured>, opts: &ScanOptions) {
     let mut edit = Edit { report, opts, removed: HashSet::new(), lines: Vec::new() };
     for (path, r) in remeasured {
@@ -166,7 +170,7 @@ pub fn edit_tool_cleaned(report: &mut ScanReport, remeasured: &HashMap<PathBuf, 
             Remeasured::Unknown => {}
         }
     }
-    edit.finish(&[]);
+    edit.finish(&[], None);
 }
 
 /// A skip whose finding is not on the disk as scanned: with no finding at
@@ -390,7 +394,7 @@ impl Edit<'_> {
         totals.dirs = totals.dirs.saturating_sub(dirs);
     }
 
-    fn finish(self, volumes: &[VolumeSpace]) {
+    fn finish(self, volumes: &[VolumeSpace], read_at: Option<&str>) {
         let Edit { report, removed, lines, .. } = self;
         let mut i = 0;
         report.findings.retain(|_| {
@@ -408,6 +412,7 @@ impl Edit<'_> {
         for space in volumes {
             if let Some(v) = report.volumes.iter_mut().find(|v| v.mount_point == space.mount_point) {
                 v.free_bytes = space.free_after;
+                v.read_at = read_at.map(str::to_owned);
             }
         }
         sort_findings(&mut report.findings);

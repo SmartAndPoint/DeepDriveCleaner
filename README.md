@@ -311,6 +311,27 @@ ddc disk free                                      # asks for each action
 ddc disk free --dry-run                            # what each tool would remove
 ```
 
+### `ddc space`: did used space grow since the last scan
+
+```
+ddc space [--json] [--data-dir DIR]
+```
+
+Says in one sentence whether the disk of your home folder has more in use than at the last scan, without scanning. It reads the disk's free space once (`statfs`), compares it with the free space the saved scan recorded for that disk, and gives one of three answers:
+
+- **grew**: in-use space grew by at least 20 GiB, or by 5 % of the disk when that is more. `ddc scan` shows where.
+- **low disk**: under 10 % of the disk is free. It wins over grew and still says how much grew. `notify_low_disk: false` in `settings.json` turns it off.
+- **quiet**: neither. Less in use than at the scan never counts.
+
+After the app's clean (`ddc clean` with the app's list of items), the comparison starts from the free space that clean read at its end; a plain `ddc clean` from a terminal does not set it. With no saved scan, or none of this disk, there is nothing to compare with: only low disk can be said.
+
+It takes no lock, so it runs while a scan or a clean runs, and it never changes the saved scan. It keeps its readings in `space.json`, one an hour for 14 days. `--json` follows [`docs/space.schema.json`](docs/space.schema.json). When the disk cannot be read it exits 1 and prints no JSON; an unreadable `settings.json` is only a warning here, and low disk then counts.
+
+```
+ddc space                                          # one sentence
+ddc space --json | jq '{state, in_use_delta}'
+```
+
 ### `ddc agent`: what coding agents keep
 
 `ddc agent status` shows what coding-agent harnesses keep under your home folder: Claude Code, Codex, Cursor and opencode, with each one's folders and sizes, what of it runs, its live sessions and how many other transcripts it keeps. A Claude Code session is live while the process that wrote its record runs; a Codex thread is open while a process holds its lock file. It reads only the session records' named fields, the names of lock files and transcripts, the process list and sizes: never a transcript's content or a harness database. Its output shows project folders and session names. `--no-sizes` lists the sessions without measuring the folders, in a fraction of a second; `--json` follows [`docs/agents.schema.json`](docs/agents.schema.json). It saves nothing and removes nothing.
@@ -392,6 +413,7 @@ The install script (under [Install](#on-an-older-macos-or-the-command-line-only)
 |---|---|
 | `~/Library/Application Support/DeepDriveCleaner/last-scan.json` | The last scan's report, which the app shows. `ddc clean --items` edits it after cleaning instead of scanning again; the next scan replaces it. |
 | `~/Library/Application Support/DeepDriveCleaner/last-disk.json` | The last `ddc disk` report; the next one replaces it. |
+| `~/Library/Application Support/DeepDriveCleaner/space.json` | What `ddc space` read of the free space: one reading an hour for 14 days, and the latest. |
 | `~/Library/Application Support/DeepDriveCleaner/settings.json` | Settings shared by the app and the terminal (below). |
 | `~/Library/Application Support/DeepDriveCleaner/notify-state.json` | When the background scan last notified, so it does not repeat itself. |
 | `~/Library/Application Support/DeepDriveCleaner/lock` | Scans share it; a clean takes it alone. |
@@ -415,7 +437,7 @@ The install script (under [Install](#on-an-older-macos-or-the-command-line-only)
 | `min_age_days` | Idle days before a project's artifacts are selected (default 14). | `--min-age` |
 | `disabled_rules` | Rule ids from `ddc rules` switched off: their findings are reported as ignored and never selected or counted. | none |
 | `min_size` | Bytes: smaller findings are ignored. `clean --min-size` filters the plan on top of it, so the larger of the two applies. | none |
-| `notify_threshold`, `notify_low_disk` | When the background scan notifies (default 10G, and low disk on). | `--threshold` |
+| `notify_threshold`, `notify_low_disk` | When the background scan notifies (default 10G, and low disk on); `notify_low_disk` also decides whether `ddc space` says low disk. | `--threshold` |
 
 `--skip` only adds to the skips from the file, and `--exclude` never drops them. `--exclude` replaces the excludes from the file. When that would leave a folder from the file unprotected, ddc names it first: `ddc clean` asks in a terminal and refuses without one; `ddc scan` and `ddc clean --dry-run` only warn, since they change nothing. A malformed file is an error that names it.
 

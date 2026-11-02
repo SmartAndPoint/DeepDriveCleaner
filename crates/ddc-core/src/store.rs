@@ -10,6 +10,8 @@ use crate::model::ScanReport;
 
 pub const LAST_SCAN: &str = "last-scan.json";
 pub const LAST_DISK: &str = "last-disk.json";
+/// `ddc space`'s samples of the free space (`space::record`); no lock.
+pub const SPACE: &str = "space.json";
 const LOCK: &str = "lock";
 
 /// A held lock on `<data-dir>/lock`; released on drop.
