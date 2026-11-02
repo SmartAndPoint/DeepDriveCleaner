@@ -347,6 +347,29 @@ pub fn hold_open(file: &Path) -> std::fs::File {
     std::fs::OpenOptions::new().read(true).share_mode(SHARE_READ_WRITE).open(file).unwrap()
 }
 
+/// Starts `program` (a copy of `cmd.exe`, or the real one) in `cwd`, with
+/// `extra` arguments and `env`, waiting on its input until it is killed;
+/// returns once it runs, as [`working_in`] does.
+#[cfg(windows)]
+pub fn waiting(program: &Path, cwd: &Path, extra: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> std::process::Child {
+    use std::io::BufRead as _;
+    // `& rem` makes the extra arguments a comment, not `set /p`'s prompt.
+    let mut child = std::process::Command::new(program)
+        .args(["/C", "echo ready& set /p wait=& rem"])
+        .args(extra)
+        .envs(env.iter().copied())
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut line = String::new();
+    std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    assert_eq!(line.trim(), "ready");
+    child
+}
+
 /// Starts a process that works inside `dir` until it is killed: one `cmd`,
 /// waiting on its input, with no child of its own to outlive it. `dir`
 /// cannot be opened with `DELETE` while it runs. It opens its working folder

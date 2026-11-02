@@ -618,6 +618,48 @@ fn processes_using_a_finding_block_it() {
     }
 }
 
+/// A process of the user that runs, works or points inside a finding puts
+/// it in use, as the real process table reads it on Windows: its
+/// executable, its working folder, its `VIRTUAL_ENV` and a relative
+/// argument with `\` (story "Windows scanner and rule catalog", step 9a;
+/// safety ADR §5, amendment of 2026-11-02).
+#[cfg(windows)]
+#[test]
+#[allow(clippy::disallowed_methods)] // a test finds cmd.exe under SystemRoot
+fn processes_using_a_finding_block_it_on_windows() {
+    if common::unsupported("processes_using_a_finding_block_it_on_windows") {
+        return;
+    }
+    let fx = Fx::new();
+    let runs = fx.venv_project("a");
+    let works = fx.node_project("b");
+    let env = fx.venv_project("c");
+    let arg = fx.venv_project("d");
+    let plan = fx.plan();
+
+    let system = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32");
+    let copied = runs.join("Scripts").join("cmd.exe");
+    fs::create_dir_all(copied.parent().unwrap()).unwrap();
+    fs::copy(system.join("cmd.exe"), &copied).unwrap();
+    let outside = fx.t.root().to_path_buf();
+    let holders = [
+        Spawned(common::waiting(&copied, &outside, &[], &[])),
+        Spawned(common::working_in(&works)),
+        Spawned(common::waiting(&system.join("cmd.exe"), &outside, &[], &[("VIRTUAL_ENV", env.as_os_str())])),
+        Spawned(common::waiting(&system.join("cmd.exe"), &fx.t.path("d"), &[r".venv\Scripts\tool"], &[])),
+    ];
+
+    let (r, _) = fx.run(&plan, yes(), &FakeCommands::default(), &SystemProcesses);
+
+    for (path, holder) in [(&runs, &holders[0]), (&works, &holders[1]), (&env, &holders[2]), (&arg, &holders[3])] {
+        match outcome(&r, path) {
+            Outcome::Skipped(SkipReason::InUse { pid, .. }) => assert_eq!(*pid, holder.0.id() as i32, "{path:?}"),
+            other => panic!("{path:?}: {other:?}"),
+        }
+        assert!(path.exists());
+    }
+}
+
 /// A finding with a file open below it and a finding a process works in
 /// are skipped held open; the clean goes on and removes the third (story
 /// "Windows scanner and rule catalog", step 8; safety ADR §5, amendment of

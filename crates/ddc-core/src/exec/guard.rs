@@ -23,6 +23,7 @@ use crate::plan::{Action, PlanItem};
 use crate::platform::PLATFORM;
 use crate::platform::bulk::{self, Anchor};
 use crate::platform::fsops::DirFd;
+use crate::platform::paths::key;
 use crate::platform::procs::ProcInfo;
 use crate::platform::types::EntryStat;
 use crate::report::backups;
@@ -270,14 +271,14 @@ impl<'a> Guard<'a> {
     /// The first process with a file open inside `target` that still has one
     /// after [`OPEN_FILE_CONFIRM`]; one wait for all of them.
     fn holding(&self, target: &Path, uses: &[Uses]) -> Option<SkipReason> {
-        let holders: Vec<&Uses> = uses.iter().filter(|u| u.open.iter().any(|f| f.starts_with(target))).collect();
+        let holders: Vec<&Uses> = uses.iter().filter(|u| u.open.iter().any(|f| inside(f, target))).collect();
         if holders.is_empty() {
             return None;
         }
         std::thread::sleep(OPEN_FILE_CONFIRM);
         holders
             .into_iter()
-            .find(|u| self.procs.open_files(u.pid).iter().any(|f| f.starts_with(target)))
+            .find(|u| self.procs.open_files(u.pid).iter().any(|f| inside(f, target)))
             .map(|u| SkipReason::InUse { pid: u.pid, name: u.name.clone() })
     }
 
@@ -755,7 +756,7 @@ fn uses(p: &ProcInfo) -> Uses {
         let path = Path::new(raw);
         if path.is_absolute() {
             paths.push(lexical(path));
-        } else if raw.to_string_lossy().contains('/') {
+        } else if raw.to_string_lossy().chars().any(std::path::is_separator) {
             match &p.cwd {
                 Some(cwd) => paths.push(lexical(&cwd.join(path))),
                 None => unresolved.extend(
@@ -806,7 +807,7 @@ impl Users {
             in_use(target, &self.0).or_else(|| {
                 self.0
                     .iter()
-                    .find(|u| u.open.iter().any(|f| f.starts_with(target)))
+                    .find(|u| u.open.iter().any(|f| inside(f, target)))
                     .map(|u| SkipReason::InUse { pid: u.pid, name: u.name.clone() })
             })
         })
@@ -817,15 +818,23 @@ impl Users {
 /// unknown cwd, a relative path starting with the target's name counts too.
 fn in_use(target: &Path, uses: &[Uses]) -> Option<SkipReason> {
     let name = target.file_name()?;
+    let target = key(target);
     for u in uses {
-        if u.paths.iter().any(|p| p.starts_with(target)) {
+        if u.paths.iter().any(|p| key(p).starts_with(&*target)) {
             return Some(SkipReason::InUse { pid: u.pid, name: u.name.clone() });
         }
-        if u.unresolved.iter().any(|c| c == name) {
+        if u.unresolved.iter().any(|c| key(Path::new(c)) == key(Path::new(name))) {
             return Some(SkipReason::InUseUnknownCwd { pid: u.pid, name: u.name.clone() });
         }
     }
     None
+}
+
+/// `path` lies in `target`, as the platform compares paths: on Windows
+/// without regard to case or separator (`paths::key`); on macOS and Linux
+/// as they are.
+fn inside(path: &Path, target: &Path) -> bool {
+    key(path).starts_with(&*key(target))
 }
 
 /// Removes `.` components (Path::components keeps a leading one).
@@ -835,6 +844,11 @@ fn lexical(p: &Path) -> PathBuf {
 
 /// `/tmp/x/.venv/bin/python` → `/private/tmp/x/.venv/bin/python`: resolve the
 /// parent, keep the last component unresolved (it may be a symlink out of the venv).
+/// A path on a share is not opened (`paths::is_local`): an argument naming one
+/// would make the check wait on the network.
 fn canonical_parent(p: &Path) -> Option<PathBuf> {
+    if !crate::platform::paths::is_local(p) {
+        return None;
+    }
     Some(p.parent()?.canonical().ok()?.join(p.file_name()?))
 }

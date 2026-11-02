@@ -398,3 +398,39 @@ fn a_file_a_process_runs_through_a_link_is_in_use() {
     let none = FakeProcs::new(vec![]);
     assert_eq!(home.predict_and_clean(&[picked], &FakeCommands::default(), &none, &none), [Outcome::Trashed]);
 }
+
+/// On Windows a process names a folder in any case and with either
+/// separator: its working folder in lower case with `/` puts the finding
+/// in use, and a relative argument in upper case with an unknown working
+/// folder puts it possibly in use (story "Windows scanner and rule
+/// catalog", step 9a).
+#[cfg(windows)]
+#[test]
+fn a_folder_named_in_another_case_or_separator_is_in_use_on_windows() {
+    if common::unsupported("a_folder_named_in_another_case_or_separator_is_in_use_on_windows") {
+        return;
+    }
+    let home = Home::new();
+    let nm = home.node_modules();
+    let item = home.listed(&nm, ActionKind::Delete, false);
+    let spelled = PathBuf::from(nm.join("dep").to_string_lossy().to_lowercase().replace('\\', "/"));
+    let worker = ProcInfo { pid: 711, name: "node.exe".into(), cwd: Some(spelled), ..ProcInfo::default() };
+    let procs = FakeProcs::new(vec![worker]);
+    assert_eq!(
+        home.predict_and_clean(std::slice::from_ref(&item), &FakeCommands::default(), &procs, &procs),
+        [in_use(711, "node.exe")]
+    );
+
+    let home = Home::new();
+    let nm = home.node_modules();
+    let item = home.listed(&nm, ActionKind::Delete, false);
+    let runner = ProcInfo {
+        pid: 712,
+        name: "node.exe".into(),
+        args: vec!["node.exe".into(), r"NODE_MODULES\dep\index.js".into()],
+        ..ProcInfo::default()
+    };
+    let procs = FakeProcs::new(vec![runner]);
+    let possibly = Outcome::Skipped(SkipReason::InUseUnknownCwd { pid: 712, name: "node.exe".into() });
+    assert_eq!(home.predict_and_clean(&[item], &FakeCommands::default(), &procs, &procs), [possibly]);
+}
