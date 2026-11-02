@@ -9,7 +9,7 @@ import SwiftUI
 /// whose `menu` is set ignores its button's action, so the popover would
 /// never open (GrammarHelper keeps it set and has no popover).
 @MainActor
-final class StatusItemController: NSObject, NSMenuDelegate {
+final class StatusItemController: NSObject, NSMenuDelegate, NSPopoverDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private let menu = NSMenu()
@@ -24,6 +24,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// arrives after `show`, makes the popover key once more.
     private var keyOnActivation = false
     private var activationObserver: NSObjectProtocol?
+    private var wakeObserver: NSObjectProtocol?
 
     init(
         model: PopoverModel,
@@ -42,6 +43,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         popover.behavior = .transient
+        popover.delegate = self
         let view = PopoverView(
             model: model,
             openSettings: { [weak self] in
@@ -111,6 +113,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 self.keyPopover("on activation")
             }
         }
+
+        // Hours may have passed asleep: check whether used space grew. Wake is
+        // posted on NSWorkspace's own centre, never on the default one.
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in await model.spaceAfterWake() }
+        }
     }
 
     @objc private func clicked(_ sender: NSStatusBarButton) {
@@ -129,7 +141,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// Opens the popover under the icon; also where the Review window's Close returns.
     func showPopover() {
         guard let button = item.button, !popover.isShown else { return }
-        Task { await model.refresh() }
+        // Clears the growth badge and checks the space again (story "Popover:
+        // say when used space grew since the last scan").
+        Task { await model.popoverOpened() }
         keyOnActivation = !NSApp.isActive
         NSApp.activate()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
@@ -146,6 +160,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         window.makeKey()
         window.makeFirstResponder(nil)
         AppLog.write("popover \(cause): app \(NSApp.isActive ? "active" : "inactive"), window \(window.isKeyWindow ? "key" : "not key")")
+    }
+
+    /// A growth result while the popover is open badges only what its band cannot show.
+    nonisolated func popoverDidClose(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            model.popoverClosed()
+        }
     }
 
     func menuWillOpen(_ menu: NSMenu) {

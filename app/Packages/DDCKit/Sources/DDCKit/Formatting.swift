@@ -160,6 +160,20 @@ public enum Wording {
         }
     }
 
+    /// `volume` inside a sentence: only a leading "The " is lower-cased
+    /// ("the startup disk"); a volume named "Work" stays "Work".
+    public static func volumeMidSentence(_ mountPoint: String) -> String {
+        let name = volume(mountPoint)
+        return name.hasPrefix("The ") ? "the " + name.dropFirst(4) : name
+    }
+
+    /// "92" for a volume 92.7 % full: rounded down, so the band and the
+    /// low-disk notification name the same number. Nil for a zero total.
+    public static func percentFull(free: UInt64, total: UInt64) -> Int? {
+        guard total > 0 else { return nil }
+        return Int((Double(total - min(free, total)) / Double(total) * 100).rounded(.down))
+    }
+
     /// While the 0.1.0 agent runs, the app schedules nothing (B1).
     public static let replaceOldScanFirst = "Replace the old background scan first"
 

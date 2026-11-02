@@ -12,7 +12,8 @@ public struct IconState: Sendable, Equatable {
     /// On the drive's top-right corner.
     public enum Mark: Sendable, Equatable {
         case none
-        /// A notification was posted and the Review window has not opened since.
+        /// A notification was posted and the Review window has not opened
+        /// since, or used space grew and the popover has not opened since.
         case badge
         /// Something needs the user (`Attention`).
         case warning
@@ -50,6 +51,7 @@ public struct IconState: Sendable, Equatable {
     /// - `paused`: Pause in the menu; scans wait for Resume.
     /// - `attention`: what needs the user, if anything; the most important when several do.
     /// - `reclaimable`: what the default selection frees, nil without a report.
+    /// - `growthPending`: the growth badge's flag (`AppPreferences.growthBadgePending`).
     public static func make(
         busy: Bool,
         cleaning: Bool = false,
@@ -59,13 +61,14 @@ public struct IconState: Sendable, Equatable {
         threshold: UInt64,
         showSize: Bool,
         badgePending: Bool,
+        growthPending: Bool = false,
         showBadge: Bool
     ) -> IconState {
         let over = reclaimable.map { $0 > 0 && $0 >= threshold } ?? false
         let first = Attention.allCases.first(where: attention.contains)
         let mark: Mark =
             if first != nil { .warning }
-            else if badgePending && showBadge { .badge }
+            else if (badgePending || growthPending) && showBadge { .badge }
             else { .none }
         let inner: Inner = busy || cleaning ? .arc : (mark == .none ? .dot : .none)
         let label = over && showSize ? reclaimable.map(ByteSize.human) : nil
@@ -74,7 +77,10 @@ public struct IconState: Sendable, Equatable {
         if paused { words.append("paused") }
         if cleaning { words.append("cleaning") } else if busy { words.append("scanning") }
         if let first { words.append(first.words) }
-        if mark == .badge { words.append("new results to review") }
+        if mark == .badge {
+            if badgePending { words.append("new results to review") }
+            if growthPending { words.append("used space grew") }
+        }
         if over, let reclaimable { words.append("\(ByteSize.human(reclaimable)) can be freed") }
         return IconState(inner: inner, mark: mark, dimmed: paused, label: label, accessibility: words.joined(separator: ", "))
     }

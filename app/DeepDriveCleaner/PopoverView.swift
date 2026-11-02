@@ -22,6 +22,9 @@ struct PopoverView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
+            if let band = model.growthBand {
+                GrowthBandView(model: model, band: band)
+            }
             content
             // Next to the buttons and Scan now, whose results they report.
             ForEach(model.notices) { notice in
@@ -288,6 +291,43 @@ private struct FirstScanView: View {
                 }
             }
         }
+    }
+}
+
+/// Between the header and the main block: used space grew since the last
+/// scan, or the disk is nearly full (story "Popover: say when used space grew
+/// since the last scan"). It reports; Scan Now is the only action.
+private struct GrowthBandView: View {
+    let model: PopoverModel
+    let band: GrowthBand
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if band.warning {
+                Label {
+                    Text(band.text).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel(band.spokenText)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
+                .foregroundStyle(ReportClassStyle.ink(.review))
+            } else {
+                Text(band.text).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(band.spokenText)
+            }
+            if let detail = band.detail {
+                Text(detail).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(band.spokenDetail ?? detail)
+            }
+            if band.scanButton != .none {
+                Button("Scan Now") { Task { await model.scanNow() } }
+                    .disabled(!model.canScan)
+                    .font(.system(size: 13))
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 

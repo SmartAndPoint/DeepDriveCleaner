@@ -28,6 +28,8 @@ public final class AppPreferences {
     public static let oldScanOfferDismissedKey = "OldScanOfferDismissed"
     public static let foundUpdateKey = "FoundUpdate"
     public static let reviewSortKey = "ReviewSort"
+    public static let growthBadgePendingKey = "GrowthBadgePending"
+    public static let growthBadgedForKey = "GrowthBadgedFor"
 
     private let defaults: UserDefaults
 
@@ -208,5 +210,28 @@ public final class AppPreferences {
 
     public func clearBadge() {
         defaults.removeObject(forKey: Self.badgePendingKey)
+    }
+
+    // MARK: The growth badge ("Popover: say when used space grew since the last scan")
+
+    /// `ddc space` said `grew` or `low-disk` for a baseline, and the popover
+    /// has not opened since. Its own flag beside the notification's, under the
+    /// same "Show a badge" preference (menu bar ADR §5, "A second source").
+    public var growthBadgePending: Bool { defaults.bool(forKey: Self.growthBadgePendingKey) }
+
+    /// The baseline the growth badge was last set for: once per baseline.
+    public var growthBadgedFor: GrowthBadge.Key? {
+        defaults.data(forKey: Self.growthBadgedForKey).flatMap { try? JSONDecoder().decode(GrowthBadge.Key.self, from: $0) }
+    }
+
+    /// Sets the flag and records the baseline it is for.
+    public func setGrowthBadge(for key: GrowthBadge.Key) {
+        if let data = try? JSONEncoder().encode(key) { defaults.set(data, forKey: Self.growthBadgedForKey) }
+        defaults.set(true, forKey: Self.growthBadgePendingKey)
+    }
+
+    /// The flag only: the record stays, so the same baseline never sets it again.
+    public func clearGrowthBadge() {
+        defaults.removeObject(forKey: Self.growthBadgePendingKey)
     }
 }

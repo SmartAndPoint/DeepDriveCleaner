@@ -16,7 +16,7 @@ import Observation
 public final class RunnerActivity: CLIRunning {
     /// What the update line says it waits for.
     public enum Reason: Sendable, Equatable {
-        /// A scan, a measure, a listing, or the scheduler's bookkeeping.
+        /// A scan, a measure, a listing, a growth check, or the scheduler's bookkeeping.
         case scanning
         /// Any other kind: a clean or a `disk free`, or the dry run that
         /// comes before one.
@@ -45,7 +45,7 @@ public final class RunnerActivity: CLIRunning {
 
     /// The kinds the line calls "the scan". The clean's kinds are not named
     /// here: only their own files run them (`ContractTests`).
-    private static let scans: Set<CLIRunner.Kind> = [.scan, .backgroundScan, .rules, .notify, .schedule, .disk, .diskAgents, .brewPackages]
+    private static let scans: Set<CLIRunner.Kind> = [.scan, .backgroundScan, .rules, .notify, .schedule, .disk, .diskAgents, .brewPackages, .space]
 
     public func run(_ kind: CLIRunner.Kind, _ arguments: [String], options: CLIRunner.Options) async -> CLIRunner.Result {
         inFlight[kind, default: 0] += 1

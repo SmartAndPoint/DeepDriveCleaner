@@ -126,6 +126,10 @@ public final class ScheduledWork {
         } else {
             log("tick: nothing due")
         }
+        // After the tick's scan, so it compares with the report that scan saved;
+        // on every tick, a `--scheduled` launch's too (story "Popover: say when
+        // used space grew since the last scan").
+        await popover.checkSpace(force: true)
         await flushPending()
         return result
     }
