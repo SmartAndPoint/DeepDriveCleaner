@@ -19,13 +19,19 @@ impl SystemCommands {
     pub fn new(env: &Env) -> Self {
         let mut dirs = env.tool_dirs();
         dirs.push(PathBuf::from("/usr/bin"));
+        // Only absolute folders: on Windows `/usr/bin` names a folder at the
+        // current drive's root, which any user may create.
+        dirs.retain(|d| d.is_absolute());
         Self { dirs }
     }
 }
 
 impl CommandRunner for SystemCommands {
+    /// In each folder, the program's names in the platform's order
+    /// (`process::program_names`: on Windows `.exe`, `.cmd`, `.bat`).
     fn find(&self, program: &str) -> Option<PathBuf> {
-        self.dirs.iter().map(|d| d.join(program)).find(|p| executable(p))
+        let names = process::program_names(program);
+        self.dirs.iter().flat_map(|d| names.iter().map(move |n| d.join(n))).find(|p| executable(p))
     }
 
     /// The command gets its own process group: a timeout or a forwarded
@@ -77,7 +83,7 @@ fn inherited(prefix: &str) -> Vec<std::ffi::OsString> {
 /// (a readiness probe must not take bytes it cannot read for an answer).
 fn spawn(exe: &Path, mut cmd: Command, timeout: Duration, lossy: bool) -> io::Result<CmdOutput> {
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = process::own_process_group(&mut cmd).spawn()?;
+    let mut child = process::spawn_grouped(&mut cmd)?;
     // The group id is the child's pid; a signal that came before this is forwarded now.
     let group = i32::try_from(child.id()).unwrap_or(0);
     signals::set_child_group(group);
@@ -128,7 +134,7 @@ fn spawn(exe: &Path, mut cmd: Command, timeout: Duration, lossy: bool) -> io::Re
 
 /// Whether `path` is a file someone may execute (symlinks followed).
 pub(super) fn executable(path: &Path) -> bool {
-    std::fs::metadata(path).is_ok_and(|m| m.is_file() && meta::is_executable(&m))
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && meta::is_executable(path, &m))
 }
 
 /// The system Trash (`platform::trash`): on macOS through `NSFileManager`
@@ -180,17 +186,13 @@ mod tests {
     /// probes), and each forgets its own when it ends.
     #[test]
     fn parallel_commands_each_publish_their_group() {
-        if crate::platform::skipped("parallel_commands_each_publish_their_group") {
-            return;
-        }
         let dir = tempfile::tempdir().unwrap();
         let env =
             Env::with_paths(dir.path(), &dir.path().join("data"), &dir.path().join("logs"), SystemTime::now()).unwrap();
         let commands = SystemCommands::new(&env);
+        let (sleep, args) = crate::platform::testing::sleep_command(1);
         let most = std::thread::scope(|s| {
-            let runs: Vec<_> = (0..3)
-                .map(|_| s.spawn(|| commands.run(Path::new("/bin/sleep"), &["1".into()], &[], NATIVE_TIMEOUT)))
-                .collect();
+            let runs: Vec<_> = (0..3).map(|_| s.spawn(|| commands.run(&sleep, &args, &[], NATIVE_TIMEOUT))).collect();
             let mut most = 0;
             let started = Instant::now();
             while started.elapsed() < Duration::from_millis(800) {
@@ -209,17 +211,16 @@ mod tests {
     /// kept with replacement characters for a probe.
     #[test]
     fn only_a_probe_keeps_output_that_is_not_utf8() {
-        if crate::platform::skipped("only_a_probe_keeps_output_that_is_not_utf8") {
-            return;
-        }
         let dir = tempfile::tempdir().unwrap();
         let env =
             Env::with_paths(dir.path(), &dir.path().join("data"), &dir.path().join("logs"), SystemTime::now()).unwrap();
         let commands = SystemCommands::new(&env);
-        let args = ["-c".to_owned(), r"printf 'a\377b'".to_owned()];
-        let plain = commands.run(Path::new("/bin/sh"), &args, &[], NATIVE_TIMEOUT).unwrap();
+        let file = dir.path().join("bytes");
+        std::fs::write(&file, b"a\xffb").unwrap();
+        let (print, args) = crate::platform::testing::print_file_command(&file);
+        let plain = commands.run(&print, &args, &[], NATIVE_TIMEOUT).unwrap();
         assert_eq!(plain.stdout, "");
-        let probe = commands.run_cleared(Path::new("/bin/sh"), &args, "GIT_", &[], NATIVE_TIMEOUT).unwrap();
+        let probe = commands.run_cleared(&print, &args, "GIT_", &[], NATIVE_TIMEOUT).unwrap();
         assert_eq!(probe.stdout, "a\u{fffd}b");
     }
 
@@ -227,18 +228,12 @@ mod tests {
     /// own CPU over a 2 s command is under 1% of the wait.
     #[test]
     fn waiting_for_a_tool_does_not_spin() {
-        // /bin/sleep is a Unix path, and the Windows command runner is the
-        // story "Windows scanner and rule catalog"'s step 9.
-        if crate::platform::skipped_without("waiting_for_a_tool_does_not_spin", crate::platform::testing::posix_paths())
-            .is_none()
-        {
-            return;
-        }
         let dir = tempfile::tempdir().unwrap();
         let env =
             Env::with_paths(dir.path(), &dir.path().join("data"), &dir.path().join("logs"), SystemTime::now()).unwrap();
         let (cpu, at) = (thread_cpu_time().unwrap(), Instant::now());
-        let out = SystemCommands::new(&env).run(Path::new("/bin/sleep"), &["2".into()], &[], NATIVE_TIMEOUT).unwrap();
+        let (sleep, args) = crate::platform::testing::sleep_command(2);
+        let out = SystemCommands::new(&env).run(&sleep, &args, &[], NATIVE_TIMEOUT).unwrap();
         let (cpu, wall) = (thread_cpu_time().unwrap() - cpu, at.elapsed());
         assert!(out.success);
         assert!(wall >= Duration::from_millis(1500), "{wall:?}");

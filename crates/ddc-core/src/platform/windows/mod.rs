@@ -17,8 +17,10 @@ pub mod meta;
 mod modules;
 pub mod paths;
 mod peb;
+pub mod process;
 pub mod procs;
 pub mod rlimit;
+pub mod signals;
 pub mod statfs;
 pub mod term;
 #[cfg(test)]

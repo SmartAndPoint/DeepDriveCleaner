@@ -59,7 +59,7 @@ pub fn add_owner_rwx(perms: &mut Permissions) {
 }
 
 /// Whether someone may execute it: any of the `x` bits.
-pub fn is_executable(md: &Metadata) -> bool {
+pub fn is_executable(_path: &Path, md: &Metadata) -> bool {
     md.permissions().mode() & 0o111 != 0
 }
 

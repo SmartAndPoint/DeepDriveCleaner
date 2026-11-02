@@ -121,6 +121,9 @@ impl Env {
         let mut dirs: Vec<PathBuf> = self.path.iter().filter(|d| d.is_absolute()).cloned().collect();
         dirs.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
         dirs.extend([".cargo/bin", ".local/bin", "go/bin"].map(|rel| self.home.join(rel)));
+        // Again after the fixed ones: on Windows `/opt/homebrew/bin` names a
+        // folder at the current drive's root, which any user may create.
+        dirs.retain(|d| d.is_absolute());
         dirs.dedup();
         dirs
     }

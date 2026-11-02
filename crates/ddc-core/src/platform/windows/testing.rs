@@ -4,7 +4,7 @@
 use std::ffi::OsString;
 use std::io;
 use std::os::windows::ffi::OsStringExt as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// A symlink at `link` to `target`: a directory link when the target is a
 /// folder, as Windows keeps the two apart. Needs the symlink privilege
@@ -37,4 +37,18 @@ pub fn name_from_bytes(bytes: &[u8]) -> Option<OsString> {
 /// drive, so a test that spells it as absolute skips.
 pub fn posix_paths() -> io::Result<()> {
     Err(io::Error::new(io::ErrorKind::Unsupported, "paths here are not POSIX-shaped"))
+}
+
+/// A command that runs for about `secs` seconds and then succeeds:
+/// `PING.EXE`, which waits a second between its echoes (`timeout.exe`
+/// refuses a redirected input).
+pub fn sleep_command(secs: u32) -> (PathBuf, Vec<String>) {
+    let ping = super::process::system_dir().expect("the system folder").join("PING.EXE");
+    (ping, vec!["-n".into(), (secs + 1).to_string(), "127.0.0.1".into()])
+}
+
+/// A command that prints the file `path` as it is, bytes not UTF-8 included.
+pub fn print_file_command(path: &Path) -> (PathBuf, Vec<String>) {
+    let cmd = super::process::system_dir().expect("the system folder").join("cmd.exe");
+    (cmd, vec!["/C".into(), "type".into(), path.to_string_lossy().into_owned()])
 }

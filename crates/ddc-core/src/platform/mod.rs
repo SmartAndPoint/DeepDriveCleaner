@@ -154,9 +154,10 @@ mod pins {
     const _: fn(&Metadata) -> Option<u32> = imp::meta::owner;
     const _: fn(&Metadata) -> Option<u32> = imp::meta::uid;
     const _: fn(&mut Permissions) = imp::meta::add_owner_rwx;
-    const _: fn(&Metadata) -> bool = imp::meta::is_executable;
+    const _: fn(&Path, &Metadata) -> bool = imp::meta::is_executable;
 
-    const _: fn(&mut Command) -> &mut Command = imp::process::own_process_group;
+    const _: fn(&mut Command) -> io::Result<std::process::Child> = imp::process::spawn_grouped;
+    const _: fn(&str) -> Vec<String> = imp::process::program_names;
 
     const _: fn() -> u32 = imp::procs::uid;
     const _: fn() -> Option<PathBuf> = imp::procs::real_home;
