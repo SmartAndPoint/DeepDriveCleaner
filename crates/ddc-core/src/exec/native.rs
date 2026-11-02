@@ -178,7 +178,14 @@ pub(super) fn run_worktree(
     if opts.cancelled() {
         return Native::Cancelled;
     }
-    let Probe::Known(listed) = listed else { return Native::LocationMismatch };
+    // A git that cannot answer says so; it is not "no git lists this folder".
+    let listed = match listed {
+        Probe::Known(listed) => listed,
+        Probe::Unknown(why) => {
+            let detail = format!("git could not list its worktrees: {why}");
+            return Native::Skip(SkipReason::ToolNotReady { program: "git".to_owned(), detail });
+        }
+    };
     let id = (finding.dev, finding.ino);
     let ours = |p: &PathBuf| crate::platform::meta::lstat(p).is_ok_and(|st| st.md.is_dir() && st.id() == id);
     // The main checkout is listed too; it is never the finding.
