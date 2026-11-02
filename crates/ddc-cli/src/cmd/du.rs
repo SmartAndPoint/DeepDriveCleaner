@@ -1,6 +1,9 @@
-//! `ddc du`: allocated size per root, comparable with `du -skx`. One
-//! difference on purpose: a bind mount of the same filesystem is not
-//! entered, where `du -x` enters it (safety ADR, amendment of 2026-11-01).
+//! `ddc du`: allocated size per root, comparable with `du -skx`. Two
+//! differences on purpose: a bind mount of the same filesystem is not
+//! entered, where `du -x` enters it (safety ADR, amendment of 2026-11-01);
+//! and a btrfs subvolume of the same filesystem or a ZFS child dataset of
+//! the same pool is entered, where `du -x` stops at it (same ADR, "btrfs
+//! and ZFS on Linux").
 
 use std::io::Write as _;
 use std::path::PathBuf;

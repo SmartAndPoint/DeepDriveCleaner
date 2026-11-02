@@ -97,7 +97,8 @@ pub struct Totals {
     pub selected_bytes: u64,
     /// Estimate of what deleting the selected findings frees: APFS private
     /// size where clones are expected and measured (uv, pnpm), allocated size
-    /// elsewhere (no clones expected there).
+    /// elsewhere (no clones expected there), with the compression and
+    /// snapshot caveats of [`Finding::bytes`].
     pub selected_reclaimable_bytes: u64,
     /// Findings `settings.json` hides ([`Finding::ignored`]); they are in no
     /// class total above.
@@ -474,7 +475,8 @@ pub struct Backup {
 
 impl Finding {
     /// Freed bytes: the private size where measured (a lower bound), else
-    /// the allocated size (exact when nothing is cloned).
+    /// the allocated size (exact when nothing is cloned, compressed on btrfs
+    /// or held by a snapshot: see [`Finding::bytes`]).
     pub fn reclaimable_bytes(&self) -> u64 {
         self.private_bytes.unwrap_or(self.bytes)
     }

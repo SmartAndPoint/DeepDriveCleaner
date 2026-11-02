@@ -1334,7 +1334,7 @@
           "minimum": 0
         },
         "selected_reclaimable_bytes": {
-          "description": "Estimate of what deleting the selected findings frees: APFS private\nsize where clones are expected and measured (uv, pnpm), allocated size\nelsewhere (no clones expected there).",
+          "description": "Estimate of what deleting the selected findings frees: APFS private\nsize where clones are expected and measured (uv, pnpm), allocated size\nelsewhere (no clones expected there), with the compression and\nsnapshot caveats of [`Finding::bytes`].",
           "type": "integer",
           "format": "uint64",
           "minimum": 0
