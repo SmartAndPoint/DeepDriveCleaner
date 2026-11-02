@@ -414,9 +414,12 @@ fn read_error(e: &io::Error) -> ReadError {
 mod tests {
     use std::fs;
 
+    use windows_sys::Wdk::Storage::FileSystem::NtSetEaFile;
     use windows_sys::Win32::Storage::FileSystem::{
-        FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, SetFileAttributesW,
+        FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, FILE_FLAG_BACKUP_SEMANTICS, FILE_WRITE_EA,
+        SetFileAttributesW,
     };
+    use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
     use super::*;
     use crate::platform::meta;
@@ -645,5 +648,86 @@ mod tests {
         assert_eq!(folder.stat_child(OsStr::new("evicted")).unwrap().flags, dataless);
         assert_eq!(folder.stat_child(OsStr::new("local")).unwrap().flags, 0);
         assert_eq!(meta::st_flags(&fs::symlink_metadata(d.path().join("evicted")).unwrap()), dataless);
+    }
+
+    /// Gives `path` one extended attribute, as WSL does to the files it
+    /// touches (`FILE_FULL_EA_INFORMATION`: next, flags, name and value
+    /// lengths, the name with its NUL, the value).
+    fn set_ea(path: &Path) {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        let file = fs::OpenOptions::new()
+            .access_mode(FILE_WRITE_EA)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)
+            .unwrap();
+        let (name, value) = (b"DDC.TEST", b"x");
+        let mut ea = Vec::new();
+        ea.extend_from_slice(&0u32.to_le_bytes());
+        ea.push(0);
+        ea.push(u8::try_from(name.len()).unwrap());
+        ea.extend_from_slice(&u16::try_from(value.len()).unwrap().to_le_bytes());
+        ea.extend_from_slice(name);
+        ea.push(0);
+        ea.extend_from_slice(value);
+        // SAFETY: IO_STATUS_BLOCK is plain data; all zeroes is a valid value.
+        let mut status_block: IO_STATUS_BLOCK = unsafe { std::mem::zeroed() };
+        // SAFETY: the handle is open with FILE_WRITE_EA for the call; the
+        // buffer is a local of the stated length.
+        let status = unsafe {
+            NtSetEaFile(file.as_raw_handle(), &mut status_block, ea.as_ptr().cast(), u32::try_from(ea.len()).unwrap())
+        };
+        assert!(status >= 0, "NtSetEaFile: {status:#x}");
+    }
+
+    /// In a listing record `0x40000` is `RECALL_ON_OPEN`; elsewhere it is
+    /// `FILE_ATTRIBUTE_EA`. An entry with extended attributes is no
+    /// placeholder anywhere, or every folder WSL touched would be skipped.
+    #[test]
+    fn an_entry_with_extended_attributes_is_no_placeholder() {
+        let d = tempfile::tempdir().unwrap();
+        fs::write(d.path().join("f"), vec![1u8; 5000]).unwrap();
+        fs::create_dir(d.path().join("sub")).unwrap();
+        fs::write(d.path().join("sub/inside"), b"x").unwrap();
+        set_ea(&d.path().join("f"));
+        set_ea(&d.path().join("sub"));
+        let l = list(d.path(), None, false, Times::None).unwrap();
+        assert_eq!((by_name(&l, "f").flags, by_name(&l, "sub").flags), (0, 0));
+        assert_eq!(list(&d.path().join("sub"), None, false, Times::None).unwrap().entries.len(), 1, "listed");
+        let folder = DirFd::open(d.path()).unwrap();
+        for name in ["f", "sub"] {
+            assert_eq!(folder.stat_child(OsStr::new(name)).unwrap().flags, 0, "{name}");
+            assert_eq!(meta::st_flags(&fs::symlink_metadata(d.path().join(name)).unwrap()), 0, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_folder_outside_the_anchor_is_refused() {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().join("root");
+        fs::create_dir_all(root.join("sub")).unwrap();
+        fs::create_dir(d.path().join("other")).unwrap();
+        let a = anchor(&root).unwrap();
+        assert!(list_in(&a, &root.join("sub"), None, false, Times::None).is_ok());
+        assert!(list_in(&a, &root, None, false, Times::None).is_ok(), "the root itself");
+        let outside = list_in(&a, &d.path().join("other"), None, false, Times::None).unwrap_err();
+        assert_eq!(outside.kind, ReadErrorKind::Changed);
+    }
+
+    /// NTFS keeps a name with an unpaired surrogate, which no `String`
+    /// holds: the reader gives it back unit for unit, and the folder finds
+    /// the entry by it. Writing it to JSON is `json_path`'s, which counts
+    /// it in `lossy_paths`.
+    #[test]
+    fn a_name_that_is_not_unicode_comes_back_as_it_is() {
+        let d = tempfile::tempdir().unwrap();
+        let name = crate::platform::testing::name_from_bytes(b"bad-\xff").unwrap();
+        assert!(name.to_str().is_none(), "not valid Unicode");
+        fs::write(d.path().join(&name), vec![1u8; 100]).unwrap();
+        fs::create_dir(d.path().join("ok")).unwrap();
+        let l = list(d.path(), None, false, Times::None).unwrap();
+        assert_eq!(l.entries.len(), 2);
+        assert!(l.entries.iter().any(|e| e.name == name && e.kind == EntryKind::File), "the same units");
+        let folder = DirFd::open(d.path()).unwrap();
+        assert!(folder.stat_child(&name).unwrap().is_file);
     }
 }
