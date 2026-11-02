@@ -175,7 +175,7 @@ impl DirFd {
             is_dir,
             is_file: !is_symlink && !is_dir,
             is_symlink,
-            flags: 0,
+            flags: super::meta::flags_of_handle(tag.FileAttributes),
             alloc: u64::try_from(standard.AllocationSize).unwrap_or(0),
             mount_root: false,
         })

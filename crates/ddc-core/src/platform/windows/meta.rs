@@ -20,7 +20,8 @@ use std::time::UNIX_EPOCH;
 
 use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL,
+    CreateFileW, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, FILE_ATTRIBUTE_RECALL_ON_OPEN,
+    FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL,
     FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO, FILE_INFO_BY_HANDLE_CLASS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
     FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO, FileAttributeTagInfo, FileBasicInfo, FileIdInfo,
     FileStandardInfo, GetFileInformationByHandleEx, OPEN_EXISTING,
@@ -154,10 +155,40 @@ pub fn mtime(md: &Metadata) -> i64 {
     }
 }
 
-/// No `st_flags` on Windows; cloud placeholders are told by their
-/// attributes in the walker, not here.
-pub fn st_flags(_md: &Metadata) -> u32 {
-    0
+/// Attributes, in a directory listing's record, of an entry whose data
+/// lives elsewhere: a Cloud Files placeholder that is not downloaded
+/// (`RECALL_ON_DATA_ACCESS`; on a folder, some of its contents are not
+/// local), a virtual entry with no form on disk yet (`RECALL_ON_OPEN`), or a
+/// file moved off by hierarchical storage (`OFFLINE`).
+pub(super) const RECALL: u32 = FILE_ATTRIBUTE_RECALL_ON_OPEN | RECALL_BY_HANDLE;
+
+/// The same, in a query of an open handle or of std's metadata:
+/// `RECALL_ON_OPEN` appears only in listings, and its bit is
+/// `FILE_ATTRIBUTE_EA` (extended attributes, which WSL keeps on files) in
+/// any other answer.
+pub(super) const RECALL_BY_HANDLE: u32 = FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS | FILE_ATTRIBUTE_OFFLINE;
+
+/// The entry flags of a listing record's attributes: `SF_DATALESS` for a
+/// placeholder, as macOS reports an evicted file or folder. The walker then
+/// skips such a folder without listing it (a listing would make the
+/// provider download its entries), preflight refuses such an item, and an
+/// entry-shaped report shows it as dataless. The guard refuses one only
+/// among a session's companions (story "Windows scanner and rule catalog",
+/// step 6b, records the gap).
+pub(super) fn flags_of(attributes: u32) -> u32 {
+    if attributes & RECALL != 0 { crate::scan::reader::SF_DATALESS } else { 0 }
+}
+
+/// [`flags_of`] for attributes from a handle or std's metadata.
+pub(super) fn flags_of_handle(attributes: u32) -> u32 {
+    if attributes & RECALL_BY_HANDLE != 0 { crate::scan::reader::SF_DATALESS } else { 0 }
+}
+
+/// `SF_DATALESS` for a cloud placeholder ([`flags_of_handle`]); Windows has
+/// no other `st_flags`.
+pub fn st_flags(md: &Metadata) -> u32 {
+    use std::os::windows::fs::MetadataExt as _;
+    flags_of_handle(md.file_attributes())
 }
 
 /// Not reported: a Windows owner is a SID, not a user id (the owner check

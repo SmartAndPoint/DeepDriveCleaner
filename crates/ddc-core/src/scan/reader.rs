@@ -8,6 +8,7 @@ use crate::platform::meta;
 pub use crate::platform::types::{Boundary, DirListing, EntryKind, EntryMeta, ReadError, ReadErrorKind, Times};
 
 /// `SF_DATALESS` from `<sys/stat.h>`: the item's content lives in the cloud.
+/// Windows reports it for a placeholder's recall attributes.
 pub const SF_DATALESS: u32 = 0x4000_0000;
 
 pub trait DirReader: Sync {
