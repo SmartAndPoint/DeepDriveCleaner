@@ -14,7 +14,9 @@
 //!   target is a junction, a link. Cloud placeholders, WOF-compressed and
 //!   other tagged files are files or folders as their attributes say; a
 //!   file is opened only with `FILE_OPEN_NO_RECALL` (for its link count), so
-//!   no placeholder is downloaded.
+//!   no placeholder is downloaded. A placeholder carries `SF_DATALESS`, as an
+//!   evicted entry does on macOS: the walker skips such a folder without
+//!   listing it, and [`list`] refuses one given to it (`Dataless`).
 //! - **Hard links.** The listing carries no link count, so a regular file
 //!   with allocated bytes gets it from one by-name stat relative to the
 //!   folder (`DirFd::stat_by_name`, no handle opened), checked against the
@@ -43,16 +45,14 @@ use windows_sys::Win32::Foundation::{
     ERROR_INVALID_FUNCTION, ERROR_INVALID_LEVEL, ERROR_INVALID_PARAMETER, ERROR_NO_MORE_FILES, ERROR_NOT_SUPPORTED,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
-    FILE_ATTRIBUTE_RECALL_ON_OPEN, FILE_ATTRIBUTE_REPARSE_POINT, FILE_BASIC_INFO, FILE_FULL_DIR_INFO,
-    FILE_ID_EXTD_DIR_INFO, FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_STANDARD_INFO, FileFullDirectoryInfo,
-    FileFullDirectoryRestartInfo, FileIdExtdDirectoryInfo, FileIdExtdDirectoryRestartInfo,
-    GetFileInformationByHandleEx, SYNCHRONIZE,
+    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_BASIC_INFO, FILE_FULL_DIR_INFO, FILE_ID_EXTD_DIR_INFO,
+    FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_STANDARD_INFO, FileFullDirectoryInfo, FileFullDirectoryRestartInfo,
+    FileIdExtdDirectoryInfo, FileIdExtdDirectoryRestartInfo, GetFileInformationByHandleEx, SYNCHRONIZE,
 };
 use windows_sys::Win32::System::IO::DeviceIoControl;
 
 use super::fsops::{DirFd, name_surrogate, unix_seconds};
-use super::meta::{id_of, info};
+use super::meta::{RECALL, RECALL_BY_HANDLE, flags_of, id_of, info};
 use crate::platform::types::{Boundary, DirListing, EntryKind, EntryMeta, ReadError, ReadErrorKind, Times};
 
 const BUF_LEN: usize = 64 * 1024;
@@ -115,6 +115,11 @@ pub fn list(
         }
     }
     let basic = info::<FILE_BASIC_INFO>(folder.handle()).map_err(|e| read_error(&e))?;
+    if basic.FileAttributes & RECALL_BY_HANDLE != 0 {
+        // A folder not populated: listing it would make the provider
+        // download its entries. The walker skips it as dataless.
+        return Err(ReadError::new(ReadErrorKind::Dataless, None));
+    }
     let standard = info::<FILE_STANDARD_INFO>(folder.handle()).map_err(|e| read_error(&e))?;
     let mut entries = Vec::new();
     match read_all(
@@ -221,6 +226,8 @@ fn entry(folder: &DirFd, raw: Raw, dev: u64, times: Times) -> Option<EntryMeta> 
     // Only a file with allocated bytes can be shared in a way that counts.
     let nlink = match &id {
         Ok((_, ino)) if kind == EntryKind::File && alloc > 0 => {
+            // A by-name query cannot pass `FILE_OPEN_NO_RECALL`: a placeholder
+            // is opened with it instead.
             let by_handle = !listed_id || raw.attributes & RECALL != 0;
             if by_handle {
                 links_by_handle(folder, &raw.name, *ino).unwrap_or(u32::MAX)
@@ -237,7 +244,7 @@ fn entry(folder: &DirFd, raw: Raw, dev: u64, times: Times) -> Option<EntryMeta> 
         ino: 0,
         nlink,
         uid: None,
-        flags: 0,
+        flags: flags_of(raw.attributes),
         alloc,
         private: None,
         error: None,
@@ -257,10 +264,6 @@ fn entry(folder: &DirFd, raw: Raw, dev: u64, times: Times) -> Option<EntryMeta> 
     }
     Some(meta)
 }
-
-/// Attributes of a file whose data may live elsewhere: a by-name query
-/// cannot pass `FILE_OPEN_NO_RECALL`, so such a file is opened with it.
-const RECALL: u32 = FILE_ATTRIBUTE_RECALL_ON_OPEN | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS | FILE_ATTRIBUTE_OFFLINE;
 
 /// The link count of the file `name`, listed with the id `ino`: from one
 /// by-name stat, or, where that call or class is missing, from a relative
@@ -410,6 +413,10 @@ fn read_error(e: &io::Error) -> ReadError {
 #[cfg(test)]
 mod tests {
     use std::fs;
+
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, SetFileAttributesW,
+    };
 
     use super::*;
     use crate::platform::meta;
@@ -601,5 +608,42 @@ mod tests {
         }
         let l = list(d.path(), None, false, Times::None).unwrap();
         assert_eq!(by_name(&l, "big.txt").kind, EntryKind::File);
+    }
+
+    /// Adds `FILE_ATTRIBUTE_OFFLINE`, the one placeholder attribute a user
+    /// may set (the Cloud Files ones are the kernel's).
+    fn offline(path: &Path) {
+        use std::os::windows::fs::MetadataExt as _;
+        let attributes = fs::symlink_metadata(path).unwrap().file_attributes() | FILE_ATTRIBUTE_OFFLINE;
+        let wide = super::super::wide::verbatim(path).unwrap();
+        // SAFETY: a NUL-terminated wide path; the call reads it only.
+        assert_ne!(unsafe { SetFileAttributesW(wide.as_ptr(), attributes) }, 0, "{}", io::Error::last_os_error());
+    }
+
+    #[test]
+    fn a_placeholder_is_dataless_and_its_folder_is_never_listed() {
+        let d = tempfile::tempdir().unwrap();
+        fs::create_dir(d.path().join("cloud")).unwrap();
+        fs::write(d.path().join("cloud/inside"), b"x").unwrap();
+        fs::write(d.path().join("evicted"), vec![1u8; 5000]).unwrap();
+        fs::write(d.path().join("local"), b"x").unwrap();
+        offline(&d.path().join("cloud"));
+        offline(&d.path().join("evicted"));
+
+        let l = list(d.path(), None, false, Times::None).unwrap();
+        let dataless = crate::scan::reader::SF_DATALESS;
+        assert_eq!(by_name(&l, "cloud").flags, dataless);
+        assert_eq!(by_name(&l, "evicted").flags, dataless);
+        assert_eq!(by_name(&l, "evicted").kind, EntryKind::File, "still a file (AC4)");
+        assert_eq!(by_name(&l, "local").flags, 0);
+
+        let refused = list(&d.path().join("cloud"), None, false, Times::None).unwrap_err();
+        assert_eq!(refused.kind, ReadErrorKind::Dataless, "a placeholder folder is not listed");
+
+        let folder = DirFd::open(d.path()).unwrap();
+        assert_eq!(folder.stat_child(OsStr::new("cloud")).unwrap().flags, dataless, "the guard's stat agrees");
+        assert_eq!(folder.stat_child(OsStr::new("evicted")).unwrap().flags, dataless);
+        assert_eq!(folder.stat_child(OsStr::new("local")).unwrap().flags, 0);
+        assert_eq!(meta::st_flags(&fs::symlink_metadata(d.path().join("evicted")).unwrap()), dataless);
     }
 }
