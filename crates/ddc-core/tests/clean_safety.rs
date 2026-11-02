@@ -161,7 +161,7 @@ fn deletes_selected_items_and_journals_each() {
     assert_eq!(journal.0.len(), 2, "one journal line per action");
     let e = journal.0.iter().find(|e| e.path == nm).unwrap();
     // The journal's own version, not the scan report's (safety ADR, amendment of 2026-10-28).
-    assert_eq!((e.rule.as_str(), e.method, e.schema_version), ("node.node_modules", "delete", 9));
+    assert_eq!((e.rule.as_str(), e.method, e.schema_version), ("node.node_modules", "delete", 10));
     let line = serde_json::to_value(e).unwrap();
     assert_eq!(line["kind"], "item");
     for key in ["ts", "path", "dev", "ino", "rule", "class", "method", "bytes", "outcome"] {
@@ -616,6 +616,35 @@ fn processes_using_a_finding_block_it() {
         }
         assert!(path.exists());
     }
+}
+
+/// A finding with a file open below it and a finding a process works in
+/// are skipped held open; the clean goes on and removes the third (story
+/// "Windows scanner and rule catalog", step 8; safety ADR §5, amendment of
+/// 2026-11-02). No process table: Windows names no holder.
+#[cfg(windows)]
+#[test]
+fn findings_held_open_are_skipped_and_the_clean_completes() {
+    if common::unsupported("findings_held_open_are_skipped_and_the_clean_completes") {
+        return;
+    }
+    let fx = Fx::new();
+    let open_below = fx.node_project("a");
+    let worked_in = fx.node_project("b");
+    let free = fx.node_project("c");
+    let plan = fx.plan();
+
+    let held = common::hold_open(&open_below.join("dep/index.js"));
+    let _worker = Spawned(common::working_in(&worked_in));
+    let (r, journal) = fx.run_yes(&plan);
+    drop(held);
+
+    assert_eq!(outcome(&r, &open_below), &Outcome::Skipped(SkipReason::HeldOpen));
+    assert_eq!(outcome(&r, &worked_in), &Outcome::Skipped(SkipReason::HeldOpen));
+    assert_eq!(outcome(&r, &free), &Outcome::Deleted);
+    assert!(open_below.join("dep/index.js").exists() && worked_in.join("dep/index.js").exists() && !free.exists());
+    let journaled = journal.0.iter().filter(|l| l.outcome == Outcome::Skipped(SkipReason::HeldOpen)).count();
+    assert_eq!(journaled, 2, "each skip is journaled");
 }
 
 #[test]

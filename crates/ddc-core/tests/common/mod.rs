@@ -337,6 +337,38 @@ pub fn try_symlink(_target: impl AsRef<Path>, _link: impl AsRef<Path>) -> std::i
     Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "the test harness makes symlinks on Unix only"))
 }
 
+/// Opens `file` the way an editor or a running tool keeps it, sharing read
+/// and write but not delete: a folder above it cannot be renamed while the
+/// handle lives (safety ADR §5, amendment of 2026-11-02).
+#[cfg(windows)]
+pub fn hold_open(file: &Path) -> std::fs::File {
+    use std::os::windows::fs::OpenOptionsExt as _;
+    const SHARE_READ_WRITE: u32 = 0x1 | 0x2;
+    std::fs::OpenOptions::new().read(true).share_mode(SHARE_READ_WRITE).open(file).unwrap()
+}
+
+/// Starts a process that works inside `dir` until it is killed: one `cmd`,
+/// waiting on its input, with no child of its own to outlive it. `dir`
+/// cannot be opened with `DELETE` while it runs. It opens its working folder
+/// while it starts, after `spawn` returns, so this waits for its first line,
+/// written once it runs. The caller kills and waits for it.
+#[cfg(windows)]
+pub fn working_in(dir: &Path) -> std::process::Child {
+    use std::io::BufRead as _;
+    let mut child = std::process::Command::new("cmd")
+        .args(["/C", "echo ready& set /p wait="])
+        .current_dir(dir)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut line = String::new();
+    std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    assert_eq!(line.trim(), "ready");
+    child
+}
+
 /// Marks `path` `OFFLINE` (`attrib +O`), the one cloud-placeholder
 /// attribute a user may set on Windows: ddc then sees it as dataless.
 #[cfg(windows)]

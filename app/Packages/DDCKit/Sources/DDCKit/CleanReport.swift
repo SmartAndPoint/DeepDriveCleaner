@@ -18,6 +18,9 @@ public enum SkipReason: Sendable, Equatable, Hashable {
     case inUse(pid: Int64, name: String)
     case inUseUnknownCwd(pid: Int64, name: String)
     case ownerRunning(pid: Int64, name: String)
+    /// Another program holds the folder (Windows): it works inside it, or a
+    /// file below it is open, so nothing moved.
+    case heldOpen
     case needsConfirmation
     case actionNotAllowed
     case incomplete
@@ -56,7 +59,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
     public static let tags = [
         "missing", "not-a-directory", "symlink", "changed-since-scan", "parent-changed", "rule-mismatch",
         "outside-scan-roots", "scan-root", "protected", "project-root", "kept", "in-use", "in-use-unknown-cwd",
-        "owner-running", "needs-confirmation", "action-not-allowed", "incomplete", "foreign-owner", "native-unavailable",
+        "owner-running", "held-open", "needs-confirmation", "action-not-allowed", "incomplete", "foreign-owner", "native-unavailable",
         "tool-not-ready", "not-an-entry", "entry-locked", "inside-another-item", "trash-crosses-filesystem", "agent-live",
         "worktree-kept",
     ]
@@ -84,6 +87,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
             self = .inUseUnknownCwd(pid: try c.decode(Int64.self, forKey: .pid), name: try c.decode(String.self, forKey: .name))
         case "owner-running":
             self = .ownerRunning(pid: try c.decode(Int64.self, forKey: .pid), name: try c.decode(String.self, forKey: .name))
+        case "held-open": self = .heldOpen
         case "needs-confirmation": self = .needsConfirmation
         case "action-not-allowed": self = .actionNotAllowed
         case "incomplete": self = .incomplete
@@ -109,7 +113,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
 /// `clean --items --json`: what happened to each listed item.
 public struct CleanReport: Decodable, Sendable, Equatable {
     /// `CLEAN_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 9
+    public static let schemaVersion = 10
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)

@@ -5,7 +5,7 @@ import Testing
 @Suite("Review window: the result")
 struct CleanResultTests {
     /// A report with every outcome, in the clean schema's shape.
-    private func report(_ items: [String], version: Int = 9) throws -> CleanReport {
+    private func report(_ items: [String], version: Int = 10) throws -> CleanReport {
         let json = """
             {"schema_version": \(version), "ddc_version": "0.2.0", "platform": "macos", "capabilities": ["private-size", "in-use-check", "dataless-files", "full-disk-access", "local-snapshots", "whole-disk", "coding-agents", "homebrew", "schedule", "notifications"], "cancelled": true, "failed": 2, "local_snapshots": 1,
              "journal": "/Users/example/Library/Logs/DeepDriveCleaner/actions.jsonl",
@@ -119,5 +119,15 @@ struct CleanResultTests {
             confirmation: confirmation, volumes: volumes
         )
         #expect(CleanWording.apfsNote(tool) != nil, "a tool frees space now too")
+    }
+
+    @Test("a folder another program holds reads as held open, and closing the program clears it")
+    func heldOpen() throws {
+        let report = try report([item("a", #""outcome": "skipped", "reason": "held-open""#, bytes: 100)])
+        #expect(report.items[0].outcome == .skipped(.heldOpen))
+        #expect(CleanWording.reason(.heldOpen) == "A program has it, or a file in it, open · close it and try again")
+        #expect(SkipReason.heldOpen.afterClean == .keep)
+        #expect(CleanWording.clearing([.heldOpen, .heldOpen], again: "clean again")
+            == ["A program has a folder, or a file in it, open; close it, then clean again."])
     }
 }

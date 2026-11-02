@@ -33,8 +33,8 @@ use windows_sys::Wdk::Storage::FileSystem::{
     FileStatInformation, NtCreateFile, NtSetInformationFile,
 };
 use windows_sys::Win32::Foundation::{
-    ERROR_INVALID_FUNCTION, ERROR_INVALID_PARAMETER, ERROR_NOT_SUPPORTED, HANDLE, INVALID_HANDLE_VALUE,
-    OBJ_CASE_INSENSITIVE, RtlNtStatusToDosError, UNICODE_STRING,
+    ERROR_ACCESS_DENIED, ERROR_INVALID_FUNCTION, ERROR_INVALID_PARAMETER, ERROR_NOT_SUPPORTED, ERROR_SHARING_VIOLATION,
+    HANDLE, INVALID_HANDLE_VALUE, OBJ_CASE_INSENSITIVE, RtlNtStatusToDosError, UNICODE_STRING,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, DELETE, FILE_ADD_FILE, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
@@ -48,7 +48,7 @@ use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 
 use super::meta::{id_of, info};
-use crate::platform::types::EntryStat;
+use crate::platform::types::{EntryStat, HeldOpen};
 
 /// `ERROR_DIRECTORY`: the name is not a folder.
 const NOT_A_DIRECTORY: i32 = 267;
@@ -194,10 +194,27 @@ impl DirFd {
     /// The child is opened by name relative to this folder's handle, then
     /// renamed in place through that handle, so neither path is resolved
     /// again.
+    ///
+    /// A holder is judged by the stage that failed (safety ADR §5,
+    /// amendment of 2026-11-02): a sharing violation at the open (a process
+    /// works inside the folder) and access denied at the rename after a
+    /// successful open (a file below is open) come back as an error carrying
+    /// [`HeldOpen`]. Only the rename's denial is retried, [`RENAME_ATTEMPTS`]
+    /// times in all, [`RENAME_PAUSE`] apart, for an antivirus scan's brief
+    /// hold. Access denied at the open is an ACL and stays a plain error.
     pub fn rename_child(&self, from: &OsStr, to: &OsStr) -> io::Result<()> {
         single_name(to)?;
-        let child = self.child(from, DELETE | SYNCHRONIZE, 0)?;
-        set_rename(&child, &self.0, to)
+        let child = self.child(from, DELETE | SYNCHRONIZE, 0).map_err(|e| held_open(Stage::Open, e))?;
+        let mut attempt = 1;
+        loop {
+            match set_rename(&child, &self.0, to) {
+                Err(e) if attempt < RENAME_ATTEMPTS && denied(&e) => {
+                    attempt += 1;
+                    std::thread::sleep(RENAME_PAUSE);
+                }
+                done => return done.map_err(|e| held_open(Stage::Rename, e)),
+            }
+        }
     }
 
     /// Deletes the child `name` of this folder, which must not be a folder
@@ -380,6 +397,37 @@ fn single_name(name: &OsStr) -> io::Result<()> {
     Ok(())
 }
 
+/// How many times the tombstone rename is tried while it is denied after a
+/// successful open, and the pause between tries (safety ADR §5, amendment of
+/// 2026-11-02): a bounded wait for an antivirus scan, never a loop.
+const RENAME_ATTEMPTS: u32 = 3;
+const RENAME_PAUSE: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// The stage of [`DirFd::rename_child`] that failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    /// Opening the child with `DELETE`.
+    Open,
+    /// Renaming it through the open handle.
+    Rename,
+}
+
+/// The error a stage returns: a sharing violation at the open and a denial
+/// at the rename carry [`HeldOpen`]; everything else, a denial at the open
+/// (an ACL) included, is the plain error.
+fn held_open(stage: Stage, e: io::Error) -> io::Error {
+    let held = match stage {
+        Stage::Open if e.raw_os_error() == Some(ERROR_SHARING_VIOLATION as i32) => HeldOpen::AtOpen,
+        Stage::Rename if denied(&e) => HeldOpen::AtRename,
+        _ => return e,
+    };
+    io::Error::other(held)
+}
+
+fn denied(e: &io::Error) -> bool {
+    e.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32)
+}
+
 /// The volume refused the extended information class (an older Windows, a
 /// file system without POSIX semantics, such as FAT).
 fn refused_class(e: &io::Error) -> bool {
@@ -505,6 +553,110 @@ mod tests {
         dir.rename_child(OsStr::new("a"), OsStr::new("a.tomb")).unwrap();
         assert!(d.path().join("a.tomb/inside").exists() && !d.path().join("a").exists());
         assert!(dir.rename_child(OsStr::new("a.tomb"), OsStr::new(r"..\out")).is_err(), "a path is refused");
+    }
+
+    /// A folder with `inside` open by this process, sharing `share`.
+    fn holding(share: u32) -> (tempfile::TempDir, File) {
+        let d = tempfile::tempdir().unwrap();
+        fs::create_dir(d.path().join("f")).unwrap();
+        fs::write(d.path().join("f/inside"), b"x").unwrap();
+        let open = fs::OpenOptions::new().read(true).share_mode(share).open(d.path().join("f/inside")).unwrap();
+        (d, open)
+    }
+
+    /// A process working inside `dir` until it is killed: one `cmd`,
+    /// waiting on its input, with no child of its own to outlive it. It
+    /// opens its working folder while it starts, after `spawn` returns, so
+    /// this waits for its first line, written once it runs.
+    fn working_in(dir: &Path) -> std::process::Child {
+        use std::io::BufRead as _;
+        let mut child = std::process::Command::new("cmd")
+            .args(["/C", "echo ready& set /p wait="])
+            .current_dir(dir)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        assert_eq!(line.trim(), "ready");
+        child
+    }
+
+    fn held(e: &io::Error) -> Option<HeldOpen> {
+        e.get_ref().and_then(|p| p.downcast_ref::<HeldOpen>()).copied()
+    }
+
+    /// The lab matrix's first column: a process working inside the folder
+    /// fails the open with a sharing violation, reported held open at once.
+    #[test]
+    fn a_folder_a_process_works_in_is_held_open_at_the_open() {
+        let d = tempfile::tempdir().unwrap();
+        let f = d.path().join("f");
+        fs::create_dir(&f).unwrap();
+        let mut child = working_in(&f);
+        let dir = DirFd::open(d.path()).unwrap();
+        let renamed = dir.rename_child(OsStr::new("f"), OsStr::new("f.tomb"));
+        let _ = child.kill();
+        let _ = child.wait();
+        let e = renamed.unwrap_err();
+        assert_eq!(held(&e), Some(HeldOpen::AtOpen), "{e}");
+        assert!(HeldOpen::is(&e));
+        assert!(f.exists(), "the folder keeps its name");
+    }
+
+    /// A file open below the folder, with or without delete sharing: the
+    /// open succeeds, every rename is denied, and after the bounded retry
+    /// it is reported held open.
+    #[test]
+    fn a_folder_with_an_open_file_below_is_held_open_at_the_rename() {
+        for share in [FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE] {
+            let (d, open) = holding(share);
+            let dir = DirFd::open(d.path()).unwrap();
+            let started = std::time::Instant::now();
+            let e = dir.rename_child(OsStr::new("f"), OsStr::new("f.tomb")).unwrap_err();
+            assert_eq!(held(&e), Some(HeldOpen::AtRename), "share {share:#x}: {e}");
+            assert!(started.elapsed() >= RENAME_PAUSE * (RENAME_ATTEMPTS - 1), "every attempt was made");
+            assert!(d.path().join("f/inside").exists(), "the folder keeps its name");
+            drop(open);
+        }
+    }
+
+    /// A hold that ends between attempts, as an antivirus scan's does: the
+    /// rename goes through on a later attempt.
+    #[test]
+    fn a_hold_that_ends_between_attempts_lets_the_rename_through() {
+        let (d, open) = holding(FILE_SHARE_READ | FILE_SHARE_WRITE);
+        let dir = DirFd::open(d.path()).unwrap();
+        // Released inside the first pause: the first attempt is denied, a
+        // later one goes through.
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(RENAME_PAUSE / 2);
+            drop(open);
+        });
+        let started = std::time::Instant::now();
+        let renamed = dir.rename_child(OsStr::new("f"), OsStr::new("f.tomb"));
+        let took = started.elapsed();
+        release.join().unwrap();
+        renamed.unwrap();
+        assert!(took >= RENAME_PAUSE, "renamed on a retry, not at once ({took:?})");
+        assert!(d.path().join("f.tomb/inside").exists());
+    }
+
+    /// Only the two held-open stages carry the marker: a denial at the open
+    /// is an ACL, and every other error stays as it was.
+    #[test]
+    fn only_the_two_held_open_stages_carry_the_marker() {
+        let code = |c: u32| io::Error::from_raw_os_error(c as i32);
+        assert_eq!(held(&held_open(Stage::Open, code(ERROR_SHARING_VIOLATION))), Some(HeldOpen::AtOpen));
+        assert_eq!(held(&held_open(Stage::Rename, code(ERROR_ACCESS_DENIED))), Some(HeldOpen::AtRename));
+        let acl = held_open(Stage::Open, code(ERROR_ACCESS_DENIED));
+        assert_eq!((held(&acl), acl.raw_os_error()), (None, Some(ERROR_ACCESS_DENIED as i32)));
+        let busy = held_open(Stage::Rename, code(ERROR_SHARING_VIOLATION));
+        assert_eq!((held(&busy), busy.raw_os_error()), (None, Some(ERROR_SHARING_VIOLATION as i32)));
+        let taken = held_open(Stage::Rename, io::Error::from(io::ErrorKind::AlreadyExists));
+        assert_eq!((held(&taken), taken.kind()), (None, io::ErrorKind::AlreadyExists));
     }
 
     #[test]

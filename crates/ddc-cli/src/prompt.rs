@@ -251,6 +251,7 @@ pub fn reason(r: &SkipReason) -> String {
         SkipReason::InUse { pid, name } => format!("in use by {name} (pid {pid})"),
         SkipReason::InUseUnknownCwd { pid, name } => format!("possibly in use by {name} (pid {pid})"),
         SkipReason::OwnerRunning { pid, name } => format!("{name} is running (pid {pid})"),
+        SkipReason::HeldOpen => "a program has it, or a file in it, open; close it and run again".to_owned(),
         SkipReason::NativeUnavailable { program } => format!("{program} is not installed"),
         SkipReason::ToolNotReady { detail, .. } if detail == DOCKER_DOWN => {
             format!("{detail} — start it and run again")

@@ -18,7 +18,8 @@ extension SkipReason {
     public var afterClean: AfterClean {
         switch self {
         // `agentLive`: quitting the agent clears it.
-        case .ownerRunning, .inUse, .inUseUnknownCwd, .toolNotReady, .agentLive:
+        // `heldOpen`: closing the program that holds it clears it.
+        case .ownerRunning, .inUse, .inUseUnknownCwd, .heldOpen, .toolNotReady, .agentLive:
             .keep
         // `incomplete`: the walk was partial; nothing in it says a permission would fix it.
         // `worktreeKept`: the worktree changed since the scan let it go.

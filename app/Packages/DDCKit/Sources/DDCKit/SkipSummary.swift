@@ -135,6 +135,8 @@ extension CleanWording {
             let ends = processes.count == 1 ? "it ends" : "they end"
             sentences.append("\(lead) \(Wording.list(processes)); \(again) when \(ends).")
         }
+        // Windows does not say which program holds a folder.
+        if reasons.contains(.heldOpen) { sentences.append("A program has a folder, or a file in it, open; close it, then \(again).") }
         var details: [String] = []
         for case .toolNotReady(_, let detail) in reasons where !details.contains(detail) { details.append(detail) }
         sentences += details.map { toolNotReady($0, again: again) }

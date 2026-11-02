@@ -319,6 +319,40 @@ impl fmt::Display for TokenUnusable {
 
 impl std::error::Error for TokenUnusable {}
 
+/// A folder another process holds, at one of the two stages of the
+/// tombstone rename (safety ADR §5, amendment of 2026-11-02): opening it
+/// with `DELETE` met a sharing violation, a process working inside it; or
+/// the open succeeded and the rename was denied, a file below it open, still
+/// so after the bounded retry. The payload of `DirFd::rename_child`'s error
+/// on Windows only, recognised by [`HeldOpen::is`]; every other OS and every
+/// other stage returns its plain error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeldOpen {
+    /// Opening the folder with `DELETE` failed with a sharing violation.
+    AtOpen,
+    /// The open succeeded; the rename was denied at every attempt.
+    AtRename,
+}
+
+impl HeldOpen {
+    /// Whether `e` carries a [`HeldOpen`].
+    #[must_use]
+    pub fn is(e: &io::Error) -> bool {
+        e.get_ref().is_some_and(|p| p.is::<Self>())
+    }
+}
+
+impl fmt::Display for HeldOpen {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::AtOpen => "held open: a process works inside the folder (sharing violation, 32)",
+            Self::AtRename => "held open: a file below the folder is open (access denied at the rename, 5)",
+        })
+    }
+}
+
+impl std::error::Error for HeldOpen {}
+
 // ---- Resource usage (`platform::usage`) ----
 
 /// What one process used.
