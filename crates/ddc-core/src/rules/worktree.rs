@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{ErrorKind, Read as _};
 use std::path::{Component, Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
 
 use rayon::prelude::*;
@@ -17,7 +18,7 @@ use super::{Classified, KEPT, Matcher, Rule};
 use crate::class::{Removal, RiskClass};
 use crate::exec::guard::Users;
 use crate::exec::{CommandRunner, ProcessTable, SkipReason};
-use crate::git::{self, Git};
+use crate::git::{self, Git, Refs};
 use crate::model::{IgnoredContent, OriginHarness, WorktreeProbe, WorktreeState};
 use crate::report::project::{self, git_dir};
 use crate::scan::OwnerKind;
@@ -169,10 +170,16 @@ pub struct Probing<'a> {
     pub tool_dirs: Vec<PathBuf>,
     /// Each probe's timeout.
     pub timeout: Duration,
+    /// Rules switched off in `settings.json`: a worktree of one is never probed.
+    pub disabled_rules: &'a [String],
 }
 
 /// The most ignored paths a worktree's state lists.
 pub const MAX_IGNORED: usize = 20;
+
+/// An ignored file larger than this is never compared with the main
+/// checkout's: it counts as content of its own.
+pub const MAX_COMPARED: u64 = 64 * 1024 * 1024;
 
 /// A worktree that passed conditions 1 to 3, waiting for its probes.
 struct Candidate {
@@ -208,7 +215,10 @@ pub(crate) fn assess(found: &mut [Classified], worktrees: &HashMap<PathBuf, Reco
         }
         let Some(Recognized::Linked(linked)) = worktrees.get(&c.owner.path) else { continue };
         let Some(state) = c.worktree.as_mut() else { continue };
-        if !linked.linked || linked.harness == OriginHarness::Git {
+        if !linked.linked
+            || linked.harness == OriginHarness::Git
+            || probing.disabled_rules.iter().any(|r| r == c.rule.id)
+        {
             continue;
         }
         let kept = |reason: &str| Some(kept_hint(&linked.main, reason));
@@ -251,6 +261,10 @@ pub(crate) fn assess(found: &mut [Classified], worktrees: &HashMap<PathBuf, Reco
     let owners = removable_owners(found);
     let exe = git::locate(probing.commands, &probing.tool_dirs, probing.timeout);
     let (commands, timeout) = (probing.commands, probing.timeout);
+    // Each repository's references are asked once, by the first of its
+    // worktrees that reaches condition 6.
+    let repos: HashMap<PathBuf, OnceLock<Result<Refs, String>>> =
+        candidates.iter().map(|c| (c.linked.main.clone(), OnceLock::new())).collect();
     let done: Vec<(Candidate, Verdict)> = candidates
         .into_par_iter()
         .map(|mut cand| {
@@ -258,7 +272,8 @@ pub(crate) fn assess(found: &mut [Classified], worktrees: &HashMap<PathBuf, Reco
                 None => Verdict::Unknown(NO_GIT.to_owned()),
                 Some(exe) => {
                     let git = Git::new(commands, exe.clone(), timeout);
-                    match conditions(&git, &cand.path, &cand.linked, &owners, &mut cand.state) {
+                    let refs = &repos[&cand.linked.main];
+                    match conditions(&git, &cand.path, &cand.linked, &owners, refs, &mut cand.state) {
                         Ok(None) => Verdict::Eligible,
                         Ok(Some(reason)) => Verdict::Kept(reason),
                         Err(why) => Verdict::Unknown(why),
@@ -291,6 +306,7 @@ fn conditions(
     path: &Path,
     linked: &Linked,
     owners: &[PathBuf],
+    refs: &OnceLock<Result<Refs, String>>,
     state: &mut WorktreeState,
 ) -> Result<Option<String>, String> {
     // 4. No initialized submodule: `git worktree remove` refuses one, and
@@ -307,18 +323,27 @@ fn conditions(
     if status.dirty {
         return Ok(Some("it has uncommitted changes or untracked files".to_owned()));
     }
+    // Tracked files git does not compare (skip-worktree, assume-unchanged)
+    // look clean with a local edit, which `git worktree remove` deletes.
+    let unwatched: Vec<PathBuf> = git.unwatched(path).known()?.iter().map(|rel| path.join(rel)).collect();
     let unaccounted = unaccounted(path, &linked.main, &status.ignored, owners);
-    if let Some(first) = unaccounted.first() {
+    let unwatched_first = !unwatched.is_empty();
+    let held: Vec<PathBuf> = unwatched.into_iter().chain(unaccounted).collect();
+    if let Some(first) = held.first() {
         let shown = first.strip_prefix(path).unwrap_or(first).display().to_string();
-        let count = unaccounted.len() as u64;
+        let count = held.len() as u64;
         let more = if count > 1 { format!(" and {} more", count - 1) } else { String::new() };
-        state.ignored_content =
-            Some(IgnoredContent { paths: unaccounted.into_iter().take(MAX_IGNORED).collect(), count });
-        return Ok(Some(format!("it holds ignored content no artifact accounts for: {shown}{more}")));
+        state.ignored_content = Some(IgnoredContent { paths: held.into_iter().take(MAX_IGNORED).collect(), count });
+        return Ok(Some(if unwatched_first {
+            format!("it holds files git does not check (skip-worktree or assume-unchanged): {shown}{more}")
+        } else {
+            format!("it holds ignored content no artifact accounts for: {shown}{more}")
+        }));
     }
     // 6. No commit of its own, against the references that survive it.
     let head = git.head(path).known()?;
-    let survivors = git.survivors(&linked.main, path, head.branch.as_deref()).known()?;
+    let refs = refs.get_or_init(|| git.refs(&linked.main).known()).as_ref().map_err(Clone::clone)?;
+    let survivors = refs.survivors(path, head.branch.as_deref());
     let own = git.own_commits(&linked.main, &head.commit, &survivors).known()?;
     state.own_commits = Some(own);
     Ok((own > 0).then(|| {
@@ -362,13 +387,21 @@ fn inside_owner(at: &Path, owners: &[PathBuf]) -> bool {
     i > 0 && at.starts_with(&owners[i - 1])
 }
 
-/// Both are regular files with the same bytes.
-fn same_bytes(a: &Path, b: &Path) -> bool {
+/// Both are regular files of at most [`MAX_COMPARED`] bytes with the same
+/// bytes. Each is opened without following a symlink and without blocking,
+/// and must still be a regular file of that length once open: a FIFO
+/// swapped in after the first look never blocks the scan.
+pub(crate) fn same_bytes(a: &Path, b: &Path) -> bool {
     let (Ok(ma), Ok(mb)) = (fs::symlink_metadata(a), fs::symlink_metadata(b)) else { return false };
-    if !ma.is_file() || !mb.is_file() || ma.len() != mb.len() {
+    if !ma.is_file() || !mb.is_file() || ma.len() != mb.len() || ma.len() > MAX_COMPARED {
         return false;
     }
-    let (Ok(mut fa), Ok(mut fb)) = (fs::File::open(a), fs::File::open(b)) else { return false };
+    let open = |p: &Path| {
+        crate::platform::fsops::open_nofollow_nonblock(p)
+            .ok()
+            .filter(|f| f.metadata().is_ok_and(|m| m.is_file() && m.len() == ma.len()))
+    };
+    let (Some(mut fa), Some(mut fb)) = (open(a), open(b)) else { return false };
     let (mut ba, mut bb) = (vec![0u8; 64 * 1024], vec![0u8; 64 * 1024]);
     loop {
         let (Ok(n), Ok(m)) = (read_full(&mut fa, &mut ba), read_full(&mut fb, &mut bb)) else { return false };
@@ -545,6 +578,35 @@ mod tests {
         assert!(hint(&linked(OriginHarness::Git, true)).starts_with("yours: a linked worktree of /m;"));
         assert!(hint(&linked(OriginHarness::Git, false)).contains("git worktree repair"));
         assert_eq!(hint(&Recognized::Orphan { harness: OriginHarness::Git }), ORPHAN_HINT);
+    }
+
+    /// Only regular files of at most `MAX_COMPARED` bytes are compared; a
+    /// FIFO is never opened, so it cannot block the scan. Skipped where the
+    /// scanner is not ported (Windows): no `mkfifo` there.
+    #[test]
+    fn only_small_regular_files_are_compared() {
+        if crate::platform::skipped("only_small_regular_files_are_compared") {
+            return;
+        }
+        let tree = Tree::new();
+        tree.write("a", "same");
+        tree.write("b", "same");
+        tree.write("c", "diff");
+        let (a, b, c) = (tree.root.join("a"), tree.root.join("b"), tree.root.join("c"));
+        assert!(same_bytes(&a, &b));
+        assert!(!same_bytes(&a, &c));
+        assert!(!same_bytes(&a, &tree.root.join("missing")));
+        let fifo = tree.root.join("fifo");
+        let made = std::process::Command::new("mkfifo").arg(&fifo).status().unwrap();
+        assert!(made.success());
+        assert!(!same_bytes(&fifo, &a), "a FIFO is never opened");
+        assert!(!same_bytes(&a, &fifo));
+        let big = |name: &str| {
+            let p = tree.root.join(name);
+            fs::File::create(&p).unwrap().set_len(MAX_COMPARED + 1).unwrap();
+            p
+        };
+        assert!(!same_bytes(&big("big1"), &big("big2")), "larger than MAX_COMPARED");
     }
 
     /// A temporary folder, canonical, with helpers to make folders and files in it.

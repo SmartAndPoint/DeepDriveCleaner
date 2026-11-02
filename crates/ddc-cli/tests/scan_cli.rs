@@ -331,14 +331,14 @@ fn worktree_finding(out: &Output, wt: &Path) -> serde_json::Value {
     found.unwrap_or_else(|| panic!("no finding at {}: {report}", wt.display()))
 }
 
-/// `--worktree-min-age 0` selects a clean agent worktree touched a minute
-/// ago; the default two days leave it within the window.
+/// With `--worktree-min-age 0` a clean agent worktree touched a minute ago
+/// holds every condition; the default two days leave it within the window.
 #[test]
-fn worktree_min_age_zero_selects_a_fresh_agent_worktree() {
-    if common::unsupported("worktree_min_age_zero_selects_a_fresh_agent_worktree") {
+fn worktree_min_age_zero_makes_a_fresh_agent_worktree_eligible() {
+    if common::unsupported("worktree_min_age_zero_makes_a_fresh_agent_worktree_eligible") {
         return;
     }
-    let Some((tmp, home, wt)) = worktree_fixture("worktree_min_age_zero_selects_a_fresh_agent_worktree") else {
+    let Some((tmp, home, wt)) = worktree_fixture("worktree_min_age_zero_makes_a_fresh_agent_worktree_eligible") else {
         return;
     };
     let data = tmp.path().join("data");
@@ -350,7 +350,8 @@ fn worktree_min_age_zero_selects_a_fresh_agent_worktree() {
     assert_eq!((&default["class"], &default["selected"]), (&"review".into(), &false.into()), "{default}");
     assert_eq!(default["worktree"]["probe"], "unknown");
     assert!(default["hint"].as_str().unwrap().contains("--worktree-min-age"), "{default}");
-    assert_eq!((&zero["class"], &zero["selected"]), (&"rebuildable".into(), &true.into()), "{zero}");
+    // Rebuildable, and selected once ddc can remove a worktree (the story's next step).
+    assert_eq!((&zero["class"], &zero["selected"]), (&"rebuildable".into(), &false.into()), "{zero}");
     assert_eq!((&zero["worktree"]["probe"], &zero["worktree"]["own_commits"]), (&"known".into(), &0.into()));
 }
 
@@ -392,7 +393,7 @@ fn git_variables_of_a_hook_never_reach_the_probes() {
         .unwrap();
 
     let f = worktree_finding(&out, &wt);
-    assert_eq!((&f["class"], &f["selected"]), (&"rebuildable".into(), &true.into()), "{f}");
+    assert_eq!(f["class"], "rebuildable", "{f}");
     assert_eq!(f["worktree"]["clean"], true);
     assert_eq!(read(), before, "the hook's repository is untouched");
     assert!(!dot_git.join("worktrees").exists());

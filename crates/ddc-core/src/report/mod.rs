@@ -258,6 +258,7 @@ pub(crate) fn scan_inner(
         commands: &*commands,
         tool_dirs: env.tool_dirs(),
         timeout: opts.probe_timeout,
+        disabled_rules: &opts.disabled_rules,
     };
     let mut findings: Vec<Finding> =
         classify_probed(&out, &visitor, &probing).iter().map(|c| finding(c, env.now(), opts, &mut activity)).collect();
@@ -349,7 +350,10 @@ fn finding(
     });
     let not_selected = match c.class {
         RiskClass::Safe => None,
-        RiskClass::Rebuildable if worktree => None,
+        // A worktree that holds every condition is selected only once ddc can
+        // remove it (the story's next step): until then nothing would free
+        // its bytes, and no total may count them.
+        RiskClass::Rebuildable if worktree => (c.rule.removal == Removal::None).then_some(NotSelected::Review),
         RiskClass::Rebuildable => match last.map(|t| now.duration_since(t).unwrap_or_default()) {
             None => Some(NotSelected::UnknownActivity),
             Some(idle) if idle < min_age => Some(NotSelected::ActiveProject { idle_days: idle.as_secs() / 86_400 }),

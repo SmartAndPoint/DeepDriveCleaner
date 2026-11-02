@@ -18,9 +18,9 @@ use common::fakes::{FakeProcs, Recorded, SharedCommands};
 use common::{TreeBuilder, git};
 use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
-use ddc_core::exec::{CommandRunner, ProcInfo, SystemCommands};
+use ddc_core::exec::{ProcInfo, SystemCommands};
 use ddc_core::git::{CLEARED, Git, PROBE_CONFIG, PROBE_ENV, PROBE_TIMEOUT};
-use ddc_core::model::{Finding, IgnoredContent, NotSelected, ScanReport, WorktreeProbe, WorktreeState};
+use ddc_core::model::{Finding, IgnoredContent, NotSelected, RemovalKind, ScanReport, WorktreeProbe, WorktreeState};
 use ddc_core::plan::{PlanOptions, build_plan};
 use ddc_core::report::{self, Commands, Processes, ScanOptions};
 use ddc_core::rules::Catalog;
@@ -123,9 +123,15 @@ fn state(f: &Finding) -> &WorktreeState {
     f.worktree.as_ref().expect("a worktree state")
 }
 
+/// It holds all six conditions: `rebuildable`. Not selected while its rule
+/// removes nothing (removal comes with the story's next step), so no total
+/// counts bytes ddc cannot free.
 fn eligible(f: &Finding) {
-    assert_eq!((f.class, f.selected, f.not_selected), (RiskClass::Rebuildable, true, None), "{}", f.hint);
+    let not_yet = Some(NotSelected::Review);
+    assert_eq!((f.class, f.selected, f.not_selected), (RiskClass::Rebuildable, false, not_yet), "{}", f.hint);
+    assert_eq!(f.removal, RemovalKind::None);
     assert_eq!(state(f).probe, WorktreeProbe::Known);
+    assert!(f.hint.contains("that nothing needs any more"), "{}", f.hint);
 }
 
 fn kept(f: &Finding, says: &str) {
@@ -245,7 +251,7 @@ fn a_worktree_touched_an_hour_ago_is_within_the_window() {
     assert_eq!((state(f).idle_days, state(f).clean, state(f).probe), (Some(0), None, WorktreeProbe::Unknown));
     assert!(commands.calls().is_empty());
 
-    // A window of 0 days selects it.
+    // A window of 0 days makes it eligible.
     let env = h.env();
     let r = h.scan_with(&env, &ScanOptions { worktree_min_age: Duration::ZERO, ..h.opts(&commands) });
     eligible(h.finding(&r, &wt));
@@ -406,7 +412,7 @@ fn commits_held_by_a_surviving_ref_are_not_its_own() {
     let other = h.t.path("other");
     git::git(&main, &["worktree", "add", "-q", "--detach", other.to_str().unwrap(), &tip]);
 
-    let (r, _) = h.scan();
+    let (r, commands) = h.scan();
 
     for wt in [&merged, &detached, &held] {
         let f = h.finding(&r, wt);
@@ -417,6 +423,11 @@ fn commits_held_by_a_surviving_ref_are_not_its_own() {
         let f = h.finding(&r, wt);
         kept(f, "1 commit that no branch, tag, remote or other worktree holds");
         assert_eq!(state(f).own_commits, Some(1), "{}", wt.display());
+    }
+    // Five worktrees reach condition 6; their repository's references are asked once.
+    for asked in ["for-each-ref", "worktree"] {
+        let calls = commands.git_calls().iter().filter(|c| c.args.iter().any(|a| a == asked)).count();
+        assert_eq!(calls, 1, "{asked}");
     }
     assert_eq!(state(h.finding(&r, &detached)).detached, Some(true));
 
@@ -522,6 +533,7 @@ fn the_xcrun_shim_never_runs() {
 #[cfg(unix)]
 #[test]
 fn a_cleared_prefix_leaves_the_rest_of_the_environment() {
+    use ddc_core::exec::CommandRunner as _;
     let d = tempfile::tempdir().unwrap();
     let env = Env::with_paths(d.path(), &d.path().join("data"), &d.path().join("logs"), SystemTime::now()).unwrap();
     let system = SystemCommands::new(&env);
@@ -532,4 +544,88 @@ fn a_cleared_prefix_leaves_the_rest_of_the_environment() {
     assert!(out.stdout.lines().any(|l| l == "GIT_OPTIONAL_LOCKS=0"), "{}", out.stdout);
     let all = system.run_cleared(printenv, &[], "", &[], PROBE_TIMEOUT).unwrap();
     assert!(all.stdout.lines().any(|l| l.starts_with("PATH=")), "an empty prefix clears nothing");
+}
+
+/// Every worktree that holds the conditions is left out of the selection
+/// and of every total while its rule removes nothing.
+#[test]
+fn an_eligible_worktree_counts_in_no_selected_total() {
+    let Some(h) = Home::ready("an_eligible_worktree_counts_in_no_selected_total") else { return };
+    let (_, wt) = project(&h);
+    h.t.file(&format!("{}/data.bin", h.rel(&wt)), 50_000);
+    git::git(&wt, &["add", "data.bin"]);
+    git::git(&wt, &["commit", "-q", "-m", "data"]);
+    git::git(&h.t.path("proj"), &["merge", "-q", "--ff-only", "worktree-x"]);
+
+    let (r, _) = h.scan();
+
+    let f = h.finding(&r, &wt);
+    eligible(f);
+    assert!(f.bytes >= 50_000);
+    assert!(r.findings.iter().filter(|f| f.selected).all(|s| s.path != wt), "not in the selected set");
+    let selected: u64 = r.findings.iter().filter(|f| f.selected && !f.ignored).map(|f| f.bytes).sum();
+    assert_eq!(r.totals.selected_bytes, selected);
+    let rebuildable = r.totals.classes.iter().find(|c| c.class == RiskClass::Rebuildable).unwrap();
+    assert_eq!(rebuildable.selected_count, 0, "{rebuildable:?}");
+    assert_eq!(rebuildable.selected_bytes, 0);
+}
+
+/// A tracked file marked skip-worktree or assume-unchanged keeps a local
+/// edit `status` does not see, which `git worktree remove` would delete.
+#[test]
+fn skip_worktree_and_assume_unchanged_files_keep_the_worktree() {
+    let Some(h) = Home::ready("skip_worktree_and_assume_unchanged_files_keep_the_worktree") else { return };
+    let (main, sparse) = project(&h);
+    git::git(&sparse, &["update-index", "--skip-worktree", "README"]);
+    h.write(&sparse.join("README"), "a local edit\n");
+    let assumed = git::worktree(&main, &main.join(".claude/worktrees/assumed"), &["-b", "worktree-assumed"]);
+    git::git(&assumed, &["update-index", "--assume-unchanged", "uv.lock"]);
+    h.write(&assumed.join("uv.lock"), "edited\n");
+    for wt in [&sparse, &assumed] {
+        assert_eq!(git::git(wt, &["status", "--porcelain"]), "", "status sees nothing");
+    }
+
+    let (r, _) = h.scan();
+
+    for (wt, file) in [(&sparse, sparse.join("README")), (&assumed, assumed.join("uv.lock"))] {
+        let f = h.finding(&r, wt);
+        kept(f, "files git does not check (skip-worktree or assume-unchanged): ");
+        let s = state(f);
+        assert_eq!((s.clean, s.own_commits), (Some(true), None));
+        assert_eq!(s.ignored_content, Some(IgnoredContent { paths: vec![file], count: 1 }), "{}", wt.display());
+    }
+}
+
+/// An ignored file larger than 64 MiB is never compared with the main
+/// checkout's, even when both are the same: it counts as its own.
+#[test]
+fn a_huge_ignored_file_is_never_compared() {
+    let Some(h) = Home::ready("a_huge_ignored_file_is_never_compared") else { return };
+    let (main, huge) = project(&h);
+    let len = ddc_core::rules::worktree::MAX_COMPARED + 1;
+    h.t.sparse(&format!("{}/.env", h.rel(&main)), len);
+    h.t.sparse(&format!("{}/.env", h.rel(&huge)), len);
+
+    let (r, _) = h.scan();
+
+    let f = h.finding(&r, &huge);
+    kept(f, "ignored content no artifact accounts for: .env");
+    assert_eq!(state(f).ignored_content.as_ref().unwrap().paths, vec![huge.join(".env")]);
+}
+
+/// A worktree rule switched off in `settings.json` runs no probe.
+#[test]
+fn a_disabled_worktree_rule_runs_no_probe() {
+    let Some(h) = Home::ready("a_disabled_worktree_rule_runs_no_probe") else { return };
+    let (_, wt) = project(&h);
+    let env = h.env();
+    let commands = Arc::new(SharedCommands::system(&env));
+    let opts = ScanOptions { disabled_rules: vec!["git.worktree".to_owned()], ..h.opts(&commands) };
+
+    let r = h.scan_with(&env, &opts);
+
+    let f = h.finding(&r, &wt);
+    assert!(f.ignored);
+    assert_eq!((state(f).in_use, state(f).probe), (None, WorktreeProbe::Unknown));
+    assert!(commands.calls().is_empty(), "{:?}", commands.calls());
 }

@@ -107,7 +107,13 @@ pub mod signals {
 
     pub fn set_child_group(_group: i32) {}
 
-    pub fn clear_child_group() {}
+    pub fn clear_child_group(_group: i32) {}
+
+    /// The groups published now, for a test: none here.
+    #[cfg(test)]
+    pub(crate) fn child_groups() -> Vec<i32> {
+        Vec::new()
+    }
 
     pub fn kill_group(_group: i32, _sig: i32) {}
 

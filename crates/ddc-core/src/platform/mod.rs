@@ -147,7 +147,7 @@ mod pins {
     const _: fn() -> io::Result<&'static AtomicBool> = imp::signals::install;
     const _: fn() -> Option<i32> = imp::signals::received;
     const _: fn(i32) = imp::signals::set_child_group;
-    const _: fn() = imp::signals::clear_child_group;
+    const _: fn(i32) = imp::signals::clear_child_group;
     const _: fn(i32, i32) = imp::signals::kill_group;
     const _: fn(i32, i32) -> io::Result<()> = imp::signals::signal_group;
     const _: fn(i32) -> ! = imp::signals::reraise;
