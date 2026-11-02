@@ -86,7 +86,9 @@ list="$(mktemp)"
 trap 'rm -f "$list"' EXIT
 git ls-files | sort > "$list"
 git ls-files -z | COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --null -T - -cf - |
-    on_host "mkdir -p $remote/src && tar -xf - -C $remote/src"
+    # -m: every file gets the time of this copy, so a tree copied after another one
+    # never looks older than the last build (cargo would keep a stale binary).
+    on_host "mkdir -p $remote/src && tar -xmf - -C $remote/src"
 on_host "cd $remote/src && find . -type f | sed 's|^\./||' | LC_ALL=C sort" | comm -13 "$list" - |
     on_host "cd $remote/src && xargs -r -d '\n' rm -f --"
 

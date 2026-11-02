@@ -74,7 +74,11 @@ list="$(mktemp)"
 trap 'rm -f "$list"' EXIT
 git ls-files | sort > "$list"
 git ls-files -z | COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --null -T - -cf - |
-    ssh "$host" "mkdir -p ~/$remote/src && tar -xf - -C ~/$remote/src"
+    # -m: every file gets the time of this copy. With the archive's own times, a tree
+    # copied after another one (an older checkout, another branch) can look older than
+    # the last build, and cargo keeps a stale binary; the workspace crates now rebuild
+    # on every run, the dependencies do not.
+    ssh "$host" "mkdir -p ~/$remote/src && tar -xmf - -C ~/$remote/src"
 ssh "$host" "cd ~/$remote/src && find . -type f | sed 's|^\./||' | LC_ALL=C sort" | comm -13 "$list" - |
     ssh "$host" "cd ~/$remote/src && xargs -r -d '\n' rm -f --"
 
