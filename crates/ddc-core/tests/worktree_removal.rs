@@ -13,7 +13,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use common::fakes::{FakeProcs, FakeTrash, Recorded, SharedCommands};
 use common::{TreeBuilder, git};
@@ -22,7 +22,7 @@ use ddc_core::env::Env;
 use ddc_core::exec::preflight::{self, Prediction, PreflightLine, PreflightPorts};
 use ddc_core::exec::{
     self, CmdOutput, CommandRunner, Consent, ExecOptions, ExecReport, MemoryJournal, NATIVE_TIMEOUT, Outcome, Ports,
-    SkipReason,
+    ProcInfo, SkipReason,
 };
 use ddc_core::git::{CLEARED, PROBE_CONFIG, PROBE_ENV};
 use ddc_core::model::{Finding, RemovalKind, ScanReport};
@@ -110,11 +110,24 @@ impl Home {
         commands: &dyn CommandRunner,
         opts: &ExecOptions<'_>,
     ) -> (ExecReport, MemoryJournal) {
+        self.execute_in(&self.env(), plan, consent, commands, &FakeProcs::new(vec![]), opts)
+    }
+
+    /// [`Self::execute_with`] in `env`, whose search path finds the git,
+    /// with `procs` as the process table the guard reads.
+    fn execute_in(
+        &self,
+        env: &Env,
+        plan: &Plan,
+        consent: Consent,
+        commands: &dyn CommandRunner,
+        procs: &FakeProcs,
+        opts: &ExecOptions<'_>,
+    ) -> (ExecReport, MemoryJournal) {
         let mut journal = MemoryJournal(Vec::new());
         let trash = self.trash();
-        let procs = FakeProcs::new(vec![]);
-        let ports = Ports { commands, trash: &trash, procs: &procs, journal: &mut journal };
-        let run = exec::execute(&self.env(), &self.catalog(), plan, &consent, ports, opts).unwrap();
+        let ports = Ports { commands, trash: &trash, procs, journal: &mut journal };
+        let run = exec::execute(env, &self.catalog(), plan, &consent, ports, opts).unwrap();
         (run, journal)
     }
 
@@ -737,4 +750,143 @@ fn an_item_inside_a_worktree_git_removed_is_skipped() {
     assert!(matches!(outcome(&run, &wt), Outcome::Native { .. }), "{:?}", outcome(&run, &wt));
     assert_eq!(outcome(&run, &venv), &Outcome::Skipped(SkipReason::InsideAnotherItem));
     assert!(!h.trash().0.exists(), "nothing went to the Trash");
+}
+
+/// The probe contract holds at the clean as at the scan: a repository's
+/// `core.fsmonitor` helper runs under neither the scan, nor the re-check,
+/// nor `git worktree remove`.
+#[test]
+fn the_clean_runs_no_fsmonitor_helper() {
+    let Some(h) = Home::ready("the_clean_runs_no_fsmonitor_helper") else { return };
+    let (main, wt) = project(&h);
+    let marker = h.t.path("fsmonitor-ran");
+    let helper = h.t.write("fsmonitor.sh", &format!("#!/bin/sh\necho ran >> '{}'\nexit 1\n", marker.display()));
+    common::set_mode(&helper, 0o755);
+    git::git(&main, &["config", "core.fsmonitor", helper.to_str().unwrap()]);
+    // A plain status runs it: the fixture would catch a call that did.
+    let _ = git::try_git(&wt, &["status", "--porcelain"]);
+    let runs = |p: &Path| fs::read_to_string(p).map_or(0, |t| t.lines().count());
+    let before = runs(&marker);
+    assert!(before > 0, "the helper runs on a plain status");
+    let commands = SharedCommands::system(&h.env());
+
+    let (_, run, _) = h.clean_yes(&commands);
+
+    assert!(matches!(outcome(&run, &wt), Outcome::Native { .. }), "{:?}", outcome(&run, &wt));
+    assert!(!wt.exists());
+    assert_eq!(runs(&marker), before, "the helper never ran under the scan or the clean");
+    assert_contract(&commands, 1);
+}
+
+/// Condition 1 is checked again at the clean: the person's own worktree,
+/// forced into a `--yes` plan as a selected `rebuildable` item, is kept,
+/// and `git worktree remove` never runs.
+#[test]
+fn a_persons_own_worktree_forced_into_a_yes_plan_is_kept() {
+    let Some(h) = Home::ready("a_persons_own_worktree_forced_into_a_yes_plan_is_kept") else { return };
+    let main = git::repo(&h.t, "proj");
+    let own = git::worktree(&main, &h.t.path("own"), &["-b", "own"]);
+    let mut plan = build_plan(&h.scan(), &h.catalog(), &PlanOptions::default());
+    let item = plan.items.iter_mut().find(|i| i.finding.path == own).expect("planned for review");
+    assert!(!item.selected && item.finding.class == RiskClass::Review, "{item:?}");
+    item.finding.class = RiskClass::Rebuildable;
+    (item.default_selected, item.selected) = (true, true);
+    let commands = SharedCommands::system(&h.env());
+
+    let (run, _) = h.execute(&plan, yes(), &commands);
+
+    match outcome(&run, &own) {
+        Outcome::Skipped(SkipReason::WorktreeKept { condition: 1, detail }) => {
+            assert!(detail.starts_with("yours"), "{detail}");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(!commands.git_calls().iter().any(is_remove));
+    assert!(own.join("README").exists());
+}
+
+/// Condition 2's in-use half is the guard's own check at the clean: a
+/// process working inside the worktree since the scan keeps it, before
+/// any git runs.
+#[test]
+fn a_worktree_a_process_works_in_since_the_scan_is_in_use() {
+    let Some(h) = Home::ready("a_worktree_a_process_works_in_since_the_scan_is_in_use") else { return };
+    let (_, wt) = project(&h);
+    let plan = build_plan(&h.scan(), &h.catalog(), &PlanOptions::default());
+    assert!(plan.items.iter().any(|i| i.finding.path == wt && i.selected));
+    let agent = ProcInfo { pid: 42, name: "claude".to_owned(), cwd: Some(wt.clone()), ..ProcInfo::default() };
+    let commands = SharedCommands::system(&h.env());
+
+    let procs = FakeProcs::new(vec![agent]);
+    let (run, _) = h.execute_in(&h.env(), &plan, yes(), &commands, &procs, &ExecOptions::default());
+
+    assert_eq!(outcome(&run, &wt), &Outcome::Skipped(SkipReason::InUse { pid: 42, name: "claude".to_owned() }));
+    assert!(!commands.git_calls().iter().any(is_remove));
+    assert!(wt.join("README").exists());
+}
+
+/// A git that hangs and one that prints garbage, met at the clean: the
+/// worktree is kept as one git could not tell, within the timeout.
+#[test]
+fn a_hanging_or_garbled_git_at_the_clean_keeps_the_worktree() {
+    let Some(h) = Home::ready("a_hanging_or_garbled_git_at_the_clean_keeps_the_worktree") else { return };
+    let (_, wt) = project(&h);
+    let plan = build_plan(&h.scan(), &h.catalog(), &PlanOptions::default());
+    assert!(plan.items.iter().any(|i| i.finding.path == wt && i.selected));
+    let opts = ExecOptions { probe_timeout: Duration::from_secs(2), ..ExecOptions::default() };
+    for (name, body) in [("hangs", "sleep 30\n"), ("garbage", "echo garbage\n")] {
+        let bin = h.t.dir(&format!("bin-{name}"));
+        let exe = h.t.write(&format!("bin-{name}/git"), &format!("#!/bin/sh\n{body}"));
+        common::set_mode(&exe, 0o755);
+        let env = h.env().with_search_path(vec![bin]);
+        let commands = SharedCommands::system(&env);
+        let started = Instant::now();
+
+        let (run, _) = h.execute_in(&env, &plan, yes(), &commands, &FakeProcs::new(vec![]), &opts);
+
+        assert!(started.elapsed() < Duration::from_secs(20), "{name}: {:?}", started.elapsed());
+        // Condition 5's `status` is the first probe: it fails, and nothing more runs.
+        let why = match name {
+            "hangs" => format!("git status: {} timed out", exe.display()),
+            _ => r#"status printed "garbage\n""#.to_owned(),
+        };
+        let detail = format!("git could not tell its state: {why}");
+        assert_eq!(outcome(&run, &wt), &Outcome::Skipped(SkipReason::WorktreeKept { condition: 5, detail }), "{name}");
+        let calls = commands.git_calls();
+        assert_eq!(calls.len(), 1, "{name}: one probe, never retried: {calls:?}");
+        assert_eq!((&calls[0].exe, calls[0].timeout), (&exe, Duration::from_secs(2)), "{name}");
+        assert!(!is_remove(&calls[0]), "{name}");
+        assert!(wt.join("README").exists(), "{name}");
+    }
+}
+
+/// A worktree copied by hand (`cp -r`) is listed by no git: a person's
+/// list of it is refused as `tool-not-ready` in the dry run and in the
+/// plan, before any git runs.
+#[test]
+fn a_listed_copy_of_a_worktree_is_refused_before_any_git() {
+    let Some(h) = Home::ready("a_listed_copy_of_a_worktree_is_refused_before_any_git") else { return };
+    let (_, wt) = project(&h);
+    let copy = h.t.path("copy");
+    git::copy_tree(&wt, &copy);
+    let r = h.scan();
+    let f = h.finding(&r, &copy);
+    assert_eq!((f.rule.as_str(), f.removal), (worktree::WORKTREE_RULE, RemovalKind::Native));
+    assert!(!f.worktree.as_ref().unwrap().linked, "{}", f.hint);
+    let items = [listed(&r, &copy)];
+    let commands = SharedCommands::system(&h.env());
+
+    let dry = h.preflight(&items, &commands);
+    let plan = h.plan_listed(&items, &commands);
+
+    let predicted = dry.iter().find_map(|l| match l {
+        PreflightLine::Item(i) if i.path == copy => Some(i.prediction.clone()),
+        _ => None,
+    });
+    assert_eq!(predicted, Some(Prediction::WouldSkip(worktree::not_listed())));
+    let refused = plan.refused.iter().find(|r| r.item.path == copy).expect("refused");
+    assert_eq!(refused.reason, worktree::not_listed());
+    assert!(!plan.plan.items.iter().any(|i| i.finding.path == copy), "{:?}", plan.plan.items);
+    assert!(commands.git_calls().is_empty(), "{:?}", commands.git_calls());
+    assert!(copy.join("README").exists());
 }

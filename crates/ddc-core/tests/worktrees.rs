@@ -9,7 +9,8 @@
 mod common;
 
 use std::fs;
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use common::fakes::FakeProcs;
@@ -47,7 +48,13 @@ impl Home {
     }
 
     fn scan(&self) -> ScanReport {
+        self.scan_roots(Vec::new())
+    }
+
+    /// A scan of `roots` (the home when empty).
+    fn scan_roots(&self, roots: Vec<PathBuf>) -> ScanReport {
         let opts = ScanOptions {
+            roots,
             walk: WalkOptions { threads: Some(4), ..Default::default() },
             processes: Processes::fixed(FakeProcs::new(vec![])),
             ..Default::default()
@@ -83,18 +90,14 @@ fn origin(harness: OriginHarness) -> Option<Origin> {
     Some(Origin { harness, kind: OriginKind::Worktree })
 }
 
-/// `cp -r`: the folders and files under `from`, at `to`.
-fn copy_tree(from: &Path, to: &Path) {
-    fs::create_dir_all(to).unwrap();
-    for e in fs::read_dir(from).unwrap() {
-        let e = e.unwrap();
-        let target = to.join(e.file_name());
-        if e.file_type().unwrap().is_dir() {
-            copy_tree(&e.path(), &target);
-        } else {
-            fs::copy(e.path(), &target).unwrap();
-        }
-    }
+/// What `docs/scan.schema.json` finds wrong in `report`, one line each.
+fn schema_errors(report: &serde_json::Value) -> Vec<String> {
+    let doc: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/scan.schema.json")).unwrap(),
+    )
+    .unwrap();
+    let validator = jsonschema::validator_for(&doc).unwrap();
+    validator.iter_errors(report).map(|e| format!("{e} at {}", e.instance_path())).collect()
 }
 
 #[test]
@@ -183,7 +186,7 @@ fn a_git_file_naming_a_missing_gitdir_is_an_orphan() {
     let wt = git::worktree(&main, &h.t.path("left"), &[]);
     let claude = git::worktree(&main, &main.join(".claude/worktrees/c"), &[]);
     // The repository goes, its worktrees stay: a copy of files whose `.git` names nothing.
-    copy_tree(&claude, &h.t.path("saved/.claude/worktrees/c"));
+    git::copy_tree(&claude, &h.t.path("saved/.claude/worktrees/c"));
     fs::rename(&main, h.t.path("moved-away")).unwrap();
 
     let r = h.scan();
@@ -209,7 +212,7 @@ fn a_submodule_is_not_a_worktree() {
     assert!(fs::symlink_metadata(main.join("libs/lib/.git")).unwrap().is_file(), "a submodule's .git is a file");
     // The same submodule copied out of its superproject, into an app's hidden
     // folder: its `.git` names a `modules/` gitdir that is not there.
-    copy_tree(&main.join("libs/lib"), &h.t.path(".app/vendor/lib"));
+    git::copy_tree(&main.join("libs/lib"), &h.t.path(".app/vendor/lib"));
     h.t.write(".app/vendor/lib/package.json", "{}");
     h.t.write(".app/vendor/lib/package-lock.json", "{}");
     h.t.file(".app/vendor/lib/node_modules/dep/index.js", 1_000);
@@ -307,7 +310,7 @@ fn a_worktree_copied_or_moved_by_hand_is_not_linked() {
     let wt = git::worktree(&main, &h.t.path("w"), &[]);
     let moving = git::worktree(&main, &h.t.path("m"), &[]);
     let copy = h.t.path("copy");
-    copy_tree(&wt, &copy);
+    git::copy_tree(&wt, &copy);
     let moved = h.t.path("moved");
     fs::rename(&moving, &moved).unwrap();
 
@@ -344,6 +347,44 @@ fn a_relative_back_pointer_is_linked() {
     assert_eq!(f.rule, "git.worktree");
     assert!(f.worktree.as_ref().unwrap().linked);
     assert_eq!(f.project.as_ref().unwrap().root, main);
+}
+
+/// Decision 4: on a case-insensitive filesystem, a worktree reached through
+/// a root spelled in one case, whose gitdir points back to it spelled in
+/// another, is the same folder: compared by identity, not by spelling, it
+/// is linked. The root alone may not be enough: a canonical root can take
+/// the case the filesystem stores; the back-pointer is read as written.
+#[test]
+fn a_worktree_reached_through_a_root_in_another_case_is_linked() {
+    let Some(h) = Home::ready("a_worktree_reached_through_a_root_in_another_case_is_linked") else { return };
+    let main = git::repo(&h.t, "proj");
+    let wt = git::worktree(&main, &main.join(".claude/worktrees/x"), &["-b", "worktree-x"]);
+    let upper = h.t.path("PROJ");
+    let folded = match fs::symlink_metadata(&upper) {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            Err(io::Error::new(io::ErrorKind::Unsupported, "a case-sensitive filesystem: PROJ does not reach proj"))
+        }
+        Err(e) => Err(e),
+    };
+    let Some(()) = common::skipped_without("a_worktree_reached_through_a_root_in_another_case_is_linked", folded)
+    else {
+        return;
+    };
+    let back = h.t.path("Proj/.claude/worktrees/x/.git");
+    fs::write(git::gitdir(&wt).join("gitdir"), format!("{}\n", back.display())).unwrap();
+
+    let r = h.scan_roots(vec![upper]);
+
+    let found: Vec<&Finding> = r.findings.iter().filter(|f| f.rule.starts_with("git.")).collect();
+    assert_eq!(found.len(), 1, "{:?}", h.summary(&r));
+    let f = found[0];
+    assert_eq!(f.rule, "git.worktree");
+    let (walked, made) = (f.path.to_str().unwrap(), wt.to_str().unwrap());
+    assert!(walked.eq_ignore_ascii_case(made), "{walked} is {made}");
+    assert!(f.worktree.as_ref().unwrap().linked, "{}", f.hint);
+    assert!(!f.hint.contains("git worktree repair"), "{}", f.hint);
+    assert_eq!(f.origin.map(|o| o.harness), Some(OriginHarness::ClaudeCode), "{}", f.hint);
 }
 
 #[test]
@@ -427,12 +468,7 @@ fn a_report_with_worktrees_holds_its_schema() {
         assert!(r.findings.iter().any(|f| f.rule == rule), "{rule}: {:?}", h.summary(&r));
     }
     let value = serde_json::to_value(&r).unwrap();
-    let doc: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/scan.schema.json")).unwrap(),
-    )
-    .unwrap();
-    let validator = jsonschema::validator_for(&doc).unwrap();
-    let errors: Vec<String> = validator.iter_errors(&value).map(|e| format!("{e} at {}", e.instance_path())).collect();
+    let errors = schema_errors(&value);
     assert!(errors.is_empty(), "{errors:#?}");
     let back: ScanReport = serde_json::from_value(value.clone()).unwrap();
     assert_eq!(back, r, "read back unchanged");
@@ -442,4 +478,29 @@ fn a_report_with_worktrees_holds_its_schema() {
     assert!(wt_json["worktree"].get("clean").is_none(), "a field no probe filled is absent");
     let venv_json = value["findings"].as_array().unwrap().iter().find(|f| f["rule"] == "python.venv").unwrap();
     assert_eq!(venv_json["project"]["worktree_of"], main.to_str().unwrap());
+}
+
+/// A report the released ddc 0.25.0 wrote over a temporary home holding a
+/// Claude Code worktree with a `.venv` (its paths scrubbed to `/h`): this
+/// build reads it as a `ScanReport`, it holds the schema, and its worktree
+/// finding keeps `origin` and `worktree`. The app's tests read the same file.
+#[test]
+fn a_report_ddc_0_25_0_wrote_of_a_worktree_still_reads() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../app/Packages/DDCKit/Tests/DDCKitTests/Fixtures/scan-report-0.25.0-worktree.json");
+    let value: serde_json::Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+
+    let r: ScanReport = serde_json::from_value(value.clone()).unwrap();
+
+    assert_eq!((r.schema_version, r.ddc_version.as_str()), (ddc_core::model::SCHEMA_VERSION, "0.25.0"));
+    let errors = schema_errors(&value);
+    assert!(errors.is_empty(), "{errors:#?}");
+    let f = r.findings.iter().find(|f| f.rule == "git.worktree").expect("a worktree finding");
+    assert_eq!(f.path, Path::new("/h/p/.claude/worktrees/x"));
+    assert_eq!(f.origin, origin(OriginHarness::ClaudeCode));
+    let state = f.worktree.as_ref().expect("a worktree state");
+    assert!(state.linked);
+    assert_eq!((state.branch.as_deref(), state.probe), (Some("worktree-x"), WorktreeProbe::Unknown));
+    let venv = r.findings.iter().find(|f| f.rule == "python.venv").expect("the .venv inside it");
+    assert_eq!(venv.project.as_ref().unwrap().worktree_of.as_deref(), Some(Path::new("/h/p")));
 }

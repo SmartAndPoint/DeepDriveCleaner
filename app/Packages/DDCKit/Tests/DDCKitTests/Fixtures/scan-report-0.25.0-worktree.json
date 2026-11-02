@@ -1,0 +1,154 @@
+{
+  "schema_version": 6,
+  "ddc_version": "0.25.0",
+  "platform": "macos",
+  "capabilities": [
+    "private-size",
+    "in-use-check",
+    "dataless-files",
+    "full-disk-access",
+    "local-snapshots",
+    "whole-disk",
+    "coding-agents",
+    "homebrew",
+    "schedule",
+    "notifications"
+  ],
+  "generated_at": "2026-11-02T20:00:00Z",
+  "duration_ms": 12,
+  "home": "/h",
+  "scan_roots": [
+    "/h/p"
+  ],
+  "full_disk_access": true,
+  "volumes": [
+    {
+      "mount_point": "/",
+      "roots": [
+        "/h/p"
+      ],
+      "free_bytes": 107374182400,
+      "total_bytes": 536870912000
+    }
+  ],
+  "min_age_days": 14,
+  "totals": {
+    "scanned_bytes": 221184,
+    "files": 45,
+    "dirs": 27,
+    "unowned_bytes": 167936,
+    "classes": [
+      {
+        "class": "safe",
+        "count": 0,
+        "bytes": 0,
+        "selected_count": 0,
+        "selected_bytes": 0
+      },
+      {
+        "class": "rebuildable",
+        "count": 1,
+        "bytes": 36864,
+        "selected_count": 0,
+        "selected_bytes": 0
+      },
+      {
+        "class": "review",
+        "count": 1,
+        "bytes": 16384,
+        "selected_count": 0,
+        "selected_bytes": 0
+      },
+      {
+        "class": "user-data",
+        "count": 0,
+        "bytes": 0,
+        "selected_count": 0,
+        "selected_bytes": 0
+      }
+    ],
+    "selected_bytes": 0,
+    "selected_reclaimable_bytes": 0
+  },
+  "findings": [
+    {
+      "path": "/h/p/.claude/worktrees/x/.venv",
+      "rule": "python.venv",
+      "category": "project-artifact",
+      "class": "rebuildable",
+      "rule_class": "rebuildable",
+      "removal": "delete",
+      "bytes": 36864,
+      "shared_bytes": 0,
+      "files": 2,
+      "dirs": 2,
+      "incomplete": false,
+      "project": {
+        "root": "/h/p/.claude/worktrees/x",
+        "last_activity": "2026-11-02T17:34:54Z",
+        "idle_days": 0,
+        "has_lockfile": true,
+        "worktree_of": "/h/p"
+      },
+      "selected": false,
+      "not_selected": {
+        "reason": "active-project",
+        "idle_days": 0
+      },
+      "notes": [],
+      "hint": "recreate: uv sync / pip install -r requirements.txt",
+      "dev": 16777234,
+      "ino": 571520537,
+      "parent_dev": 16777234,
+      "parent_ino": 571520518,
+      "modified": "2026-11-02T17:34:54Z"
+    },
+    {
+      "path": "/h/p/.claude/worktrees/x",
+      "rule": "git.worktree",
+      "category": "project-artifact",
+      "class": "review",
+      "rule_class": "review",
+      "removal": "native",
+      "bytes": 16384,
+      "shared_bytes": 0,
+      "files": 4,
+      "dirs": 1,
+      "incomplete": false,
+      "project": {
+        "root": "/h/p",
+        "last_activity": "2026-11-02T17:34:54Z",
+        "idle_days": 0
+      },
+      "selected": false,
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "hint": "a linked worktree of /h/p; kept: used 0 days ago, within the 2-day window (--worktree-min-age)",
+      "dev": 16777234,
+      "ino": 571520518,
+      "parent_dev": 16777234,
+      "parent_ino": 571520517,
+      "origin": {
+        "harness": "claude-code",
+        "kind": "worktree"
+      },
+      "worktree": {
+        "linked": true,
+        "branch": "worktree-x",
+        "detached": false,
+        "locked": false,
+        "in_use": false,
+        "idle_days": 0,
+        "probe": "unknown"
+      }
+    }
+  ],
+  "large_files": [],
+  "inaccessible": [],
+  "errors_total": 0,
+  "skipped": [],
+  "skipped_total": 0,
+  "cancelled": false
+}

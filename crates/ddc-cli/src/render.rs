@@ -249,9 +249,7 @@ fn rows(
     if shown < items.len() {
         let rest = &items[shown..];
         let bytes: u64 = rest.iter().map(|f| f.bytes).sum();
-        let (count, within) = rest.iter().map(|f| nested(f, inside)).fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
-        let inner = if count > 0 { format!(", and {count} inside them, {}", human(within)) } else { String::new() };
-        let line = format!("… {} more, {}{inner} (--all shows them)", rest.len(), human(bytes));
+        let line = format!("… {} more, {}{} (--all shows them)", rest.len(), human(bytes), inside_them(rest, inside));
         writeln!(w, "    {}{}", "  ".repeat(depth), style.dim(&line))?;
     }
     Ok(())
@@ -265,6 +263,13 @@ fn nested(f: &Finding, inside: &BTreeMap<&Path, Vec<&Finding>>) -> (usize, u64) 
             (n + 1 + inner_n, b + item.bytes + inner_b)
         })
     })
+}
+
+/// ", and N inside them, SIZE" for what lies inside `items` at any depth;
+/// empty when nothing does.
+fn inside_them(items: &[&Finding], inside: &BTreeMap<&Path, Vec<&Finding>>) -> String {
+    let (count, within) = items.iter().map(|f| nested(f, inside)).fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
+    if count > 0 { format!(", and {count} inside them, {}", human(within)) } else { String::new() }
 }
 
 /// `own_roots`: the scan was given paths other than the default ones, so the
@@ -332,7 +337,10 @@ pub fn report(w: &mut impl Write, r: &ScanReport, style: &Style, own_roots: bool
         categories.sort_by_key(|(_, fs)| std::cmp::Reverse(fs.iter().map(|f| f.bytes).sum::<u64>()));
         for (category, items) in categories {
             let total: u64 = items.iter().map(|f| f.bytes).sum();
-            writeln!(w, "  {} · {} items · {}", style.bold(category.as_str()), items.len(), human(total))?;
+            // Its rows are the top-level items: what lies in a worktree is
+            // listed under it, and counted here after them.
+            let (name, inner) = (style.bold(category.as_str()), inside_them(&items, &inside));
+            writeln!(w, "  {name} · {} items · {}{inner}", items.len(), human(total))?;
             rows(w, &items, &inside, 0, home, style)?;
         }
     }
@@ -1071,6 +1079,8 @@ mod tests {
 
         let text = rendered(&r, false);
         assert!(!text.contains("REBUILDABLE"), "nothing inside a worktree is listed in its own group: {text}");
+        // The header counts the ten worktrees, then the twenty findings inside them.
+        assert!(text.contains("  project-artifact · 10 items · 10.0 MiB, and 20 inside them, 20.0 MiB\n"), "{text}");
         assert_eq!(text.matches("git.worktree").count(), 8, "{text}");
         assert!(text.contains("    … 2 more, 2.0 MiB, and 2 inside them, 2.0 MiB (--all shows them)"), "{text}");
         // w0 holds 11: its .venv and ten node_modules, cut at eight with the rest counted.

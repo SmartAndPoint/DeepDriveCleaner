@@ -622,7 +622,11 @@ pub(crate) const ORPHAN_HINT: &str =
 /// thread file; otherwise the person's own, `git`.
 fn harness(path: &Path, gitdir: &Path, main: &Path) -> OriginHarness {
     let claude_base = read_line(&gitdir.join(CLAUDE_BASE)).is_some_and(|base| base.len() == 40 && is_hex(&base));
-    let under_claude = path.strip_prefix(main.join(".claude").join("worktrees")).is_ok_and(|rel| rel != Path::new(""));
+    // By spelling, else by identity: a root reached in another case on a
+    // case-insensitive volume spells the worktree differently from `main`.
+    let base = main.join(".claude").join("worktrees");
+    let under_claude = path.strip_prefix(&base).is_ok_and(|rel| rel != Path::new(""))
+        || path.ancestors().skip(1).any(|dir| same_file(dir, &base));
     if claude_base || exists(&gitdir.join(CLAUDE_DESKTOP)) || under_claude {
         OriginHarness::ClaudeCode
     } else if exists(&gitdir.join(CODEX_THREAD)) {

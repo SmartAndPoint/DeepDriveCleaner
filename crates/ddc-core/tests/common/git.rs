@@ -4,6 +4,7 @@
 //! developer's own settings (hooks, signing, a default branch) never reach a
 //! fixture.
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -75,4 +76,20 @@ pub fn worktree(main: &Path, path: &Path, args: &[&str]) -> PathBuf {
 /// The administrative folder of the worktree at `path`, as its `.git` names it.
 pub fn gitdir(path: &Path) -> PathBuf {
     PathBuf::from(git(path, &["rev-parse", "--absolute-git-dir"]))
+}
+
+/// `cp -r`: the folders and files under `from`, at `to`. A worktree copied
+/// so keeps a `.git` that names its original's gitdir, which points back
+/// to the original: git lists the original, never the copy.
+pub fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for e in fs::read_dir(from).unwrap() {
+        let e = e.unwrap();
+        let target = to.join(e.file_name());
+        if e.file_type().unwrap().is_dir() {
+            copy_tree(&e.path(), &target);
+        } else {
+            fs::copy(e.path(), &target).unwrap();
+        }
+    }
 }
