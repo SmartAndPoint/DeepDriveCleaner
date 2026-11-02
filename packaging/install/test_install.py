@@ -66,6 +66,7 @@ def constant(text, name):
 
 CLI_ID = constant(read("packaging/install/install.sh"), "CLI_ID")
 LABEL = constant(read("packaging/install/install.sh"), "LABEL")
+UNIT = constant(read("packaging/install/install.sh"), "UNIT")
 
 
 def mac_stub(version, identifier=CLI_ID):
@@ -620,6 +621,28 @@ class LinuxInstall(Case):
         self.ok(self.install("--uninstall"))
         self.assertEqual(os.listdir(self.prefix), [])
 
+    def test_uninstall_stops_on_the_timer_that_runs_it(self):
+        self.release.publish("0.9.0", {MUSL: archive(sh_stub("0.9.0"))})
+        self.ok(self.install("--version", "0.9.0"))
+        units = os.path.join(self.home, ".local", "state", "deepdrivecleaner", "systemd")
+        os.makedirs(units)
+        service = os.path.join(units, UNIT)
+        dest = os.path.join(self.prefix, "deepdrivecleaner")
+        with open(service, "w") as f:
+            f.write(f'[Service]\nType=oneshot\nExecStart="{dest}" scan --background --data-dir "/x"\n')
+        self.fails(self.install("--uninstall"), 4, "ddc schedule uninstall")
+        self.assertEqual(sorted(os.listdir(self.prefix)), ["ddc", "deepdrivecleaner"])
+        # A program ddc had to escape cannot be read back: refused, nothing removed.
+        with open(service, "w") as f:
+            f.write('[Service]\nExecStart="/opt/\\"odd\\"/deepdrivecleaner" scan --background\n')
+        self.fails(self.install("--uninstall"), 4, "cannot be read")
+        self.assertEqual(sorted(os.listdir(self.prefix)), ["ddc", "deepdrivecleaner"])
+        # A timer of another copy does not stop it, `%%` and `$$` read back as one sign.
+        with open(service, "w") as f:
+            f.write('[Service]\nExecStart="/opt/100%%/$$x/deepdrivecleaner" scan --background\n')
+        self.ok(self.install("--uninstall"))
+        self.assertEqual(os.listdir(self.prefix), [])
+
     @unittest.skipUnless(LINUX, "the machine's own uname: Linux only")
     def test_on_this_linux_machine(self):
         os.remove(os.path.join(self.fakebin, "uname"))
@@ -704,6 +727,8 @@ class Constants(unittest.TestCase):
         self.assertEqual(set(re.findall(r"MACOSX_DEPLOYMENT_TARGET = ([0-9.]+);", project)), {floor})
         launchd = read("crates/ddc-cli/src/platform/launchd.rs")
         self.assertIn(f'pub const LABEL: &str = "{constant(script, "LABEL")}";', launchd)
+        systemd = read("crates/ddc-cli/src/platform/systemd.rs")
+        self.assertIn(f'pub const SERVICE: &str = "{constant(script, "UNIT")}";', systemd)
         self.assertIn('ARCHIVE=deepdrivecleaner-$VERSION-$TARGET.tar.gz', script)
         self.assertIn('ASSET="deepdrivecleaner-$VERSION-$TARGET.tar.gz"', dist)
         self.assertIn(

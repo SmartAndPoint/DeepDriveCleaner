@@ -61,6 +61,8 @@ MIN_MACOS=26.0
 FIRST_VERIFIABLE=0.8.0
 # The LaunchAgent of `ddc schedule install` (crates/ddc-cli/src/platform/launchd.rs LABEL).
 LABEL=com.smartandpoint.deepdrivecleaner
+# The systemd service of `ddc schedule install` on Linux (crates/ddc-cli/src/platform/systemd.rs).
+UNIT=deepdrivecleaner-scan.service
 # The app the Homebrew cask installs, or a copy dragged into ~/Applications; it
 # carries the same CLI.
 APP_PATH=/Applications/DeepDriveCleaner.app
@@ -185,6 +187,21 @@ main() {
                 program_dir=$(canon_path "$(dirname "$program")") || program_dir=""
                 if [ "$program_dir" = "$PREFIX" ]; then
                     die 4 "the background scan ($plist) runs $program: run 'ddc schedule uninstall' first, then this again"
+                fi
+            fi
+        fi
+        if [ "$OS" = Linux ]; then
+            unit=$HOME/.local/state/deepdrivecleaner/systemd/$UNIT
+            if [ -f "$unit" ]; then
+                # ExecStart="<program>" scan --background ...: ddc writes the program quoted
+                # first, `%` as `%%` and `$` as `$$`. A program with a quote or a backslash,
+                # which ddc escapes, cannot be read back here: refuse rather than guess.
+                program=$(sed -n 's/^ExecStart="\([^"\\]*\)" .*/\1/p' "$unit" | head -n 1)
+                [ -n "$program" ] || die 4 "$unit cannot be read: check it with 'ddc schedule status' first"
+                program=$(printf '%s\n' "$program" | sed 's/%%/%/g; s/\$\$/$/g')
+                program_dir=$(canon_path "$(dirname "$program")") || program_dir=""
+                if [ "$program_dir" = "$PREFIX" ]; then
+                    die 4 "the background scan ($unit) runs $program: run 'ddc schedule uninstall' first, then this again"
                 fi
             fi
         fi

@@ -10,6 +10,7 @@ pub mod launchd;
 #[cfg(target_os = "macos")]
 mod macos;
 pub mod scheduler;
+pub mod systemd;
 #[cfg(not(target_os = "macos"))]
 mod unported;
 
@@ -20,12 +21,24 @@ use unported as imp;
 
 pub use imp::SystemNotifier;
 
-/// The scheduler of this user: the LaunchAgent, the only backend so far
-/// (story "Scheduled scans on Linux through a systemd user timer" adds the
-/// systemd user timer).
+/// The scheduler of this user: the systemd user timer on Linux, the
+/// LaunchAgent elsewhere (Windows declares no `schedule`, so the dispatcher
+/// refuses it there; DDC-008's Task Scheduler takes that arm). Chosen at run
+/// time, so both backends are built and used on every target. Built lazily:
+/// nothing here asks the system anything.
 pub fn scheduler(env: &ddc_core::env::Env) -> Box<dyn scheduler::Scheduler> {
     static LAUNCHCTL: launchd::SystemLaunchctl = launchd::SystemLaunchctl;
-    Box::new(launchd::Launchd { home: env.home().to_path_buf(), uid: ddc_core::platform::procs::uid(), lc: &LAUNCHCTL })
+    static SYSTEMCTL: systemd::SystemSystemctl = systemd::SystemSystemctl;
+    match ddc_core::platform::PLATFORM {
+        ddc_core::platform::Platform::Linux => {
+            Box::new(systemd::Systemd { home: env.home().to_path_buf(), sc: &SYSTEMCTL })
+        }
+        _ => Box::new(launchd::Launchd {
+            home: env.home().to_path_buf(),
+            uid: ddc_core::platform::procs::uid(),
+            lc: &LAUNCHCTL,
+        }),
+    }
 }
 
 /// Process-wide setup that must happen before any filesystem access.

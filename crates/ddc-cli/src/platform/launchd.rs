@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::scheduler::{
-    Installed, ProgramState, ScheduleSpec, Scheduler, inside_cargo_target, program_state, scheduled_program,
+    Installed, ProgramState, ScheduleSpec, Scheduler, Status, program_state, refuse_cargo_target, scheduled_program,
 };
 use crate::cli::IntervalArg;
 
@@ -20,6 +20,9 @@ pub struct AgentSpec {
     /// Written only when given, so `notify_threshold` in settings.json applies otherwise.
     pub threshold: Option<u64>,
     pub log_dir: PathBuf,
+    /// Passed as `--data-dir` when the install named a data folder; the
+    /// default one, the app's, is not written, so a default plist is as it was.
+    pub data_dir: Option<PathBuf>,
     /// Lists the agent under this app in Login Items (`AssociatedBundleIdentifiers`).
     pub associated_bundle: Option<&'static str>,
 }
@@ -42,6 +45,9 @@ fn xml(s: &str) -> String {
 
 pub fn plist(spec: &AgentSpec) -> String {
     let mut args = vec![spec.exe.to_string_lossy().into_owned(), "scan".into(), "--background".into()];
+    if let Some(dir) = &spec.data_dir {
+        args.extend(["--data-dir".into(), dir.to_string_lossy().into_owned()]);
+    }
     if let Some(threshold) = spec.threshold {
         args.extend(["--threshold".into(), threshold.to_string()]);
     }
@@ -97,15 +103,32 @@ pub fn plist(spec: &AgentSpec) -> String {
 
 /// `ProgramArguments[0]` of an installed plist.
 pub fn installed_program(plist_text: &str) -> Option<PathBuf> {
+    installed_args(plist_text)?.into_iter().next().map(PathBuf::from)
+}
+
+/// `ProgramArguments` of an installed plist.
+fn installed_args(plist_text: &str) -> Option<Vec<String>> {
     let after = plist_text.split("<key>ProgramArguments</key>").nth(1)?;
-    let first = after.split("<string>").nth(1)?.split("</string>").next()?;
-    let unescaped = first
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&amp;", "&");
-    Some(PathBuf::from(unescaped))
+    let array = after.split("</array>").next()?;
+    let args: Vec<String> = array
+        .split("<string>")
+        .skip(1)
+        .filter_map(|s| s.split("</string>").next())
+        .map(|s| {
+            s.replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'")
+                .replace("&amp;", "&")
+        })
+        .collect();
+    (!args.is_empty()).then_some(args)
+}
+
+/// The `--data-dir` an installed plist passes, if it passes one.
+pub fn installed_data_dir(plist_text: &str) -> Option<PathBuf> {
+    let args = installed_args(plist_text)?;
+    args.windows(2).find(|w| w[0] == "--data-dir").map(|w| PathBuf::from(&w[1]))
 }
 
 pub trait Launchctl {
@@ -153,12 +176,7 @@ pub fn target(uid: u32) -> String {
 
 /// Writes the plist and (re)loads the agent: idempotent.
 pub fn install(spec: &AgentSpec, home: &Path, uid: u32, lc: &dyn Launchctl) -> anyhow::Result<PathBuf> {
-    anyhow::ensure!(
-        !inside_cargo_target(&spec.exe),
-        "{} is a cargo build artifact and may be deleted; install a stable copy first: \
-         make install (or cargo install --path crates/ddc-cli)",
-        spec.exe.display()
-    );
+    refuse_cargo_target(&spec.exe)?;
     std::fs::create_dir_all(&spec.log_dir)?;
     let spec = AgentSpec { exe: scheduled_program(&spec.exe), ..spec.clone() };
     let path = ddc_core::store::write_atomic(&plist_path(home), plist(&spec).as_bytes())?;
@@ -195,6 +213,7 @@ impl Scheduler for Launchd<'_> {
             interval: spec.interval,
             threshold: spec.threshold,
             log_dir: spec.log_dir.clone(),
+            data_dir: (!spec.data_dir_is_default).then(|| spec.data_dir.clone()),
             associated_bundle: app_bundle_of(&spec.exe).map(|_| APP_BUNDLE_ID),
         };
         let path = install(&agent, &self.home, self.uid, self.lc)?;
@@ -205,7 +224,7 @@ impl Scheduler for Launchd<'_> {
         uninstall(&self.home, self.uid, self.lc)
     }
 
-    fn status(&self, current: Option<&Path>) -> Option<Vec<String>> {
+    fn status(&self, current: Option<&Path>) -> Option<Status> {
         let path = plist_path(&self.home);
         let text = std::fs::read_to_string(&path).ok()?;
         let mut lines = vec![
@@ -220,7 +239,7 @@ impl Scheduler for Launchd<'_> {
             },
             None => "Binary:  unreadable plist".to_owned(),
         });
-        Some(lines)
+        Some(Status { lines, data_dir: installed_data_dir(&text) })
     }
 }
 
@@ -267,7 +286,7 @@ mod tests {
 
     use super::fake::FakeLaunchctl;
     use super::*;
-    use crate::platform::scheduler::homebrew_stable_path;
+    use crate::platform::scheduler::{homebrew_stable_path, inside_cargo_target};
     use ddc_core::platform::Canonical as _;
 
     fn spec(dir: &Path) -> AgentSpec {
@@ -276,6 +295,7 @@ mod tests {
             interval: IntervalArg::Daily,
             threshold: Some(10 << 30),
             log_dir: dir.join("logs"),
+            data_dir: None,
             associated_bundle: None,
         }
     }
@@ -355,18 +375,22 @@ mod tests {
         std::fs::write(&exe, "binary").unwrap();
         let lc = FakeLaunchctl::default();
         let agent = Launchd { home: tmp.path().to_path_buf(), uid: 501, lc: &lc };
-        assert_eq!(agent.status(Some(&exe)), None, "nothing installed");
+        assert!(agent.status(Some(&exe)).is_none(), "nothing installed");
 
         let spec = ScheduleSpec {
             exe: exe.clone(),
             interval: IntervalArg::Daily,
             threshold: None,
             log_dir: tmp.path().join("logs"),
+            data_dir: tmp.path().join("data"),
+            data_dir_is_default: true,
+            pinned: Vec::new(),
         };
         agent.install(&spec).unwrap();
         let plist = plist_path(tmp.path());
+        assert_eq!(agent.status(Some(&exe)).unwrap().data_dir, None, "the default data folder is not written");
         assert_eq!(
-            agent.status(Some(&exe)).unwrap(),
+            agent.status(Some(&exe)).unwrap().lines,
             vec![
                 format!("Agent:   {}", plist.display()),
                 "Loaded:  yes".to_owned(),
@@ -378,13 +402,28 @@ mod tests {
         std::fs::remove_file(&exe).unwrap();
         lc.0.borrow_mut().clear();
         assert_eq!(
-            agent.status(None).unwrap(),
+            agent.status(None).unwrap().lines,
             vec![
                 format!("Agent:   {}", plist.display()),
                 "Loaded:  no".to_owned(),
                 format!("Binary:  {} (missing! reinstall)", exe.display()),
             ]
         );
+    }
+
+    /// A data folder the install named goes into the plist as `--data-dir`,
+    /// and status reads it back; the default one is never written.
+    #[test]
+    fn a_named_data_folder_is_passed_and_read_back() {
+        let tmp = tempfile::tempdir().unwrap();
+        let named = AgentSpec { data_dir: Some(PathBuf::from("/Users/me/ddc data & co")), ..spec(tmp.path()) };
+        let text = plist(&named);
+        assert!(text.contains("<string>--data-dir</string>"), "{text}");
+        assert_eq!(installed_data_dir(&text), Some(PathBuf::from("/Users/me/ddc data & co")));
+        assert_eq!(installed_program(&text), Some(PathBuf::from("/Users/me/.cargo/bin/deepdrivecleaner & <tools>")));
+        let default = plist(&spec(tmp.path()));
+        assert!(!default.contains("--data-dir"));
+        assert_eq!(installed_data_dir(&default), None);
     }
 
     #[test]
