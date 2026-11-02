@@ -17,7 +17,7 @@ use ddc_core::exec::{
     SystemProcesses, SystemTrash,
 };
 use ddc_core::model::ScanReport;
-use ddc_core::plan::{ListedItem, ListedItems, Refused, plan_listed_with};
+use ddc_core::plan::{ListedItem, ListedItems, Refused, plan_listed_checked};
 use ddc_core::platform::signals;
 use ddc_core::progress::{Phase, WalkStep};
 use ddc_core::report::after_clean::{self, Remeasured};
@@ -25,7 +25,7 @@ use ddc_core::report::contents::EntryIndex;
 use ddc_core::report::recheck::{self, RecheckError, Walk};
 use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, ScanOptions};
-use ddc_core::rules::Catalog;
+use ddc_core::rules::{Catalog, worktree};
 use ddc_core::scan::{Progress, SystemReader, WalkOptions};
 use ddc_core::settings::ScanFlags;
 use ddc_core::store::{self, LockMode};
@@ -121,13 +121,23 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
     // A picked entry is checked against its folder's full list, not the report's top 100.
     // No harness's records or locks are read under a skip, as the scan reads none.
     let skips: Vec<PathBuf> = opts.skip.iter().chain(&opts.user_skips).cloned().collect();
-    let mut listed = plan_listed_with(&scanned, &entries, &catalog, &items, &SystemProcesses, &skips);
+    // A listed worktree's conditions are checked here already, through git's
+    // read-only probes, and again before its removal.
+    let commands = SystemCommands::new(&env);
+    let worktrees = worktree::Recheck {
+        commands: &commands,
+        tool_dirs: env.tool_dirs(),
+        timeout: opts.probe_timeout,
+        now: env.now(),
+        min_age: opts.worktree_min_age,
+    };
+    let mut listed =
+        plan_listed_checked(&scanned, &entries, &catalog, &items, &SystemProcesses, &skips, Some(&worktrees));
     listed.refused.extend(skipped.into_iter().map(|item| Refused { item, reason: exec::SkipReason::Kept }));
 
     let mut journal = FileJournal::open(&env).context("cannot open the action journal")?;
     let journal_path = journal.path.clone();
     let cancel = signals::install().context("cannot install the signal handler")?;
-    let commands = SystemCommands::new(&env);
     let exec_progress = ExecProgress::default();
     let result = reporter.clean(&exec_progress, env.home(), cancel, |events| {
         exec::execute(
@@ -142,6 +152,8 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
                 events,
                 local_snapshots: args.local_snapshots,
                 skips: &skips,
+                worktree_min_age: opts.worktree_min_age,
+                probe_timeout: opts.probe_timeout,
             },
         )
     })?;

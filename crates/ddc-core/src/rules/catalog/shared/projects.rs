@@ -3,7 +3,7 @@
 use super::super::{GRADLE, GRADLE_ANY, JS_BUILD, JS_LOCKS, NONE, PY_LOCKS, conda, name, rule};
 use crate::class::Category::*;
 use crate::class::RiskClass::*;
-use crate::class::{CondaFolder, Fallback, Removal};
+use crate::class::{CondaFolder, Fallback, Location, NativeCommand, Removal};
 use crate::rules::{Clones, Matcher, Rule, TOMBSTONE};
 
 pub(crate) const DDC_TOMBSTONE: Rule = Rule {
@@ -131,15 +131,35 @@ pub(crate) const COCOAPODS_PODS: Rule = Rule {
 };
 
 // A linked git worktree, whoever made it (ADR "Agent footprint: worktrees,
-// harness data and bounded consent for agents", §2). Report only until
-// removal through `git worktree remove` lands (story "Worktree findings and
-// provenance", PR 3); a finding's hint names its main checkout.
+// harness data and bounded consent for agents", §2): removed through
+// `git -C <main> worktree remove <path>` alone, run by the executor's own
+// handler for `Location::GitWorktree`, and only where git lists the finding;
+// otherwise nothing runs (`Fallback::Skip`). Never `delete` or `trash`, never
+// `--force`, never `prune`. A finding's hint names its main checkout.
 pub(crate) const GIT_WORKTREE: Rule = Rule {
     hint: crate::rules::worktree::WORKTREE_HINT,
-    ..rule("git.worktree", ProjectArtifact, Review, Removal::None, Matcher::Worktree)
+    ..rule(
+        "git.worktree",
+        ProjectArtifact,
+        Review,
+        Removal::Native { cmd: GIT_WORKTREE_REMOVE, fallback: Fallback::Skip },
+        Matcher::Worktree,
+    )
 };
 
+/// What the journal and the plan name for a worktree's removal; the
+/// handler builds the real argument list under the probe contract.
+pub(crate) const GIT_WORKTREE_REMOVE: NativeCommand = NativeCommand {
+    program: "git",
+    args: &["worktree", "remove", "{path}"],
+    location: Some(Location::GitWorktree),
+    ready: None,
+    env: &[],
+};
+
+// Its repository is gone: a copy of files, to the Trash, `--permanent`
+// deletes it.
 pub(crate) const GIT_WORKTREE_ORPHAN: Rule = Rule {
     hint: crate::rules::worktree::ORPHAN_HINT,
-    ..rule("git.worktree-orphan", ProjectArtifact, Review, Removal::None, Matcher::WorktreeOrphan)
+    ..rule("git.worktree-orphan", ProjectArtifact, Review, Removal::Trash, Matcher::WorktreeOrphan)
 };

@@ -350,8 +350,12 @@ fn worktree_min_age_zero_makes_a_fresh_agent_worktree_eligible() {
     assert_eq!((&default["class"], &default["selected"]), (&"review".into(), &false.into()), "{default}");
     assert_eq!(default["worktree"]["probe"], "unknown");
     assert!(default["hint"].as_str().unwrap().contains("--worktree-min-age"), "{default}");
-    // Rebuildable, and selected once ddc can remove a worktree (the story's next step).
-    assert_eq!((&zero["class"], &zero["selected"]), (&"rebuildable".into(), &false.into()), "{zero}");
+    // Rebuildable and selected, removed through git.
+    assert_eq!(
+        (&zero["class"], &zero["selected"], &zero["removal"]),
+        (&"rebuildable".into(), &true.into(), &"native".into()),
+        "{zero}"
+    );
     assert_eq!((&zero["worktree"]["probe"], &zero["worktree"]["own_commits"]), (&"known".into(), &0.into()));
 }
 

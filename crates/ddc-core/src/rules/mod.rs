@@ -380,9 +380,17 @@ impl Catalog {
             Matcher::KnownPaths(_) => self.known.get(path) == Some(&tag),
             Matcher::KnownRegion(_) => self.regions.get(path) == Some(&tag),
             Matcher::KnownChildren(_) => path.parent().and_then(|p| self.children_of.get(p)) == Some(&tag),
-            // A worktree is removed through git alone, which re-derives it
-            // (the story's PR 3); until then nothing verifies one.
-            Matcher::NoTraverse(_) | Matcher::Synthetic | Matcher::Worktree | Matcher::WorktreeOrphan => false,
+            Matcher::NoTraverse(_) | Matcher::Synthetic => false,
+            // `claimable`'s one carve-out for `.git`, as the walk makes it: a
+            // `.git` file naming a gitdir, recognized again, by the same rule.
+            Matcher::Worktree | Matcher::WorktreeOrphan => match matcher::FsView::open(path) {
+                Some(view) => {
+                    let has = |n: &str| matcher::DirView::has_child(&view, n);
+                    !self.ancestors.contains_key(path)
+                        && self.worktree_region(path, 1, has).is_some_and(|(found, _)| found == tag)
+                }
+                None => false,
+            },
             _ => match matcher::FsView::open(path) {
                 Some(view) => {
                     let has = |n: &str| matcher::DirView::has_child(&view, n);

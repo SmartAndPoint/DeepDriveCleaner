@@ -75,6 +75,14 @@ pub enum Location {
     /// amendment of 2026-10-29). The command runs as the claiming install's
     /// `bin/conda`, never as a `conda` found on the tool path.
     Conda(CondaFolder),
+    /// A linked git worktree (ADR "Agent footprint: worktrees, harness data
+    /// and bounded consent for agents", §2, "Removal"): its main checkout is
+    /// derived again from disk, `git -C <main> worktree list --porcelain`
+    /// must list the finding by file identity, and the command is
+    /// `git -C <main> worktree remove <path>` under the probe contract,
+    /// never with `--force`, never followed by `prune`. The git is chosen
+    /// as every probe's (`git::locate`), never one found on the tool path.
+    GitWorktree,
 }
 
 /// What a conda finding is to conda.

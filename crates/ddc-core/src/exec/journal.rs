@@ -24,8 +24,9 @@ use crate::plan::PlanItem;
 /// `liveness-unknown`, and the optional `entry` (ADR "Agent footprint:
 /// worktrees, harness data and bounded consent for agents", §3). 6: in an
 /// `item` line, the skip reason `foreign-owner` (safety ADR, amendment of
-/// 2026-10-31).
-pub const JOURNAL_SCHEMA_VERSION: u32 = 6;
+/// 2026-10-31). 7: in an `item` line, the skip reason `worktree-kept` (ADR
+/// "Agent footprint", §2, amendment of 2026-11-01).
+pub const JOURNAL_SCHEMA_VERSION: u32 = 7;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]

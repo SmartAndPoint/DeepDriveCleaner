@@ -5,6 +5,7 @@
 //! a folder a region, so the other rules keep working inside it.
 
 use crate::platform::Canonical as _;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{ErrorKind, Read as _};
@@ -150,9 +151,21 @@ pub fn hint(found: &Recognized) -> String {
             format!("moved or copied from a worktree of {}: git worktree repair relinks it", main.display())
         }
         Recognized::Linked(Linked { harness: OriginHarness::Git, main, .. }) => {
-            format!("yours: a linked worktree of {}; {LATER}", main.display())
+            format!("yours: a linked worktree of {}; list it to remove it", main.display())
         }
-        Recognized::Linked(Linked { main, .. }) => format!("a linked worktree of {}; {LATER}", main.display()),
+        Recognized::Linked(Linked { main, .. }) => {
+            format!("a linked worktree of {}; removed with git worktree remove", main.display())
+        }
+    }
+}
+
+/// What removing an eligible worktree does to its branch, for its hint.
+fn removed(branch: Option<&str>) -> String {
+    match branch {
+        Some(branch) => {
+            format!("removed with git worktree remove; branch {branch} is kept, git branch -d to drop it")
+        }
+        None => "removed with git worktree remove; its HEAD is detached and no other ref loses a commit".to_owned(),
     }
 }
 
@@ -198,6 +211,18 @@ enum Verdict {
     /// A probe failed: fail closed.
     Unknown(String),
 }
+
+/// The first of conditions 4 to 6 that does not hold.
+pub(crate) enum Failed {
+    /// The condition's number, and why, in words.
+    Kept(u8, String),
+    /// A probe of that condition failed: fail closed.
+    Unknown(u8, String),
+}
+
+/// The claimed findings inside a worktree that ddc removes on its own, for
+/// condition 5's accounting: asked only when git lists ignored paths.
+pub(crate) type Owners<'o> = dyn Fn() -> Cow<'o, [PathBuf]> + Sync + 'o;
 
 /// The six conditions, in the ADR's order, for every linked worktree of a
 /// known harness, stopping at the first failure, which its state records
@@ -259,6 +284,7 @@ pub(crate) fn assess(found: &mut [Classified], worktrees: &HashMap<PathBuf, Reco
         return;
     }
     let owners = removable_owners(found);
+    let owners: &Owners<'_> = &|| Cow::Borrowed(owners.as_slice());
     let exe = git::locate(probing.commands, &probing.tool_dirs, probing.timeout);
     let (commands, timeout) = (probing.commands, probing.timeout);
     // Each repository's references are asked once, by the first of its
@@ -273,10 +299,10 @@ pub(crate) fn assess(found: &mut [Classified], worktrees: &HashMap<PathBuf, Reco
                 Some(exe) => {
                     let git = Git::new(commands, exe.clone(), timeout);
                     let refs = &repos[&cand.linked.main];
-                    match conditions(&git, &cand.path, &cand.linked, &owners, refs, &mut cand.state) {
-                        Ok(None) => Verdict::Eligible,
-                        Ok(Some(reason)) => Verdict::Kept(reason),
-                        Err(why) => Verdict::Unknown(why),
+                    match conditions(&git, &cand.path, &cand.linked, owners, refs, &mut cand.state) {
+                        Ok(()) => Verdict::Eligible,
+                        Err(Failed::Kept(_, reason)) => Verdict::Kept(reason),
+                        Err(Failed::Unknown(_, why)) => Verdict::Unknown(why),
                     }
                 }
             };
@@ -290,7 +316,9 @@ pub(crate) fn assess(found: &mut [Classified], worktrees: &HashMap<PathBuf, Reco
         c.hint = Some(match verdict {
             Verdict::Eligible => {
                 c.class = RiskClass::Rebuildable;
-                format!("a linked worktree of {} that nothing needs any more; {LATER}", cand.linked.main.display())
+                let main = cand.linked.main.display();
+                let branch = cand.state.branch.as_deref().filter(|_| cand.state.detached == Some(false));
+                format!("a linked worktree of {main} that nothing needs any more; {}", removed(branch))
             }
             Verdict::Kept(reason) => kept_hint(&cand.linked.main, &reason),
             Verdict::Unknown(why) => kept_hint(&cand.linked.main, &format!("git could not tell its state: {why}")),
@@ -299,34 +327,41 @@ pub(crate) fn assess(found: &mut [Classified], worktrees: &HashMap<PathBuf, Reco
     }
 }
 
-/// Conditions 4 to 6 through git; the reason the first failing one gives,
-/// or the probe's failure.
+/// Conditions 4 to 6 through git; the first that fails, or the probe's
+/// failure, with its number.
 fn conditions(
     git: &Git<'_>,
     path: &Path,
     linked: &Linked,
-    owners: &[PathBuf],
+    owners: &Owners<'_>,
     refs: &OnceLock<Result<Refs, String>>,
     state: &mut WorktreeState,
-) -> Result<Option<String>, String> {
+) -> Result<(), Failed> {
+    let unknown = |n: u8| move |why: String| Failed::Unknown(n, why);
     // 4. No initialized submodule: `git worktree remove` refuses one, and
     // ddc never passes `--force`.
     let modules = crate::stats::read_dir(linked.gitdir.join("modules")).is_ok_and(|mut rd| rd.next().is_some());
-    let initialized = modules || git.submodule_paths(path).known()?.iter().any(|p| exists(&path.join(p).join(".git")));
+    let initialized = modules
+        || git.submodule_paths(path).known().map_err(unknown(4))?.iter().any(|p| exists(&path.join(p).join(".git")));
     state.submodules = Some(initialized);
     if initialized {
-        return Ok(Some("a submodule is initialized in it, and git worktree remove refuses that".to_owned()));
+        return Err(Failed::Kept(4, "a submodule is initialized in it, and git worktree remove refuses that".into()));
     }
     // 5. Clean, ignored content included.
-    let status = git.status(path).known()?;
+    let status = git.status(path).known().map_err(unknown(5))?;
     state.clean = Some(!status.dirty);
     if status.dirty {
-        return Ok(Some("it has uncommitted changes or untracked files".to_owned()));
+        return Err(Failed::Kept(5, "it has uncommitted changes or untracked files".to_owned()));
     }
     // Tracked files git does not compare (skip-worktree, assume-unchanged)
     // look clean with a local edit, which `git worktree remove` deletes.
-    let unwatched: Vec<PathBuf> = git.unwatched(path).known()?.iter().map(|rel| path.join(rel)).collect();
-    let unaccounted = unaccounted(path, &linked.main, &status.ignored, owners);
+    let unwatched: Vec<PathBuf> =
+        git.unwatched(path).known().map_err(unknown(5))?.iter().map(|rel| path.join(rel)).collect();
+    let unaccounted = if status.ignored.is_empty() {
+        Vec::new()
+    } else {
+        unaccounted(path, &linked.main, &status.ignored, &owners())
+    };
     let unwatched_first = !unwatched.is_empty();
     let held: Vec<PathBuf> = unwatched.into_iter().chain(unaccounted).collect();
     if let Some(first) = held.first() {
@@ -334,27 +369,128 @@ fn conditions(
         let count = held.len() as u64;
         let more = if count > 1 { format!(" and {} more", count - 1) } else { String::new() };
         state.ignored_content = Some(IgnoredContent { paths: held.into_iter().take(MAX_IGNORED).collect(), count });
-        return Ok(Some(if unwatched_first {
-            format!("it holds files git does not check (skip-worktree or assume-unchanged): {shown}{more}")
-        } else {
-            format!("it holds ignored content no artifact accounts for: {shown}{more}")
-        }));
+        return Err(Failed::Kept(
+            5,
+            if unwatched_first {
+                format!("it holds files git does not check (skip-worktree or assume-unchanged): {shown}{more}")
+            } else {
+                format!("it holds ignored content no artifact accounts for: {shown}{more}")
+            },
+        ));
     }
     // 6. No commit of its own, against the references that survive it.
-    let head = git.head(path).known()?;
-    let refs = refs.get_or_init(|| git.refs(&linked.main).known()).as_ref().map_err(Clone::clone)?;
+    let head = git.head(path).known().map_err(unknown(6))?;
+    let refs = refs.get_or_init(|| git.refs(&linked.main).known()).as_ref().map_err(|why| unknown(6)(why.clone()))?;
     let survivors = refs.survivors(path, head.branch.as_deref());
-    let own = git.own_commits(&linked.main, &head.commit, &survivors).known()?;
+    let own = git.own_commits(&linked.main, &head.commit, &survivors).known().map_err(unknown(6))?;
     state.own_commits = Some(own);
-    Ok((own > 0).then(|| {
+    if own > 0 {
         let commits = if own == 1 { "commit" } else { "commits" };
-        format!("{own} {commits} that no branch, tag, remote or other worktree holds")
-    }))
+        return Err(Failed::Kept(6, format!("{own} {commits} that no branch, tag, remote or other worktree holds")));
+    }
+    Ok(())
 }
+
+/// What a re-check of one worktree runs with: at the plan of a person's
+/// list, in its dry run, and right before the executor's command.
+pub struct Recheck<'a> {
+    pub commands: &'a dyn CommandRunner,
+    /// Where [`git::locate`] looks for a git.
+    pub tool_dirs: Vec<PathBuf>,
+    /// Each probe's timeout.
+    pub timeout: Duration,
+    pub now: SystemTime,
+    /// `--worktree-min-age`: condition 3's window.
+    pub min_age: Duration,
+}
+
+/// A worktree the re-check let through: what git removes it from, and with
+/// which git.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Removable {
+    /// The main checkout, derived again from disk.
+    pub main: PathBuf,
+    pub git: PathBuf,
+}
+
+/// The six conditions again for the `git.worktree` finding at `path`,
+/// through the scan's own probe code (ADR "Agent footprint", §2, and
+/// decision 6 of story "Worktree findings and provenance"). `person`: a
+/// person listed or confirmed it, which waives conditions 1 (a known
+/// harness) and 3 (idle); 2, 4, 5 and 6 hold whoever asked, since `git
+/// worktree remove` would delete unique ignored content or the only copy of
+/// a commit. Condition 2's in-use half is the guard's own check. `main` is
+/// the main checkout the scan recorded (`None` in a dry run, which has no
+/// scan); a worktree whose main checkout is another now changed since the
+/// scan. A copied or moved worktree is never removed: git lists another
+/// folder. `owners` is asked only when git lists ignored paths.
+pub fn recheck(
+    path: &Path,
+    main: Option<&Path>,
+    person: bool,
+    rc: &Recheck<'_>,
+    owners: &Owners<'_>,
+) -> Result<Removable, SkipReason> {
+    let kept = |condition: u8, detail: String| Err(SkipReason::WorktreeKept { condition, detail });
+    let linked = match recognize(path) {
+        Some(Recognized::Linked(linked)) => linked,
+        _ => return Err(SkipReason::RuleMismatch),
+    };
+    if !linked.linked {
+        return Err(not_listed());
+    }
+    if main.is_some_and(|m| m != linked.main) {
+        return Err(SkipReason::ChangedSinceScan);
+    }
+    // 1. A known harness.
+    if !person && linked.harness != OriginHarness::ClaudeCode {
+        return kept(
+            1,
+            match linked.harness {
+                OriginHarness::Git => "yours: ddc removes it only when you list it".to_owned(),
+                other => format!("made by {}, whose worktrees ddc does not select yet", harness_name(other)),
+            },
+        );
+    }
+    // 2. Unlocked.
+    if exists(&linked.gitdir.join("locked")) {
+        return kept(2, "locked; git worktree unlock releases it when no session needs it".to_owned());
+    }
+    // 3. Idle by its own activity.
+    if !person {
+        let Some(last) = project::last_activity(path) else {
+            return kept(3, "nothing tells when it was last used".to_owned());
+        };
+        let idle = rc.now.duration_since(last).unwrap_or_default();
+        if idle < rc.min_age {
+            let (days, window) = (idle.as_secs() / 86_400, rc.min_age.as_secs() / 86_400);
+            return kept(3, format!("used {days} days ago, within the {window}-day window (--worktree-min-age)"));
+        }
+    }
+    let Some(exe) = git::locate(rc.commands, &rc.tool_dirs, rc.timeout) else {
+        return Err(SkipReason::ToolNotReady { program: "git".to_owned(), detail: NO_GIT.to_owned() });
+    };
+    let probe = Git::new(rc.commands, exe.clone(), rc.timeout);
+    let mut state = state(&linked);
+    match conditions(&probe, path, &linked, owners, &OnceLock::new(), &mut state) {
+        Ok(()) => Ok(Removable { main: linked.main, git: exe }),
+        Err(Failed::Kept(n, why)) => kept(n, why),
+        Err(Failed::Unknown(n, why)) => kept(n, format!("git could not tell its state: {why}")),
+    }
+}
+
+/// Why nothing runs for a worktree git does not list: the location check
+/// of safety ADR §6, realised as `tool-not-ready` (the 2026-11-01 amendment).
+pub fn not_listed() -> SkipReason {
+    SkipReason::ToolNotReady { program: "git".to_owned(), detail: NOT_LISTED.to_owned() }
+}
+
+/// [`not_listed`]'s detail.
+pub const NOT_LISTED: &str = "no git lists this folder";
 
 /// The claimed findings ddc removes on its own: `safe` or `rebuildable`
 /// with method `delete`. Sorted; claims never nest.
-fn removable_owners(found: &[Classified]) -> Vec<PathBuf> {
+pub(crate) fn removable_owners(found: &[Classified]) -> Vec<PathBuf> {
     let mut owners: Vec<PathBuf> = found
         .iter()
         .filter(|c| c.owner.kind == OwnerKind::Claim && c.rule.id != KEPT)
@@ -451,13 +587,15 @@ fn kept_hint(main: &Path, reason: &str) -> String {
 }
 
 /// Why no probe ran: no git ddc may run.
-const NO_GIT: &str = "no git to ask (the developer tools are not installed)";
+pub const NO_GIT: &str = "no git to ask (the developer tools are not installed)";
 
-/// Removal through git comes with a later release (the story's PR 3).
-const LATER: &str = "ddc removes worktrees through git worktree remove in a later release";
+/// The two worktree rules' ids.
+pub const WORKTREE_RULE: &str = "git.worktree";
+pub const ORPHAN_RULE: &str = "git.worktree-orphan";
+
 /// `git.worktree`'s own hint, before a finding names its main checkout.
 pub(crate) const WORKTREE_HINT: &str =
-    "a linked worktree; ddc removes worktrees through git worktree remove in a later release";
+    "a linked worktree; removed with git worktree remove, its branch is kept, git branch -d to drop it";
 /// `git.worktree-orphan`'s hint: both causes.
 pub(crate) const ORPHAN_HINT: &str =
     "its repository is gone, or on a volume that is not mounted or was moved: git worktree repair";

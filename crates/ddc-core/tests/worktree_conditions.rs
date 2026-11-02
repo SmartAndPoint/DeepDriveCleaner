@@ -123,13 +123,10 @@ fn state(f: &Finding) -> &WorktreeState {
     f.worktree.as_ref().expect("a worktree state")
 }
 
-/// It holds all six conditions: `rebuildable`. Not selected while its rule
-/// removes nothing (removal comes with the story's next step), so no total
-/// counts bytes ddc cannot free.
+/// It holds all six conditions: `rebuildable` and selected, removed through git.
 fn eligible(f: &Finding) {
-    let not_yet = Some(NotSelected::Review);
-    assert_eq!((f.class, f.selected, f.not_selected), (RiskClass::Rebuildable, false, not_yet), "{}", f.hint);
-    assert_eq!(f.removal, RemovalKind::None);
+    assert_eq!((f.class, f.selected, f.not_selected), (RiskClass::Rebuildable, true, None), "{}", f.hint);
+    assert_eq!(f.removal, RemovalKind::Native);
     assert_eq!(state(f).probe, WorktreeProbe::Known);
     assert!(f.hint.contains("that nothing needs any more"), "{}", f.hint);
 }
@@ -546,28 +543,33 @@ fn a_cleared_prefix_leaves_the_rest_of_the_environment() {
     assert!(all.stdout.lines().any(|l| l.starts_with("PATH=")), "an empty prefix clears nothing");
 }
 
-/// Every worktree that holds the conditions is left out of the selection
-/// and of every total while its rule removes nothing.
+/// A worktree that holds the conditions is selected like any other
+/// `rebuildable` item, and its bytes count in the selected totals once:
+/// the artifacts inside it are findings of their own, which its own bytes
+/// leave out.
 #[test]
-fn an_eligible_worktree_counts_in_no_selected_total() {
-    let Some(h) = Home::ready("an_eligible_worktree_counts_in_no_selected_total") else { return };
+fn an_eligible_worktree_counts_in_the_selected_total_once() {
+    let Some(h) = Home::ready("an_eligible_worktree_counts_in_the_selected_total_once") else { return };
     let (_, wt) = project(&h);
     h.t.file(&format!("{}/data.bin", h.rel(&wt)), 50_000);
     git::git(&wt, &["add", "data.bin"]);
     git::git(&wt, &["commit", "-q", "-m", "data"]);
     git::git(&h.t.path("proj"), &["merge", "-q", "--ff-only", "worktree-x"]);
+    h.write(&wt.join(".venv/pyvenv.cfg"), "home = /usr/bin\n");
+    h.t.file(&format!("{}/.venv/lib/site.py", h.rel(&wt)), 30_000);
 
     let (r, _) = h.scan();
 
     let f = h.finding(&r, &wt);
     eligible(f);
-    assert!(f.bytes >= 50_000);
-    assert!(r.findings.iter().filter(|f| f.selected).all(|s| s.path != wt), "not in the selected set");
+    let venv = h.finding(&r, &wt.join(".venv"));
+    assert!(f.bytes >= 50_000 && f.bytes < 50_000 + venv.bytes, "its own bytes leave the .venv out: {}", f.bytes);
     let selected: u64 = r.findings.iter().filter(|f| f.selected && !f.ignored).map(|f| f.bytes).sum();
     assert_eq!(r.totals.selected_bytes, selected);
     let rebuildable = r.totals.classes.iter().find(|c| c.class == RiskClass::Rebuildable).unwrap();
-    assert_eq!(rebuildable.selected_count, 0, "{rebuildable:?}");
-    assert_eq!(rebuildable.selected_bytes, 0);
+    // The .venv's project is the worktree, active three days ago: within `--min-age`.
+    assert!(!venv.selected);
+    assert_eq!((rebuildable.selected_count, rebuildable.selected_bytes), (1, f.bytes), "{rebuildable:?}");
 }
 
 /// A tracked file marked skip-worktree or assume-unchanged keeps a local

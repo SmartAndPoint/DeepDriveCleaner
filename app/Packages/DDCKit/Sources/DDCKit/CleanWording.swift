@@ -29,10 +29,11 @@ public enum CleanWording {
         case .toolNotReady(_, let detail): detail.prefix(1).uppercased() + detail.dropFirst()
         case .notAnEntry: "No longer a file or folder you can pick in its folder"
         case .entryLocked(let lock): entryLock(lock)
-        case .insideAnotherItem: "Went to the Trash with the folder it is in"
+        case .insideAnotherItem: "Removed with the folder it is in"
         case .agentLive(let harness, .running): "\(harnessName(harness)) is running"
         case .agentLive(let harness, .lockHeld): "\(harnessName(harness)) holds a lock on it"
         case .agentLive(let harness, .unknown): "Could not tell whether \(harnessName(harness)) is using it"
+        case .worktreeKept(_, let detail): "Kept: " + detail
         }
     }
 

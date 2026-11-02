@@ -15,6 +15,7 @@ use crate::agents::liveness::{
     self, FileFact, HarnessBy, HarnessLiveness, SessionFacts, SessionLiveness, UnknownCause,
 };
 use crate::agents::{CURSOR_AGENT, HarnessId, Installs, UnknownReason};
+use crate::class::Location;
 use crate::env::Env;
 use crate::model::NotSelected;
 use crate::plan::{Action, PlanItem};
@@ -26,7 +27,7 @@ use crate::platform::types::EntryStat;
 use crate::report::backups;
 use crate::report::contents::CLAUDE_RECORDS;
 use crate::rules::entries::{self, BACKUP_RULE, EntryFacts, EntryShape, SessionPart, lock_of, session_part};
-use crate::rules::{Catalog, KEEP_MARKER, owns, protected_in_home, protected_system};
+use crate::rules::{Catalog, KEEP_MARKER, owns, protected_in_home, protected_system, worktree};
 use crate::scan::reader::SF_DATALESS;
 use crate::scan::{self, DirCtx, DirReader, EntryMeta, OwnerKind, Progress, SystemReader, Tag, Visitor, WalkOptions};
 use crate::stats;
@@ -144,6 +145,21 @@ enum UseCheck {
     /// Deletion, and a tool's command with a fallback: open files count too
     /// (a running `uv run` holds uv's cache lock).
     PathsAndOpenFiles,
+}
+
+/// The two exceptions to "no `.git` at the top level, not a project root"
+/// (ADR "Agent footprint", §2, amendment of 2026-11-01), each scoped by its
+/// action: a linked worktree removed through git, and an orphan worktree,
+/// whose repository is gone, moved to the Trash or deleted. Every other
+/// rule, and these two with any other action, keeps both refusals.
+fn worktree_carve_out(rule: &str, action: &Action) -> bool {
+    match rule {
+        worktree::WORKTREE_RULE => {
+            matches!(action, Action::Native { cmd, .. } if cmd.location == Some(Location::GitWorktree))
+        }
+        worktree::ORPHAN_RULE => matches!(action, Action::Trash | Action::Delete { .. }),
+        _ => false,
+    }
 }
 
 fn use_check(action: &Action) -> UseCheck {
@@ -334,7 +350,9 @@ impl<'a> Guard<'a> {
             Some(rule) if self.catalog.verify(rule, path) => {}
             _ => return Err(SkipReason::RuleMismatch),
         }
-        if fs::symlink_metadata(path.join(".git")).is_ok() || f.project.as_ref().is_some_and(|p| p.root == path) {
+        if !worktree_carve_out(&f.rule, &item.action)
+            && (fs::symlink_metadata(path.join(".git")).is_ok() || f.project.as_ref().is_some_and(|p| p.root == path))
+        {
             return Err(SkipReason::ProjectRoot);
         }
         if self.kept(path) {

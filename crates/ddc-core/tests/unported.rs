@@ -103,6 +103,7 @@ impl Fx {
         Plan {
             roots: vec![self.t.root().to_path_buf()],
             items: vec![PlanItem { finding, action: Action::Trash, default_selected: true, selected: true }],
+            dropped: Vec::new(),
         }
     }
 }

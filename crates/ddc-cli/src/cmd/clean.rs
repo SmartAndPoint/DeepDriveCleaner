@@ -154,6 +154,8 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
                 local_snapshots: Some(snapshots),
                 events,
                 skips: &[],
+                worktree_min_age: opts.worktree_min_age,
+                probe_timeout: opts.probe_timeout,
             },
         )
     })?;

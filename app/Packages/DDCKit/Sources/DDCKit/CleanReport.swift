@@ -30,10 +30,14 @@ public enum SkipReason: Sendable, Equatable, Hashable {
     case notAnEntry
     /// A picked entry is locked now.
     case entryLocked(EntryLock)
-    /// Inside a picked folder that went to the Trash.
+    /// Inside a listed folder that was removed: an entry that went to the
+    /// Trash, or a linked worktree removed through git.
     case insideAnotherItem
     /// A coding agent uses its data now, or whether it does could not be told.
     case agentLive(harness: AgentsReport.HarnessID, by: AgentLiveBy)
+    /// A linked worktree one of the six conditions keeps: `condition` is its
+    /// number, 1 to 6, `detail` says why.
+    case worktreeKept(condition: Int, detail: String)
 
     /// What shows a coding agent in use (`AgentLiveBy` in `crates/ddc-core/src/exec/mod.rs`).
     public enum AgentLiveBy: String, Decodable, Sendable, Hashable, CaseIterable {
@@ -50,11 +54,11 @@ public enum SkipReason: Sendable, Equatable, Hashable {
         "missing", "not-a-directory", "symlink", "changed-since-scan", "parent-changed", "rule-mismatch",
         "outside-scan-roots", "scan-root", "protected", "project-root", "kept", "in-use", "in-use-unknown-cwd",
         "owner-running", "needs-confirmation", "action-not-allowed", "incomplete", "foreign-owner", "native-unavailable",
-        "tool-not-ready", "not-an-entry", "entry-locked", "inside-another-item", "agent-live",
+        "tool-not-ready", "not-an-entry", "entry-locked", "inside-another-item", "agent-live", "worktree-kept",
     ]
 
     enum CodingKeys: String, CodingKey {
-        case reason, pid, name, program, detail, lock, harness, by
+        case reason, pid, name, program, detail, lock, harness, by, condition
     }
 
     /// Reads the reason from the container of the item it is flattened into.
@@ -89,6 +93,8 @@ public enum SkipReason: Sendable, Equatable, Hashable {
         case "agent-live":
             self = .agentLive(
                 harness: try c.decode(AgentsReport.HarnessID.self, forKey: .harness), by: try c.decode(AgentLiveBy.self, forKey: .by))
+        case "worktree-kept":
+            self = .worktreeKept(condition: try c.decode(Int.self, forKey: .condition), detail: try c.decode(String.self, forKey: .detail))
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .reason, in: c, debugDescription: "unknown reason \(other)")
         }
@@ -98,7 +104,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
 /// `clean --items --json`: what happened to each listed item.
 public struct CleanReport: Decodable, Sendable, Equatable {
     /// `CLEAN_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 6
+    public static let schemaVersion = 7
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)

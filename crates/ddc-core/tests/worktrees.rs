@@ -111,7 +111,7 @@ fn a_claude_code_worktree_is_a_git_worktree_finding_and_its_main_checkout_none()
     let f = h.finding(&r, &wt);
     assert_eq!(f.rule, "git.worktree");
     assert_eq!(f.origin, origin(OriginHarness::ClaudeCode));
-    assert_eq!((f.category, f.class, f.removal), (Category::ProjectArtifact, RiskClass::Review, RemovalKind::None));
+    assert_eq!((f.category, f.class, f.removal), (Category::ProjectArtifact, RiskClass::Review, RemovalKind::Native));
     assert_eq!((f.selected, f.not_selected), (false, Some(NotSelected::Review)));
     let project = f.project.as_ref().expect("a project");
     assert_eq!(project.root, main, "a worktree's project is its main checkout");
@@ -190,7 +190,7 @@ fn a_git_file_naming_a_missing_gitdir_is_an_orphan() {
 
     let f = h.finding(&r, &wt);
     assert_eq!(f.rule, "git.worktree-orphan");
-    assert_eq!((f.class, f.removal, f.selected), (RiskClass::Review, RemovalKind::None, false));
+    assert_eq!((f.class, f.removal, f.selected), (RiskClass::Review, RemovalKind::Trash, false));
     assert_eq!(f.origin, origin(OriginHarness::Git));
     assert_eq!(f.project, None, "its repository is gone");
     assert_eq!(f.worktree, None);
@@ -319,7 +319,7 @@ fn a_worktree_copied_or_moved_by_hand_is_not_linked() {
         assert_eq!(f.rule, "git.worktree", "{}", path.display());
         assert!(!f.worktree.as_ref().unwrap().linked, "{}", path.display());
         assert!(f.hint.contains("git worktree repair"), "{}", f.hint);
-        assert_eq!(f.removal, RemovalKind::None);
+        assert_eq!((f.removal, f.class, f.selected), (RemovalKind::Native, RiskClass::Review, false));
     }
 }
 
