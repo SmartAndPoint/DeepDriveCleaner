@@ -166,5 +166,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/binstall"
           unzip -q "$zip" -d "$RUNNER_TEMP/binstall"
           echo "$RUNNER_TEMP/binstall" >> "$GITHUB_PATH"
+      # Without a token the GitHub API refuses the runner's shared address (403), and
+      # binstall's resolve times out before its retry.
       - run: cargo binstall --git "$REPO_URL" ddc-cli --no-confirm --disable-strategies quick-install,compile
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - run: deepdrivecleaner --version
