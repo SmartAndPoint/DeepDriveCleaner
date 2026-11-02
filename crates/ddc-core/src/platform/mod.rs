@@ -166,6 +166,8 @@ mod pins {
     const _: fn(i32) -> Vec<OpenVnode> = imp::procs::open_vnodes;
     const _: fn(i32) -> Option<ProcStart> = imp::procs::process_start;
     const _: fn(i32) -> Option<u32> = imp::procs::thread_count;
+    const _: fn() -> Vec<String> = imp::procs::other_user_names;
+    const _: fn() -> bool = imp::procs::process_table_hidden;
 
     const _: fn() -> io::Result<u64> = imp::rlimit::nofile_limit;
     const _: fn() -> io::Result<u64> = imp::rlimit::raise_nofile_limit;
@@ -181,6 +183,7 @@ mod pins {
 
     const _: fn(&Path) -> io::Result<VolumeStats> = imp::statfs::statfs;
     const _: fn() -> io::Result<Vec<VolumeStats>> = imp::statfs::mounts;
+    const _: fn(&str) -> bool = imp::statfs::is_network_fs;
 
     const _: fn() -> Option<u16> = imp::term::stderr_columns;
 

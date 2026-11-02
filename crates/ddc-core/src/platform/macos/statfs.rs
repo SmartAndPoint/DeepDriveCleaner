@@ -39,6 +39,16 @@ pub fn mounts() -> io::Result<Vec<VolumeStats>> {
     Ok(buf.iter().map(stats).collect())
 }
 
+/// A file system whose files another machine may run or change: NFS, SMB,
+/// AFP, WebDAV, and any FUSE mount, which counts as one (safety ADR §5,
+/// amendment of 2026-11-02). `fs_type` is `f_fstypename`.
+pub fn is_network_fs(fs_type: &str) -> bool {
+    matches!(fs_type, "nfs" | "smbfs" | "afpfs" | "webdav" | "cifs" | "ftp" | "acfs" | "macfuse" | "osxfuse" | "fusefs")
+        || fs_type.starts_with("macfuse")
+        || fs_type.starts_with("osxfuse")
+        || fs_type.starts_with("fuse")
+}
+
 fn stats(st: &libc::statfs) -> VolumeStats {
     // SAFETY: the kernel NUL-terminates the fixed-size name buffers.
     let (fs_type, mount_point, mounted_from) = unsafe {

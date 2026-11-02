@@ -366,3 +366,35 @@ fn the_reason_names_the_app_a_holder_belongs_to() {
         [in_use(708, "Visual Studio Code")]
     );
 }
+
+/// A process started through a link runs the file the link points to: its
+/// `execve` path (macOS's `exe`) is the link, its resolved executable the
+/// file. A picked file it runs is in use, as a build of Claude Code is
+/// when `claude` runs it (safety ADR §5, amendment of 2026-11-02).
+#[test]
+fn a_file_a_process_runs_through_a_link_is_in_use() {
+    if common::unsupported("a_file_a_process_runs_through_a_link_is_in_use") {
+        return;
+    }
+    let home = Home::new();
+    home.tree.file("Downloads/tool-2.1.0", 9_000);
+    let build = home.path("Downloads/tool-2.1.0");
+    let picked = home.pick("Downloads/tool-2.1.0", "user.downloads");
+    let running = FakeProcs::new(vec![ProcInfo {
+        pid: 711,
+        name: "tool".into(),
+        exe: Some(home.path(".local/bin/tool")),
+        resolved_exe: Some(build.clone()),
+        ..ProcInfo::default()
+    }]);
+
+    assert_eq!(
+        home.predict_and_clean(std::slice::from_ref(&picked), &FakeCommands::default(), &running, &running),
+        [in_use(711, "tool")],
+        "the file it runs is in use, though its exe names the link"
+    );
+    assert!(build.exists());
+
+    let none = FakeProcs::new(vec![]);
+    assert_eq!(home.predict_and_clean(&[picked], &FakeCommands::default(), &none, &none), [Outcome::Trashed]);
+}

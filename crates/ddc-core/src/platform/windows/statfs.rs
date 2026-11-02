@@ -49,6 +49,13 @@ pub fn statfs(path: &Path) -> io::Result<VolumeStats> {
 
 /// Every volume at each of its mount points; a volume with none, or one the
 /// user cannot query (an empty card reader), is left out.
+/// Not told on Windows yet, whose builds have no slot (safety ADR §5,
+/// amendment of 2026-11-02): every file system counts as network, so a
+/// caller that needs a local home fails closed.
+pub fn is_network_fs(_fs_type: &str) -> bool {
+    true
+}
+
 pub fn mounts() -> io::Result<Vec<VolumeStats>> {
     let mut out = Vec::new();
     let mut volume = vec![0u16; NAME];

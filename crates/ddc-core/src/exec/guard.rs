@@ -699,15 +699,20 @@ fn fold(p: &Path) -> String {
     crate::platform::paths::key(p).to_string_lossy().to_lowercase()
 }
 
-/// What a process uses: its executable path (as passed to execve), path-like
-/// arguments, working directory and `VIRTUAL_ENV`/`CONDA_PREFIX`, and apart
+/// What a process uses: its executable path (as passed to execve) and the
+/// file it resolves to, path-like arguments, working directory and `VIRTUAL_ENV`/`CONDA_PREFIX`, and apart
 /// from them its open files, which are never `stat`ed (a protected folder could
 /// prompt). Relative paths are joined with the process's cwd; computed once per
 /// process. It is named by its app when it lives in an app bundle.
 fn uses(p: &ProcInfo) -> Uses {
     let mut paths: Vec<PathBuf> = Vec::new();
     let mut unresolved = Vec::new();
-    for raw in p.exe.iter().map(|e| e.as_os_str()).chain(p.args.iter().map(|a| a.as_os_str())) {
+    // The resolved executable too: on macOS `exe` is the path passed to
+    // `execve`, a launcher link, and the file it runs lies elsewhere (safety
+    // ADR §5, amendment of 2026-11-02).
+    let resolved = p.resolved_exe.iter().filter(|r| p.exe.as_ref() != Some(*r));
+    let exes = p.exe.iter().chain(resolved).map(|e| e.as_os_str());
+    for raw in exes.chain(p.args.iter().map(|a| a.as_os_str())) {
         let path = Path::new(raw);
         if path.is_absolute() {
             paths.push(lexical(path));

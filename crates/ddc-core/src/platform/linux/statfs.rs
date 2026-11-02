@@ -17,6 +17,8 @@ struct Mount {
     mount_point: PathBuf,
     fs_type: String,
     source: String,
+    /// The super options after the source (`rw,hidepid=2`).
+    super_options: String,
 }
 
 pub fn statfs(path: &Path) -> io::Result<VolumeStats> {
@@ -53,6 +55,44 @@ pub(crate) fn points() -> io::Result<std::collections::HashMap<PathBuf, String>>
 /// 2026-11-01). `None` when mountinfo does not list it.
 pub(crate) fn point_by_id(id: u64) -> io::Result<Option<PathBuf>> {
     Ok(parse(&read_mountinfo()?).into_iter().find(|m| m.id == id).map(|m| m.mount_point))
+}
+
+/// The super options of the last mount at `point` (`/proc`'s `hidepid`).
+pub(crate) fn super_options_at(point: &Path) -> Option<String> {
+    let mounts = parse(&read_mountinfo().ok()?);
+    mounts.into_iter().rev().find(|m| m.mount_point == point).map(|m| m.super_options)
+}
+
+/// A file system whose files another machine may run or change: NFS, SMB,
+/// AFS and the cluster ones, and any FUSE mount, which counts as one
+/// (safety ADR §5, amendment of 2026-11-02). `fs_type` is mountinfo's.
+pub fn is_network_fs(fs_type: &str) -> bool {
+    matches!(
+        fs_type,
+        "nfs"
+            | "nfs4"
+            | "cifs"
+            | "smb3"
+            | "smbfs"
+            | "ncpfs"
+            | "afs"
+            | "kafs"
+            | "coda"
+            | "ceph"
+            | "glusterfs"
+            | "9p"
+            | "virtiofs"
+            | "vboxsf"
+            | "ocfs2"
+            | "gfs2"
+            | "beegfs"
+            | "orangefs"
+            | "davfs"
+            | "lustre"
+            | "gpfs"
+    ) || fs_type == "fuse"
+        || fs_type.starts_with("fuse.")
+        || fs_type == "fuseblk"
 }
 
 fn read_mountinfo() -> io::Result<Vec<u8>> {
@@ -95,12 +135,14 @@ fn parse(text: &[u8]) -> Vec<Mount> {
             let mount_point = fields.get(4).filter(|_| dash > 5)?;
             let fs_type = fields.get(dash + 1)?;
             let source = fields.get(dash + 2)?;
+            let super_options = fields.get(dash + 3).copied().unwrap_or_default();
             let id = std::str::from_utf8(fields.first()?).ok()?.parse().ok()?;
             Some(Mount {
                 id,
                 mount_point: PathBuf::from(OsStr::from_bytes(&unescape(mount_point))),
                 fs_type: String::from_utf8_lossy(&unescape(fs_type)).into_owned(),
                 source: String::from_utf8_lossy(&unescape(source)).into_owned(),
+                super_options: String::from_utf8_lossy(&unescape(super_options)).into_owned(),
             })
         })
         .collect()
@@ -134,7 +176,7 @@ mod tests {
 
     const MOUNTINFO: &[u8] = b"\
 22 1 259:2 / / rw,relatime shared:1 - ext4 /dev/nvme0n1p2 rw
-23 22 0:21 / /proc rw,nosuid,nodev,noexec,relatime shared:12 - proc proc rw
+23 22 0:21 / /proc rw,nosuid,nodev,noexec,relatime shared:12 - proc proc rw,hidepid=2
 40 22 259:3 / /home rw,relatime shared:30 master:2 - btrfs /dev/nvme0n1p3 rw,subvol=/home
 41 40 259:3 /data /home/u/My\\040Disk rw,relatime shared:30 - btrfs /dev/nvme0n1p3 rw,subvol=/data
 52 22 0:45 / /var/lib/docker/overlay2/x/merged rw,relatime - overlay overlay rw,lowerdir=/a:/b
@@ -144,13 +186,30 @@ garbage line
 ";
 
     #[test]
+    fn network_file_systems_and_fuse_count_as_network() {
+        for t in ["nfs", "nfs4", "cifs", "smb3", "fuse.sshfs", "fuse", "fuseblk", "9p", "virtiofs", "vboxsf", "davfs"] {
+            assert!(is_network_fs(t), "{t}");
+        }
+        for t in ["ext4", "btrfs", "xfs", "tmpfs", "zfs", "overlay"] {
+            assert!(!is_network_fs(t), "{t}");
+        }
+    }
+
+    #[test]
     fn mountinfo_is_read_with_its_optional_fields_and_escapes() {
         let m = parse(MOUNTINFO);
         assert_eq!(m.len(), 7, "the garbage line is skipped");
         assert_eq!(
             m[0],
-            Mount { id: 22, mount_point: "/".into(), fs_type: "ext4".into(), source: "/dev/nvme0n1p2".into() }
+            Mount {
+                id: 22,
+                mount_point: "/".into(),
+                fs_type: "ext4".into(),
+                source: "/dev/nvme0n1p2".into(),
+                super_options: "rw".into()
+            }
         );
+        assert_eq!(m[2].super_options, "rw,subvol=/home", "the super options");
         assert_eq!(m[6].id, 61, "field 1, the mount id");
         assert_eq!(
             (m[2].mount_point.as_path(), m[2].fs_type.as_str()),
@@ -159,6 +218,7 @@ garbage line
         );
         assert_eq!(m[3].mount_point, Path::new("/home/u/My Disk"), "\\040 is a space");
         assert_eq!((m[4].fs_type.as_str(), m[4].source.as_str()), ("overlay", "overlay"));
+        assert_eq!(m[1].super_options, "rw,hidepid=2");
         assert_eq!(unescape(b"a\\011b\\134c\\9"), b"a\tb\\c\\9");
     }
 

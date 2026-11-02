@@ -229,8 +229,51 @@ fn describe(pid: i32) -> ProcInfo {
         .map(|n| n.to_string_lossy().into_owned())
         .or_else(|| fs::read_to_string(dir.join("comm")).ok().map(|c| c.trim_end().to_owned()))
         .unwrap_or_default();
+    info.resolved_exe.clone_from(&exe);
     info.exe = exe;
     info
+}
+
+/// The names of the processes of other users this one may read: each one's
+/// `comm` and the file name of its first argument (a native Claude Code's
+/// `comm` is its build's version, its first argument `claude`). Only names:
+/// another user's executable cannot be read without root (safety ADR §5,
+/// amendment of 2026-11-02).
+pub fn other_user_names() -> Vec<String> {
+    let me = uid();
+    let mut names: Vec<String> = list_pids()
+        .into_iter()
+        .filter(|&pid| Status::read(pid).is_some_and(|s| s.uid != me))
+        .flat_map(|pid| {
+            let dir = proc(pid);
+            let comm = fs::read_to_string(dir.join("comm")).ok().map(|c| c.trim_end().to_owned());
+            let first = fs::read(dir.join("cmdline")).ok().and_then(|c| first_arg_name(&c));
+            comm.into_iter().chain(first)
+        })
+        .filter(|n| !n.is_empty())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// The file name of a `cmdline`'s first argument.
+fn first_arg_name(cmdline: &[u8]) -> Option<String> {
+    let first = split_nul(cmdline).next()?;
+    Path::new(OsStr::from_bytes(first)).file_name().map(|n| n.to_string_lossy().into_owned())
+}
+
+/// `/proc` hides other users' processes (`hidepid`): its mount options say
+/// so, or pid 1, which every user may read otherwise, cannot be read.
+pub fn process_table_hidden() -> bool {
+    let hidden_by_option = super::statfs::super_options_at(Path::new("/proc")).is_some_and(|o| hides(&o));
+    hidden_by_option || fs::read(proc(1).join("stat")).is_err()
+}
+
+/// A `proc` mount's super options hide processes: `hidepid` other than `0`
+/// or `off` (`1`, `2`, `invisible`, `noaccess`, `ptraceable`).
+fn hides(options: &str) -> bool {
+    options.split(',').filter_map(|o| o.strip_prefix("hidepid=")).any(|v| v != "0" && v != "off")
 }
 
 /// The open and the mapped files of `pid`, each path once.
@@ -296,6 +339,33 @@ mod tests {
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     use super::*;
+
+    /// A process runs its executable: the resolved path, which is `exe`.
+    #[test]
+    fn this_process_runs_its_resolved_executable() {
+        let me = describe(std::process::id() as i32);
+        let exe = crate::platform::Canonical::canonical(std::env::current_exe().unwrap().as_path()).unwrap();
+        assert_eq!(me.resolved_exe.as_deref(), Some(exe.as_path()));
+        assert_eq!(me.resolved_exe, me.exe);
+    }
+
+    #[test]
+    fn a_first_argument_names_the_program() {
+        assert_eq!(first_arg_name(b"/home/u/.local/bin/claude\0--resume\0").as_deref(), Some("claude"));
+        assert_eq!(first_arg_name(b"node\0x\0").as_deref(), Some("node"));
+        assert_eq!(first_arg_name(b""), None);
+    }
+
+    /// Safety ADR §5, amendment of 2026-11-02: what `hidepid` hides.
+    #[test]
+    fn hidepid_other_than_off_hides_the_process_table() {
+        assert!(hides("rw,hidepid=2"));
+        assert!(hides("rw,hidepid=invisible,gid=10"));
+        assert!(hides("hidepid=1"));
+        assert!(!hides("rw,hidepid=0"));
+        assert!(!hides("rw,hidepid=off"));
+        assert!(!hides("rw,relatime"));
+    }
     use crate::platform::testing;
 
     /// A spawned child, killed and reaped when the test ends.

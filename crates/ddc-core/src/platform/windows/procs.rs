@@ -384,6 +384,18 @@ pub fn thread_count(_pid: i32) -> Option<u32> {
     None
 }
 
+/// Not read on Windows, whose builds have no slot (safety ADR §5,
+/// amendment of 2026-11-02): no names, and [`process_table_hidden`] says
+/// the table is unknown, so a caller that needs it fails closed.
+pub fn other_user_names() -> Vec<String> {
+    Vec::new()
+}
+
+/// Unknown here, so hidden: a caller that needs the table fails closed.
+pub fn process_table_hidden() -> bool {
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
