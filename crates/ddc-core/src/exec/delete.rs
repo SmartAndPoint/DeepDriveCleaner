@@ -37,6 +37,8 @@ pub(super) fn remove(v: &Verified, path: &Path, make_writable: bool) -> Outcome 
         && (make_writable || e.kind() == io::ErrorKind::PermissionDenied)
     {
         make_dirs_writable(&tomb_path);
+        // FAT and exFAT on Windows: a read-only file refuses std's delete.
+        let _ = crate::platform::fsops::clear_read_only(&tomb_path);
         result = remove_tree(&tomb_path);
     }
     match result {
