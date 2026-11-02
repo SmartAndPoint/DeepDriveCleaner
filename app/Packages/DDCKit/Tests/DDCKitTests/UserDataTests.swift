@@ -113,7 +113,13 @@ struct UserDataTests {
     @Test("every entry lock decodes and reads as text; an unknown one does not decode")
     func locks() throws {
         for tag in EntryLock.tags {
-            let lock = try JSONDecoder().decode(EntryLock.self, from: Data(#"{"reason":"\#(tag)","app":"Photos","session":"0a1b2c3d-0000-4000-8000-00000000000a","by":"record","cause":"records-missing"}"#.utf8))
+            // Each lock's own fields: a build's `by` and `cause` are not a session's.
+            let (by, cause) = switch tag {
+            case "build-in-use": ("launcher", "records-missing")
+            case "builds-unknown": ("record", "no-launcher")
+            default: ("record", "records-missing")
+            }
+            let lock = try JSONDecoder().decode(EntryLock.self, from: Data(#"{"reason":"\#(tag)","app":"Photos","session":"0a1b2c3d-0000-4000-8000-00000000000a","by":"\#(by)","cause":"\#(cause)"}"#.utf8))
             #expect(!CleanWording.entryLock(lock).isEmpty)
             #expect(ReviewItems.Lock.entry(lock).text == CleanWording.entryLock(lock))
         }
