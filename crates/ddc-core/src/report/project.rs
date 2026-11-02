@@ -62,5 +62,7 @@ pub fn git_dir(root: &Path) -> Option<PathBuf> {
     let text = crate::platform::read_found(&dot_git, crate::platform::FOUND_MAX).ok()?;
     let target = text.lines().find_map(|l| l.strip_prefix("gitdir:"))?.trim();
     let target = Path::new(target);
-    Some(if target.is_absolute() { target.to_path_buf() } else { root.join(target) })
+    let target = if target.is_absolute() { target.to_path_buf() } else { root.join(target) };
+    // Read from a file's content: never a share on another machine.
+    crate::platform::paths::is_local(&target).then_some(target)
 }

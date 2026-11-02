@@ -1,9 +1,9 @@
 //! Canonical paths and the key paths are compared by, on Windows (story
 //! "Windows scanner and rule catalog", DDC-007, step 2).
 //!
-//! std's canonicalize opens the path and asks for its final name
-//! (`GetFinalPathNameByHandleW`), which resolves links, 8.3 short names and
-//! the case as stored, but returns the verbatim form `\\?\C:\…`. Reports and
+//! [`canonicalize`] opens the path, as std's does, and asks for its final
+//! name (`GetFinalPathNameByHandleW`), which resolves links, 8.3 short names
+//! and the case as stored, but returns the verbatim form `\\?\C:\…`. Reports and
 //! comparisons use the plain form `C:\…`; std adds the verbatim prefix again
 //! by itself where a call needs it (a path over `MAX_PATH`). A path whose
 //! names the plain form cannot spell (a trailing dot or space, a reserved
@@ -20,11 +20,54 @@ use std::io;
 use std::os::windows::ffi::{OsStrExt as _, OsStringExt as _};
 use std::path::{Component, Path, PathBuf, Prefix};
 
+use windows_sys::Win32::Storage::FileSystem::{
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL, FILE_NAME_NORMALIZED, GetDriveTypeW,
+    GetFinalPathNameByHandleW, VOLUME_NAME_DOS,
+};
+
+/// `GetDriveTypeW`'s answers that are not a local drive (WinBase.h; their
+/// windows-sys module is not otherwise needed).
+const DRIVE_UNKNOWN: u32 = 0;
+const DRIVE_REMOTE: u32 = 4;
+
 /// The final path of `path`, without the verbatim prefix where the plain
-/// form spells the same names.
-#[allow(clippy::disallowed_methods)] // the one call of std's canonicalize; everything else goes through here
+/// form spells the same names. What std's canonicalize does (an open with
+/// no access, then `GetFinalPathNameByHandleW`), with the open told never to
+/// recall a cloud placeholder (`FILE_FLAG_OPEN_NO_RECALL`): canonicalising a
+/// folder that is not downloaded never downloads it. Links are followed.
+/// std after 1.99 adds a fallback for volumes the mount manager does not
+/// know (some RAM disks and FUSE drivers), where this answers an error.
 pub fn canonicalize(path: &Path) -> io::Result<PathBuf> {
-    std::fs::canonicalize(path).map(simplified)
+    use std::os::windows::fs::OpenOptionsExt as _;
+    use std::os::windows::io::AsRawHandle as _;
+    let file = std::fs::OpenOptions::new()
+        .access_mode(0)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_NO_RECALL)
+        .open(path)?;
+    let mut buffer = vec![0u16; 512];
+    loop {
+        let capacity = u32::try_from(buffer.len()).map_err(|_| io::Error::from_raw_os_error(206))?;
+        // SAFETY: the handle is open for the call; the buffer is writable for
+        // `capacity` units.
+        let n = unsafe {
+            GetFinalPathNameByHandleW(
+                file.as_raw_handle(),
+                buffer.as_mut_ptr(),
+                capacity,
+                FILE_NAME_NORMALIZED | VOLUME_NAME_DOS,
+            )
+        };
+        let n = usize::try_from(n).expect("u32 fits usize");
+        if n == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if n < buffer.len() {
+            buffer.truncate(n);
+            return Ok(simplified(PathBuf::from(OsString::from_wide(&buffer))));
+        }
+        // Too small: `n` is the size needed, with its NUL; always grow.
+        buffer.resize(n.max(buffer.len() + 1), 0);
+    }
 }
 
 /// `path` with `\\?\C:\` turned into `C:\` and `\\?\UNC\server\share` into
@@ -107,9 +150,93 @@ fn upper(name: &OsStr) -> OsString {
     OsString::from_wide(&wide)
 }
 
+/// Whether `path`, read from a file's content (a `gitdir:` line, a
+/// `CMakeCache.txt`), may be opened: a path on a local drive. A share on
+/// another machine (`\\server\share`, `\\?\UNC\…`), a device path, a path
+/// with no drive and a drive Windows calls remote (`net use`, or a `subst`
+/// of a share) are not. A drive letter with nothing behind it is local: its
+/// open fails at once, and an unplugged disk's worktree is still an orphan.
+/// The path as written is checked; callers check a canonical path again,
+/// since a local symlink may lead to a share. Otherwise: opening one connects to that machine, offers the
+/// user's credentials there, and can hold a scan thread for the network's
+/// timeout when the host does not answer.
+pub fn is_local(path: &Path) -> bool {
+    let drive = match path.components().next() {
+        Some(Component::Prefix(p)) => match p.kind() {
+            Prefix::Disk(d) | Prefix::VerbatimDisk(d) => d,
+            _ => return false,
+        },
+        _ => return false,
+    };
+    let root: Vec<u16> = format!("{}:\\", char::from(drive)).encode_utf16().chain([0]).collect();
+    // SAFETY: a NUL-terminated wide root; the call only reads it.
+    let kind = unsafe { GetDriveTypeW(root.as_ptr()) };
+    !matches!(kind, DRIVE_REMOTE | DRIVE_UNKNOWN)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A drive letter with nothing assigned, from the system's own list.
+    fn free_drive() -> char {
+        // SAFETY: no arguments; returns a bitmask of the assigned letters.
+        let used = unsafe { windows_sys::Win32::Storage::FileSystem::GetLogicalDrives() };
+        (b'D'..=b'Z').rev().find(|d| used & (1 << (d - b'A')) == 0).map(char::from).expect("a free drive letter")
+    }
+
+    #[test]
+    fn an_unplugged_disk_s_worktree_is_still_an_orphan() {
+        let d = tempfile::tempdir().unwrap();
+        let wt = d.path().join("wt");
+        std::fs::create_dir(&wt).unwrap();
+        std::fs::write(wt.join(".git"), format!("gitdir: {}:/repo/.git/worktrees/wt\n", free_drive())).unwrap();
+        assert!(matches!(
+            crate::rules::worktree::recognize(&wt),
+            Some(crate::rules::worktree::Recognized::Orphan { .. })
+        ));
+    }
+
+    #[test]
+    fn a_path_on_another_machine_is_never_followed() {
+        let d = tempfile::tempdir().unwrap();
+        let wt = d.path().join("wt");
+        std::fs::create_dir(&wt).unwrap();
+        std::fs::write(wt.join(".git"), "gitdir: \\\\server\\share\\repo\\.git\\worktrees\\wt\n").unwrap();
+        assert_eq!(crate::report::project::git_dir(&wt), None, "the .git file's line");
+        assert!(crate::rules::worktree::recognize(&wt).is_none());
+
+        // A local gitdir whose commondir names a share.
+        let gitdir = d.path().join("repo/.git/worktrees/wt");
+        std::fs::create_dir_all(&gitdir).unwrap();
+        std::fs::write(gitdir.join("commondir"), "\\\\server\\share\\repo\\.git\n").unwrap();
+        std::fs::write(gitdir.join("gitdir"), format!("{}\n", wt.join(".git").display())).unwrap();
+        std::fs::write(wt.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+        assert!(crate::rules::worktree::recognize(&wt).is_none(), "commondir on another machine");
+        std::fs::write(gitdir.join("commondir"), "../..\n").unwrap();
+        assert!(
+            matches!(crate::rules::worktree::recognize(&wt), Some(crate::rules::worktree::Recognized::Linked(_))),
+            "the same worktree, all local"
+        );
+    }
+
+    #[test]
+    fn only_a_local_drive_is_local() {
+        let system = std::env::temp_dir();
+        assert!(is_local(&system), "{}", system.display());
+        assert!(is_local(Path::new(r"\\?\C:\Windows")));
+        assert!(!is_local(Path::new(r"\\server\share\repo\.git")));
+        assert!(!is_local(Path::new(r"\\?\UNC\server\share\x")));
+        assert!(!is_local(Path::new(r"\\.\pipe\x")));
+        assert!(!is_local(Path::new(r"\Windows")), "no drive");
+        assert!(!is_local(Path::new("relative")));
+        assert!(!is_local(Path::new("//server/share/repo/.git")), "git writes forward slashes");
+        assert!(!is_local(Path::new(r"\\.\C:\x")), "a device path, even to a drive");
+        assert!(
+            is_local(Path::new(&format!("{}:\\x", free_drive()))),
+            "nothing mounted: local, the open fails at once"
+        );
+    }
 
     #[test]
     fn the_verbatim_prefix_goes_where_the_names_are_spellable() {
@@ -148,5 +275,40 @@ mod tests {
         let canonical = canonicalize(&d.path().join("MIXED CASE FOLDER")).unwrap();
         assert!(!canonical.as_os_str().to_string_lossy().starts_with(r"\\?\"), "{}", canonical.display());
         assert_eq!(canonical.file_name().unwrap(), "Mixed Case Folder");
+    }
+
+    /// The no-recall open gives what std's canonicalize gives: a folder, a
+    /// file, a junction (resolved to its target), a path past `MAX_PATH`,
+    /// and a missing path's error.
+    #[test]
+    #[allow(clippy::disallowed_methods)] // std's canonicalize is the reference here
+    fn the_final_path_is_std_s() {
+        let d = tempfile::tempdir().unwrap();
+        let folder = d.path().join("Folder");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(folder.join("file.txt"), b"x").unwrap();
+        let link = d.path().join("link");
+        let made = std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(&link)
+            .arg(&folder)
+            .output()
+            .unwrap();
+        assert!(made.status.success());
+        let mut deep = folder.clone();
+        for i in 0..12 {
+            deep.push(format!("a-rather-long-folder-name-{i:02}"));
+        }
+        std::fs::create_dir_all(&deep).unwrap();
+        for p in [d.path().to_path_buf(), folder.clone(), folder.join("file.txt"), link.join("file.txt"), deep.clone()]
+        {
+            assert_eq!(canonicalize(&p).unwrap(), simplified(std::fs::canonicalize(&p).unwrap()), "{}", p.display());
+        }
+        assert!(deep.as_os_str().len() > 260);
+        assert_eq!(canonicalize(&link).unwrap(), canonicalize(&folder).unwrap(), "a junction resolves");
+        let missing = d.path().join("missing");
+        assert_eq!(canonicalize(&missing).unwrap_err().kind(), std::fs::canonicalize(&missing).unwrap_err().kind());
     }
 }

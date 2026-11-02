@@ -131,6 +131,7 @@ mod pins {
 
     const _: fn(&Path) -> io::Result<PathBuf> = imp::paths::canonicalize;
     const _: for<'a> fn(&'a Path) -> std::borrow::Cow<'a, Path> = imp::paths::key;
+    const _: fn(&Path) -> bool = imp::paths::is_local;
 
     const _: fn() -> Option<PathBuf> = imp::folders::home;
     const _: fn(&Path) -> (PathBuf, PathBuf) = imp::folders::default_data_and_log;
