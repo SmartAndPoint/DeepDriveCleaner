@@ -228,6 +228,11 @@ pub struct ProcInfo {
     /// symlinks are resolved, and may be relative; on Linux the resolved
     /// path the kernel gives (`/proc/<pid>/exe`).
     pub exe: Option<PathBuf>,
+    /// The executable after every symlink is resolved, as the kernel holds
+    /// it: `proc_pidpath` on macOS, `/proc/<pid>/exe` on Linux. A process
+    /// started through a link (Claude Code's `~/.local/bin/claude`) runs the
+    /// file it points to; this is that file. `None` when unreadable.
+    pub resolved_exe: Option<PathBuf>,
     pub args: Vec<OsString>,
     pub cwd: Option<PathBuf>,
     /// `VIRTUAL_ENV` / `CONDA_PREFIX` from the environment, when readable.

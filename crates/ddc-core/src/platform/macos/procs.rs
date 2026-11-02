@@ -122,9 +122,50 @@ pub fn open_vnodes(pid: i32) -> Vec<OpenVnode> {
 }
 
 /// The start of `pid`, of any user; `None` when there is no such process.
+/// A process of the user is read through `PROC_PIDTBSDINFO`; another user's
+/// refuses that flavour, so its owner comes from the short BSD info and its
+/// start from `sysctl(KERN_PROC_PID)`, which every user may read.
 pub fn process_start(pid: i32) -> Option<ProcStart> {
-    let bsd = bsd_info(pid)?;
-    Some(ProcStart { uid: bsd.pbi_uid, sec: bsd.pbi_start_tvsec, usec: bsd.pbi_start_tvusec })
+    if let Some(bsd) = bsd_info(pid) {
+        return Some(ProcStart { uid: bsd.pbi_uid, sec: bsd.pbi_start_tvsec, usec: bsd.pbi_start_tvusec });
+    }
+    let short = short_info(pid)?;
+    let (sec, usec) = start_time(pid)?;
+    Some(ProcStart { uid: short.pbsi_uid, sec, usec })
+}
+
+/// `PROC_PIDT_SHORTBSDINFO`: the owner and the name, for any user's process.
+fn short_info(pid: i32) -> Option<libc::proc_bsdshortinfo> {
+    let mut info = MaybeUninit::<libc::proc_bsdshortinfo>::zeroed();
+    let size = size_of::<libc::proc_bsdshortinfo>() as c_int;
+    // SAFETY: `info` is writable for `size` bytes.
+    let r = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDT_SHORTBSDINFO, 0, info.as_mut_ptr().cast(), size) };
+    // SAFETY: proc_pidinfo filled the struct when it returned its size.
+    (r == size).then(|| unsafe { info.assume_init() })
+}
+
+/// The start of `pid` from `sysctl(KERN_PROC_PID)`: `kinfo_proc` begins with
+/// `extern_proc`'s `p_un`, a union whose `p_starttime` is a `timeval` at
+/// offset 0 (`tv_sec` 8 bytes, then `tv_usec` 4). `libc` does not declare
+/// `kinfo_proc`, so the buffer is sized by the kernel and read there.
+fn start_time(pid: i32) -> Option<(u64, u64)> {
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROC, libc::KERN_PROC_PID, pid];
+    let mut size = 0usize;
+    // SAFETY: a null buffer asks for the size.
+    let r = unsafe { libc::sysctl(mib.as_mut_ptr(), 4, std::ptr::null_mut(), &mut size, std::ptr::null_mut(), 0) };
+    if r != 0 || size < 16 {
+        return None;
+    }
+    let mut buf = vec![0u8; size];
+    // SAFETY: valid mib; `buf` is writable for `size` bytes.
+    let r = unsafe { libc::sysctl(mib.as_mut_ptr(), 4, buf.as_mut_ptr().cast(), &mut size, std::ptr::null_mut(), 0) };
+    // No such process: the call succeeds with nothing written.
+    if r != 0 || size < 16 {
+        return None;
+    }
+    let sec = i64::from_ne_bytes(buf[0..8].try_into().ok()?);
+    let usec = i32::from_ne_bytes(buf[8..12].try_into().ok()?);
+    Some((u64::try_from(sec).ok()?, u64::try_from(usec).ok()?))
 }
 
 fn vnode_files(pid: i32, nfiles: u32) -> Vec<PathBuf> {
@@ -272,18 +313,63 @@ fn procargs(pid: i32, argmax: usize) -> Option<Vec<u8>> {
     Some(buf)
 }
 
+/// The kernel's name of a process: `pbi_name`, else `pbi_comm`.
+fn kernel_name(bsd: &libc::proc_bsdinfo) -> String {
+    // SAFETY: both name arrays are NUL-terminated by the kernel.
+    let name = unsafe { CStr::from_ptr(bsd.pbi_name.as_ptr()) };
+    // SAFETY: as above.
+    let name = if name.to_bytes().is_empty() { unsafe { CStr::from_ptr(bsd.pbi_comm.as_ptr()) } } else { name };
+    name.to_string_lossy().into_owned()
+}
+
 fn describe(pid: i32, bsd: &libc::proc_bsdinfo, argmax: usize) -> ProcInfo {
-    let kernel_name = {
-        // SAFETY: both name arrays are NUL-terminated by the kernel.
-        let name = unsafe { CStr::from_ptr(bsd.pbi_name.as_ptr()) };
-        let name = if name.to_bytes().is_empty() { unsafe { CStr::from_ptr(bsd.pbi_comm.as_ptr()) } } else { name };
-        name.to_string_lossy().into_owned()
-    };
-    let mut info = ProcInfo { pid, name: kernel_name, cwd: cwd(pid), ..ProcInfo::default() };
+    let mut info =
+        ProcInfo { pid, name: kernel_name(bsd), cwd: cwd(pid), resolved_exe: pidpath(pid), ..ProcInfo::default() };
     if let Some(buf) = procargs(pid, argmax) {
         parse_procargs(&buf, &mut info);
     }
     info
+}
+
+/// The executable `pid` runs, every symlink resolved (`proc_pidpath`):
+/// `KERN_PROCARGS2` keeps the path passed to `execve`, which for Claude
+/// Code is its launcher link, not the build it runs.
+fn pidpath(pid: i32) -> Option<PathBuf> {
+    let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: `buf` is writable for its length, which is passed.
+    let n = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast::<c_void>(), buf.len() as u32) };
+    if n <= 0 {
+        return None;
+    }
+    buf.truncate(n as usize);
+    (buf.first() == Some(&b'/')).then(|| PathBuf::from(OsStr::from_bytes(&buf)))
+}
+
+/// The names of the processes of other users, as the kernel keeps them
+/// (`pbsi_comm`, from the short BSD info, the one flavour another user's
+/// process gives without root): its arguments and executable cannot be
+/// read (safety ADR §5, amendment of 2026-11-02).
+pub fn other_user_names() -> Vec<String> {
+    let me = uid();
+    let mut names: Vec<String> = list_pids()
+        .into_iter()
+        .filter(|&pid| pid > 0)
+        .filter_map(|pid| short_info(pid).filter(|s| s.pbsi_uid != me))
+        .map(|s| {
+            // SAFETY: the kernel NUL-terminates `pbsi_comm`.
+            let name = unsafe { CStr::from_ptr(s.pbsi_comm.as_ptr()) };
+            name.to_string_lossy().into_owned()
+        })
+        .filter(|n| !n.is_empty())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// macOS has no `hidepid`: every user may list every process.
+pub fn process_table_hidden() -> bool {
+    false
 }
 
 pub(crate) fn parse_procargs(buf: &[u8], info: &mut ProcInfo) {
@@ -328,6 +414,67 @@ pub(crate) fn parse_procargs(buf: &[u8], info: &mut ProcInfo) {
 mod tests {
     use super::*;
     use crate::platform::Canonical as _;
+
+    /// `proc_pidpath` gives the executable this process runs, resolved.
+    #[test]
+    fn this_process_runs_its_resolved_executable() {
+        let bsd = bsd_info(std::process::id() as i32).expect("this process");
+        let me = describe(std::process::id() as i32, &bsd, argmax().unwrap_or(1 << 20));
+        let exe = std::env::current_exe().unwrap().canonical().unwrap();
+        assert_eq!(me.resolved_exe.as_deref(), Some(exe.as_path()));
+    }
+
+    /// A process started through a symlink: its `execve` path is the link,
+    /// and `proc_pidpath` names the file it runs, as Claude Code's launcher
+    /// runs a build (safety ADR §5, amendment of 2026-11-02).
+    #[test]
+    fn a_process_run_through_a_link_names_the_file_it_runs() {
+        let d = tempfile::tempdir().unwrap();
+        let link = d.path().canonical().unwrap().join("claude");
+        std::os::unix::fs::symlink("/bin/sleep", &link).unwrap();
+        let mut child = std::process::Command::new(&link).arg("30").spawn().unwrap();
+        let pid = child.id() as i32;
+        // Until the child has exec'ed: before, it is a copy of this process.
+        let seen = (0..100).find_map(|_| {
+            let found = current_user_processes_unopened()
+                .into_iter()
+                .find(|p| p.pid == pid && p.exe.as_deref() == Some(link.as_path()));
+            if found.is_none() {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            found
+        });
+        child.kill().unwrap();
+        child.wait().unwrap();
+        let seen = seen.expect("the child is listed");
+        assert_eq!(seen.exe.as_deref(), Some(link.as_path()), "the path passed to execve");
+        assert_eq!(seen.resolved_exe.as_deref(), Some(std::path::Path::new("/bin/sleep")), "the file it runs");
+    }
+
+    /// launchd is root's: every user may read its name and its start, and
+    /// this process's start reads as it did through the full BSD info.
+    #[test]
+    fn other_users_processes_are_named_and_started() {
+        assert!(other_user_names().iter().any(|n| n == "launchd"), "{:?}", other_user_names());
+        assert!(!process_table_hidden());
+        let launchd = process_start(1).expect("launchd's start");
+        assert_eq!(launchd.uid, 0);
+        assert!(launchd.sec > 0);
+        let me = std::process::id() as i32;
+        let bsd = bsd_info(me).unwrap();
+        let (sec, usec) = start_time(me).expect("this process's start by sysctl");
+        assert_eq!((sec, usec), (bsd.pbi_start_tvsec, bsd.pbi_start_tvusec), "both read p_start");
+    }
+
+    #[test]
+    fn network_file_systems_and_fuse_count_as_network() {
+        for t in ["nfs", "smbfs", "afpfs", "webdav", "acfs", "macfuse", "osxfuse", "fuse-t"] {
+            assert!(crate::platform::statfs::is_network_fs(t), "{t}");
+        }
+        for t in ["apfs", "hfs", "msdos", "exfat", "devfs"] {
+            assert!(!crate::platform::statfs::is_network_fs(t), "{t}");
+        }
+    }
 
     #[test]
     fn real_home_is_an_absolute_folder() {
