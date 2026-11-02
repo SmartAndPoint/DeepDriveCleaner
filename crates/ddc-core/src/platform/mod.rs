@@ -98,8 +98,8 @@ mod pins {
 
     use super::imp;
     use super::types::{
-        DirListing, EntryStat, FileStat, OpenVnode, ProcInfo, ProcStart, ReadError, ReadErrorKind, Times, TrashError,
-        TrashPlace, Usage, VolumeStats,
+        DirListing, EntryStat, FileStat, OpenVnode, ProcInfo, ProcStart, ReadError, ReadErrorKind, RootOwner, Times,
+        TrashError, TrashPlace, Usage, VolumeStats,
     };
 
     type DirFd = imp::fsops::DirFd;
@@ -158,6 +158,8 @@ mod pins {
     const _: fn() -> u32 = imp::procs::uid;
     const _: fn() -> Option<PathBuf> = imp::procs::real_home;
     const _: fn() -> bool = imp::procs::is_root;
+    const _: fn(&Path) -> io::Result<RootOwner> = imp::procs::root_owner;
+    const _: fn() -> io::Result<()> = imp::procs::drop_acl_bypass_privileges;
     const _: fn() -> Vec<ProcInfo> = imp::procs::current_user_processes;
     const _: fn() -> Vec<ProcInfo> = imp::procs::current_user_processes_unopened;
     const _: fn(i32) -> Vec<PathBuf> = imp::procs::open_files;
@@ -335,6 +337,95 @@ impl std::error::Error for Unsupported {}
 /// statement of every core entry point that does (ADR §5).
 pub fn require_supported() -> Result<(), Unsupported> {
     if SUPPORTED { Ok(()) } else { Err(Unsupported { platform: PLATFORM, simulated: SIMULATED }) }
+}
+
+/// A scan root another account owns, in a session with more rights than
+/// the user (an elevated terminal on Windows): refused before the walk, the
+/// clean or its preview, since those rights would let ddc read and change
+/// what is not the user's (story "Windows scanner and rule catalog", step 7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeignRoot {
+    pub path: std::path::PathBuf,
+    pub why: Foreign,
+}
+
+/// Why a [`ForeignRoot`] is refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Foreign {
+    /// Another account owns it: the owner's SID.
+    Owner(String),
+    /// Its owner cannot be read: the error (access denied, ...).
+    OwnerUnreadable(String),
+    /// This process's token cannot be used: unreadable, or it still holds
+    /// a privilege that passes every ACL (`types::TokenUnusable`).
+    Token(String),
+}
+
+impl fmt::Display for ForeignRoot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        const NOT_ELEVATED: &str = "run ddc in a terminal that is not elevated (not as administrator)";
+        let path = self.path.display();
+        match &self.why {
+            Foreign::Owner(owner) => write!(
+                f,
+                "{path} belongs to another account ({owner}), and this terminal runs elevated; {NOT_ELEVATED}, \
+                 or scan a folder of your own"
+            ),
+            Foreign::OwnerUnreadable(err) => {
+                write!(f, "cannot tell whether {path} belongs to you: its owner cannot be read ({err}); {NOT_ELEVATED}")
+            }
+            Foreign::Token(err) => write!(f, "cannot tell whether {path} belongs to you: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for ForeignRoot {}
+
+/// `Ok` when `root` is the user's to scan and clean ([`procs::root_owner`]):
+/// always where the session has no more rights than the user. A missing
+/// root is `Ok`, so the walk reports it as it does; an owner that cannot be
+/// read is refused (fail closed).
+pub fn require_own_root(root: &std::path::Path) -> Result<(), ForeignRoot> {
+    let why = match imp::procs::root_owner(root) {
+        Ok(types::RootOwner::Own) => return Ok(()),
+        Ok(types::RootOwner::Other(owner)) => Foreign::Owner(owner),
+        Err(e) if e.get_ref().is_some_and(|p| p.is::<types::TokenUnusable>()) => Foreign::Token(e.to_string()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => Foreign::OwnerUnreadable(e.to_string()),
+    };
+    Err(ForeignRoot { path: root.to_path_buf(), why })
+}
+
+/// The [`ForeignRoot`] in `err` or its sources, if any: itself, the
+/// `ForeignRoot` variants of the core's error enums, or an `io::Error`
+/// whose payload is one (preflight's). The CLI exits with 2 on it.
+pub fn foreign_root_in<'e>(err: &'e (dyn std::error::Error + 'static)) -> Option<&'e ForeignRoot> {
+    let mut link = Some(err);
+    while let Some(err) = link {
+        if let Some(found) = foreign_root_at(err) {
+            return Some(found);
+        }
+        link = err.source();
+    }
+    None
+}
+
+fn foreign_root_at<'e>(err: &'e (dyn std::error::Error + 'static)) -> Option<&'e ForeignRoot> {
+    use crate::exec::ExecError;
+    use crate::report::ScanError;
+
+    if let Some(io) = err.downcast_ref::<std::io::Error>() {
+        return io.get_ref()?.downcast_ref::<ForeignRoot>();
+    }
+    err.downcast_ref::<ForeignRoot>()
+        .or_else(|| match err.downcast_ref::<ScanError>() {
+            Some(ScanError::ForeignRoot(f)) => Some(f),
+            _ => None,
+        })
+        .or_else(|| match err.downcast_ref::<ExecError>() {
+            Some(ExecError::ForeignRoot(f)) => Some(f),
+            _ => None,
+        })
 }
 
 /// True, after printing why, when this build's platform is not supported:
@@ -541,6 +632,41 @@ mod tests {
         let absent = CapabilityAbsent { platform: Platform::Linux, capability: Capability::Schedule, action: None };
         let io = std::io::Error::new(std::io::ErrorKind::Unsupported, absent);
         assert_eq!(refusal_in(&io), Some(Refusal::CapabilityAbsent(absent)));
+    }
+
+    #[test]
+    fn a_missing_root_is_left_to_the_walk() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(require_own_root(&d.path().join("gone")), Ok(()));
+        assert_eq!(require_own_root(d.path()), Ok(()), "a folder this process made");
+    }
+
+    #[test]
+    fn a_foreign_root_is_found_through_the_sources_and_in_an_io_error() {
+        let foreign = ForeignRoot { path: "/elsewhere".into(), why: Foreign::Owner("S-1-5-18".to_owned()) };
+        let scan = crate::report::ScanError::ForeignRoot(foreign.clone());
+        assert_eq!(foreign_root_in(&scan), Some(&foreign));
+        let exec = crate::exec::ExecError::ForeignRoot(foreign.clone());
+        assert_eq!(foreign_root_in(&exec), Some(&foreign));
+        let io = std::io::Error::new(std::io::ErrorKind::PermissionDenied, foreign.clone());
+        assert_eq!(foreign_root_in(&io), Some(&foreign));
+        let journal = crate::exec::ExecError::Journal(io);
+        assert_eq!(foreign_root_in(&journal), Some(&foreign), "through a source");
+        let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        assert_eq!(foreign_root_in(&denied), None, "the kind alone is no foreign root");
+        assert_eq!(refusal_in(&scan), None, "never the platform's refusal (69)");
+        let message = foreign.to_string();
+        assert!(message.contains("S-1-5-18") && message.contains("not elevated"), "{message}");
+        assert!(message.contains("a folder of your own"), "{message}");
+        let unread = ForeignRoot { why: Foreign::OwnerUnreadable("Access is denied.".to_owned()), ..foreign.clone() };
+        let message = unread.to_string();
+        assert!(
+            message.contains("cannot be read (Access is denied.)") && message.contains("not elevated"),
+            "{message}"
+        );
+        let token = ForeignRoot { why: Foreign::Token("cannot read this process's token".to_owned()), ..foreign };
+        let message = token.to_string();
+        assert!(message.contains("token") && !message.contains("elevated"), "{message}");
     }
 
     #[test]

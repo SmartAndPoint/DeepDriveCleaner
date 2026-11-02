@@ -56,6 +56,7 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
         },
     )?;
     super::note_missing(&resolved.missing);
+    report::require_own_roots(&env, &resolved.options)?;
     // Nobody can be asked here; the dry run refuses too, so the sheet predicts the clean.
     if !resolved.dropped_excludes.is_empty() {
         return refuse(&prompt::dropped_excludes(&resolved.dropped_excludes, env.home()));

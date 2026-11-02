@@ -278,7 +278,7 @@ pub enum Consent {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExecError {
-    #[error("refusing to clean as root")]
+    #[error("refusing to clean as root (LocalSystem on Windows)")]
     Root,
     #[error("--yes cannot include the review class: review items need an interactive confirmation")]
     ReviewWithYes,
@@ -288,6 +288,10 @@ pub enum ExecError {
     /// seam: one platform module per OS with declared capabilities", §5).
     #[error("{0}")]
     Unsupported(crate::platform::Unsupported),
+    /// A root of the plan another account owns, in an elevated session:
+    /// nothing was touched.
+    #[error("{0}")]
+    ForeignRoot(crate::platform::ForeignRoot),
 }
 
 pub struct Ports<'a> {
@@ -376,6 +380,9 @@ pub fn execute(
     crate::platform::require_supported().map_err(ExecError::Unsupported)?;
     if crate::platform::procs::is_root() {
         return Err(ExecError::Root);
+    }
+    for root in &plan.roots {
+        crate::platform::require_own_root(root).map_err(ExecError::ForeignRoot)?;
     }
     if let Consent::AssumeYes { classes } = consent
         && classes.contains(&RiskClass::Review)

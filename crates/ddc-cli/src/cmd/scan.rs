@@ -37,6 +37,7 @@ pub fn run(args: ScanArgs) -> anyhow::Result<ExitCode> {
     if !resolved.dropped_excludes.is_empty() {
         eprintln!("ddc: {}", prompt::dropped_excludes(&resolved.dropped_excludes, env.home()));
     }
+    report::require_own_roots(&env, &resolved.options)?;
     let _lock = store::try_lock(&env, LockMode::Shared)?;
     let walk = WalkOptions { threads: args.threads, claim_times: !args.no_times, ..WalkOptions::default() };
     let opts = ScanOptions { walk, ..resolved.options };

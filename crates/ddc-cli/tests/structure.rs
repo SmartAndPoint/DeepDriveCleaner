@@ -433,6 +433,41 @@ fn keep_remove_unlinks_only_its_marker() {
     assert_eq!(calls, [("ddc-core/src/keep.rs".to_owned(), "KEEP_MARKER.as_ref()".to_owned())]);
 }
 
+/// No source enables a privilege (story "Windows scanner and rule catalog",
+/// step 7): with the backup, restore or take-ownership privilege enabled, an
+/// elevated token would pass every ACL. Only the Windows token module calls
+/// `AdjustTokenPrivileges`, to remove those three; no file under a crate's
+/// `src/` calls the native calls that adjust a token, and none names
+/// `SE_PRIVILEGE_ENABLED` outside its `mod tests`.
+#[test]
+fn no_source_enables_a_privilege() {
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let remover = crates.join("ddc-core/src/platform/windows/procs.rs");
+    let mut checked = 0;
+    for entry in std::fs::read_dir(&crates).unwrap() {
+        let src = entry.unwrap().path().join("src");
+        if !src.is_dir() {
+            continue;
+        }
+        for path in rust_files(&src) {
+            let text = code(&path);
+            // `code` strips only comment lines: the tests are what follows the module's `mod tests`.
+            let shipped = text.split("#[cfg(test)]\nmod tests {").next().unwrap();
+            for forbidden in ["RtlAdjustPrivilege", "NtAdjustPrivilegesToken", "ZwAdjustPrivilegesToken"] {
+                assert!(!text.contains(forbidden), "{} mentions {forbidden}", path.display());
+            }
+            if path != remover {
+                assert!(!text.contains("AdjustTokenPrivileges"), "{} adjusts a token", path.display());
+            }
+            assert!(!shipped.contains("SE_PRIVILEGE_ENABLED"), "{} names SE_PRIVILEGE_ENABLED", path.display());
+            checked += 1;
+        }
+    }
+    assert!(checked > 50, "only {checked} files read");
+    let text = code(&remover);
+    assert!(text.contains("AdjustTokenPrivileges") && text.contains("SE_PRIVILEGE_REMOVED"), "the removal moved");
+}
+
 /// Every `.rs` file under `dir`, at any depth, sorted.
 fn rust_files(dir: &Path) -> Vec<std::path::PathBuf> {
     let (mut files, mut dirs) = (Vec::new(), vec![dir.to_path_buf()]);

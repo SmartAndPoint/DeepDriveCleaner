@@ -368,11 +368,11 @@ ddc schedule status
 |---|---|
 | 0 | Done. `clean --items --json`, `disk free --json` and `keep remove --json` exit 0 even when an item or action failed or was refused: the report says which. |
 | 1 | An error; in text mode, `clean` also exits 1 when an item failed, `disk free` when an action failed, and `keep remove` when the file was not removed for a reason other than being gone already. |
-| 2 | Refused before anything was touched: run as root, a malformed list, a forbidden option, or a confirmation that cannot be asked without a terminal. |
+| 2 | Refused before anything was touched: run as root, a malformed list, a forbidden option, a confirmation that cannot be asked without a terminal, or a scan root another account owns, in an elevated terminal (Windows). |
 | 69 | Unavailable: ddc does not support this platform yet, where only `--version`, `--help` and `rules` run, or the command needs something this platform lacks. Nothing was scanned or changed. |
 | 75 | Busy: a clean is running, or a clean was asked for while another scan or clean runs. Try again when it ends. |
 
-With `--json` (and `scan --notify json`), a command refused with 69 prints an error report on stdout instead of its usual output ([`docs/error.schema.json`](docs/error.schema.json)): a `code`, `platform-not-supported` or `capability-absent`, the platform and, for the latter, the capability that is missing. The scan, clean and disk reports name their `platform` and its `capabilities`.
+With `--json` (and `scan --notify json`), a command refused with 69 prints an error report on stdout instead of its usual output ([`docs/error.schema.json`](docs/error.schema.json)): a `code`, `platform-not-supported` or `capability-absent`, the platform and, for the latter, the capability that is missing. A scan root another account owns, in an elevated terminal on Windows, exits 2 with the same report under `--json`: the code `root-not-owned`, the `root`, the `owner` when it was read, and `owner_unreadable`. The scan, clean and disk reports name their `platform` and its `capabilities`.
 
 The install script (under [Install](#on-an-older-macos-or-the-command-line-only)) has its own:
 
