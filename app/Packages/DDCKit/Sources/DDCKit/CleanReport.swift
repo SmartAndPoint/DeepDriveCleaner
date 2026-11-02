@@ -109,7 +109,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
 /// `clean --items --json`: what happened to each listed item.
 public struct CleanReport: Decodable, Sendable, Equatable {
     /// `CLEAN_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 8
+    public static let schemaVersion = 9
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)

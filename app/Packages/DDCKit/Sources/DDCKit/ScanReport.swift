@@ -9,7 +9,7 @@ import Foundation
 /// their defaults, so a report of this version without them still reads.
 public struct ScanReport: Decodable, Sendable, Equatable {
     /// `SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 5
+    public static let schemaVersion = 6
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)
@@ -163,13 +163,25 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         /// The newest change inside it (RFC 3339, fixed-width UTC); nil when
         /// the scan read none. A picked entry carries its own change.
         public let modified: String?
+        /// Its `origin`'s kind (`worktree`, `session-data`, `runtime-cache`,
+        /// `builds`), read as it is: an unknown kind is kept, never an
+        /// error. Nil on a finding with no origin.
+        public let originKind: String?
+
+        /// A coding agent's builds folder (safety ADR, amendment of
+        /// 2026-11-02): its entries are old builds, not sessions.
+        public var isBuildsFolder: Bool { originKind == "builds" }
+
+        private struct OriginKey: Decodable {
+            let kind: String?
+        }
 
         /// What deleting it frees, as the CLI's `Finding::reclaimable_bytes`.
         public var reclaimableBytes: UInt64 { privateBytes ?? bytes }
 
         private enum CodingKeys: String, CodingKey {
             case path, rule, `class`, ruleClass, removal, dev, ino, bytes, privateBytes, project, selected, notSelected, ignored
-            case notes, hint, incomplete, contents, protection, modified
+            case notes, hint, incomplete, contents, protection, modified, origin
         }
 
         public init(from decoder: any Decoder) throws {
@@ -194,6 +206,7 @@ public struct ScanReport: Decodable, Sendable, Equatable {
             protection = try c.decodeIfPresent(Protection.self, forKey: .protection)
             // Absent before the CLI read it, and on what has no date: both nil.
             modified = try c.decodeIfPresent(String.self, forKey: .modified)
+            originKind = (try? c.decodeIfPresent(OriginKey.self, forKey: .origin))?.kind
         }
 
         /// A picked entry as `plan_listed` synthesizes it: its folder's rule,
@@ -218,6 +231,7 @@ public struct ScanReport: Decodable, Sendable, Equatable {
             contents = nil
             protection = nil
             modified = entry.modified
+            originKind = folder.originKind
         }
     }
 
@@ -393,8 +407,8 @@ public struct ScanReport: Decodable, Sendable, Equatable {
     }
 }
 
-/// Why an entry of the user's own folders, or a coding agent's session,
-/// cannot be picked (`EntryLock` in `crates/ddc-core/src/rules/entries.rs`),
+/// Why an entry of the user's own folders, a coding agent's session or one
+/// of its old builds cannot be picked (`EntryLock` in `crates/ddc-core/src/rules/entries.rs`),
 /// in the scan report and the clean report alike. Tagged by `reason`; an
 /// unknown one, or an unknown `by` or `cause`, is a decoding error.
 public enum EntryLock: Decodable, Sendable, Equatable, Hashable {
@@ -410,6 +424,34 @@ public enum EntryLock: Decodable, Sendable, Equatable, Hashable {
     case liveSession(session: String, by: LiveBy)
     /// Whether the session is live could not be told.
     case livenessUnknown(cause: LivenessCause)
+    /// A coding agent's build still needed.
+    case buildInUse(by: BuildBy)
+    /// Which of a coding agent's builds are still needed could not be told:
+    /// every build is locked.
+    case buildsUnknown(cause: BuildsCause)
+
+    /// Why a build is in use (`BuildBy` in `crates/ddc-core/src/agents/builds.rs`).
+    public enum BuildBy: String, Decodable, Sendable, Hashable, CaseIterable {
+        /// A launcher points to it.
+        case launcher
+        /// A process of the user runs it.
+        case process
+        /// Claude Code's installer lock names a live process for it.
+        case lock
+        /// The newest build.
+        case newest
+    }
+
+    /// Why no build of a harness can be told free (`BuildsCause` in
+    /// `crates/ddc-core/src/agents/builds.rs`).
+    public enum BuildsCause: String, Decodable, Sendable, Hashable, CaseIterable {
+        case noLauncher = "no-launcher"
+        case customLauncher = "custom-launcher"
+        case processWithheld = "process-withheld"
+        case otherUserProcess = "other-user-process"
+        case hiddenProcessTable = "hidden-process-table"
+        case networkHome = "network-home"
+    }
 
     /// What shows a session live (`LiveBy` in `crates/ddc-core/src/agents/liveness.rs`).
     public enum LiveBy: String, Decodable, Sendable, Hashable, CaseIterable {
@@ -437,7 +479,7 @@ public enum EntryLock: Decodable, Sendable, Equatable, Hashable {
     /// Every `reason` value, as the schemas list them.
     public static let tags = [
         "app-managed", "kept", "protected", "other-volume", "recent", "partial-download", "unfinished-backup", "live-session",
-        "liveness-unknown",
+        "liveness-unknown", "build-in-use", "builds-unknown",
     ]
 
     private enum CodingKeys: String, CodingKey {
@@ -457,6 +499,8 @@ public enum EntryLock: Decodable, Sendable, Equatable, Hashable {
         case "live-session":
             self = .liveSession(session: try c.decode(String.self, forKey: .session), by: try c.decode(LiveBy.self, forKey: .by))
         case "liveness-unknown": self = .livenessUnknown(cause: try c.decode(LivenessCause.self, forKey: .cause))
+        case "build-in-use": self = .buildInUse(by: try c.decode(BuildBy.self, forKey: .by))
+        case "builds-unknown": self = .buildsUnknown(cause: try c.decode(BuildsCause.self, forKey: .cause))
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .reason, in: c, debugDescription: "unknown lock \(other)")
         }

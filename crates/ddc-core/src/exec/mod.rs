@@ -262,6 +262,11 @@ pub trait ProcessTable {
     fn pids(&self) -> Vec<i32> {
         self.processes().iter().map(|p| p.pid).collect()
     }
+    /// What the machine tells beyond the user's processes, for a coding
+    /// agent's old builds (`agents::builds`): read only when a build is found.
+    fn host(&self, home: &Path) -> crate::agents::builds::Host {
+        crate::agents::builds::Host::read(home)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

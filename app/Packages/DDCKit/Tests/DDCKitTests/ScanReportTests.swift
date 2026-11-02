@@ -69,6 +69,24 @@ struct ScanReportTests {
         }
     }
 
+    /// Story "Coding agents on Linux" (DDC-010): an old build is locked
+    /// `build-in-use` or `builds-unknown`; an unknown `by` or `cause` does
+    /// not decode, while an unknown origin kind is kept as it is.
+    @Test("a build's locks decode, and an origin kind is read open")
+    func decodesBuildLocks() throws {
+        let inUse = try JSONDecoder().decode(EntryLock.self, from: Data(#"{"reason":"build-in-use","by":"newest"}"#.utf8))
+        #expect(inUse == .buildInUse(by: .newest))
+        let unknown = try JSONDecoder().decode(EntryLock.self, from: Data(#"{"reason":"builds-unknown","cause":"network-home"}"#.utf8))
+        #expect(unknown == .buildsUnknown(cause: .networkHome))
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(EntryLock.self, from: Data(#"{"reason":"build-in-use","by":"guess"}"#.utf8))
+        }
+        #expect(CleanWording.entryLock(inUse) == "The newest build")
+        let report = try ScanReport.read(try Data(contentsOf: try Self.fixture("scan-report-origin")))
+        #expect(report.findings.allSatisfy { !$0.isBuildsFolder })
+        #expect(report.findings.contains { $0.originKind == "session-data" })
+    }
+
     /// A session folder's `contents` must not turn the Coding agents group into
     /// the user-data entries layout: the history stays a row beside the session
     /// folder, which is a subgroup of its sessions (story "Review window: pick a

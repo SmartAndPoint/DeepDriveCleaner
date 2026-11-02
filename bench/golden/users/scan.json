@@ -123,6 +123,27 @@
     },
     {
       "bytes": 24576,
+      "category": "app-cache",
+      "class": "safe",
+      "dev": "<tree-dev>",
+      "dirs": 2,
+      "files": 5,
+      "hint": "",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "notes": [],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/Users/load/Library/Application Support/Slack/Service Worker/CacheStorage",
+      "removal": "delete",
+      "rule": "app.slack-cache",
+      "rule_class": "safe",
+      "selected": true,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 24576,
       "category": "xcode",
       "class": "safe",
       "dev": "<tree-dev>",
@@ -269,9 +290,9 @@
       "notes": [],
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/Users/load/Library/Caches/Adobe Camera Raw 2",
+      "path": "<run>/tree/Users/load/Library/Application Support/Slack/Cache",
       "removal": "delete",
-      "rule": "app.adobe-camera-raw-cache",
+      "rule": "app.slack-cache",
       "rule_class": "safe",
       "selected": true,
       "shared_bytes": 0
@@ -281,8 +302,8 @@
       "category": "app-cache",
       "class": "safe",
       "dev": "<tree-dev>",
-      "dirs": 1,
-      "files": 6,
+      "dirs": 2,
+      "files": 5,
       "hint": "",
       "incomplete": false,
       "ino": null,
@@ -290,9 +311,9 @@
       "notes": [],
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/Users/load/Library/Caches/Google/Chrome",
+      "path": "<run>/tree/Users/load/Library/Caches/Adobe Camera Raw 2",
       "removal": "delete",
-      "rule": "app.chrome-cache",
+      "rule": "app.adobe-camera-raw-cache",
       "rule_class": "safe",
       "selected": true,
       "shared_bytes": 0
@@ -684,27 +705,6 @@
     },
     {
       "bytes": 12288,
-      "category": "app-cache",
-      "class": "safe",
-      "dev": "<tree-dev>",
-      "dirs": 1,
-      "files": 6,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "modified": "2024-01-01T00:00:00Z",
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/Users/load/Library/Application Support/Slack/Cache",
-      "removal": "delete",
-      "rule": "app.slack-cache",
-      "rule_class": "safe",
-      "selected": true,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 12288,
       "category": "ide",
       "class": "safe",
       "dev": "<tree-dev>",
@@ -771,8 +771,8 @@
       "category": "app-cache",
       "class": "safe",
       "dev": "<tree-dev>",
-      "dirs": 2,
-      "files": 5,
+      "dirs": 1,
+      "files": 6,
       "hint": "",
       "incomplete": false,
       "ino": null,
@@ -780,9 +780,9 @@
       "notes": [],
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/Users/load/Library/Caches/BraveSoftware",
+      "path": "<run>/tree/Users/load/Library/Caches/Firefox",
       "removal": "delete",
-      "rule": "app.brave-cache",
+      "rule": "app.firefox-cache",
       "rule_class": "safe",
       "selected": true,
       "shared_bytes": 0
@@ -986,8 +986,8 @@
       "category": "app-cache",
       "class": "safe",
       "dev": "<tree-dev>",
-      "dirs": 2,
-      "files": 5,
+      "dirs": 4,
+      "files": 3,
       "hint": "",
       "incomplete": false,
       "ino": null,
@@ -995,9 +995,9 @@
       "notes": [],
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/Users/load/Library/Application Support/Slack/Service Worker/CacheStorage",
+      "path": "<run>/tree/Users/load/Library/Caches/BraveSoftware",
       "removal": "delete",
-      "rule": "app.slack-cache",
+      "rule": "app.brave-cache",
       "rule_class": "safe",
       "selected": true,
       "shared_bytes": 0
@@ -1016,9 +1016,9 @@
       "notes": [],
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/Users/load/Library/Caches/Firefox",
+      "path": "<run>/tree/Users/load/Library/Caches/Google/Chrome",
       "removal": "delete",
-      "rule": "app.firefox-cache",
+      "rule": "app.chrome-cache",
       "rule_class": "safe",
       "selected": true,
       "shared_bytes": 0
@@ -1028,8 +1028,8 @@
       "category": "app-cache",
       "class": "safe",
       "dev": "<tree-dev>",
-      "dirs": 4,
-      "files": 3,
+      "dirs": 2,
+      "files": 5,
       "hint": "",
       "incomplete": false,
       "ino": null,
@@ -10915,30 +10915,6 @@
       "shared_bytes": 0
     },
     {
-      "bytes": 4096,
-      "category": "project-artifact",
-      "class": "safe",
-      "dev": "<tree-dev>",
-      "dirs": 1,
-      "files": 1,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "modified": "2024-01-01T00:00:00Z",
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/Users/u00406/Projects/p/__pycache__",
-      "project": {
-        "root": "<run>/tree/Users/u00406/Projects/p"
-      },
-      "removal": "delete",
-      "rule": "python.pycache",
-      "rule_class": "safe",
-      "selected": true,
-      "shared_bytes": 0
-    },
-    {
       "bytes": 0,
       "category": "ide",
       "class": "safe",
@@ -10964,8 +10940,8 @@
       "category": "project-artifact",
       "class": "rebuildable",
       "dev": "<tree-dev>",
-      "dirs": 2,
-      "files": 5,
+      "dirs": 1,
+      "files": 6,
       "hint": "rebuilt by cargo build",
       "incomplete": false,
       "ino": null,
@@ -11063,30 +11039,6 @@
     },
     {
       "bytes": 24576,
-      "category": "trash",
-      "class": "review",
-      "dev": "<tree-dev>",
-      "dirs": 2,
-      "files": 5,
-      "hint": "empty the Trash",
-      "incomplete": false,
-      "ino": null,
-      "modified": "2024-01-01T00:00:00Z",
-      "not_selected": {
-        "reason": "review"
-      },
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/Users/load/.Trash",
-      "removal": "none",
-      "rule": "trash",
-      "rule_class": "review",
-      "selected": false,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 24576,
       "category": "app-cache",
       "class": "review",
       "dev": "<tree-dev>",
@@ -11133,6 +11085,30 @@
       "path": "<run>/tree/Users/load/Library/Caches/Cypress",
       "removal": "trash",
       "rule": "browsers.cypress",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 20480,
+      "category": "trash",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 1,
+      "files": 6,
+      "hint": "empty the Trash",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/Users/load/.Trash",
+      "removal": "none",
+      "rule": "trash",
       "rule_class": "review",
       "selected": false,
       "shared_bytes": 0
@@ -11191,6 +11167,39 @@
     },
     {
       "bytes": 20480,
+      "category": "app-cache",
+      "class": "review",
+      "contents": {
+        "entries": [],
+        "rest_bytes": 20480,
+        "rest_count": 6
+      },
+      "dev": "<tree-dev>",
+      "dirs": 1,
+      "files": 6,
+      "hint": "An old Claude Code build. claude install <version> fetches it again.",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "origin": {
+        "harness": "claude-code",
+        "kind": "builds"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/Users/load/.local/share/claude/versions",
+      "removal": "none",
+      "rule": "agent.claude-code-builds",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 20480,
       "category": "package-cache",
       "class": "review",
       "dev": "<tree-dev>",
@@ -11210,38 +11219,6 @@
       "removal": "trash",
       "rule": "repo.maven",
       "rule_class": "review",
-      "selected": false,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 20480,
-      "category": "project-artifact",
-      "class": "review",
-      "dev": "<tree-dev>",
-      "dirs": 1,
-      "files": 4,
-      "hint": "recreate: npm ci / pnpm install / yarn install",
-      "incomplete": false,
-      "ino": null,
-      "modified": "2024-01-01T00:00:00Z",
-      "not_selected": {
-        "reason": "review"
-      },
-      "notes": [
-        "app-owned"
-      ],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/Users/load/Library/Application Support/x/node_modules",
-      "project": {
-        "has_lockfile": true,
-        "idle_days": null,
-        "last_activity": "2024-01-01T00:00:00Z",
-        "root": "<run>/tree/Users/load/Library/Application Support/x"
-      },
-      "removal": "trash",
-      "rule": "node.node_modules",
-      "rule_class": "rebuildable",
       "selected": false,
       "shared_bytes": 0
     },
@@ -11405,6 +11382,39 @@
       "bytes": 12288,
       "category": "app-cache",
       "class": "review",
+      "contents": {
+        "entries": [],
+        "rest_bytes": 12288,
+        "rest_count": 5
+      },
+      "dev": "<tree-dev>",
+      "dirs": 2,
+      "files": 5,
+      "hint": "An old build of Cursor's agent. Its installer fetches a build again only when asked.",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [],
+      "origin": {
+        "harness": "cursor",
+        "kind": "builds"
+      },
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/Users/load/.local/share/cursor-agent/versions",
+      "removal": "none",
+      "rule": "agent.cursor-agent-builds",
+      "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 12288,
+      "category": "app-cache",
+      "class": "review",
       "dev": "<tree-dev>",
       "dirs": 2,
       "files": 5,
@@ -11526,6 +11536,38 @@
       "removal": "native-only",
       "rule": "vm.rancher-desktop",
       "rule_class": "review",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 12288,
+      "category": "project-artifact",
+      "class": "review",
+      "dev": "<tree-dev>",
+      "dirs": 1,
+      "files": 4,
+      "hint": "recreate: npm ci / pnpm install / yarn install",
+      "incomplete": false,
+      "ino": null,
+      "modified": "2024-01-01T00:00:00Z",
+      "not_selected": {
+        "reason": "review"
+      },
+      "notes": [
+        "app-owned"
+      ],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/Users/load/Library/Application Support/x/node_modules",
+      "project": {
+        "has_lockfile": true,
+        "idle_days": null,
+        "last_activity": "2024-01-01T00:00:00Z",
+        "root": "<run>/tree/Users/load/Library/Application Support/x"
+      },
+      "removal": "trash",
+      "rule": "node.node_modules",
+      "rule_class": "rebuildable",
       "selected": false,
       "shared_bytes": 0
     },
@@ -12996,6 +13038,29 @@
       "bytes": 28672,
       "category": "personal",
       "class": "user-data",
+      "dev": "<tree-dev>",
+      "dirs": 1,
+      "files": 6,
+      "hint": "",
+      "incomplete": false,
+      "ino": null,
+      "not_selected": {
+        "reason": "user-data"
+      },
+      "notes": [],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/Users/load/Library/Group Containers/group.net.whatsapp.WhatsApp.shared",
+      "removal": "none",
+      "rule": "user.whatsapp",
+      "rule_class": "user-data",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 28672,
+      "category": "personal",
+      "class": "user-data",
       "contents": {
         "entries": [],
         "rest_bytes": 28672,
@@ -13013,9 +13078,32 @@
       "notes": [],
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/Users/load/Downloads",
+      "path": "<run>/tree/Users/load/Movies",
       "removal": "none",
-      "rule": "user.downloads",
+      "rule": "user.movies",
+      "rule_class": "user-data",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 24576,
+      "category": "personal",
+      "class": "user-data",
+      "dev": "<tree-dev>",
+      "dirs": 2,
+      "files": 5,
+      "hint": "",
+      "incomplete": false,
+      "ino": null,
+      "not_selected": {
+        "reason": "user-data"
+      },
+      "notes": [],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/Users/load/Library/Group Containers/6N38VWS5BX.ru.keepcoder.Telegram",
+      "removal": "none",
+      "rule": "user.telegram",
       "rule_class": "user-data",
       "selected": false,
       "shared_bytes": 0
@@ -13041,65 +13129,9 @@
       "notes": [],
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/Users/load/Library/Application Support/MobileSync/Backup",
+      "path": "<run>/tree/Users/load/Music",
       "removal": "none",
-      "rule": "user.ios-backups",
-      "rule_class": "user-data",
-      "selected": false,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 20480,
-      "category": "personal",
-      "class": "user-data",
-      "contents": {
-        "entries": [],
-        "rest_bytes": 20480,
-        "rest_count": 6
-      },
-      "dev": "<tree-dev>",
-      "dirs": 1,
-      "files": 6,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "not_selected": {
-        "reason": "user-data"
-      },
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/Users/load/Movies",
-      "removal": "none",
-      "rule": "user.movies",
-      "rule_class": "user-data",
-      "selected": false,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 20480,
-      "category": "personal",
-      "class": "user-data",
-      "contents": {
-        "entries": [],
-        "rest_bytes": 20480,
-        "rest_count": 6
-      },
-      "dev": "<tree-dev>",
-      "dirs": 2,
-      "files": 5,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "not_selected": {
-        "reason": "user-data"
-      },
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/Users/load/Pictures",
-      "removal": "none",
-      "rule": "user.pictures",
+      "rule": "user.music",
       "rule_class": "user-data",
       "selected": false,
       "shared_bytes": 0
@@ -13175,6 +13207,34 @@
     },
     {
       "bytes": 12288,
+      "category": "personal",
+      "class": "user-data",
+      "contents": {
+        "entries": [],
+        "rest_bytes": 12288,
+        "rest_count": 6
+      },
+      "dev": "<tree-dev>",
+      "dirs": 2,
+      "files": 5,
+      "hint": "",
+      "incomplete": false,
+      "ino": null,
+      "not_selected": {
+        "reason": "user-data"
+      },
+      "notes": [],
+      "parent_dev": "<tree-dev>",
+      "parent_ino": null,
+      "path": "<run>/tree/Users/load/Downloads",
+      "removal": "none",
+      "rule": "user.downloads",
+      "rule_class": "user-data",
+      "selected": false,
+      "shared_bytes": 0
+    },
+    {
+      "bytes": 12288,
       "category": "ide",
       "class": "user-data",
       "dev": "<tree-dev>",
@@ -13223,29 +13283,6 @@
       "bytes": 12288,
       "category": "personal",
       "class": "user-data",
-      "dev": "<tree-dev>",
-      "dirs": 2,
-      "files": 5,
-      "hint": "",
-      "incomplete": false,
-      "ino": null,
-      "not_selected": {
-        "reason": "user-data"
-      },
-      "notes": [],
-      "parent_dev": "<tree-dev>",
-      "parent_ino": null,
-      "path": "<run>/tree/Users/load/Library/Group Containers/group.net.whatsapp.WhatsApp.shared",
-      "removal": "none",
-      "rule": "user.whatsapp",
-      "rule_class": "user-data",
-      "selected": false,
-      "shared_bytes": 0
-    },
-    {
-      "bytes": 12288,
-      "category": "personal",
-      "class": "user-data",
       "contents": {
         "entries": [],
         "rest_bytes": 12288,
@@ -13263,9 +13300,9 @@
       "notes": [],
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/Users/load/Music",
+      "path": "<run>/tree/Users/load/Pictures",
       "removal": "none",
-      "rule": "user.music",
+      "rule": "user.pictures",
       "rule_class": "user-data",
       "selected": false,
       "shared_bytes": 0
@@ -13274,6 +13311,11 @@
       "bytes": 8192,
       "category": "personal",
       "class": "user-data",
+      "contents": {
+        "entries": [],
+        "rest_bytes": 8192,
+        "rest_count": 5
+      },
       "dev": "<tree-dev>",
       "dirs": 2,
       "files": 5,
@@ -13286,9 +13328,9 @@
       "notes": [],
       "parent_dev": "<tree-dev>",
       "parent_ino": null,
-      "path": "<run>/tree/Users/load/Library/Group Containers/6N38VWS5BX.ru.keepcoder.Telegram",
+      "path": "<run>/tree/Users/load/Library/Application Support/MobileSync/Backup",
       "removal": "none",
-      "rule": "user.telegram",
+      "rule": "user.ios-backups",
       "rule_class": "user-data",
       "selected": false,
       "shared_bytes": 0
@@ -13304,7 +13346,7 @@
   "scan_roots": [
     "<run>/tree"
   ],
-  "schema_version": 5,
+  "schema_version": 6,
   "skipped": [
     {
       "path": "<run>/tree/Users/load/Library/CloudStorage",
@@ -13319,11 +13361,11 @@
   "totals": {
     "classes": [
       {
-        "bytes": 2490368,
+        "bytes": 2498560,
         "class": "safe",
-        "count": 462,
-        "selected_bytes": 2490368,
-        "selected_count": 462
+        "count": 461,
+        "selected_bytes": 2498560,
+        "selected_count": 461
       },
       {
         "bytes": 24576,
@@ -13333,26 +13375,26 @@
         "selected_count": 1
       },
       {
-        "bytes": 663552,
+        "bytes": 684032,
         "class": "review",
-        "count": 80,
+        "count": 82,
         "selected_bytes": 0,
         "selected_count": 0
       },
       {
-        "bytes": 196608,
+        "bytes": 208896,
         "class": "user-data",
         "count": 12,
         "selected_bytes": 0,
         "selected_count": 0
       }
     ],
-    "dirs": 5395,
-    "files": 4615,
-    "scanned_bytes": 15286272,
-    "selected_bytes": 2514944,
-    "selected_reclaimable_bytes": 2514944,
-    "unowned_bytes": 11911168
+    "dirs": 5391,
+    "files": 4613,
+    "scanned_bytes": 15290368,
+    "selected_bytes": 2523136,
+    "selected_reclaimable_bytes": 2523136,
+    "unowned_bytes": 11874304
   },
   "volumes": null
 }

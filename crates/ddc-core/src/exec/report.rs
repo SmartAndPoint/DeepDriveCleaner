@@ -22,8 +22,9 @@ use crate::platform::{Capability, Platform};
 /// (safety ADR, amendment of 2026-10-31). 7: the skip reason `worktree-kept`
 /// (ADR "Agent footprint", §2, amendment of 2026-11-01).
 /// 8: the skip reason `trash-crosses-filesystem` (safety ADR §5, amendment
-/// of 2026-11-01).
-pub const CLEAN_SCHEMA_VERSION: u32 = 8;
+/// of 2026-11-01). 9: the entry locks `build-in-use` and `builds-unknown`
+/// (safety ADR, amendment of 2026-11-02).
+pub const CLEAN_SCHEMA_VERSION: u32 = 9;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CleanReport {

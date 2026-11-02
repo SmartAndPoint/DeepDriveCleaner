@@ -19,8 +19,9 @@ use crate::scan::ProgressSnapshot;
 /// 4: the skip reason `foreign-owner` (safety ADR, amendment of 2026-10-31).
 /// 5: the skip reason `worktree-kept` (ADR "Agent footprint", §2, amendment
 /// of 2026-11-01). 6: the skip reason `trash-crosses-filesystem` (safety ADR
-/// §5, amendment of 2026-11-01).
-pub const PROGRESS_SCHEMA_VERSION: u32 = 6;
+/// §5, amendment of 2026-11-01). 7: the entry locks `build-in-use` and
+/// `builds-unknown` (safety ADR, amendment of 2026-11-02).
+pub const PROGRESS_SCHEMA_VERSION: u32 = 7;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ProgressLine {

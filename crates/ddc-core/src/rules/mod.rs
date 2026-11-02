@@ -8,7 +8,7 @@ mod classify;
 pub mod entries;
 pub mod listing;
 mod matcher;
-mod toolchain;
+pub(crate) mod toolchain;
 mod visitor;
 pub mod worktree;
 

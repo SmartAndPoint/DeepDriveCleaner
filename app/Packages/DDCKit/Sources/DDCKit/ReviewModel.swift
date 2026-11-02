@@ -505,7 +505,9 @@ public final class ReviewModel: ReviewRouting {
     public func pickedSummary(_ scope: [Int]) -> String {
         let rows = selectedRows(in: scope)
         let sessions = !scope.isEmpty && scope.allSatisfy { items?.row($0)?.userEntry?.isSession == true }
-        return Wording.picked(count: rows.count, bytes: rows.reduce(0) { $0 + $1.finding.bytes }, what: sessions ? "sessions" : "files")
+        let builds = !scope.isEmpty && scope.allSatisfy { items?.row($0)?.userEntry?.isBuild == true }
+        let what = sessions ? "sessions" : builds ? "builds" : "files"
+        return Wording.picked(count: rows.count, bytes: rows.reduce(0) { $0 + $1.finding.bytes }, what: what)
     }
 
     /// "frees about": `native-only` items left out, as `Confirmation.reclaimable` does.

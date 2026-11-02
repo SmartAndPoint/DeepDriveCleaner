@@ -62,6 +62,23 @@ public enum CleanWording {
         case .liveSession(_, .recent): "The session changed in the last 10 minutes"
         case .liveSession(_, .openFile): "A running process holds a file of this session open"
         case .livenessUnknown(let cause): "Could not tell whether the session is in use · \(livenessCause(cause))"
+        case .buildInUse(.launcher): "The build its launcher starts"
+        case .buildInUse(.process): "A running process uses this build"
+        case .buildInUse(.lock): "Its installer marks this build in use"
+        case .buildInUse(.newest): "The newest build"
+        case .buildsUnknown(let cause): "Could not tell which builds are in use · \(buildsCause(cause))"
+        }
+    }
+
+    /// Why no build's use could be told, as a phrase.
+    static func buildsCause(_ cause: EntryLock.BuildsCause) -> String {
+        switch cause {
+        case .noLauncher: "no launcher"
+        case .customLauncher: "the launcher points outside the builds folder"
+        case .processWithheld: "a process of the agent could not be read"
+        case .otherUserProcess: "another user runs the agent"
+        case .hiddenProcessTable: "other users' processes are hidden"
+        case .networkHome: "the home is on a network drive"
         }
     }
 
@@ -230,6 +247,12 @@ extension CleanWording {
     public static func sessionCount(_ listed: Int?) -> String {
         guard let listed else { return "Its sessions could not be listed" }
         return listed == 0 ? "No sessions listed" : Wording.items(listed, "session")
+    }
+
+    /// "3 old builds"; nil when the folder's builds could not be listed.
+    public static func buildCount(_ listed: Int?) -> String {
+        guard let listed else { return "Its builds could not be listed" }
+        return listed == 0 ? "No old builds listed" : Wording.items(listed, "old build")
     }
 
     /// A session folder's children that are no session: "1 other item (4 KiB) is not listed".

@@ -11,6 +11,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
 use super::{AgentLiveBy, ProcessTable, SkipReason};
+use crate::agents::builds::{self, BuildBy, BuildHarness, BuildsCause};
 use crate::agents::liveness::{
     self, FileFact, HarnessBy, HarnessLiveness, SessionFacts, SessionLiveness, UnknownCause,
 };
@@ -450,11 +451,22 @@ impl<'a> Guard<'a> {
         // A session's entry is keyed by its transcript or its folder; its
         // companions are found again here, under the same descriptor.
         let session = match policy.shape {
-            EntryShape::Child => None,
+            EntryShape::Child | EntryShape::Build(_) => None,
             shape => match session_part(shape, name.as_encoded_bytes(), st.is_dir) {
                 SessionPart::Key(session) => Some(self.session_check(path, &parent_fd, shape, session, &st)?),
                 SessionPart::Companion(_) | SessionPart::None => return Err(SkipReason::NotAnEntry),
             },
+        };
+        // A build of a coding agent: named as its harness names one, and its
+        // use decided again over the folder's builds as they are now.
+        let build = match policy.shape {
+            EntryShape::Build(harness) => {
+                if !harness.is_build(name.as_encoded_bytes(), st.is_dir) {
+                    return Err(SkipReason::NotAnEntry);
+                }
+                Some(self.build_check(harness, parent, name)?)
+            }
+            _ => None,
         };
         // The plan is not trusted input: the entry's lock is derived again,
         // as the scan and the dry run derive it. A volume mounted deeper is
@@ -476,6 +488,7 @@ impl<'a> Guard<'a> {
             other_volume: st.dev != parent_id.0 || st.mount_root || session.as_ref().is_some_and(|s| s.other_volume),
             session: session.as_ref().map(|s| s.liveness),
             finished: rule == BACKUP_RULE && st.is_dir && backups::finished(path),
+            build,
         };
         if let Some(lock) = lock_of(&facts) {
             return Err(SkipReason::EntryLocked { lock });
@@ -500,6 +513,32 @@ impl<'a> Guard<'a> {
             is_dir: st.is_dir,
             session: parts,
         })
+    }
+
+    /// Whether the build `name` of the builds folder `parent` is still
+    /// needed, decided over the folder's builds as they are now, with the
+    /// processes and the machine read afresh (safety ADR, amendment of
+    /// 2026-11-02). A folder that cannot be listed is `changed-since-scan`.
+    fn build_check(
+        &self,
+        harness: BuildHarness,
+        parent: &Path,
+        name: &std::ffi::OsStr,
+    ) -> Result<Result<Option<BuildBy>, BuildsCause>, SkipReason> {
+        let mut names = Vec::new();
+        for child in stats::read_dir(parent).map_err(|_| SkipReason::ChangedSinceScan)? {
+            let child = child.map_err(|_| SkipReason::ChangedSinceScan)?;
+            let Ok(kind) = child.file_type() else { continue };
+            let name = child.file_name();
+            if (kind.is_dir() || kind.is_file()) && harness.is_build(name.as_encoded_bytes(), kind.is_dir()) {
+                names.push(name);
+            }
+        }
+        let procs = self.procs.processes();
+        let live = |pid: i32| self.procs.process_start(pid).is_some();
+        let host = self.procs.host(&self.home);
+        Ok(builds::decide(harness, &self.home, parent, &names, &procs, &live, &host)
+            .map(|by| by.get(name).copied().flatten()))
     }
 
     /// A session's entry beside its key `path`: its companions, listed again

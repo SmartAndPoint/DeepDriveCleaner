@@ -672,6 +672,24 @@
       "switchable": true
     },
     {
+      "id": "agent.claude-code-builds",
+      "group": "Coding agents",
+      "category": "app-cache",
+      "class": "review",
+      "removal": "none",
+      "listed": true,
+      "switchable": true
+    },
+    {
+      "id": "agent.cursor-agent-builds",
+      "group": "Coding agents",
+      "category": "app-cache",
+      "class": "review",
+      "removal": "none",
+      "listed": true,
+      "switchable": true
+    },
+    {
       "id": "agent.claude-code-sealed",
       "group": "Coding agents",
       "category": "personal",

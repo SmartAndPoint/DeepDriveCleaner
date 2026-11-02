@@ -28,8 +28,9 @@ use crate::plan::PlanItem;
 /// "Agent footprint", §2, amendment of 2026-11-01).
 /// 8: in an `item` line, the skip reason `trash-crosses-filesystem` and the
 /// optional `trash`, where the item went (safety ADR §5, amendment of
-/// 2026-11-01).
-pub const JOURNAL_SCHEMA_VERSION: u32 = 8;
+/// 2026-11-01). 9: in an `item` line, the entry locks `build-in-use` and
+/// `builds-unknown` (safety ADR, amendment of 2026-11-02).
+pub const JOURNAL_SCHEMA_VERSION: u32 = 9;
 
 /// Where an item went in the Trash: the trash folder and the name in its
 /// `files/`. Absent where the Trash does not tell (macOS): a trash on

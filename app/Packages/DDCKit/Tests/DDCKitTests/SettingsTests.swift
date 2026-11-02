@@ -117,6 +117,7 @@ struct SettingsTests {
         #expect(row("Coding agents")?.ids == [
             "agent.claude-code-scratch", "agent.claude-code-file-history", "agent.claude-code-transcripts", "agent.claude-code-history",
             "agent.codex-sessions", "agent.codex-runtimes", "agent.opencode-data", "agent.cursor-agent-data",
+            "agent.claude-code-builds", "agent.cursor-agent-builds",
         ], "the sealed folders have no switch")
         #expect(row("VM and container images")?.ids == ["vm.docker-desktop", "vm.podman", "cache.colima"], "switchable rules only")
         #expect(row("Your data") == nil && row("Interrupted cleanups") == nil && row("Trash") == nil)

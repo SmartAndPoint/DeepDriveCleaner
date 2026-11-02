@@ -32,7 +32,7 @@ pub(super) static PROTECTED_SYSTEM: [&str; 8] =
     ["/", "/System", "/Applications", "/Library", "/usr", "/opt", "/opt/homebrew", "/Users"];
 
 /// How many rules macOS has.
-const COUNT: usize = 91;
+const COUNT: usize = 93;
 
 /// A named `static`, so the list has one address (its rules' tags are
 /// found by it).
@@ -170,6 +170,8 @@ pub(super) static RULES: [Rule; COUNT] = [
     shared::AGENT_CODEX_RUNTIMES,
     shared::AGENT_OPENCODE_DATA,
     shared::AGENT_CURSOR_AGENT_DATA,
+    shared::agent_claude_code_builds(Platform::Macos),
+    shared::agent_cursor_agent_builds(Platform::Macos),
     shared::AGENT_CLAUDE_CODE_SEALED,
     shared::AGENT_CURSOR_SEALED,
     // ---- application caches -------------------------------------------------------

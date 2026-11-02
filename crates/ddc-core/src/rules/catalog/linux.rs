@@ -125,6 +125,8 @@ pub(super) static RULES: [Rule; COUNT] = [
     shared::AGENT_CODEX_RUNTIMES,
     shared::AGENT_OPENCODE_DATA,
     shared::AGENT_CURSOR_AGENT_DATA,
+    shared::agent_claude_code_builds(Platform::Linux),
+    shared::agent_cursor_agent_builds(Platform::Linux),
     shared::AGENT_CLAUDE_CODE_SEALED,
     shared::AGENT_CURSOR_SEALED,
     // ---- application caches -------------------------------------------------------

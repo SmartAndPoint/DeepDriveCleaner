@@ -3,8 +3,10 @@
 //! "User data: pick your own files for the Trash"; safety ADR, amendment of
 //! 2026-10-20) and, since the story "Harness data rules" (epic DDC-003), the
 //! coding agents' session folders (ADR "Agent footprint: worktrees, harness
-//! data and bounded consent for agents", §3). [`lock_of`] is the one
-//! derivation the scan, the dry run and the executor's guard share.
+//! data and bounded consent for agents", §3), and, since the story "Coding
+//! agents on Linux: ddc disk agents" (DDC-010), a coding agent's old builds
+//! (safety ADR, amendment of 2026-11-02). [`lock_of`] is the one derivation
+//! the scan, the dry run and the executor's guard share.
 
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -12,6 +14,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::agents::builds::{BuildBy, BuildHarness, BuildsCause};
 use crate::agents::liveness::{LiveBy, SessionLiveness, UnknownCause};
 
 /// The user's own folders, whose findings list their direct children as
@@ -22,6 +25,11 @@ pub const ENTRY_RULES: &[&str] = &["user.downloads", "user.pictures", "user.movi
 /// The coding agents' session folders, whose sessions are their entries,
 /// to the Trash one by one (ADR "Agent footprint", §3). Not [`ENTRY_RULES`].
 pub const SESSION_ENTRY_RULES: &[&str] = &["agent.claude-code-file-history", "agent.claude-code-transcripts"];
+
+/// A coding agent's builds folders, whose old builds are their entries, to
+/// the Trash one by one (safety ADR, amendment of 2026-11-02). Not
+/// [`ENTRY_RULES`] nor [`SESSION_ENTRY_RULES`].
+pub const BUILD_ENTRY_RULES: &[&str] = &["agent.claude-code-builds", "agent.cursor-agent-builds"];
 
 /// What one entry of a folder is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +42,9 @@ pub enum EntryShape {
     /// A session's folder, `<session>/`, keys the entry. Its companions
     /// are the siblings named `<session>.<any>`.
     SessionDir,
+    /// A build of a coding agent, named as its harness names one; every
+    /// other child is no entry.
+    Build(BuildHarness),
 }
 
 /// What tells whether an entry is still in use, besides its lock reasons.
@@ -44,6 +55,9 @@ pub enum EntryLiveness {
     /// Claude Code's session check (`agents::liveness::claude`): it locks
     /// the entry `live-session` or `liveness-unknown`, in place of `recent`.
     ClaudeSession,
+    /// A build's use (`agents::builds::decide`): it locks the entry
+    /// `build-in-use` or `builds-unknown`, before `recent`.
+    Builds,
 }
 
 /// How a rule's findings list their entries.
@@ -67,6 +81,13 @@ const SESSIONS: EntryPolicy = EntryPolicy {
     user_data: false,
 };
 
+const BUILDS: EntryPolicy = EntryPolicy {
+    shape: EntryShape::Build(BuildHarness::ClaudeCode),
+    floor: false,
+    liveness: EntryLiveness::Builds,
+    user_data: false,
+};
+
 const POLICIES: &[(&str, EntryPolicy)] = &[
     ("user.downloads", USER_DATA),
     ("user.pictures", USER_DATA),
@@ -75,6 +96,8 @@ const POLICIES: &[(&str, EntryPolicy)] = &[
     ("user.ios-backups", USER_DATA),
     ("agent.claude-code-file-history", EntryPolicy { shape: EntryShape::SessionDir, ..SESSIONS }),
     ("agent.claude-code-transcripts", SESSIONS),
+    ("agent.claude-code-builds", BUILDS),
+    ("agent.cursor-agent-builds", EntryPolicy { shape: EntryShape::Build(BuildHarness::CursorAgent), ..BUILDS }),
 ];
 
 /// The entry policy of `rule`, `None` when its findings list no entries.
@@ -83,7 +106,7 @@ pub fn policy(rule: &str) -> Option<&'static EntryPolicy> {
 }
 
 /// Whether `rule`'s findings have entries a person can pick: the user's
-/// own folders and the coding agents' session folders.
+/// own folders, and the coding agents' session and builds folders.
 pub fn has_entries(rule: &str) -> bool {
     policy(rule).is_some()
 }
@@ -122,7 +145,7 @@ pub fn session_part(shape: EntryShape, name: &[u8], is_dir: bool) -> SessionPart
     let Some(session) = session_of(name) else { return SessionPart::None };
     let rest = &name[session.len()..];
     match shape {
-        EntryShape::Child => SessionPart::None,
+        EntryShape::Child | EntryShape::Build(_) => SessionPart::None,
         EntryShape::Transcript if rest == b".jsonl" => {
             if is_dir {
                 SessionPart::None
@@ -210,6 +233,13 @@ pub enum EntryLock {
     /// Whether the session is live could not be told: the harness's live
     /// records could not be read or decided.
     LivenessUnknown { cause: UnknownCause },
+    /// A coding agent's build still needed: a launcher points to it, a
+    /// process of the user runs it, its installer lock names a live process,
+    /// or it is the newest.
+    BuildInUse { by: BuildBy },
+    /// Whether any build of the harness is still needed could not be told:
+    /// every build is locked.
+    BuildsUnknown { cause: BuildsCause },
 }
 
 /// What [`lock_of`] decides from; the scan, the dry run and the guard gather it each their own way.
@@ -233,6 +263,10 @@ pub struct EntryFacts<'a> {
     /// its session's state. `None` there counts as unknown (fails closed);
     /// no other rule reads it.
     pub session: Option<SessionLiveness>,
+    /// For an entry of a builds folder ([`EntryLiveness::Builds`]): its
+    /// build's use, or why no build's use can be told. `None` there fails
+    /// closed; no other rule reads it.
+    pub build: Option<Result<Option<BuildBy>, BuildsCause>>,
 }
 
 /// The entry's lock, permanent reasons first and "recent", which clears by
@@ -252,8 +286,16 @@ pub fn lock_of(f: &EntryFacts<'_>) -> Option<EntryLock> {
     if f.other_volume {
         return Some(EntryLock::OtherVolume);
     }
-    if policy(f.rule).is_some_and(|p| p.liveness == EntryLiveness::ClaudeSession) {
-        return session_lock(name, f.session);
+    match policy(f.rule).map(|p| p.liveness) {
+        Some(EntryLiveness::ClaudeSession) => return session_lock(name, f.session),
+        Some(EntryLiveness::Builds) => match f.build {
+            Some(Ok(None)) => {}
+            Some(Ok(Some(by))) => return Some(EntryLock::BuildInUse { by }),
+            Some(Err(cause)) => return Some(EntryLock::BuildsUnknown { cause }),
+            // Not read: fails closed.
+            None => return Some(EntryLock::BuildsUnknown { cause: BuildsCause::ProcessWithheld }),
+        },
+        _ => {}
     }
     if f.rule == BACKUP_RULE && !f.finished {
         return Some(EntryLock::UnfinishedBackup);
@@ -333,6 +375,7 @@ mod tests {
             other_volume: false,
             finished: false,
             session: None,
+            build: None,
         }
     }
 
@@ -446,7 +489,8 @@ mod tests {
     fn entry_rules_are_the_user_data_policies_and_the_sessions_have_their_own() {
         let user: Vec<_> = POLICIES.iter().filter(|(_, p)| p.user_data).map(|(id, _)| *id).collect();
         assert_eq!(user, ENTRY_RULES, "ENTRY_RULES keeps meaning the user's own folders");
-        let sessions: Vec<_> = POLICIES.iter().filter(|(_, p)| !p.user_data).map(|(id, _)| *id).collect();
+        let sessions: Vec<_> =
+            POLICIES.iter().filter(|(_, p)| p.liveness == EntryLiveness::ClaudeSession).map(|(id, _)| *id).collect();
         assert_eq!(sessions.len(), SESSION_ENTRY_RULES.len());
         assert!(sessions.iter().all(|id| SESSION_ENTRY_RULES.contains(id)));
         for id in ENTRY_RULES {
@@ -460,6 +504,42 @@ mod tests {
         assert!(has_entries(TRANSCRIPTS) && has_entries("user.downloads"));
         assert!(!has_entries("agent.claude-code-history") && !has_entries("agent.codex-sessions"));
         assert!(policy("node.node_modules").is_none());
+        let builds: Vec<_> =
+            POLICIES.iter().filter(|(_, p)| p.liveness == EntryLiveness::Builds).map(|(id, _)| *id).collect();
+        assert_eq!(builds, BUILD_ENTRY_RULES);
+        for id in BUILD_ENTRY_RULES {
+            let p = policy(id).unwrap();
+            assert!(!p.floor && !p.user_data && matches!(p.shape, EntryShape::Build(_)), "{id}");
+        }
+    }
+
+    #[test]
+    fn a_build_takes_its_use_before_recent_and_fails_closed_unread() {
+        const BUILDS_RULE: &str = "agent.claude-code-builds";
+        let entry = ".local/share/claude/versions/2.1.9";
+        let at = |build: Option<Result<Option<BuildBy>, BuildsCause>>, change: fn(&mut EntryFacts<'_>)| {
+            lock(BUILDS_RULE, entry, |f| {
+                f.build = build;
+                change(f);
+            })
+        };
+        assert_eq!(at(Some(Ok(None)), |_| {}), None);
+        assert_eq!(
+            at(Some(Ok(None)), |f| f.modified = Some(NOW as i64)),
+            Some(EntryLock::Recent),
+            "recent still applies"
+        );
+        assert_eq!(at(Some(Ok(Some(BuildBy::Newest))), |_| {}), Some(EntryLock::BuildInUse { by: BuildBy::Newest }));
+        assert_eq!(
+            at(Some(Err(BuildsCause::NetworkHome)), |_| {}),
+            Some(EntryLock::BuildsUnknown { cause: BuildsCause::NetworkHome })
+        );
+        assert!(matches!(at(None, |_| {}), Some(EntryLock::BuildsUnknown { .. })), "not read: fails closed");
+        assert_eq!(at(Some(Ok(Some(BuildBy::Process))), |f| f.kept = true), Some(EntryLock::Kept));
+        let json = serde_json::to_string(&EntryLock::BuildInUse { by: BuildBy::Launcher }).unwrap();
+        assert_eq!(json, r#"{"reason":"build-in-use","by":"launcher"}"#);
+        let json = serde_json::to_string(&EntryLock::BuildsUnknown { cause: BuildsCause::OtherUserProcess }).unwrap();
+        assert_eq!(json, r#"{"reason":"builds-unknown","cause":"other-user-process"}"#);
     }
 
     #[test]

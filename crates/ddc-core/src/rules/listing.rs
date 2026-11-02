@@ -79,6 +79,8 @@ pub const GROUPS: &[(&str, &[&str])] = &[
             "agent.codex-runtimes",
             "agent.opencode-data",
             "agent.cursor-agent-data",
+            "agent.claude-code-builds",
+            "agent.cursor-agent-builds",
             "agent.claude-code-sealed",
             "agent.cursor-sealed",
         ],
