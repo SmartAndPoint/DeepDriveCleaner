@@ -72,7 +72,7 @@ pub fn canonicalize(path: &Path) -> io::Result<PathBuf> {
 
 /// `path` with `\\?\C:\` turned into `C:\` and `\\?\UNC\server\share` into
 /// `\\server\share`, when every name can be spelled plainly.
-fn simplified(path: PathBuf) -> PathBuf {
+pub(super) fn simplified(path: PathBuf) -> PathBuf {
     let mut components = path.components();
     let plain = match components.next() {
         Some(Component::Prefix(p)) => match p.kind() {

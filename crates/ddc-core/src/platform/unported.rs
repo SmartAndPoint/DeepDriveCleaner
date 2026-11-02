@@ -127,22 +127,6 @@ pub mod signals {
     }
 }
 
-#[cfg(not(target_os = "linux"))] // ported: `linux/statfs.rs`
-pub mod statfs {
-    use std::io;
-    use std::path::Path;
-
-    pub use crate::platform::types::VolumeStats;
-
-    pub fn statfs(_path: &Path) -> io::Result<VolumeStats> {
-        super::unsupported()
-    }
-
-    pub fn mounts() -> io::Result<Vec<VolumeStats>> {
-        super::unsupported()
-    }
-}
-
 #[cfg(not(target_os = "linux"))] // ported: `linux/trash.rs`
 pub mod trash {
     use std::ffi::OsStr;
@@ -157,34 +141,5 @@ pub mod trash {
 
     pub fn would_trash(_: &DirFd, _: &OsStr, _: &Path) -> Result<(), TrashError> {
         Err(TrashError::Other(super::unsupported::<()>().unwrap_err()))
-    }
-}
-
-#[cfg(not(target_os = "linux"))] // ported: `linux/usage.rs`
-pub mod usage {
-    use std::io;
-    use std::process::ExitStatus;
-    use std::time::Duration;
-
-    pub use crate::platform::types::Usage;
-
-    pub fn wait4(_pid: u32, _nohang: bool) -> io::Result<Option<(ExitStatus, Usage)>> {
-        super::unsupported()
-    }
-
-    pub fn self_usage() -> io::Result<Usage> {
-        super::unsupported()
-    }
-
-    pub fn thread_cpu_time() -> io::Result<Duration> {
-        super::unsupported()
-    }
-
-    pub fn load_average() -> Option<f64> {
-        None
-    }
-
-    pub fn machine_model() -> Option<String> {
-        None
     }
 }
