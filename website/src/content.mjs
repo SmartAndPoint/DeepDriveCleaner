@@ -1,23 +1,23 @@
 "use strict";
 
 export const product = {
-  name: "DeepDriveCleaner", command: "ddc", version: "0.16.4", checked: "2026-11-02",
+  name: "DeepDriveCleaner", command: "ddc", version: "0.17.4", checked: "2026-11-02",
   origins: { product: "https://deepdrivecleaner.app", cli: "https://ddc.sh" },
   code: "https://github.com/SmartAndPoint/DeepDriveCleaner",
   vault: "https://github.com/SmartAndPoint/DeepDriveCleaner-projectstore",
   releases: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases",
-  release: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/tag/v0.16.4",
+  release: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/tag/v0.17.4",
   artifact: "https://claude.ai/artifact/1mdoyc7asMbj2qbtkDG2PV",
   license: "https://github.com/SmartAndPoint/DeepDriveCleaner/blob/main/LICENSE.md",
   disclaimer: "https://github.com/SmartAndPoint/DeepDriveCleaner/blob/main/DISCLAIMER.md",
   app: { os: "macos", architecture: "Apple Silicon", minimumOS: "macOS 26" },
   cli: {
-    macos: { label: "macOS", available: true, architecture: "Apple Silicon · ARM64", filename: "deepdrivecleaner-0.16.4-aarch64-apple-darwin.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.16.4/deepdrivecleaner-0.16.4-aarch64-apple-darwin.tar.gz" },
+    macos: { label: "macOS", available: true, architecture: "Apple Silicon · ARM64", filename: "deepdrivecleaner-0.17.4-aarch64-apple-darwin.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.17.4/deepdrivecleaner-0.17.4-aarch64-apple-darwin.tar.gz" },
     windows: { label: "Windows", available: false },
     linux: { label: "Linux", available: true, architecture: "x86_64 · ARM64 · static (musl)", archives: [
-      { filename: "deepdrivecleaner-0.16.4-x86_64-unknown-linux-musl.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.16.4/deepdrivecleaner-0.16.4-x86_64-unknown-linux-musl.tar.gz" },
-      { filename: "deepdrivecleaner-0.16.4-aarch64-unknown-linux-musl.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.16.4/deepdrivecleaner-0.16.4-aarch64-unknown-linux-musl.tar.gz" }
-    ], sums: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.16.4/SHA256SUMS" }
+      { filename: "deepdrivecleaner-0.17.4-x86_64-unknown-linux-musl.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.17.4/deepdrivecleaner-0.17.4-x86_64-unknown-linux-musl.tar.gz" },
+      { filename: "deepdrivecleaner-0.17.4-aarch64-unknown-linux-musl.tar.gz", url: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.17.4/deepdrivecleaner-0.17.4-aarch64-unknown-linux-musl.tar.gz" }
+    ], sums: "https://github.com/SmartAndPoint/DeepDriveCleaner/releases/download/v0.17.4/SHA256SUMS" }
   },
   commands: {
     install: "brew install --cask smartandpoint/tap/deepdrivecleaner",
@@ -102,7 +102,7 @@ export const translations = {
     "agentDevelopment": "DeepDriveCleaner is developed agent-first with ProjectStore. The development manual contains the shared vault, decisions, design artifact and contribution runbook.",
     "statusProduct": "Local macOS app · CLI included",
     "statusNoAccess": "This website does not access your files.",
-    "license": "Source-available · Noncommercial",
+    "license": "Open source · AGPL-3.0",
     "disclaimer": "Disclaimer",
     "plainText": "Agent notes (plain text)",
     "devDocumentLabel": "DeepDriveCleaner · Development manual",
@@ -161,7 +161,7 @@ export const translations = {
     "performanceArtifact": "A performance change with explicit cleanup-check constraints.",
     "traceCode": "Read the cleanup checks in the implementation ↗",
     "termsTitle": "License and contribution terms",
-    "termsDescription": "The code is source-available under PolyForm Noncommercial 1.0.0. Contributions also grant SmartAndPoint the right to use, modify and relicense them, including commercially. Read the original terms before contributing.",
+    "termsDescription": "The code is open source under the GNU AGPL 3.0 (AGPL-3.0-only), and SmartAndPoint offers a commercial licence for use without the AGPL's obligations. The agent guidance and the report schemas are under MIT. Contributions also grant SmartAndPoint the right to use, modify and relicense them, including commercially. Read the original terms before contributing.",
     "contributionTerms": "Contribution terms ↗",
     "readLicense": "License ↗",
     "statusDev": "Code + vault · Shared project context",
@@ -324,7 +324,7 @@ export const translations = {
     "agentDevelopment": "DeepDriveCleaner 采用以智能体为先的开发方式，并使用 ProjectStore。开发文档包含共享 vault、决策、设计文档与贡献操作指南。",
     "statusProduct": "本地 macOS 应用 · 包含 CLI",
     "statusNoAccess": "此网站不会访问你的文件。",
-    "license": "源码可用 · 仅限非商业用途",
+    "license": "开源 · AGPL-3.0",
     "disclaimer": "免责声明",
     "plainText": "智能体说明（英文纯文本）",
     "devDocumentLabel": "DeepDriveCleaner · 开发手册",
@@ -383,7 +383,7 @@ export const translations = {
     "performanceArtifact": "一个明确保留清理检查约束的性能改进。",
     "traceCode": "阅读实现中的清理检查机制 ↗",
     "termsTitle": "许可证与贡献条款",
-    "termsDescription": "代码采用 PolyForm Noncommercial 1.0.0 许可证，源码可用。提交贡献还意味着授权 SmartAndPoint 使用、修改并重新许可该贡献，包括商业用途。贡献前请阅读原始条款。",
+    "termsDescription": "代码以 GNU AGPL 3.0（AGPL-3.0-only）开源，SmartAndPoint 另提供商业许可，可免除 AGPL 的义务。智能体指南与报告 schema 采用 MIT 许可证。提交贡献还意味着授权 SmartAndPoint 使用、修改并重新许可该贡献，包括商业用途。贡献前请阅读原始条款。",
     "contributionTerms": "贡献条款 ↗",
     "readLicense": "许可证 ↗",
     "statusDev": "代码 + vault · 共享项目上下文",

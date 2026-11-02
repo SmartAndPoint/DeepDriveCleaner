@@ -51,7 +51,7 @@ Official references: [Git integration](https://developers.cloudflare.com/pages/g
 
 Release v0.3.0 was rechecked on 28 October 2026. The native app requires macOS 26 on Apple Silicon. The published standalone CLI archive is macOS ARM64. Windows/Linux CLI builds are planned, with no current release assets; those states hide installation/download commands. Recheck GitHub Releases before changing availability.
 
-Examples total 128.4 GiB and are illustrative, not a scan or promised savings. The laptop is a labelled product illustration. Cleanup can permanently delete files. Explicit selections and `--yes` can bypass prompts; the site does not claim enforced human approval, universal Trash/undo, or prompt-injection resistance. Source is available under PolyForm Noncommercial; contributor commercial relicensing terms are linked.
+Examples total 128.4 GiB and are illustrative, not a scan or promised savings. The laptop is a labelled product illustration. Cleanup can permanently delete files. Explicit selections and `--yes` can bypass prompts; the site does not claim enforced human approval, universal Trash/undo, or prompt-injection resistance. The code is open source under AGPL-3.0-only, with a commercial licence from SmartAndPoint; contributor commercial relicensing terms are linked.
 
 ## Earlier private design previews
 
