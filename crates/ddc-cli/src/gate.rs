@@ -9,7 +9,7 @@
 use std::io::Write as _;
 use std::process::ExitCode;
 
-use ddc_core::platform::{self, Capability, Refusal, Unsupported};
+use ddc_core::platform::{self, Capability, ForeignRoot, Refusal, Unsupported};
 use ddc_core::refusal::ErrorReport;
 
 use crate::cli::{AgentAction, Command, DiskAction, DiskArgs};
@@ -65,15 +65,30 @@ pub fn message(refusal: &Refusal) -> String {
 pub fn refuse(refusal: &Refusal, message: &str, json: bool) -> ExitCode {
     eprintln!("ddc: {message}");
     if json {
-        let mut out = std::io::stdout().lock();
-        let report = ErrorReport::new(refusal, message);
-        // A closed pipe loses only the envelope; the exit code still says it.
-        let _ = serde_json::to_writer_pretty(&mut out, &report)
-            .map_err(std::io::Error::from)
-            .and_then(|()| writeln!(out))
-            .and_then(|()| out.flush());
+        envelope(&ErrorReport::new(refusal, message));
     }
     ExitCode::from(exit::UNSUPPORTED)
+}
+
+/// A scan root that is not the user's, in an elevated terminal (seam ADR
+/// §7): `message` to stderr and, when `json`, the `root-not-owned`
+/// envelope to stdout; the exit is 2, as the other refusals before
+/// anything is touched.
+pub fn refuse_root(foreign: &ForeignRoot, message: &str, json: bool) -> ExitCode {
+    eprintln!("ddc: {message}");
+    if json {
+        envelope(&ErrorReport::root_not_owned(foreign, message));
+    }
+    ExitCode::from(exit::REFUSED)
+}
+
+fn envelope(report: &ErrorReport) {
+    let mut out = std::io::stdout().lock();
+    // A closed pipe loses only the envelope; the exit code still says it.
+    let _ = serde_json::to_writer_pretty(&mut out, report)
+        .map_err(std::io::Error::from)
+        .and_then(|()| writeln!(out))
+        .and_then(|()| out.flush());
 }
 
 #[cfg(test)]
@@ -196,7 +211,7 @@ mod tests {
         let unsupported = Refusal::Unsupported(UNPORTED.unwrap_err());
         let report = ErrorReport::new(&unsupported, message(&unsupported));
         let json = serde_json::to_value(&report).unwrap();
-        assert_eq!(json["error_schema_version"], 1);
+        assert_eq!(json["error_schema_version"], 2);
         assert_eq!(json["error"]["code"], "platform-not-supported");
         assert_eq!(json["error"]["platform"], "linux");
         assert_eq!(
@@ -213,5 +228,30 @@ mod tests {
         assert_eq!(json["error"]["capability"], "homebrew");
         assert_eq!(json["error"]["action"], "brew-uninstall");
         assert_eq!(json["error"]["simulated"], false);
+        assert!(json["error"].get("root").is_none() && json["error"].get("owner_unreadable").is_none());
+    }
+
+    #[test]
+    fn the_envelope_names_a_root_that_is_not_the_users() {
+        use ddc_core::platform::Foreign;
+        let foreign = ForeignRoot { path: "/elsewhere".into(), why: Foreign::Owner("S-1-5-18".to_owned()) };
+        let json = serde_json::to_value(ErrorReport::root_not_owned(&foreign, foreign.to_string())).unwrap();
+        assert_eq!(json["error_schema_version"], 2);
+        assert_eq!(json["error"]["code"], "root-not-owned");
+        assert_eq!(json["error"]["root"], "/elsewhere");
+        assert_eq!(json["error"]["owner"], "S-1-5-18");
+        assert_eq!(json["error"]["owner_unreadable"], false);
+        assert_eq!(json["error"]["platform"], PLATFORM.as_str());
+        assert_eq!(json["error"]["message"], foreign.to_string());
+        assert!(json["error"].get("capability").is_none());
+        let unread = ForeignRoot { why: Foreign::OwnerUnreadable("Access is denied.".to_owned()), ..foreign };
+        let json = serde_json::to_value(ErrorReport::root_not_owned(&unread, unread.to_string())).unwrap();
+        assert_eq!(json["error"]["owner_unreadable"], true);
+        assert!(json["error"].get("owner").is_none());
+        // The schema the app and agents read accepts it.
+        let schema: serde_json::Value = serde_json::from_str(include_str!("../../../docs/error.schema.json")).unwrap();
+        assert!(schema.to_string().contains("root-not-owned"), "docs/error.schema.json is stale");
+        let back: ErrorReport = serde_json::from_value(json).unwrap();
+        assert_eq!(back.error.root.as_deref(), Some(std::path::Path::new("/elsewhere")));
     }
 }

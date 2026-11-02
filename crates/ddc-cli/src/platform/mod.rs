@@ -21,6 +21,12 @@ pub use imp::SystemNotifier;
 
 /// Process-wide setup that must happen before any filesystem access.
 pub fn init_process() {
+    // An elevated Windows token's backup, restore and take-ownership
+    // privileges pass every ACL: ddc removes them before anything runs. If
+    // that fails, the owner check refuses every scan and clean.
+    if let Err(err) = ddc_core::platform::procs::drop_acl_bypass_privileges() {
+        eprintln!("ddc: warning: cannot remove the privileges that pass every ACL: {err}");
+    }
     // Never download evicted iCloud / File Provider content while scanning.
     if let Err(err) = ddc_core::platform::iopolicy::disable_dataless_materialization() {
         eprintln!("ddc: warning: cannot disable dataless file materialization: {err}");

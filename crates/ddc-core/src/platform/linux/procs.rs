@@ -6,12 +6,13 @@
 
 use std::ffi::{CStr, OsStr};
 use std::fs;
+use std::io;
 use std::mem::MaybeUninit;
 use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 
-pub use crate::platform::types::{OpenVnode, ProcInfo, ProcStart, app_bundle};
+pub use crate::platform::types::{OpenVnode, ProcInfo, ProcStart, RootOwner, app_bundle};
 
 /// Real user id of this process.
 pub fn uid() -> u32 {
@@ -51,6 +52,19 @@ pub fn real_home() -> Option<PathBuf> {
 /// Whether the process runs as root (the executor refuses to).
 pub fn is_root() -> bool {
     rustix::process::geteuid().is_root()
+}
+
+/// Every root is the user's to scan: root itself is refused by [`is_root`]
+/// where it matters, and the owner check of an elevated session is
+/// Windows'. Reads nothing.
+pub fn root_owner(_root: &Path) -> io::Result<RootOwner> {
+    Ok(RootOwner::Own)
+}
+
+/// Windows' privileges that pass every ACL have no counterpart here: root
+/// is refused instead. Does nothing.
+pub fn drop_acl_bypass_privileges() -> io::Result<()> {
+    Ok(())
 }
 
 /// All processes of the real user id; withheld details are left empty.

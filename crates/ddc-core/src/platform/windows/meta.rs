@@ -8,8 +8,10 @@
 //!   amended for Windows), so such a file cannot be planned.
 //! - **Links and allocation** are `FileStandardInfo`: `NumberOfLinks` and
 //!   `AllocationSize`, the bytes NTFS reserves on disk.
-//! - Opened with `FILE_FLAG_BACKUP_SEMANTICS`, so folders open too; the
-//!   backup privilege is never enabled, so no ACL is bypassed. `lstat` adds
+//! - Opened with `FILE_FLAG_BACKUP_SEMANTICS`, so folders open too; no ACL
+//!   is bypassed, since ddc removes the backup and restore privileges from
+//!   its token at start (`procs::drop_acl_bypass_privileges`; an elevated
+//!   OpenSSH session starts with them enabled). `lstat` adds
 //!   `FILE_FLAG_OPEN_REPARSE_POINT` and stats a link itself.
 
 use std::fs::{Metadata, Permissions};
@@ -46,10 +48,16 @@ pub fn entry(entry: &std::fs::DirEntry) -> io::Result<FileStat> {
     lstat(&entry.path())
 }
 
-/// A handle that may read attributes and nothing else, sharing everything,
-/// so it never stands in the way of another program's write or delete, and
-/// never downloading a cloud placeholder (`FILE_FLAG_OPEN_NO_RECALL`).
+/// A handle that may read attributes and nothing else ([`open_with`]).
 fn open(path: &Path, extra: u32) -> io::Result<OwnedHandle> {
+    open_with(path, FILE_READ_ATTRIBUTES, extra)
+}
+
+/// A handle with `access` and nothing more, sharing everything, so it never
+/// stands in the way of another program's write or delete, and never
+/// downloading a cloud placeholder (`FILE_FLAG_OPEN_NO_RECALL`); `extra`
+/// adds flags (`FILE_FLAG_OPEN_REPARSE_POINT`).
+pub(super) fn open_with(path: &Path, access: u32, extra: u32) -> io::Result<OwnedHandle> {
     let name = wide::verbatim(path)?;
     // SAFETY: `name` is NUL-terminated UTF-16 with no interior NUL
     // (`wide::verbatim` refuses one) that outlives the call; the security
@@ -57,7 +65,7 @@ fn open(path: &Path, extra: u32) -> io::Result<OwnedHandle> {
     let raw = unsafe {
         CreateFileW(
             name.as_ptr(),
-            FILE_READ_ATTRIBUTES,
+            access,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             std::ptr::null(),
             OPEN_EXISTING,
@@ -191,8 +199,8 @@ pub fn st_flags(md: &Metadata) -> u32 {
     flags_of_handle(md.file_attributes())
 }
 
-/// Not reported: a Windows owner is a SID, not a user id (the owner check
-/// of elevated sessions is its own step of the story).
+/// Not reported: a Windows owner is a SID, not a user id. The owner check
+/// of an elevated session is [`super::procs::root_owner`].
 pub fn owner(_md: &Metadata) -> Option<u32> {
     None
 }

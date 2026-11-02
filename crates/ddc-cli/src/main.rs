@@ -39,6 +39,10 @@ fn main() -> ExitCode {
             if let Some(refusal) = ddc_core::platform::refusal_in(err.as_ref()) {
                 return gate::refuse(&refusal, &format!("{err:#}"), json);
             }
+            // A root another account owns, in an elevated terminal: refused, not failed.
+            if let Some(foreign) = ddc_core::platform::foreign_root_in(err.as_ref()) {
+                return gate::refuse_root(foreign, &format!("{err:#}"), json);
+            }
             eprintln!("ddc: {err:#}");
             let busy = err
                 .downcast_ref::<ddc_core::store::LockError>()

@@ -42,6 +42,7 @@ pub fn remove(args: &KeepRemoveArgs) -> anyhow::Result<ExitCode> {
     let resolved = super::resolve(&env, ScanFlags::default())?;
     super::note_missing(&resolved.missing);
     let roots = keep::scan_roots(&env, &resolved.options)?;
+    ddc_core::report::require_own_roots(&env, &resolved.options)?;
 
     // Asked before the exclusive lock: a declined answer leaves no trace.
     if identity.is_none() && !ask(&args.folder, env.home())? {

@@ -288,6 +288,32 @@ pub struct ProcStart {
     pub usec: u64,
 }
 
+/// Whose a scan root is, for the owner check of an elevated session
+/// (`procs::root_owner`; story "Windows scanner and rule catalog", step 7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RootOwner {
+    /// The user's, or nobody's in particular (no owner kept, or no session
+    /// with more rights than the user).
+    Own,
+    /// Another account's: its SID, as `S-1-5-18`.
+    Other(String),
+}
+
+/// Why this process's token cannot be used for the owner check: it cannot
+/// be read, or it still holds a privilege that passes every ACL. The
+/// payload of `procs::root_owner`'s error, so a refusal can tell it from an
+/// owner that cannot be read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenUnusable(pub String);
+
+impl fmt::Display for TokenUnusable {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for TokenUnusable {}
+
 // ---- Resource usage (`platform::usage`) ----
 
 /// What one process used.

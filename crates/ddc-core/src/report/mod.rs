@@ -155,6 +155,10 @@ pub enum ScanError {
     /// module per OS with declared capabilities", §5).
     #[error("{0}")]
     Unsupported(crate::platform::Unsupported),
+    /// A root another account owns, in an elevated session: refused before
+    /// any walk ([`require_own_roots`]).
+    #[error("{0}")]
+    ForeignRoot(crate::platform::ForeignRoot),
     #[error("cannot resolve --exclude {path}: {source}")]
     Exclude {
         path: PathBuf,
@@ -224,6 +228,7 @@ pub(crate) fn scan_inner(
     reach: Option<&recheck::Reach>,
 ) -> Result<Scanned, ScanError> {
     crate::platform::require_supported().map_err(ScanError::Unsupported)?;
+    require_own_roots(env, opts)?;
     let started = Instant::now();
     let roots = roots_of(env, opts);
     let excludes = opts
@@ -335,6 +340,18 @@ pub fn removable_inside(env: &Env, path: &Path, skips: &[PathBuf]) -> Vec<PathBu
             .collect(),
         _ => Vec::new(),
     }
+}
+
+/// `Ok` when every root a scan of `opts` walks is the user's own
+/// ([`crate::platform::require_own_root`]): never another account's folder
+/// in an elevated session. The platform's refusal comes first. A root that
+/// cannot be resolved is skipped: the walk reports it.
+pub fn require_own_roots(env: &Env, opts: &ScanOptions) -> Result<(), ScanError> {
+    crate::platform::require_supported().map_err(ScanError::Unsupported)?;
+    for root in roots_of(env, opts).iter().filter_map(|r| r.canonical().ok()) {
+        crate::platform::require_own_root(&root).map_err(ScanError::ForeignRoot)?;
+    }
+    Ok(())
 }
 
 /// The roots a scan walks: the home when none are given.

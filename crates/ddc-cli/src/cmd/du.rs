@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use ddc_core::env::Env;
+use ddc_core::platform::Canonical as _;
 use ddc_core::rules::{Catalog, RuleVisitor, classify};
 use ddc_core::scan::{self, NullVisitor, Progress, ReaderKind, WalkOptions};
 
@@ -23,6 +24,11 @@ pub fn run(args: DuArgs) -> anyhow::Result<ExitCode> {
         private_everywhere: args.private,
         ..WalkOptions::default()
     };
+    // A root another account owns, in an elevated terminal, is refused (exit
+    // 2); one that cannot be resolved is the walk's to report.
+    for root in roots.iter().filter_map(|r| r.canonical().ok()) {
+        ddc_core::platform::require_own_root(&root)?;
+    }
     let progress = Progress::default();
     let mut stdout = std::io::stdout().lock();
     let out = if args.rules {

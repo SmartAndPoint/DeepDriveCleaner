@@ -47,6 +47,7 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
         },
     )?;
     super::note_missing(&resolved.missing);
+    report::require_own_roots(&env, &resolved.options)?;
     let dropped = &resolved.dropped_excludes;
     // Nobody to ask: a refusal names the folders the --exclude would drop, too.
     let unprotected =

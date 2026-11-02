@@ -133,6 +133,10 @@ pub fn preflight_skipping(
     // the in-use checks run, and it folds walk errors away.
     crate::platform::require_supported().map_err(|u| io::Error::new(io::ErrorKind::Unsupported, u))?;
     let roots = canonical_roots(env, roots);
+    // As the clean would: no root another account owns, in an elevated session.
+    for root in &roots {
+        crate::platform::require_own_root(root).map_err(|f| io::Error::new(io::ErrorKind::PermissionDenied, f))?;
+    }
     // As the clean's rescan: an exclude that cannot be resolved is an error, not dropped.
     let excludes = excludes
         .iter()

@@ -136,6 +136,20 @@
           "description": "For people; never parsed.",
           "type": "string"
         },
+        "owner": {
+          "description": "The SID of the account that owns `root`, when it was read\n(`root-not-owned`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner_unreadable": {
+          "description": "`root-not-owned` only: true when the owner of `root`, or this\nprocess's token, could not be read, so it is unknown whether `root`\nis the user's.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "platform": {
           "description": "The platform the CLI was built for.",
           "anyOf": [
@@ -145,6 +159,13 @@
             {
               "type": "null"
             }
+          ]
+        },
+        "root": {
+          "description": "The scan root that is not the user's (`root-not-owned`).",
+          "type": [
+            "string",
+            "null"
           ]
         },
         "simulated": {
@@ -169,6 +190,11 @@
           "description": "The platform does not declare the capability the command, or a\n`disk free` action, needs.",
           "type": "string",
           "const": "capability-absent"
+        },
+        {
+          "description": "A scan root another account owns, in an elevated terminal (Windows),\nor one whose owner cannot be read there: refused with exit 2 before\nanything is scanned or changed.",
+          "type": "string",
+          "const": "root-not-owned"
         }
       ]
     },

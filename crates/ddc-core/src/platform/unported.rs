@@ -8,11 +8,7 @@
 //! - the I/O policy setter `init_process` calls returns `Ok`, so `rules`,
 //!   the one command an unsupported platform runs, stays quiet (the
 //!   open-file limit, the other one, is ported on both OSes this serves);
-//! - a plain value is neutral (`None`, empty, `false`, 0);
-//! - the in-use checks (`procs`) are empty, which fails open. They are never
-//!   reached: `require_supported` refuses in `execute`, `preflight` and
-//!   `free::run`, and the CLI refuses at dispatch before them. A port fills
-//!   them before it sets `SUPPORTED`.
+//! - a plain value is neutral (`None`, empty, `false`, 0).
 //!
 //! Nothing here reads a directory or the environment. A module an OS has
 //! ported is compiled out for it, so its own module is the only one.
@@ -42,51 +38,6 @@ pub mod process {
 
     pub fn own_process_group(cmd: &mut Command) -> &mut Command {
         cmd
-    }
-}
-
-#[cfg(not(target_os = "linux"))] // ported: `linux/procs.rs`
-pub mod procs {
-    //! Empty, which fails open; unreachable (see the module doc).
-    use std::path::PathBuf;
-
-    pub use crate::platform::types::{OpenVnode, ProcInfo, ProcStart, app_bundle};
-
-    /// No user's id: never compared, since nothing here owns a process.
-    pub fn uid() -> u32 {
-        u32::MAX
-    }
-
-    pub fn real_home() -> Option<PathBuf> {
-        None
-    }
-
-    pub fn is_root() -> bool {
-        false
-    }
-
-    pub fn current_user_processes() -> Vec<ProcInfo> {
-        Vec::new()
-    }
-
-    pub fn current_user_processes_unopened() -> Vec<ProcInfo> {
-        Vec::new()
-    }
-
-    pub fn open_files(_pid: i32) -> Vec<PathBuf> {
-        Vec::new()
-    }
-
-    pub fn open_vnodes(_pid: i32) -> Vec<OpenVnode> {
-        Vec::new()
-    }
-
-    pub fn process_start(_pid: i32) -> Option<ProcStart> {
-        None
-    }
-
-    pub fn thread_count(_pid: i32) -> Option<u32> {
-        None
     }
 }
 
