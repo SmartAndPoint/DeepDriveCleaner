@@ -227,9 +227,11 @@ mod tests {
     /// own CPU over a 2 s command is under 1% of the wait.
     #[test]
     fn waiting_for_a_tool_does_not_spin() {
-        // Where the thread clock is not ported yet; /bin/sleep is a Unix path
-        // too: story "Windows scanner and rule catalog" records it.
-        if crate::platform::skipped_without("waiting_for_a_tool_does_not_spin", thread_cpu_time()).is_none() {
+        // /bin/sleep is a Unix path, and the Windows command runner is the
+        // story "Windows scanner and rule catalog"'s step 9.
+        if crate::platform::skipped_without("waiting_for_a_tool_does_not_spin", crate::platform::testing::posix_paths())
+            .is_none()
+        {
             return;
         }
         let dir = tempfile::tempdir().unwrap();

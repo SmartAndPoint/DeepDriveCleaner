@@ -16,9 +16,11 @@ pub mod fsops;
 pub mod meta;
 pub mod paths;
 pub mod rlimit;
+pub mod statfs;
 pub mod term;
 #[cfg(test)]
 pub mod testing;
+pub mod usage;
 mod wide;
 
 // The OS calls not ported yet: the shared stubs, of which `unported.rs`
