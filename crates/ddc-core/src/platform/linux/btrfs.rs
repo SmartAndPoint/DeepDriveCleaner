@@ -35,7 +35,10 @@ const _: () = assert!(std::mem::offset_of!(SubvolInfo, parent_uuid) == 312);
 const _: () = assert!(std::mem::offset_of!(SubvolInfo, received_uuid) == 328);
 
 /// `_IOR(BTRFS_IOCTL_MAGIC, 60, struct btrfs_ioctl_get_subvol_info_args)`.
-const GET_SUBVOL_INFO: libc::c_ulong = 0x81f8_943c;
+/// Typed as each C library declares the request: `c_ulong` in glibc,
+/// `c_int` in musl, whose static build the Linux archives are.
+#[allow(clippy::cast_possible_wrap, clippy::unnecessary_cast)]
+const GET_SUBVOL_INFO: libc::Ioctl = 0x81f8_943c_u32 as libc::Ioctl;
 
 /// What a subvolume root is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
