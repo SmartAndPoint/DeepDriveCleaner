@@ -66,7 +66,7 @@ impl DirFd {
     }
 
     /// `dir`, at or beneath `anchor`'s root, opened as the walk opens it
-    /// ([`super::bulk::open_in`]) and stricter: a mount crossed or a
+    /// (`super::bulk::open_in`) and stricter: a mount crossed or a
     /// symlink on the way, or no mount id to tell, is refused.
     pub fn open_beneath(anchor: &super::bulk::Anchor, dir: &Path) -> io::Result<Self> {
         match super::bulk::open_in(anchor, dir, true) {

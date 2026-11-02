@@ -12,7 +12,7 @@
 //! mount of the same filesystem included; and [`list_in`] opens a folder
 //! beneath its scan root's descriptor with `openat2`, which refuses to
 //! cross a mount or follow a symlink on the way. The guard opens a parent
-//! the same way ([`open_in`]), stricter: without a mount id to compare, it
+//! the same way (`open_in`), stricter: without a mount id to compare, it
 //! refuses.
 
 use std::collections::HashMap;
