@@ -8,8 +8,9 @@
 //! (`QueryFullProcessImageNameW`, the Win32 form), the command line, the
 //! working folder and the environment ([`super::peb`]), each path without
 //! the `\\?\` prefix. What cannot be read is left empty with `withheld`
-//! set. The loaded modules (`open_files`) come with step 9b; the open
-//! handles (`open_vnodes`) are not read: a per-process handle list needs
+//! set. The loaded modules are its open files ([`super::modules`], step
+//! 9b), but for this process and its children; the open handles
+//! (`open_vnodes`) are not read: a per-process handle list needs
 //! `PROCESS_DUP_HANDLE` on every process, and naming a pipe's handle can
 //! hang.
 //!
@@ -394,20 +395,48 @@ pub fn current_user_processes_unopened() -> Vec<ProcInfo> {
     user_processes(false)
 }
 
-fn user_processes(_with_files: bool) -> Vec<ProcInfo> {
+fn user_processes(with_files: bool) -> Vec<ProcInfo> {
     let Some(user) = user_sid() else { return Vec::new() };
+    let own = std::process::id();
+    let own_start = open_limited(own).ok().as_ref().and_then(creation_time);
+    let devices = with_files.then(super::modules::Devices::read);
     snapshot()
         .into_iter()
         .filter_map(|entry| {
             let (handle, full) = open(entry.pid)?;
-            (owner(&handle).ok()? == user).then(|| describe(&entry, &handle, full))
+            if owner(&handle).ok()? != user {
+                return None;
+            }
+            let mut info = describe(&entry, &handle, full);
+            // This process and the tools it runs hold the clean's own files.
+            // Windows never re-parents, so a child is one started after this
+            // process whose parent pid is this one's.
+            let child = entry.ppid == own && own_start.is_some_and(|own| creation_time(&handle) >= Some(own));
+            if let Some(devices) = devices.as_ref().filter(|_| entry.pid != own && !child) {
+                match full.then(|| super::modules::of(entry.pid, &handle, devices)).flatten() {
+                    Some(modules) => {
+                        info.withheld |= !modules.complete;
+                        info.open_files = modules.files;
+                    }
+                    None => info.withheld = true,
+                }
+            }
+            Some(info)
         })
         .collect()
 }
 
-/// The loaded modules come with step 9b.
-pub fn open_files(_pid: i32) -> Vec<PathBuf> {
-    Vec::new()
+/// The modules `pid` (a process of the user) has loaded, as its open files
+/// (see [`super::modules`]); empty when it is gone, another account's, or
+/// withholds them.
+pub fn open_files(pid: i32) -> Vec<PathBuf> {
+    let Some(pid) = u32::try_from(pid).ok() else { return Vec::new() };
+    let Some((handle, true)) = open(pid) else { return Vec::new() };
+    if user_sid().is_none_or(|user| owner(&handle).ok().as_deref() != Some(user)) {
+        return Vec::new();
+    }
+    // What could be read: a module that went meanwhile never hides another.
+    super::modules::of(pid, &handle, &super::modules::Devices::read()).map(|m| m.files).unwrap_or_default()
 }
 
 /// Not read on Windows: see the module doc.
@@ -437,6 +466,7 @@ pub fn thread_count(pid: i32) -> Option<u32> {
 /// One process of the Toolhelp snapshot.
 struct Entry {
     pid: u32,
+    ppid: u32,
     threads: u32,
     /// The executable's file name, as the snapshot gives it.
     exe_file: String,
@@ -462,6 +492,7 @@ fn snapshot() -> Vec<Entry> {
             let len = entry.szExeFile.iter().position(|&u| u == 0).unwrap_or(entry.szExeFile.len());
             out.push(Entry {
                 pid: entry.th32ProcessID,
+                ppid: entry.th32ParentProcessID,
                 threads: entry.cntThreads,
                 exe_file: String::from_utf16_lossy(&entry.szExeFile[..len]),
             });
@@ -668,6 +699,151 @@ mod tests {
         assert_eq!(info.env_prefixes.len(), 1, "{info:?}");
         assert!(same(&info.env_prefixes[0], &venv), "{info:?}");
         assert!(info.args.iter().any(|a| a == "/C"), "{info:?}");
+        assert!(info.open_files.is_empty(), "a child of this process is not read for files: {info:?}");
+    }
+
+    /// A DLL loaded into the loader's list without running its entry point.
+    struct Loaded(windows_sys::Win32::Foundation::HMODULE);
+
+    impl Loaded {
+        fn new(path: &Path) -> Self {
+            use std::os::windows::ffi::OsStrExt as _;
+            let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
+            // SAFETY: a NUL-terminated path; no file handle; the flag maps
+            // the DLL into the loader's list and runs none of its code.
+            let module = unsafe {
+                windows_sys::Win32::System::LibraryLoader::LoadLibraryExW(
+                    wide.as_ptr(),
+                    std::ptr::null_mut(),
+                    windows_sys::Win32::System::LibraryLoader::DONT_RESOLVE_DLL_REFERENCES,
+                )
+            };
+            assert!(!module.is_null(), "{}: {}", path.display(), io::Error::last_os_error());
+            Self(module)
+        }
+    }
+
+    impl Drop for Loaded {
+        fn drop(&mut self) {
+            // SAFETY: the module LoadLibraryExW returned, freed once.
+            unsafe { windows_sys::Win32::Foundation::FreeLibrary(self.0) };
+        }
+    }
+
+    /// A system DLL copied to `to`.
+    fn a_dll(to: &Path) {
+        let mut dir = vec![0u16; 512];
+        // SAFETY: `dir` is writable for its length in units.
+        let len = unsafe {
+            windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW(
+                dir.as_mut_ptr(),
+                u32::try_from(dir.len()).unwrap(),
+            )
+        } as usize;
+        let system = PathBuf::from(std::ffi::OsString::from_wide(&dir[..len]));
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(system.join("version.dll"), to).unwrap();
+    }
+
+    fn holds(files: &[PathBuf], path: &Path) -> bool {
+        files.iter().any(|f| same(f, path))
+    }
+
+    /// A module loaded from a folder is one of this process's open files,
+    /// by its loader path; this process's own entry in the table reads no
+    /// files, as on Linux.
+    #[test]
+    fn a_loaded_module_is_an_open_file() {
+        let d = tempfile::tempdir().unwrap();
+        let dll = canonical(d.path()).join("lib").join("ddc-test.dll");
+        a_dll(&dll);
+        let loaded = Loaded::new(&dll);
+        let own = i32::try_from(std::process::id()).unwrap();
+        let files = open_files(own);
+        let me = current_user_processes().into_iter().find(|p| p.pid == own).unwrap();
+        drop(loaded);
+        assert!(holds(&files, &dll), "{}", files.iter().filter(|f| f.starts_with(d.path())).count());
+        assert!(me.open_files.is_empty(), "this process is not read for files");
+    }
+
+    /// The system folder (`GetSystemDirectoryW`).
+    fn system_dir() -> PathBuf {
+        let mut dir = vec![0u16; 512];
+        // SAFETY: `dir` is writable for its length in units.
+        let len = unsafe {
+            windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW(
+                dir.as_mut_ptr(),
+                u32::try_from(dir.len()).unwrap(),
+            )
+        } as usize;
+        PathBuf::from(std::ffi::OsString::from_wide(&dir[..len]))
+    }
+
+    /// A process of the user that is neither ddc nor its child (a
+    /// grandchild) is read for its modules: `ntdll.dll` among them, and
+    /// nothing withheld.
+    #[test]
+    fn another_process_of_the_user_gives_its_modules() {
+        let marker = format!("ddc-grandchild-{}", std::process::id());
+        let inner = format!("echo ready& set /p wait=& rem {marker}");
+        let mut child = std::process::Command::new("cmd")
+            .args(["/C", "cmd", "/C", &inner])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        ready(&mut child);
+        let middle = i32::try_from(child.id()).unwrap();
+        let table = current_user_processes();
+        let grandchild =
+            table.into_iter().find(|p| p.pid != middle && p.args.iter().any(|a| a.to_string_lossy().contains(&marker)));
+        let _ = child.kill();
+        let _ = child.wait();
+        let info = grandchild.expect("the grandchild is the user's");
+        let ntdll = system_dir().join("ntdll.dll");
+        assert!(!info.withheld, "read in full ({} files)", info.open_files.len());
+        assert!(holds(&info.open_files, &ntdll), "ntdll among {} files", info.open_files.len());
+    }
+
+    /// A module in a folder whose name the ANSI code page cannot spell is
+    /// named exactly: Toolhelp's own path would carry `?` there.
+    #[test]
+    fn a_module_path_outside_the_ansi_code_page_is_exact() {
+        let d = tempfile::tempdir().unwrap();
+        let dll = canonical(d.path()).join("модули-日本").join("ddc-wide.dll");
+        a_dll(&dll);
+        let loaded = Loaded::new(&dll);
+        let files = open_files(i32::try_from(std::process::id()).unwrap());
+        drop(loaded);
+        assert!(holds(&files, &dll), "the module is found");
+        assert!(!files.iter().any(|f| f.to_string_lossy().contains('?')), "no name narrowed to ?");
+    }
+
+    /// A module loaded through a junction counts by both its loader path
+    /// (through the link) and its mapped path (the file itself), so a
+    /// store outside the finding is still seen (pnpm).
+    #[test]
+    fn a_module_loaded_through_a_junction_counts_by_both_paths() {
+        let d = tempfile::tempdir().unwrap();
+        let root = canonical(d.path());
+        let store = root.join("store");
+        a_dll(&store.join("ddc-junction.dll"));
+        let link = root.join("link");
+        let made = std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(&link)
+            .arg(&store)
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+        let loaded = Loaded::new(&link.join("ddc-junction.dll"));
+        let files = open_files(i32::try_from(std::process::id()).unwrap());
+        drop(loaded);
+        assert!(holds(&files, &link.join("ddc-junction.dll")), "the loader path");
+        assert!(holds(&files, &store.join("ddc-junction.dll")), "the mapped path");
     }
 
     /// `ready`, read once, from a child that prints it when it runs.
