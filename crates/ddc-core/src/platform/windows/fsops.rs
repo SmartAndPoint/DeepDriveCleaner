@@ -37,18 +37,19 @@ use windows_sys::Win32::Foundation::{
     HANDLE, INVALID_HANDLE_VALUE, OBJ_CASE_INSENSITIVE, RtlNtStatusToDosError, UNICODE_STRING,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, DELETE, FILE_ADD_FILE, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
-    FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO, FILE_DISPOSITION_FLAG_DELETE, FILE_DISPOSITION_FLAG_POSIX_SEMANTICS,
-    FILE_DISPOSITION_INFO, FILE_DISPOSITION_INFO_EX, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL,
-    FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO, FILE_INFO_BY_HANDLE_CLASS, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES,
-    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO, FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA,
-    FileDispositionInfo, FileDispositionInfoEx, OPEN_EXISTING, SYNCHRONIZE, SetFileInformationByHandle,
+    CreateFileW, DELETE, FILE_ADD_FILE, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_READONLY,
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO, FILE_DISPOSITION_FLAG_DELETE,
+    FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE, FILE_DISPOSITION_FLAG_POSIX_SEMANTICS, FILE_DISPOSITION_INFO,
+    FILE_DISPOSITION_INFO_EX, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL, FILE_FLAG_OPEN_REPARSE_POINT,
+    FILE_ID_INFO, FILE_INFO_BY_HANDLE_CLASS, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO, FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA, FileBasicInfo,
+    FileDispositionInfo, FileDispositionInfoEx, OPEN_EXISTING, ReOpenFile, SYNCHRONIZE, SetFileInformationByHandle,
 };
 use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 
 use super::meta::{id_of, info};
-use crate::platform::types::{EntryStat, HeldOpen};
+use crate::platform::types::{EntryKind, EntryStat, HeldOpen, Times};
 
 /// `ERROR_DIRECTORY`: the name is not a folder.
 const NOT_A_DIRECTORY: i32 = 267;
@@ -222,16 +223,47 @@ impl DirFd {
     /// `ddc keep remove` calls it once, for `.ddc-keep`, after
     /// [`Self::stat_child`] said it is a regular file (safety ADR, amendment
     /// of 2026-10-30).
+    ///
+    /// A read-only file is deleted as any other (`IGNORE_READONLY_ATTRIBUTE`).
+    /// Where the volume refuses that call (FAT, exFAT, an older Windows), the
+    /// plain disposition honours the attribute: it is cleared through a
+    /// second handle to the same file, and put back if the delete still
+    /// fails (story "Windows scanner and rule catalog", step 8b).
     pub fn unlink_child(&self, name: &OsStr) -> io::Result<()> {
         let child = self.child(name, DELETE | SYNCHRONIZE, FILE_NON_DIRECTORY_FILE)?;
-        let ex =
-            FILE_DISPOSITION_INFO_EX { Flags: FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS };
+        let ex = FILE_DISPOSITION_INFO_EX {
+            Flags: FILE_DISPOSITION_FLAG_DELETE
+                | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS
+                | FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE,
+        };
         match set_info(&child, FileDispositionInfoEx, &ex) {
-            Err(e) if refused_class(&e) => {
-                set_info(&child, FileDispositionInfo, &FILE_DISPOSITION_INFO { DeleteFile: true })
-            }
+            Err(e) if refused_class(&e) => Self::unlink_plain(&child),
             done => done,
         }
+    }
+
+    /// The plain disposition of `child`; a read-only attribute that refuses
+    /// it is cleared through a second handle reopened from `child`, so on
+    /// the same file by construction, with no name resolved again.
+    fn unlink_plain(child: &OwnedHandle) -> io::Result<()> {
+        let delete = || set_info(child, FileDispositionInfo, &FILE_DISPOSITION_INFO { DeleteFile: true });
+        let refused = match delete() {
+            Err(e) if denied(&e) => e,
+            done => return done,
+        };
+        let Ok(attributes) = reopen(child, ATTRIBUTES) else { return Err(refused) };
+        let Some(was) = clear_read_only_attribute(&attributes)? else { return Err(refused) };
+        delete().inspect_err(|_| {
+            let _ = set_attributes(&attributes, was);
+        })
+    }
+
+    /// Clears the read-only attribute of the child `name`, opened relative
+    /// to this folder as a plain file, the link itself if it is one, and
+    /// changed only when it is not a link.
+    fn clear_child_read_only(&self, name: &OsStr) -> io::Result<()> {
+        let child = self.child(name, ATTRIBUTES, FILE_NON_DIRECTORY_FILE)?;
+        clear_read_only_attribute(&child).map(drop)
     }
 
     /// The folder's handle, for the walker's listing (`bulk`).
@@ -395,6 +427,104 @@ fn single_name(name: &OsStr) -> io::Result<()> {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a single name"));
     }
     Ok(())
+}
+
+/// Clears the read-only attribute of every plain file below `root`, the
+/// retry of a tree delete on FAT and exFAT (safety ADR §5, amendment of
+/// 2026-11-02; story "Windows scanner and rule catalog", step 8b): there
+/// std's delete falls back to the plain disposition, which honours the
+/// attribute. On any other file system it changes nothing: NTFS and ReFS
+/// take std's `IGNORE_READONLY_ATTRIBUTE`.
+pub fn clear_read_only(root: &Path) -> io::Result<()> {
+    if !is_fat(&super::statfs::statfs(root)?.fs_type) {
+        return Ok(());
+    }
+    clear_read_only_below(root)
+}
+
+/// FAT and exFAT, as `GetVolumeInformationW` names them (lowercased).
+fn is_fat(fs_type: &str) -> bool {
+    matches!(fs_type, "fat" | "fat12" | "fat16" | "fat32" | "exfat")
+}
+
+/// Each folder is opened by its own handle, never through a link, and kept
+/// on `root`'s volume ([`super::bulk::list_in`], [`DirFd::open_beneath`]);
+/// each file is opened relative to its folder. A link or another volume is
+/// never entered, and a folder that cannot be read is passed over: the
+/// delete that follows reports what is left.
+fn clear_read_only_below(root: &Path) -> io::Result<()> {
+    let anchor = super::bulk::anchor(root)?;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(listing) = super::bulk::list_in(&anchor, &dir, None, false, Times::None) else { continue };
+        let Ok(folder) = DirFd::open_beneath(&anchor, &dir) else { continue };
+        if folder.identity().ok() != Some((listing.dev, listing.ino)) {
+            continue;
+        }
+        for entry in listing.entries {
+            match entry.kind {
+                // A mount point is another volume, never entered.
+                EntryKind::Dir if entry.boundary.is_none() => stack.push(dir.join(&entry.name)),
+                EntryKind::Dir => {}
+                EntryKind::File => {
+                    let _ = folder.clear_child_read_only(&entry.name);
+                }
+                EntryKind::Symlink | EntryKind::Other => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A second handle to the file `handle` is open on, with `access`
+/// (`ReOpenFile`): the same file whatever its name now is, the link itself
+/// if it is one. `ReOpenFile` refuses `FILE_FLAG_OPEN_NO_RECALL` (87); an
+/// open for attributes only downloads no placeholder anyway.
+fn reopen(handle: &OwnedHandle, access: u32) -> io::Result<OwnedHandle> {
+    let share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    // SAFETY: `handle` is open for the call; plain constants otherwise.
+    let raw = unsafe { ReOpenFile(handle.as_raw_handle(), access, share, FILE_FLAG_OPEN_REPARSE_POINT) };
+    if raw == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: ReOpenFile succeeded and returned a handle nobody else owns.
+    Ok(unsafe { OwnedHandle::from_raw_handle(raw) })
+}
+
+/// Reading and changing a file's attributes, nothing else.
+const ATTRIBUTES: u32 = FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | SYNCHRONIZE;
+
+/// The attributes `FileBasicInformation` may set
+/// (`FILE_ATTRIBUTE_VALID_SET_FLAGS`): read-only, hidden, system, archive,
+/// normal, temporary, offline and not-content-indexed.
+const SETTABLE: u32 = 0x31A7;
+
+/// Clears `FILE_ATTRIBUTE_READONLY` on an open file that is not a link:
+/// the attributes it had when it changed them, `None` when there was
+/// nothing to change.
+fn clear_read_only_attribute(handle: &OwnedHandle) -> io::Result<Option<u32>> {
+    let basic = info::<FILE_BASIC_INFO>(handle)?;
+    let attributes = basic.FileAttributes;
+    if attributes & FILE_ATTRIBUTE_READONLY == 0 || attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Ok(None);
+    }
+    set_attributes(handle, attributes & !FILE_ATTRIBUTE_READONLY)?;
+    Ok(Some(attributes))
+}
+
+/// Sets a file's attributes, keeping its times (a zero time is left as it
+/// is) and its attributes that cannot be set.
+fn set_attributes(handle: &OwnedHandle, attributes: u32) -> io::Result<()> {
+    let settable = attributes & SETTABLE;
+    let basic = FILE_BASIC_INFO {
+        CreationTime: 0,
+        LastAccessTime: 0,
+        LastWriteTime: 0,
+        ChangeTime: 0,
+        // Zero would mean "unchanged": a file with none left is normal.
+        FileAttributes: if settable == 0 { FILE_ATTRIBUTE_NORMAL } else { settable },
+    };
+    set_info(handle, FileBasicInfo, &basic)
 }
 
 /// How many times the tombstone rename is tried while it is denied after a
@@ -681,6 +811,82 @@ mod tests {
         assert!(!d.path().join(".ddc-keep").exists());
         assert!(dir.unlink_child(OsStr::new("sub")).is_err());
         assert!(d.path().join("sub").is_dir());
+    }
+
+    fn read_only(path: &Path) {
+        let mut perms = fs::metadata(path).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(path, perms).unwrap();
+    }
+
+    fn is_read_only(path: &Path) -> bool {
+        fs::symlink_metadata(path).unwrap().permissions().readonly()
+    }
+
+    /// A read-only file is unlinked as any other (`IGNORE_READONLY_ATTRIBUTE`).
+    #[test]
+    fn a_read_only_file_is_unlinked() {
+        let d = tempfile::tempdir().unwrap();
+        fs::write(d.path().join(".ddc-keep"), b"").unwrap();
+        read_only(&d.path().join(".ddc-keep"));
+        DirFd::open(d.path()).unwrap().unlink_child(OsStr::new(".ddc-keep")).unwrap();
+        assert!(!d.path().join(".ddc-keep").exists());
+    }
+
+    /// The plain disposition, which FAT and exFAT fall back to, is refused
+    /// for a read-only file on NTFS too: the fallback clears the attribute
+    /// on the same file and deletes it.
+    #[test]
+    fn the_plain_fallback_clears_read_only_and_deletes() {
+        let d = tempfile::tempdir().unwrap();
+        fs::write(d.path().join("f"), b"x").unwrap();
+        read_only(&d.path().join("f"));
+        let dir = DirFd::open(d.path()).unwrap();
+        let child = dir.child(OsStr::new("f"), DELETE | SYNCHRONIZE, FILE_NON_DIRECTORY_FILE).unwrap();
+        let plain = set_info(&child, FileDispositionInfo, &FILE_DISPOSITION_INFO { DeleteFile: true });
+        assert!(plain.as_ref().is_err_and(denied), "{plain:?}");
+        DirFd::unlink_plain(&child).unwrap();
+        drop(child);
+        assert!(!d.path().join("f").exists());
+    }
+
+    /// FAT and exFAT by the names the volume gives; anything else is left
+    /// alone, so on NTFS the clearing changes nothing.
+    #[test]
+    fn only_fat_and_exfat_have_their_read_only_files_cleared() {
+        for fat in ["fat", "fat32", "exfat"] {
+            assert!(is_fat(fat), "{fat}");
+        }
+        for other in ["ntfs", "refs", "", "fat64"] {
+            assert!(!is_fat(other), "{other}");
+        }
+        let d = tempfile::tempdir().unwrap();
+        fs::write(d.path().join("kept"), b"x").unwrap();
+        read_only(&d.path().join("kept"));
+        clear_read_only(d.path()).unwrap();
+        assert!(is_read_only(&d.path().join("kept")), "NTFS needs no clearing");
+    }
+
+    /// The walk clears every plain file below the root, in sub-folders too,
+    /// and never through a link: a junction's target and a symlink's
+    /// target keep their attribute.
+    #[test]
+    fn clearing_reaches_every_file_below_and_never_follows_a_link() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, outside) = (d.path().join("root"), d.path().join("outside"));
+        fs::create_dir_all(root.join("sub/deeper")).unwrap();
+        fs::create_dir(&outside).unwrap();
+        for f in [root.join("a"), root.join("sub/deeper/b"), outside.join("c")] {
+            fs::write(&f, b"x").unwrap();
+            read_only(&f);
+        }
+        junction(&root.join("j"), &outside);
+        let symlink = std::os::windows::fs::symlink_file(outside.join("c"), root.join("l")).is_ok();
+
+        clear_read_only_below(&root).unwrap();
+
+        assert!(!is_read_only(&root.join("a")) && !is_read_only(&root.join("sub/deeper/b")));
+        assert!(is_read_only(&outside.join("c")), "nothing behind a link is changed (symlink made: {symlink})");
     }
 
     #[test]

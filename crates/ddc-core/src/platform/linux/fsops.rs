@@ -44,6 +44,14 @@ pub fn open_read(path: &Path) -> io::Result<File> {
     std::fs::OpenOptions::new().read(true).custom_flags(i32::try_from(OFlags::NONBLOCK.bits()).unwrap_or(0)).open(path)
 }
 
+/// Clears read-only attributes below `root` before a tree delete is tried
+/// again: on Windows, for FAT and exFAT (story "Windows scanner and rule
+/// catalog", step 8b). Nothing to do on Linux: a file's mode never stops its
+/// removal, its folder's does, and `make_dirs_writable` opens those.
+pub fn clear_read_only(_root: &Path) -> io::Result<()> {
+    Ok(())
+}
+
 /// The user running ddc may write in `path`, as `access(2)` with `W_OK`
 /// answers: the mode bits, the ACLs and a read-only mount. `false` when it
 /// does not exist.

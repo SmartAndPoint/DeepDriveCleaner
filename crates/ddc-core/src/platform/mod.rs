@@ -119,6 +119,7 @@ mod pins {
 
     const _: fn(&Path, SystemTime, SystemTime) -> io::Result<()> = imp::fsops::set_times;
     const _: fn(&Path) -> bool = imp::fsops::can_write;
+    const _: fn(&Path) -> io::Result<()> = imp::fsops::clear_read_only;
     const _: fn(&Path) -> io::Result<File> = imp::fsops::open_nofollow_nonblock;
     const _: fn(&Path) -> io::Result<File> = imp::fsops::open_read;
     const _: fn(&Path) -> io::Result<DirFd> = DirFd::open;
