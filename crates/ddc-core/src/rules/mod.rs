@@ -18,7 +18,9 @@ use std::path::{Path, PathBuf};
 pub use catalog::{DOCKER_DOWN, RULES, SHARED_IDS, never_walked, protected_in_home, protected_system, rules_of};
 pub(crate) use classify::AtOrAbove;
 pub use classify::{Classified, LockFiles, Note, classify, classify_probed, effective_class};
-pub use visitor::{KEEP_MARKER, KeptClaim, LARGE_FILE_BYTES, Pins, RuleVisitor, is_keep_marker};
+pub use visitor::{
+    KEEP_MARKER, KeptClaim, LARGE_FILE_BYTES, Pins, RuleVisitor, holds_keep_marker, is_keep_marker, lists_keep_marker,
+};
 
 use crate::class::{Category, Removal, RiskClass};
 use crate::model::Origin;

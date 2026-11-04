@@ -27,6 +27,23 @@ pub fn is_keep_marker(name: &std::ffi::OsStr) -> bool {
     name.as_encoded_bytes().eq_ignore_ascii_case(KEEP_MARKER.as_bytes())
 }
 
+/// Whether `dir` holds a keep marker, in any ASCII case: `.ddc-keep` by
+/// path first, then a listing compared through [`is_keep_marker`], so a
+/// path check finds what the walk finds. A folder that is gone holds none;
+/// one that cannot be listed counts as kept (fail closed).
+pub fn holds_keep_marker(dir: &Path) -> bool {
+    fs::symlink_metadata(dir.join(KEEP_MARKER)).is_ok() || lists_keep_marker(dir)
+}
+
+/// The listing half of [`holds_keep_marker`]: a marker in any ASCII case
+/// among `dir`'s entries, or `dir` cannot be listed (fail closed).
+pub fn lists_keep_marker(dir: &Path) -> bool {
+    match crate::stats::read_dir(dir) {
+        Ok(entries) => entries.flatten().any(|e| is_keep_marker(&e.file_name())),
+        Err(e) => !matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory),
+    }
+}
+
 /// Files at least this large outside every finding are listed for manual review.
 pub const LARGE_FILE_BYTES: u64 = 500 << 20;
 /// How many large files are kept.

@@ -71,6 +71,32 @@ fn the_folder_is_judged_where_it_really_is() {
     assert_eq!(journal.0.len(), 5, "every decision is journaled");
 }
 
+/// The scan keeps a folder for a marker in any ASCII case, and `keep
+/// remove` removes only `.ddc-keep`. Where the filesystem tells case apart,
+/// a `.DDC-KEEP` is named in the failure and stays, so the person knows
+/// what still protects the folder; where it does not, it is `.ddc-keep`
+/// and goes.
+#[test]
+fn a_marker_in_another_case_is_named_and_stays() {
+    if common::unsupported("a_marker_in_another_case_is_named_and_stays") {
+        return;
+    }
+    let t = TreeBuilder::new();
+    let marker = t.write("p/node_modules/.DDC-KEEP", "");
+    let folder = t.path("p/node_modules");
+    let folds_case = folder.join(".ddc-keep").exists();
+    let mut journal = MemoryKeepJournal::default();
+    let r = keep::unprotect(&target(folder, None), &[t.root().to_path_buf()], &mut journal).unwrap();
+    if folds_case {
+        assert_eq!(r.result, KeepResult::Removed);
+        assert!(!marker.exists());
+    } else {
+        let KeepResult::Failed { error } = &r.result else { panic!("{:?}", r.result) };
+        assert!(error.contains(".DDC-KEEP") && error.contains("delete it yourself"), "{error}");
+        assert!(marker.exists(), "only .ddc-keep is removed");
+    }
+}
+
 #[test]
 fn the_keep_report_and_the_journal_have_their_own_versions() {
     assert_eq!(KEEP_SCHEMA_VERSION, 1);

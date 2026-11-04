@@ -491,6 +491,39 @@ fn a_newly_kept_item_and_an_unknown_rule_get_the_same_reason_from_the_dry_run_an
     assert!(inside.exists() && below.exists() && unknown.exists());
 }
 
+/// A keep marker in another ASCII case, made after the review, keeps the
+/// item in the dry run as in the clean: deep inside it, where the dry run's
+/// walk of the item finds it by name, and in a folder above it, which the
+/// checks list (safety ADR, amendment of 2026-11-04, §6).
+#[test]
+fn a_keep_marker_in_another_case_keeps_the_item_in_the_dry_run_and_the_clean() {
+    if common::unsupported("a_keep_marker_in_another_case_keeps_the_item_in_the_dry_run_and_the_clean") {
+        return;
+    }
+    let fx = Fx::new();
+    let deep = fx.pycache("a");
+    let above = fx.pycache("b");
+    let reviewed = fx.scan();
+    let items: Vec<ListedItem> = [&deep, &above].iter().map(|p| listed(&reviewed, p)).collect();
+    fx.t.write("a/__pycache__/sub/.Ddc-Keep", "");
+    fx.t.write("b/.DDC-KEEP", "");
+    let commands = FakeCommands::default();
+
+    let predicted: Vec<Prediction> = fx
+        .preflight(&items, &FakeProcs::new(vec![]), &commands)
+        .into_iter()
+        .filter_map(|l| match l {
+            PreflightLine::Item(i) => Some(i.prediction),
+            PreflightLine::Summary(_) => None,
+        })
+        .collect();
+    let (_, r) = fx.clean(&items, &commands, &mut MemoryJournal::default(), &AtomicBool::new(false));
+
+    assert_eq!(predicted, [Prediction::WouldSkip(SkipReason::Kept), Prediction::WouldSkip(SkipReason::Kept)]);
+    assert!(r.items.iter().all(|i| i.outcome == Outcome::Skipped(SkipReason::Kept)), "{:#?}", r.items);
+    assert!(deep.exists() && above.exists());
+}
+
 /// Records every directory the walk opens, interleaved with the dry run's lines.
 struct Counting {
     events: Arc<Mutex<Vec<String>>>,

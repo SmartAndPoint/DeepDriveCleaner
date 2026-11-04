@@ -2,7 +2,7 @@
 //! scan may be seconds or days old.
 
 use crate::platform::Canonical as _;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs;
 use std::io;
@@ -29,7 +29,10 @@ use crate::platform::types::EntryStat;
 use crate::report::backups;
 use crate::report::contents::CLAUDE_RECORDS;
 use crate::rules::entries::{self, BACKUP_RULE, EntryFacts, EntryShape, SessionPart, lock_of, session_part};
-use crate::rules::{Catalog, KEEP_MARKER, is_keep_marker, owns, protected_in_home, protected_system, worktree};
+use crate::rules::{
+    Catalog, KEEP_MARKER, holds_keep_marker, is_keep_marker, lists_keep_marker, owns, protected_in_home,
+    protected_system, worktree,
+};
 use crate::scan::reader::SF_DATALESS;
 use crate::scan::{self, DirCtx, DirReader, EntryMeta, OwnerKind, Progress, SystemReader, Tag, Visitor, WalkOptions};
 use crate::stats;
@@ -127,6 +130,10 @@ pub struct Guard<'a> {
     skips: Vec<PathBuf>,
     /// For the walk of a session's folders.
     reader: &'a dyn DirReader,
+    /// Whether each folder above an item lists a keep marker in another
+    /// ASCII case, listed once per run: every item shares its ancestors.
+    /// `.ddc-keep` itself is looked up afresh for each item.
+    listed: Mutex<HashMap<PathBuf, bool>>,
 }
 
 struct Uses {
@@ -215,6 +222,7 @@ impl<'a> Guard<'a> {
             procs,
             skips: Vec::new(),
             reader: &SystemReader,
+            listed: Mutex::default(),
         }
     }
 
@@ -499,7 +507,7 @@ impl<'a> Guard<'a> {
             added,
             now: self.now,
             kept: self.markers.iter().any(|m| m.starts_with(path))
-                || fs::symlink_metadata(path.join(KEEP_MARKER)).is_ok()
+                || holds_keep_marker(path)
                 || session.as_ref().is_some_and(|s| s.kept),
             protected: protected_in_home(PLATFORM).iter().any(|rel| self.home.join(rel).starts_with(path))
                 || session.as_ref().is_some_and(|s| s.protected),
@@ -611,9 +619,8 @@ impl<'a> Guard<'a> {
             let at = parent.join(&name);
             let (bytes, walked) = self.measure(&at, &st)?;
             let modified = parent_fd.child_times(&name).ok().and_then(|(modified, _)| modified);
-            check.kept |= walked.kept
-                || self.markers.iter().any(|m| m.starts_with(&at))
-                || (st.is_dir && fs::symlink_metadata(at.join(KEEP_MARKER)).is_ok());
+            check.kept |=
+                walked.kept || self.markers.iter().any(|m| m.starts_with(&at)) || (st.is_dir && holds_keep_marker(&at));
             check.protected |= self.protected_ids.contains(&(st.dev, st.ino))
                 || protected_in_home(PLATFORM).iter().any(|rel| self.home.join(rel).starts_with(&at));
             check.other_volume |= walked.other_fs || st.dev != parent_dev || st.mount_root;
@@ -659,18 +666,28 @@ impl<'a> Guard<'a> {
     }
 
     fn kept(&self, path: &Path) -> bool {
-        self.markers.iter().any(|m| m.starts_with(path))
-            || fs::symlink_metadata(path.join(KEEP_MARKER)).is_ok()
-            || self.marker_above(path)
+        self.markers.iter().any(|m| m.starts_with(path)) || holds_keep_marker(path) || self.marker_above(path)
     }
 
-    /// A keep marker in a directory above `path`, within its scan root.
+    /// A keep marker, in any ASCII case, in a directory above `path`,
+    /// within its scan root: one listing per ancestor.
     pub(super) fn marker_above(&self, path: &Path) -> bool {
         let root = self.roots.iter().filter(|r| path.starts_with(r)).max_by_key(|r| r.as_os_str().len());
         path.ancestors()
             .skip(1)
             .take_while(|a| root.is_none_or(|r| a.starts_with(r)))
-            .any(|a| fs::symlink_metadata(a.join(KEEP_MARKER)).is_ok())
+            .any(|a| fs::symlink_metadata(a.join(KEEP_MARKER)).is_ok() || self.lists_marker(a))
+    }
+
+    /// [`lists_keep_marker`] for `dir`, listed once per run.
+    fn lists_marker(&self, dir: &Path) -> bool {
+        let mut listed = self.listed.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(&kept) = listed.get(dir) {
+            return kept;
+        }
+        let kept = lists_keep_marker(dir);
+        listed.insert(dir.to_path_buf(), kept);
+        kept
     }
 }
 
