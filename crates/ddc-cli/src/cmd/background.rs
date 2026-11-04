@@ -130,7 +130,7 @@ pub fn run_with(
     let decision = notify::decide(&facts, &config, &notify::load(env));
     // Logged whether or not anything shows it, so the text is checked where no notifier exists.
     let roots = if super::own_roots(given_roots, &report, env, &settings) { &report.scan_roots[..] } else { &[] };
-    let text = notify::message(&decision, &render::clean_command(roots, &report.home));
+    let text = notify::message(&decision, render::clean_command(roots, &report.home).as_deref());
     if decision.notify {
         log(env, &format!("notification: {text}"));
     }

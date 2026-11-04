@@ -1654,6 +1654,73 @@ fn a_fifo_where_a_marker_should_be_never_blocks_the_scan() {
     assert!(report.findings.iter().any(|f| f.path == venv), "the venv is still found");
 }
 
+/// A FIFO and a socket inside a finding (a dev server's socket, a build's
+/// pipe) count as nothing, and a clean removes them with their folder:
+/// unlinked by a permanent delete, renamed with it into the Trash, never
+/// opened (safety ADR, amendment of 2026-11-04). No writer and no listener:
+/// an open of either would block or fail, and nextest's timeout catches a
+/// block.
+#[cfg(unix)]
+#[test]
+fn a_fifo_and_a_socket_in_a_finding_count_nothing_and_go_with_it() {
+    if common::unsupported("a_fifo_and_a_socket_in_a_finding_count_nothing_and_go_with_it") {
+        return;
+    }
+    let fx = Fx::new();
+    let special = |dir: &Path| {
+        assert!(Command::new("/usr/bin/mkfifo").arg(dir.join("pipe")).status().unwrap().success());
+        drop(std::os::unix::net::UnixListener::bind(dir.join("dev.sock")).unwrap());
+    };
+    let plain = fx.node_project("plain");
+    let nm = fx.node_project("p");
+    special(&nm.join("dep"));
+    // A review finding, which goes to the Trash: a venv without a lock file.
+    fx.t.write("nolock/.venv/pyvenv.cfg", "x");
+    let venv = fx.t.path("nolock/.venv");
+    special(&venv);
+
+    let report = fx.scan();
+    let bytes = |p: &Path| report.findings.iter().find(|f| f.path == p).unwrap().bytes;
+    assert_eq!(bytes(&nm), bytes(&plain), "a FIFO and a socket allocate nothing");
+
+    let mut plan = build_plan(&report, &Catalog::builtin(fx.t.root()), &PlanOptions::default());
+    select_all(&mut plan);
+    let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs::new(vec![]));
+    assert_eq!(outcome(&r, &nm), &Outcome::Deleted);
+    assert!(!nm.exists());
+    assert_eq!(outcome(&r, &venv), &Outcome::Trashed);
+    let trashed = fx.data.path().join("FakeTrash/.venv");
+    let kind = |p: &Path| fs::symlink_metadata(p).unwrap().file_type();
+    use std::os::unix::fs::FileTypeExt as _;
+    assert!(kind(&trashed.join("pipe")).is_fifo() && kind(&trashed.join("dev.sock")).is_socket(), "moved as they were");
+}
+
+/// A tombstone left with a 255-byte name (an item whose own name was long)
+/// is renamed again to a tombstone that fits and removed: before, its new
+/// suffix pushed the name past the limit and the rename failed every time
+/// (safety ADR, amendment of 2026-11-04). Unix: Windows's limit is the
+/// whole path's.
+#[cfg(unix)]
+#[test]
+fn a_tombstone_with_a_255_byte_name_is_removed() {
+    if common::unsupported("a_tombstone_with_a_255_byte_name_is_removed") {
+        return;
+    }
+    let fx = Fx::new();
+    let tail = ".ddc-deleting-1700000000000-1";
+    let name = format!("{}{tail}", "n".repeat(255 - tail.len()));
+    assert_eq!(name.len(), 255);
+    fx.t.file(&format!("old/{name}/f"), 4096);
+    let tomb = fx.t.path(&format!("old/{name}"));
+    let plan = fx.plan();
+    assert!(plan.items.iter().any(|i| i.finding.path == tomb && i.selected), "the tombstone is planned");
+
+    let (r, _) = fx.run_yes(&plan);
+
+    assert_eq!(outcome(&r, &tomb), &Outcome::Deleted);
+    assert_eq!(ddc_core::stats::read_dir(fx.t.path("old")).unwrap().count(), 0, "nothing left, no tombstone");
+}
+
 #[cfg(windows)]
 #[test]
 fn a_finding_evicted_to_the_cloud_after_the_plan_is_never_deleted() {

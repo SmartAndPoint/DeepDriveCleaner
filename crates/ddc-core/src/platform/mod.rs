@@ -64,11 +64,23 @@ impl Canonical for std::path::Path {
 /// KiB).
 pub const FOUND_MAX: u64 = 4 << 20;
 
+/// `file` when it is a regular file; a FIFO, a socket, a device or a folder
+/// is an error, and the descriptor is closed unread. The one check behind
+/// every OS's `open_read`.
+#[cfg(unix)]
+fn regular_only(file: std::fs::File) -> std::io::Result<std::fs::File> {
+    if file.metadata()?.is_file() {
+        Ok(file)
+    } else {
+        Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a regular file"))
+    }
+}
+
 /// The text of a small file that a walk found (a marker such as
 /// `CMakeCache.txt`, `pyvenv.cfg` or a worktree's `.git`), read through
 /// [`fsops::open_read`], at most `max` bytes: never a downloaded placeholder,
-/// never a FIFO that blocks. Longer or not UTF-8 is an error, as an
-/// unreadable file is: a matcher then answers "no".
+/// never a symlink, never anything but a regular file. Longer or not UTF-8 is
+/// an error, as an unreadable file is: a matcher then answers "no".
 pub fn read_found(path: &std::path::Path, max: u64) -> std::io::Result<String> {
     use std::io::Read as _;
     let mut text = String::new();
@@ -602,6 +614,30 @@ mod tests {
         assert!(std::process::Command::new("/usr/bin/mkfifo").arg(&fifo).status().unwrap().success());
         // No writer: a blocking open would wait for one forever.
         assert_eq!(read_found(&fifo, FOUND_MAX).unwrap_or_default(), "");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_marker_that_is_not_a_regular_file_reads_as_absent() {
+        let d = tempfile::tempdir().unwrap();
+        let real = d.path().join("real.cfg");
+        std::fs::write(&real, "uv = 0.9\n").unwrap();
+        // A symlink, even to a regular file, is not followed.
+        let link = d.path().join("pyvenv.cfg");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert!(read_found(&link, FOUND_MAX).is_err(), "a symlinked marker");
+        // A symlink to a device is never opened through.
+        let dev = d.path().join("CMakeCache.txt");
+        std::os::unix::fs::symlink("/dev/zero", &dev).unwrap();
+        assert!(read_found(&dev, FOUND_MAX).is_err(), "a symlink to a device");
+        // A socket and a folder are not regular files.
+        let sock = d.path().join("CACHEDIR.TAG");
+        let _listener = std::os::unix::net::UnixListener::bind(&sock).unwrap();
+        assert!(read_found(&sock, FOUND_MAX).is_err(), "a socket");
+        let dir = d.path().join(".git");
+        std::fs::create_dir(&dir).unwrap();
+        assert!(read_found(&dir, FOUND_MAX).is_err(), "a folder");
+        assert!(read_found(&real, FOUND_MAX).is_ok(), "the regular file itself");
     }
 
     #[test]

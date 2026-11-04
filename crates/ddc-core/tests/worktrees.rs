@@ -506,3 +506,24 @@ fn a_report_ddc_0_25_0_wrote_of_a_worktree_still_reads() {
     let venv = r.findings.iter().find(|f| f.rule == "python.venv").expect("the .venv inside it");
     assert_eq!(venv.project.as_ref().unwrap().worktree_of.as_deref(), Some(Path::new("/h/p")));
 }
+
+/// Safety ADR, amendment of 2026-11-04: a marker is read only when it is a
+/// regular file, never through a symlink. A linked worktree whose `.git` is
+/// a symlink to the real `.git` file was never recognised (the check is on
+/// the entry itself), and still is not: no `git.worktree` finding.
+#[cfg(unix)]
+#[test]
+fn a_worktree_whose_dot_git_is_a_symlink_is_not_one() {
+    let Some(h) = Home::ready("a_worktree_whose_dot_git_is_a_symlink_is_not_one") else { return };
+    let main = git::repo(&h.t, "proj");
+    let wt = git::worktree(&main, &h.t.path("y"), &[]);
+    let real = h.t.path("y-dot-git");
+    fs::rename(wt.join(".git"), &real).unwrap();
+    std::os::unix::fs::symlink(&real, wt.join(".git")).unwrap();
+
+    let r = h.scan();
+
+    h.none_at(&r, &wt);
+    h.none_at(&r, &main);
+    assert_eq!(r.findings.iter().filter(|f| f.rule.starts_with("git.")).count(), 0, "{:?}", h.summary(&r));
+}

@@ -117,15 +117,20 @@ pub fn decide(f: &Facts, cfg: &Config, state: &NotifyState) -> Decision {
 }
 
 /// The notification's text; `clean` is the command that reviews what the
-/// scan found (`render::clean_command`).
-pub fn message(d: &Decision, clean: &str) -> String {
+/// scan found (`render::clean_command`), `None` when no command can be
+/// pasted for its roots.
+pub fn message(d: &Decision, clean: Option<&str>) -> String {
     let junk = format!("About {} of developer junk can be freed", human(d.reclaimable));
+    let run = match clean {
+        Some(clean) => format!("Run `{clean}` to review."),
+        None => "Run `ddc clean` with the scanned folder to review.".to_owned(),
+    };
     match (d.reason, &d.volume, d.free) {
         (Some(NotifyReason::LowDisk), Some(volume), Some(free)) => {
-            format!("{} is almost full ({} free). {junk}. Run `{clean}` to review.", volume_name(volume), human(free))
+            format!("{} is almost full ({} free). {junk}. {run}", volume_name(volume), human(free))
         }
-        (_, _, Some(free)) => format!("{junk} ({} free now). Run `{clean}` to review.", human(free)),
-        _ => format!("{junk}. Run `{clean}` to review."),
+        (_, _, Some(free)) => format!("{junk} ({} free now). {run}", human(free)),
+        _ => format!("{junk}. {run}"),
     }
 }
 
@@ -290,10 +295,10 @@ mod tests {
 
     #[test]
     fn message_names_the_size_the_command_and_a_full_volume() {
-        let m = message(&decide(&facts(37 * G, 74 * G, 1000 * G), &ON, &NotifyState::default()), "ddc clean");
+        let m = message(&decide(&facts(37 * G, 74 * G, 1000 * G), &ON, &NotifyState::default()), Some("ddc clean"));
         assert!(m.contains("37.0 GiB") && m.contains("Run `ddc clean` to review") && m.contains("startup disk"), "{m}");
         let threshold =
-            message(&decide(&facts(37 * G, 500 * G, 1000 * G), &ON, &NotifyState::default()), "ddc clean ~/p");
+            message(&decide(&facts(37 * G, 500 * G, 1000 * G), &ON, &NotifyState::default()), Some("ddc clean ~/p"));
         assert!(
             threshold.contains("500.0 GiB free now") && threshold.contains("Run `ddc clean ~/p` to review"),
             "{threshold}"

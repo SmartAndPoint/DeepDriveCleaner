@@ -2,7 +2,7 @@
 //! verified parent descriptor), then remove. An interrupted removal leaves a
 //! `*.ddc-deleting-*` directory that the next scan finds as `ddc.tombstone`.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -12,16 +12,28 @@ use super::Outcome;
 use super::guard::Verified;
 use crate::platform::types::HeldOpen;
 
+/// The longest name most filesystems take, in bytes (Linux, APFS) or UTF-16
+/// units (NTFS, exFAT). A shorter limit (eCryptfs) is found by the retry.
+const NAME_MAX: usize = 255;
+
 pub(super) fn remove(v: &Verified, path: &Path, make_writable: bool) -> Outcome {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or_default();
-    let mut tomb = v.name.clone();
-    tomb.push(OsString::from(format!(".ddc-deleting-{stamp}-{}", std::process::id())));
+    let suffix = format!(".ddc-deleting-{stamp}-{}", std::process::id());
     if !v.unchanged() {
         return Outcome::Skipped(super::SkipReason::ChangedSinceScan);
     }
-    if let Err(e) = v.parent.rename_child(&v.name, &tomb) {
-        return rename_failed(&e);
-    }
+    // Safety ADR, amendment of 2026-11-04: the name is cut so the suffix
+    // fits, and cut shorter when the filesystem's own limit is lower. The
+    // suffix stays whole: the scan's `ddc.tombstone` rule looks for it.
+    let mut keep = NAME_MAX.saturating_sub(suffix.len());
+    let tomb = loop {
+        let tomb = tomb_name(&v.name, &suffix, keep);
+        match v.parent.rename_child(&v.name, &tomb) {
+            Ok(()) => break tomb,
+            Err(e) if e.kind() == io::ErrorKind::InvalidFilename && keep > 0 => keep /= 2,
+            Err(e) => return rename_failed(&e),
+        }
+    };
     // The rename went through the verified parent; make sure it moved the
     // directory we checked, not something swapped in meanwhile.
     match v.parent.stat_child(&tomb) {
@@ -45,6 +57,19 @@ pub(super) fn remove(v: &Verified, path: &Path, make_writable: bool) -> Outcome 
         Ok(()) => Outcome::Deleted,
         Err(e) => Outcome::Failed { error: format!("{e} (left as {})", tomb_path.display()) },
     }
+}
+
+/// `name` cut to at most `keep` bytes, then `suffix`, cut on a character
+/// boundary so the result is a valid name on APFS too. A name that is not
+/// UTF-8 is spelled lossily: a tombstone needs only its suffix, the scan's
+/// `ddc.tombstone` rule matches nothing else.
+fn tomb_name(name: &OsStr, suffix: &str, keep: usize) -> OsString {
+    let text = name.to_string_lossy();
+    let mut end = keep.min(text.len());
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    OsString::from(format!("{}{suffix}", &text[..end]))
 }
 
 /// The outcome of a refused tombstone rename: skipped held open when the
@@ -139,5 +164,21 @@ mod tests {
         assert_eq!(out, Outcome::Skipped(SkipReason::ChangedSinceScan));
         assert!(dir.path().join("cache/new").is_dir());
         assert!(dir.path().join("moved/old").is_dir());
+    }
+
+    /// The tombstone's name keeps its whole suffix and cuts the name on a
+    /// character boundary: never a broken UTF-8 name.
+    #[test]
+    fn a_long_name_is_cut_on_a_character_so_the_suffix_fits() {
+        let suffix = ".ddc-deleting-1700000000000-42";
+        assert_eq!(tomb_name(OsStr::new("node_modules"), suffix, 200), OsString::from(format!("node_modules{suffix}")));
+        let long = "é".repeat(200); // 400 bytes
+        let keep = NAME_MAX - suffix.len();
+        let tomb = tomb_name(OsStr::new(&long), suffix, keep);
+        let text = tomb.to_str().expect("valid UTF-8");
+        assert!(text.len() <= NAME_MAX, "{}", text.len());
+        assert!(text.ends_with(suffix));
+        assert_eq!(text.len() - suffix.len(), keep - keep % 2, "whole two-byte characters only");
+        assert_eq!(tomb_name(OsStr::new(&long), suffix, 0), OsString::from(suffix), "the floor: the suffix alone");
     }
 }
