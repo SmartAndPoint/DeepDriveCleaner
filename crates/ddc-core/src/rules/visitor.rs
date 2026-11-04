@@ -36,10 +36,11 @@ pub fn holds_keep_marker(dir: &Path) -> bool {
 }
 
 /// The listing half of [`holds_keep_marker`]: a marker in any ASCII case
-/// among `dir`'s entries, or `dir` cannot be listed (fail closed).
+/// among `dir`'s entries, or `dir` or one of its entries cannot be read
+/// (fail closed).
 pub fn lists_keep_marker(dir: &Path) -> bool {
     match crate::stats::read_dir(dir) {
-        Ok(entries) => entries.flatten().any(|e| is_keep_marker(&e.file_name())),
+        Ok(mut entries) => entries.any(|e| e.map_or(true, |e| is_keep_marker(&e.file_name()))),
         Err(e) => !matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory),
     }
 }
