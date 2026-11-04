@@ -82,9 +82,8 @@ fn clean_in(home: &Path, data: &Path, plan: &Plan) -> exec::ExecReport {
     exec::execute(&env, &catalog, plan, &consent, ports, &ExecOptions::default()).unwrap()
 }
 
-/// An idle Node project at `rel` under `home`; its `node_modules`.
-fn idle_node_project(home: &Path, rel: &str) -> PathBuf {
-    let t = TreeBuilder::new_in(home);
+/// An idle Node project at `rel` in `t`; its `node_modules`.
+fn idle_node_project(t: &TreeBuilder, rel: &str) -> PathBuf {
     let old = SystemTime::now() - std::time::Duration::from_secs(60 * 86_400);
     for f in ["package.json", "package-lock.json"] {
         let path = t.write(&format!("{rel}/{f}"), "{}");
@@ -210,10 +209,11 @@ fn an_exfat_trash_that_stays_open_refuses_the_move() {
 /// resolves it to (safety ADR, amendment of 2026-11-04, §6).
 fn a_protected_folder_in_another_case_is_refused_on(test: &str, mount: Mount) {
     let Some(dir) = common::mount(test, mount) else { return };
-    let home = TreeBuilder::new_in(&dir).dir("home");
+    let t = TreeBuilder::new_in(&dir);
+    let home = t.dir("home");
     let data = tempfile::tempdir().unwrap();
-    let cv = TreeBuilder::new_in(&home).file("Documents/cv.pdf", 100);
-    let nm = idle_node_project(&home, "p");
+    let cv = t.file("home/Documents/cv.pdf", 100);
+    let nm = idle_node_project(&t, "home/p");
     let mut plan = build_plan(&scan_in(&home, data.path()), &Catalog::builtin(&home), &PlanOptions::default());
     let mut forged = plan.items.iter().find(|i| i.finding.path == nm).expect("the node_modules item").clone();
     let upper = home.join("DOCUMENTS");
@@ -251,17 +251,18 @@ fn a_keep_marker_in_another_case_keeps_its_folder_on_casefold() {
     let Some(dir) = common::mount("a_keep_marker_in_another_case_keeps_its_folder_on_casefold", Mount::Casefold) else {
         return;
     };
-    let home = TreeBuilder::new_in(&dir).dir("home");
+    let t = TreeBuilder::new_in(&dir);
+    let home = t.dir("home");
     let data = tempfile::tempdir().unwrap();
-    let kept = idle_node_project(&home, "a");
-    TreeBuilder::new_in(&kept).write("dep/.DDC-KEEP", "");
-    let later = idle_node_project(&home, "b");
+    let kept = idle_node_project(&t, "home/a");
+    t.write("home/a/node_modules/dep/.DDC-KEEP", "");
+    let later = idle_node_project(&t, "home/b");
 
     let scan = scan_in(&home, data.path());
     let finding = scan.findings.iter().find(|f| f.path == kept).expect("the kept finding");
     assert_eq!(finding.rule, "user.kept");
     let plan = build_plan(&scan, &Catalog::builtin(&home), &PlanOptions::default());
-    TreeBuilder::new_in(&later).write(".Ddc-Keep", "");
+    t.write("home/b/node_modules/.Ddc-Keep", "");
     let r = clean_in(&home, data.path(), &plan);
 
     let item = r.items.iter().find(|i| i.path == later).expect("b's node_modules was planned");
