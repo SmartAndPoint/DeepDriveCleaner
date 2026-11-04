@@ -20,7 +20,7 @@ use crate::model::{OriginHarness, WrittenBy};
 
 pub use compare::{compare, compare_loaded};
 pub use journal::{JournalLine, parse_journal, read_journal};
-pub use load::{Loaded, load};
+pub use load::{Loaded, load, load_previous};
 pub use not_read::{cloud_roots, not_read};
 
 /// Version of [`ChangesReport`]; the scan report has its own.

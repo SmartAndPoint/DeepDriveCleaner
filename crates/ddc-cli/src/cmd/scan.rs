@@ -11,7 +11,7 @@ use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::scan::{Progress, WalkOptions};
 use ddc_core::settings::{self, ScanFlags};
-use ddc_core::store::{self, LockMode};
+use ddc_core::store::{self, Kept, LockMode};
 
 use crate::cli::ScanArgs;
 use crate::{progress, prompt, render};
@@ -66,7 +66,14 @@ pub fn run(args: ScanArgs) -> anyhow::Result<ExitCode> {
         serde_json::to_writer_pretty(&mut stdout, &report).map_err(std::io::Error::from).and_then(|()| writeln!(stdout))
     } else {
         let color = render::use_color(std::io::stdout().is_terminal(), Env::no_color());
-        render::report(&mut stdout, &report, &render::Style { color, all: args.all }, own_roots)
+        render::report(&mut stdout, &report, &render::Style { color, all: args.all }, own_roots).and_then(|()| {
+            // What grew since the report this save kept (story "ddc changes:
+            // what grew between the last two scans").
+            match saved.kept {
+                Kept::Kept { .. } => super::changes::after_scan(&mut stdout, &env, report),
+                Kept::Nothing | Kept::Failed(_) => Ok(()),
+            }
+        })
     };
     match written {
         Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(ExitCode::SUCCESS),

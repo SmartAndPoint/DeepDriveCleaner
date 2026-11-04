@@ -14,7 +14,7 @@ use ddc_core::changes::{
     self, ChangesReport, Group, HomeReason, Item, ItemKind, Loaded, NotReadKind, Reason, cloud_roots,
 };
 use ddc_core::env::Env;
-use ddc_core::model::OriginHarness;
+use ddc_core::model::{OriginHarness, ScanReport};
 
 use crate::cli::ChangesArgs;
 use crate::notify::volume_name;
@@ -24,6 +24,8 @@ use crate::size::human;
 /// The text keeps a change of at least this much, or one of the [`BIGGEST`].
 const SHOWN_MIN: u64 = 100 << 20;
 const BIGGEST: usize = 20;
+/// The groups `ddc scan`'s block names, the biggest growth first.
+const BLOCK_GROUPS: usize = 3;
 
 pub fn run(args: &ChangesArgs) -> anyhow::Result<ExitCode> {
     let env = Env::from_process(args.data_dir.clone())?;
@@ -53,11 +55,44 @@ pub fn run_with(args: &ChangesArgs, env: &Env, out: &mut dyn Write) -> anyhow::R
 /// The whole text: the summary, then the rows.
 pub fn text(r: &ChangesReport, loaded: &Loaded, home: &Path, now: &str) -> String {
     let Some(reason) = r.reason else {
-        let mut s = summary(r, loaded, home, now);
+        let mut s = summary(r, loaded, home, now, usize::MAX);
         s.push_str(&rows(&r.items, home));
         return s;
     };
     format!("{}\n", not_compared(reason))
+}
+
+/// `ddc scan`'s block, printed after its report when its save kept the
+/// report it replaced: `current` is the report just saved. A file that
+/// cannot be read is a warning, not an error: the scan itself went well.
+pub fn after_scan(out: &mut dyn Write, env: &Env, current: ScanReport) -> io::Result<()> {
+    let loaded = match changes::load_previous(env, current) {
+        Ok(loaded) => loaded,
+        Err(e) => {
+            eprintln!("ddc: warning: {e}");
+            return Ok(());
+        }
+    };
+    let journal = match changes::read_journal(env) {
+        Ok(journal) => journal,
+        Err(e) => {
+            eprintln!("ddc: warning: cannot read {}: {e}", env.log_dir().join("actions.jsonl").display());
+            return Ok(());
+        }
+    };
+    let report = changes::compare_loaded(&loaded, &journal, &cloud_roots(env.home()));
+    let now = humantime::format_rfc3339_seconds(env.now()).to_string();
+    out.write_all(block(&report, &loaded, env.home(), &now).as_bytes())
+}
+
+/// The short form: the disk sentence, the groups that grew most, what lies
+/// elsewhere and outside, and the person's cleans; or why the scans do not
+/// compare, in one sentence.
+pub fn block(r: &ChangesReport, loaded: &Loaded, home: &Path, now: &str) -> String {
+    match r.reason {
+        Some(reason) => format!("\n{}\n", not_compared(reason)),
+        None => format!("\n{}`ddc changes` lists every row.\n", summary(r, loaded, home, now, BLOCK_GROUPS)),
+    }
 }
 
 /// One sentence for a pair that was not compared.
@@ -76,9 +111,9 @@ pub fn not_compared(reason: Reason) -> &'static str {
     }
 }
 
-/// The disk sentence, one line per group that grew, what lies elsewhere and
-/// outside, and the person's cleans.
-pub fn summary(r: &ChangesReport, loaded: &Loaded, home: &Path, now: &str) -> String {
+/// The disk sentence, one line per group that grew (the `groups` biggest),
+/// what lies elsewhere and outside, and the person's cleans.
+pub fn summary(r: &ChangesReport, loaded: &Loaded, home: &Path, now: &str, groups: usize) -> String {
     let mut s = String::new();
     let since = r
         .baseline
@@ -87,6 +122,19 @@ pub fn summary(r: &ChangesReport, loaded: &Loaded, home: &Path, now: &str) -> St
         .and_then(|at| age(at, now))
         .map(|a| format!(", {a}"))
         .unwrap_or_default();
+    let mut lines: Vec<(String, i64, String)> =
+        r.groups.iter().filter(|g| g.delta > 0).take(groups).map(|g| (g.group.clone(), g.delta, details(g))).collect();
+    if let Some(home_) = &r.home {
+        match home_.elsewhere {
+            Some(d) if d != 0 => lines.push(("Elsewhere in your home folder".into(), d, String::new())),
+            _ => {}
+        }
+    }
+    if let Some(rest) = &r.rest
+        && let Some(d) = rest.delta.filter(|d| *d != 0)
+    {
+        lines.push(("Not read, or outside your home folder".into(), d, kinds(&rest.not_read)));
+    }
     match &r.disk {
         Some(d) if d.delta > 0 => s.push_str(&format!(
             "{} more in use on {} than at the earlier scan{since}.\n",
@@ -98,23 +146,11 @@ pub fn summary(r: &ChangesReport, loaded: &Loaded, home: &Path, now: &str) -> St
             human(d.delta.unsigned_abs()),
             mid_sentence(&volume_name(&d.mount_point))
         )),
+        _ if lines.is_empty() => s.push_str(&format!("Nothing grew since the earlier scan{since}.\n")),
         _ => s.push_str(&format!("Since the earlier scan{since}:\n")),
     }
     if let Some(note) = scope_note(r, loaded, home) {
         s.push_str(&format!("{note}\n"));
-    }
-    let mut lines: Vec<(String, i64, String)> =
-        r.groups.iter().filter(|g| g.delta > 0).map(|g| (g.group.clone(), g.delta, details(g))).collect();
-    if let Some(home_) = &r.home {
-        match home_.elsewhere {
-            Some(d) if d != 0 => lines.push(("Elsewhere in your home folder".into(), d, String::new())),
-            _ => {}
-        }
-    }
-    if let Some(rest) = &r.rest
-        && let Some(d) = rest.delta.filter(|d| *d != 0)
-    {
-        lines.push(("Not read, or outside your home folder".into(), d, kinds(&rest.not_read)));
     }
     let width = lines.iter().map(|(l, ..)| l.chars().count()).max().unwrap_or(0);
     for (label, delta, details) in &lines {
@@ -359,7 +395,7 @@ mod tests {
 
     #[test]
     fn the_summary_says_the_disk_the_groups_that_grew_the_rest_and_your_cleans() {
-        let text = summary(&compared(Vec::new()), &loaded(), Path::new("/h"), "2026-11-04T12:00:00Z");
+        let text = summary(&compared(Vec::new()), &loaded(), Path::new("/h"), "2026-11-04T12:00:00Z", usize::MAX);
         assert_eq!(
             text,
             "198.0 GiB more in use on the startup disk than at the earlier scan, 26 h ago.\n\
@@ -411,11 +447,11 @@ mod tests {
         };
         let pair =
             Loaded { baseline: Some(report(&["/h"])), current: Some(report(&["/h/Projects"])), reasons: Vec::new() };
-        let text = summary(&r, &pair, Path::new("/h"), "2026-11-04T12:00:00Z");
+        let text = summary(&r, &pair, Path::new("/h"), "2026-11-04T12:00:00Z", usize::MAX);
         assert!(text.contains("\nCompared in ~/Projects only: the other scan covered other folders.\n"), "{text}");
         let same = Loaded { baseline: Some(report(&["/h"])), current: Some(report(&["/h"])), reasons: Vec::new() };
         r.compared_roots = vec![PathBuf::from("/h")];
-        assert!(!summary(&r, &same, Path::new("/h"), "x").contains("Compared in"));
+        assert!(!summary(&r, &same, Path::new("/h"), "x", usize::MAX).contains("Compared in"));
     }
 
     #[test]
@@ -434,6 +470,38 @@ mod tests {
     }
 
     #[test]
+    fn scans_block_names_the_three_groups_that_grew_most_and_points_at_ddc_changes() {
+        let mut r = compared(Vec::new());
+        let group = |name: &str, gib: i64| Group {
+            group: name.into(),
+            delta: gib * G as i64,
+            new: 1,
+            grew: 0,
+            shrank: 0,
+            gone: 0,
+            cleaned: 0,
+            moved: 0,
+            by_harness: Vec::new(),
+        };
+        r.groups = vec![group("Build outputs", 9), group("Caches", 5), group("node_modules", 3), group("Logs", 1)];
+        let text = block(&r, &loaded(), Path::new("/h"), "2026-11-04T12:00:00Z");
+        assert!(text.starts_with("\n198.0 GiB more in use on the startup disk"), "{text}");
+        assert!(text.contains("  node_modules ") && !text.contains("Logs"), "{text}");
+        assert!(text.contains("Elsewhere in your home folder") && text.contains("Not read, or outside"), "{text}");
+        assert!(text.ends_with("of it is in the Trash.\n`ddc changes` lists every row.\n"), "{text}");
+        assert!(!text.contains("(new)"), "the block has no rows: {text}");
+        let mut still = compared(Vec::new());
+        (still.disk, still.home, still.rest, still.cleaned_since) = (None, None, None, None);
+        still.groups.retain(|g| g.delta <= 0);
+        assert_eq!(
+            block(&still, &loaded(), Path::new("/h"), "2026-11-04T12:00:00Z"),
+            "\nNothing grew since the earlier scan, 26 h ago.\n`ddc changes` lists every row.\n"
+        );
+        let not = ChangesReport::not_compared(Reason::PredatesFields, None, None);
+        assert_eq!(block(&not, &loaded(), Path::new("/h"), "x"), "\nGrowth shows after the next scan.\n");
+    }
+
+    #[test]
     fn a_home_that_does_not_compare_says_why_and_a_shrinking_disk_says_less() {
         let mut r = compared(Vec::new());
         r.disk.as_mut().unwrap().delta = -(3 * G as i64);
@@ -446,7 +514,7 @@ mod tests {
         });
         r.rest = None;
         r.cleaned_since = Some(Cleaned { deleted: G, trashed: 0 });
-        let text = summary(&r, &loaded(), Path::new("/h"), "not a time");
+        let text = summary(&r, &loaded(), Path::new("/h"), "not a time", usize::MAX);
         assert!(text.starts_with("3.0 GiB less in use on the startup disk than at the earlier scan.\n"), "{text}");
         assert!(text.contains(
             "The home folder as a whole does not compare: one scan had Full Disk Access and the other did not; \

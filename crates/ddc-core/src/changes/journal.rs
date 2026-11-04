@@ -91,3 +91,31 @@ pub fn read_journal(env: &Env) -> io::Result<Vec<JournalLine>> {
         Err(e) => Err(e),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_native_clean_and_a_removal_the_recycle_bin_refused_count_as_deleted() {
+        let line = |kind: &str, outcome: &str| {
+            format!(r#"{{{kind}"ts":"2026-11-04T10:00:00Z","path":"/h/p/target","outcome":"{outcome}"}}"#)
+        };
+        let text = [
+            line(r#""kind":"item","#, "native"),
+            line(r#""kind":"item","#, "removed-not-recycled"),
+            line("", "deleted"),
+            line(r#""kind":"item","#, "trashed"),
+            line(r#""kind":"item","#, "skipped"),
+            line(r#""kind":"item","#, "failed"),
+            line(r#""kind":"area-action","#, "deleted"),
+        ]
+        .join("\n");
+        let lines = parse_journal(&text);
+        let removed: Vec<(bool, bool)> = lines.iter().map(|l| (l.removed(), l.trashed())).collect();
+        assert_eq!(
+            removed,
+            [(true, false), (true, false), (true, false), (true, true), (false, false), (false, false), (false, false)]
+        );
+    }
+}
