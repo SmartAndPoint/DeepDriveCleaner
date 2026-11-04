@@ -190,3 +190,64 @@ fn an_unreadable_report_exits_1_with_a_ddc_line_and_prints_no_json() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.starts_with("ddc: ") && err.contains("last-scan.json"), "{err}");
 }
+
+/// `ddc scan` prints the short form of `ddc changes` after its report when
+/// its save kept the report it replaced: not after the first scan, after
+/// the second, never with `--json`.
+#[test]
+fn ddc_scan_prints_what_grew_after_its_second_scan_and_never_with_json() {
+    if common::unsupported("ddc_scan_prints_what_grew_after_its_second_scan_and_never_with_json") {
+        return;
+    }
+    let fx = Fx::new();
+    let text = |out: Output| String::from_utf8(out.stdout).unwrap();
+    let first = text(fx.ddc(&["scan"]));
+    assert!(!first.contains("ddc changes") && !first.contains("earlier scan"), "{first}");
+    fx.write("p/target/debug/b.bin", 300_000);
+    let second = text(fx.ddc(&["scan"]));
+    let block = &second[second.rfind("\n\n").unwrap()..];
+    assert!(block.contains("\n  Build outputs ") && block.contains("1 grew"), "{second}");
+    assert!(block.ends_with("\n`ddc changes` lists every row.\n"), "{second}");
+    assert!(!block.contains("p/target"), "the block lists no rows: {second}");
+    // A third save keeps the second report, and `--json` stays one report.
+    let json = fx.ddc(&["scan", "--json"]).stdout;
+    let _: ScanReport = contract::holds("scan", &json);
+    assert!(!String::from_utf8(json).unwrap().contains("ddc changes"));
+}
+
+/// A kept report without S1's fields gives the one-line reason, nothing
+/// more.
+#[test]
+fn ddc_scan_after_a_report_of_an_older_ddc_says_growth_shows_after_the_next_scan() {
+    if common::unsupported("ddc_scan_after_a_report_of_an_older_ddc_says_growth_shows_after_the_next_scan") {
+        return;
+    }
+    let fx = Fx::new();
+    fx.scan();
+    // A report saved before 0.31 has neither field.
+    let last = fx.data.join("last-scan.json");
+    let mut old: serde_json::Value = serde_json::from_slice(&fs::read(&last).unwrap()).unwrap();
+    let fields = old.as_object_mut().unwrap();
+    fields.remove("written_at");
+    fields.remove("rules_in_force");
+    fs::write(&last, serde_json::to_vec(&old).unwrap()).unwrap();
+    let out = String::from_utf8(fx.ddc(&["scan"]).stdout).unwrap();
+    assert!(fx.data.join("previous-scan.json").exists(), "the older report was kept");
+    assert!(out.ends_with("\n\nGrowth shows after the next scan.\n"), "{out}");
+}
+
+/// A journal the block cannot read is a warning: the scan still exits 0,
+/// with its report and without the block.
+#[test]
+fn ddc_scan_that_cannot_read_the_journal_warns_and_prints_no_block() {
+    if common::unsupported("ddc_scan_that_cannot_read_the_journal_warns_and_prints_no_block") {
+        return;
+    }
+    let fx = Fx::new();
+    fx.scan();
+    fs::create_dir_all(fx.data.join("logs/actions.jsonl")).unwrap();
+    let out = fx.ddc(&["scan"]);
+    let (stdout, stderr) = (String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(stdout.starts_with("DeepDriveCleaner") && !stdout.contains("ddc changes"), "{stdout}");
+    assert!(stderr.contains("ddc: warning: cannot read ") && stderr.contains("actions.jsonl"), "{stderr}");
+}

@@ -149,6 +149,8 @@ ddc clean                # review the plan, then clean what you confirm
 
 Read-only: it never changes a file. It walks your home folder (or the paths you give), groups findings by risk class and type, and prints the largest per group. It saves the report as the last scan, which the app shows.
 
+When the scan it replaces was a whole scan of your usual folders, it keeps that one as the earlier scan, and its text ends with the short form of [`ddc changes`](#ddc-changes-what-grew-between-the-last-two-scans): how much more is in use on the disk, the three groups that grew most, what grew elsewhere in your home folder and outside it, and your cleans in between. When the two cannot be compared (the earlier one was saved before 0.31, say), it says why in one sentence. Not with `--json`.
+
 ```
 ddc scan [PATH…] [--json] [--all] [--exclude PATH]… [--skip PATH]… [--min-age DAYS] [--worktree-min-age DAYS]
          [--data-dir DIR] [--threads N] [--progress json]
@@ -493,7 +495,7 @@ These checks lower the risk; they do not remove it. See the [Disclaimer](#discla
 
 ## For coding agents
 
-[`agents/`](agents/) holds guidance for coding agents: a Claude Code skill and a snippet for `AGENTS.md` (Codex, opencode). It teaches an agent to ask `ddc` before it guesses about the disk, on a full disk, `ENOSPC` or before installing dependencies into a new worktree, with read-only commands (`ddc agent status --json`, `ddc scan <dir> --json`, `ddc rules --json`), and to hand the cleanup to you rather than run it. [`agents/README.md`](agents/README.md) says how to install it.
+[`agents/`](agents/) holds guidance for coding agents: a Claude Code skill and a snippet for `AGENTS.md` (Codex, opencode). It teaches an agent to ask `ddc` before it guesses about the disk, on a full disk, `ENOSPC` or before installing dependencies into a new worktree, with read-only commands (`ddc agent status --json`, `ddc scan <dir> --json`, `ddc rules --json`), and to hand the cleanup to you rather than run it. [`agents/README.md`](agents/README.md) says how to install it. `ddc changes --json` is read-only too: an agent may run it to show you what grew, builds in coding agents' worktrees included, and the cleanup stays yours.
 
 ## Full Disk Access
 

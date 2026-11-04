@@ -37,17 +37,30 @@ pub fn load(env: &Env) -> io::Result<Loaded> {
     read_pair(env)
 }
 
+/// Reads `previous-scan.json` against `current`, the report a scan has just
+/// saved (`ddc scan`'s block). Not read again when out of step: `current`
+/// is this save's own, so another save came between.
+pub fn load_previous(env: &Env, current: ScanReport) -> io::Result<Loaded> {
+    let mut reasons = Vec::new();
+    let baseline = decode(read(env, PREVIOUS_SCAN)?, Reason::NoPrevious, &mut reasons);
+    Ok(pair(baseline, Some(current), reasons))
+}
+
 fn read_pair(env: &Env) -> io::Result<Loaded> {
     let mut reasons = Vec::new();
     let current = decode(read(env, LAST_SCAN)?, Reason::NoReport, &mut reasons);
     let baseline = decode(read(env, PREVIOUS_SCAN)?, Reason::NoPrevious, &mut reasons);
+    Ok(pair(baseline, current, reasons))
+}
+
+fn pair(baseline: Option<ScanReport>, current: Option<ScanReport>, mut reasons: Vec<Reason>) -> Loaded {
     if let (Some(b), Some(c)) = (&baseline, &current)
         && b.written_at.is_some()
         && c.previous_written_at != b.written_at
     {
         reasons.push(Reason::OutOfStep);
     }
-    Ok(Loaded { baseline, current, reasons })
+    Loaded { baseline, current, reasons }
 }
 
 fn read(env: &Env, name: &str) -> io::Result<Option<Vec<u8>>> {
