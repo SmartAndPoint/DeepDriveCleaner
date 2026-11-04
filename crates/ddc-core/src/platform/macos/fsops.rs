@@ -80,13 +80,20 @@ pub fn open_nofollow_nonblock(path: &Path) -> io::Result<std::fs::File> {
     std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path)
 }
 
-/// Opens `path` to read a file a walk found: a symlink is followed, as std
-/// does, but a FIFO cannot block the open (`O_NONBLOCK`). A dataless file is
-/// never materialised: the process disables that at start
+/// Opens `path` to read a file a walk found (a marker): only a regular file,
+/// never through a symlink (`O_NOFOLLOW`), never blocking on a FIFO
+/// (`O_NONBLOCK`), never taking a terminal (`O_NOCTTY`). The descriptor is
+/// `fstat`ed before anything is read: a FIFO, a socket or a device is an
+/// error, closed unread (safety ADR, amendment of 2026-11-04). A dataless
+/// file is never materialised: the process disables that at start
 /// ([`super::iopolicy`]).
 pub fn open_read(path: &Path) -> io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt as _;
-    std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(path)
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_NOCTTY)
+        .open(path)?;
+    crate::platform::regular_only(file)
 }
 
 /// Clears read-only attributes below `root` before a tree delete is tried

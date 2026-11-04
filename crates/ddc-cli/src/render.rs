@@ -71,18 +71,37 @@ pub fn tilde(path: &Path, home: &Path) -> String {
     escaped(&shown)
 }
 
-/// `ddc clean` over `roots`, each one shell word, so it can be pasted as is.
-pub fn clean_command(roots: &[PathBuf], home: &Path) -> String {
+/// `ddc clean` over `roots`, each one shell word, so it can be pasted as is
+/// into any POSIX `sh` and names the same paths. A newline or a tab stays
+/// literal inside the word's single quotes (dash has no `$'…'`). `None` when
+/// a root holds a byte that is not UTF-8, another control character or a
+/// bidirectional format character: shown escaped it would name another
+/// path, shown raw it could move the cursor, so no command is suggested.
+pub fn clean_command(roots: &[PathBuf], home: &Path) -> Option<String> {
     let mut command = "ddc clean".to_owned();
     for root in roots {
+        let (prefix, rest) = match root.strip_prefix(home) {
+            Ok(rel) if rel.as_os_str().is_empty() => ("~", None),
+            Ok(rel) => ("~/", Some(rel.to_str()?)),
+            Err(_) => ("", Some(root.to_str()?)),
+        };
+        if rest.is_some_and(|w| w.chars().any(|c| (c.is_control() && c != '\n' && c != '\t') || bidi(c))) {
+            return None;
+        }
         command.push(' ');
-        command.push_str(&match root.strip_prefix(home) {
-            Ok(rel) if rel.as_os_str().is_empty() => "~".to_owned(),
-            Ok(rel) => format!("~/{}", quoted(&rel.to_string_lossy())),
-            Err(_) => quoted(&root.to_string_lossy()),
-        });
+        command.push_str(prefix);
+        command.push_str(&rest.map(quoted).unwrap_or_default());
     }
-    escaped(&command)
+    Some(command)
+}
+
+/// The text report's last step: the command to run, or, when no command can
+/// be pasted, what to pass by hand.
+pub fn clean_hint(roots: &[PathBuf], home: &Path) -> String {
+    match clean_command(roots, home) {
+        Some(command) => format!("run `{command}` to review and confirm"),
+        None => "run `ddc clean` with the scanned folder to review and confirm (its name cannot be pasted)".to_owned(),
+    }
 }
 
 /// One word for a POSIX shell: as is when it is plain, else in single quotes.
@@ -307,11 +326,11 @@ pub fn report(w: &mut impl Write, r: &ScanReport, style: &Style, own_roots: bool
     writeln!(w)?;
     writeln!(
         w,
-        "  {} {} selected by default, frees ~{} → run `{}` to review and confirm",
+        "  {} {} selected by default, frees ~{} → {}",
         style.bold("Can free now:"),
         human(r.totals.selected_bytes),
         human(r.totals.selected_reclaimable_bytes),
-        clean_command(if own_roots { &r.scan_roots } else { &[] }, home)
+        clean_hint(if own_roots { &r.scan_roots } else { &[] }, home)
     )?;
 
     let inside = inside_worktrees(&r.findings);
@@ -913,14 +932,43 @@ mod tests {
     #[test]
     fn the_clean_command_names_the_paths_the_scan_was_given() {
         let home = Path::new("/h");
-        assert_eq!(clean_command(&[], home), "ddc clean");
-        assert_eq!(clean_command(&[PathBuf::from("/h/Projects")], home), "ddc clean ~/Projects");
-        assert_eq!(clean_command(&[PathBuf::from("/h")], home), "ddc clean ~");
-        assert_eq!(
-            clean_command(&[PathBuf::from("/h/My Code"), PathBuf::from("/Volumes/it's")], home),
-            r"ddc clean ~/'My Code' '/Volumes/it'\''s'"
-        );
-        assert_eq!(clean_command(&[PathBuf::from("/h/a\u{1b}[2J")], home), r"ddc clean ~/'a\u{1b}[2J'");
+        let cmd = |roots: &[&str]| clean_command(&roots.iter().map(PathBuf::from).collect::<Vec<_>>(), home);
+        assert_eq!(cmd(&[]).as_deref(), Some("ddc clean"));
+        assert_eq!(cmd(&["/h/Projects"]).as_deref(), Some("ddc clean ~/Projects"));
+        assert_eq!(cmd(&["/h"]).as_deref(), Some("ddc clean ~"));
+        assert_eq!(cmd(&["/h/My Code", "/Volumes/it's"]).as_deref(), Some(r"ddc clean ~/'My Code' '/Volumes/it'\''s'"));
+        assert_eq!(cmd(&["/h/-rf"]).as_deref(), Some("ddc clean ~/-rf"), "a leading dash follows `~/`");
+        assert_eq!(cmd(&["/h/a\\b"]).as_deref(), Some(r"ddc clean ~/'a\b'"));
+        // A newline and a tab stay literal inside the quotes.
+        assert_eq!(cmd(&["/h/a\nb\tc"]).as_deref(), Some("ddc clean ~/'a\nb\tc'"));
+        // Another control character or a bidi override: no command.
+        assert_eq!(cmd(&["/h/a\u{1b}[2J"]), None);
+        assert_eq!(cmd(&["/h/cod\u{202e}fdp."]), None);
+        assert!(clean_hint(&[PathBuf::from("/h/a\u{1b}[2J")], home).contains("cannot be pasted"));
+    }
+
+    /// The suggested command, pasted into the system's own `sh`, names the
+    /// same path: each word is read back by `printf '%s\0'`. Where no
+    /// `/bin/sh` exists (Windows) there is nothing to paste into.
+    #[test]
+    fn the_clean_command_pasted_into_sh_names_the_same_paths() {
+        if !Path::new("/bin/sh").exists() {
+            return;
+        }
+        let home = Path::new("/h");
+        for name in ["My Code", "it's", "a\nb", "tab\there", "back\\slash", "-rf", "*", "$HOME", "`id`", "ü"] {
+            let root = home.join(name);
+            let command = clean_command(std::slice::from_ref(&root), home).expect(name);
+            let words = command.strip_prefix("ddc clean ").unwrap();
+            let out = std::process::Command::new("/bin/sh")
+                .arg("-c")
+                .arg(format!("printf '%s\\0' {words}"))
+                .env("HOME", home)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{name:?}: {out:?}");
+            assert_eq!(out.stdout, [root.as_os_str().as_encoded_bytes(), b"\0"].concat(), "{name:?}: {command}");
+        }
     }
 
     #[test]

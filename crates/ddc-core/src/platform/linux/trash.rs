@@ -144,6 +144,11 @@ fn select_top(top: &OwnedFd, top_path: &Path, dev: u64, create: bool) -> Result<
             Err(e) => return Err(refused(e)),
         },
         Err(Errno::NOENT) => {
+            // exFAT and FAT take their modes from the mount: the folder the
+            // clean would make could not be closed to others.
+            if modes_ignored(top) {
+                return Err(TrashError::CrossesFilesystem);
+            }
             return match rustix::fs::accessat(top, ".", Access::WRITE_OK, AtFlags::empty()) {
                 Ok(()) => Ok(None),
                 Err(e) => Err(refused(e)),
@@ -151,15 +156,39 @@ fn select_top(top: &OwnedFd, top_path: &Path, dev: u64, create: bool) -> Result<
         }
         Err(e) => return Err(refused(e)),
     };
-    let st = rustix::fs::fstat(&fd).map_err(errno)?;
-    if st.st_uid != uid {
+    if rustix::fs::fstat(&fd).map_err(errno)?.st_uid != uid {
         return Err(TrashError::CrossesFilesystem);
     }
-    if st.st_mode & 0o077 != 0 && create {
-        // The `trash` crate made them 0755.
-        rustix::fs::fchmod(&fd, Mode::from_raw_mode(0o700)).map_err(errno)?;
-    }
+    // An older ddc, through the `trash` crate, made them 0755.
+    private_mode(&fd, create)?;
     inside(fd, trash, Some(top_path.to_path_buf()), dev, create)
+}
+
+/// `statfs`'s `f_type` of exFAT (`EXFAT_SUPER_MAGIC`).
+const EXFAT_SUPER_MAGIC: u32 = 0x2011_BAB0;
+/// `statfs`'s `f_type` of FAT, vfat included (`MSDOS_SUPER_MAGIC`).
+const MSDOS_SUPER_MAGIC: u32 = 0x4d44;
+
+/// exFAT and FAT: modes come from the mount options, and `fchmod` succeeds
+/// without changing them (safety ADR, amendment of 2026-11-04).
+fn modes_ignored(fd: &OwnedFd) -> bool {
+    matches!(bulk::fs_magic(fd), Some(EXFAT_SUPER_MAGIC | MSDOS_SUPER_MAGIC))
+}
+
+/// A trash folder closed to group and others. With `create`, a looser one is
+/// made 0700 and `fstat`ed again, since exFAT and FAT accept the `fchmod`
+/// and keep the mode; still open, it is no trash. Without `create` nothing
+/// changes, and the dry run refuses where the `fchmod` could not hold.
+fn private_mode(fd: &OwnedFd, create: bool) -> Result<(), TrashError> {
+    let open = |fd: &OwnedFd| rustix::fs::fstat(fd).map(|st| st.st_mode & 0o077 != 0).map_err(errno);
+    if !open(fd)? {
+        return Ok(());
+    }
+    if !create {
+        return if modes_ignored(fd) { Err(TrashError::CrossesFilesystem) } else { Ok(()) };
+    }
+    rustix::fs::fchmod(fd, Mode::from_raw_mode(0o700)).map_err(refused)?;
+    if open(fd)? { Err(TrashError::CrossesFilesystem) } else { Ok(()) }
 }
 
 /// `$topdir/.Trash/$uid`, only when `.Trash` is a real folder with the
@@ -235,8 +264,9 @@ fn inside(
     })
 }
 
-/// One of `files/` and `info/`: the user's, never a symlink; made 0700 when
-/// missing and `create`; without `create`, a missing one must be makeable.
+/// One of `files/` and `info/`: the user's, never a symlink, closed to
+/// others ([`private_mode`]); made 0700 when missing and `create`; without
+/// `create`, a missing one must be makeable.
 fn sub(trash: &OwnedFd, name: &str, create: bool) -> Result<Option<OwnedFd>, TrashError> {
     let fd = match open_dir(trash, name) {
         Ok(fd) => fd,
@@ -255,6 +285,7 @@ fn sub(trash: &OwnedFd, name: &str, create: bool) -> Result<Option<OwnedFd>, Tra
     if rustix::fs::fstat(&fd).map_err(errno)?.st_uid != rustix::process::getuid().as_raw() {
         return Err(TrashError::CrossesFilesystem);
     }
+    private_mode(&fd, create)?;
     Ok(Some(fd))
 }
 
@@ -552,6 +583,26 @@ mod tests {
         assert_eq!(fs::metadata(&own).unwrap().mode() & 0o777, 0o755, "the dry run changes nothing");
         select_top(&fx.top(), &fx.base, fx.dev(), true).unwrap().unwrap();
         assert_eq!(fs::metadata(&own).unwrap().mode() & 0o777, 0o700);
+    }
+
+    /// A loose `files/` or `info/` is tightened to 0700 by the clean, as
+    /// the trash itself is; the dry run changes nothing.
+    #[test]
+    fn a_loose_files_folder_is_tightened() {
+        let fx = Fx::new();
+        let own = fx.base.join(format!(".Trash-{}", uid()));
+        fs::create_dir(&own).unwrap();
+        fs::set_permissions(&own, fs::Permissions::from_mode(0o700)).unwrap();
+        for sub in ["files", "info"] {
+            fs::create_dir(own.join(sub)).unwrap();
+            fs::set_permissions(own.join(sub), fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert!(select_top(&fx.top(), &fx.base, fx.dev(), false).unwrap().is_none());
+        assert_eq!(fs::metadata(own.join("files")).unwrap().mode() & 0o777, 0o755, "the dry run changes nothing");
+        select_top(&fx.top(), &fx.base, fx.dev(), true).unwrap().unwrap();
+        for sub in ["files", "info"] {
+            assert_eq!(fs::metadata(own.join(sub)).unwrap().mode() & 0o777, 0o700, "{sub}");
+        }
     }
 
     /// A `.Trash-$uid` that is a symlink, or a `files/` that is one, is no

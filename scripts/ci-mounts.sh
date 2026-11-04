@@ -273,6 +273,25 @@ sudo -n chattr +i "$base/fixtures/immutable/file"
 echo data >"$base/fixtures/append-only/file"
 sudo -n chattr +a "$base/fixtures/append-only/file"
 say DDC_FIXTURE_DEVICE "$base/fixtures/device/null"
+
+# A device node inside a finding, twice (story "Linux file kinds: special files, immutable
+# flags, sparse files and odd names", DDC-010): a home with an idle Node project whose
+# node_modules holds one, for a scan and a permanent clean; and a folder on the user's
+# tmpfs holding one, for a move into that tmpfs's Trash. Each node is the user's and
+# readable, so a test can watch it with inotify; a folder of the user's lets it go.
+d="$base/fixtures/device-tree"
+mkdir -p "$d/p/node_modules/dep" "$d/p/node_modules/dev"
+echo '{}' >"$d/p/package.json"
+echo '{}' >"$d/p/package-lock.json"
+touch -d '60 days ago' "$d/p/package.json" "$d/p/package-lock.json"
+head -c 20000 /dev/zero >"$d/p/node_modules/dep/index.js"
+sudo -n mknod -m 0644 "$d/p/node_modules/dev/null" c 1 3
+mine "$d/p/node_modules/dev/null"
+say DDC_FIXTURE_DEVICE_TREE "$d"
+mkdir -p "$base/tmpfs/device-trash/cache"
+sudo -n mknod -m 0644 "$base/tmpfs/device-trash/cache/null" c 1 3
+mine "$base/tmpfs/device-trash/cache/null"
+say DDC_FIXTURE_DEVICE_TRASH "$base/tmpfs/device-trash"
 say DDC_FIXTURE_IMMUTABLE "$base/fixtures/immutable/file"
 say DDC_FIXTURE_APPEND_ONLY "$base/fixtures/append-only/file"
 

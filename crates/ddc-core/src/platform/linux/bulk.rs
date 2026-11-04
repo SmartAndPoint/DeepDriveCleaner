@@ -36,7 +36,7 @@ const PATH_MAX: usize = 4096;
 
 /// `statfs`'s `f_type` of an open folder's filesystem, as the 32-bit magic
 /// number it is.
-fn fs_magic(fd: &OwnedFd) -> Option<u32> {
+pub(super) fn fs_magic(fd: &OwnedFd) -> Option<u32> {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a magic number fits 32 bits
     rustix::fs::fstatfs(fd).ok().map(|st| st.f_type as u32)
 }

@@ -272,3 +272,50 @@ fn the_terminal_clean_still_rescans_the_whole_home() {
     assert_eq!(recheck["files"], whole, "the whole home, unrelated trees included");
     assert!(!fx.home.join("q/__pycache__").exists());
 }
+
+/// A sparse file (a VM disk, a database) counts at its allocated size, never
+/// its apparent one: 4 KiB of data in a 1 GiB file is 4 KiB in `scan`, in
+/// `ddc du` and in the clean's journal (safety ADR, amendment of 2026-11-04).
+/// Unix: a Windows `set_len` allocates.
+#[cfg(unix)]
+#[test]
+fn a_sparse_file_counts_its_allocated_size_in_scan_du_and_clean() {
+    use std::io::{Seek as _, SeekFrom, Write as _};
+    if common::unsupported("a_sparse_file_counts_its_allocated_size_in_scan_du_and_clean") {
+        return;
+    }
+    let fx = Fx::new();
+    let nm = fx.home.join("p/node_modules");
+    let mut f = File::create(nm.join("disk.img")).unwrap();
+    f.set_len(1 << 30).unwrap();
+    f.seek(SeekFrom::Start(512 << 20)).unwrap();
+    f.write_all(&[9u8; 4096]).unwrap();
+    drop(f);
+    let alloc = |p: &Path| std::os::unix::fs::MetadataExt::blocks(&fs::metadata(p).unwrap()) * 512;
+    let sparse = alloc(&nm.join("disk.img"));
+    assert!(sparse < 1 << 20, "test precondition: the filesystem keeps the hole: {sparse}");
+
+    let out = ddc(&fx.home, &["scan", "--json", "--data-dir", fx.data_arg()]);
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let finding = report["findings"].as_array().unwrap().iter().find(|f| f["path"] == nm.to_str().unwrap()).unwrap();
+    let bytes = finding["bytes"].as_u64().unwrap();
+    assert!(bytes < 1 << 20, "scan: {bytes}");
+
+    let du = ddc(&fx.home, &["du", nm.to_str().unwrap()]);
+    assert!(du.status.success(), "stderr: {}", String::from_utf8_lossy(&du.stderr));
+    let kib: u64 = String::from_utf8(du.stdout).unwrap().split('\t').next().unwrap().parse().unwrap();
+    assert!(kib < 1024, "du: {kib} KiB");
+
+    let out =
+        ddc(&fx.home, &["clean", "--yes", "--class", "safe", "--class", "rebuildable", "--data-dir", fx.data_arg()]);
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(!nm.exists());
+    let journal = fs::read_to_string(fx.data.join("logs/actions.jsonl")).unwrap();
+    let line: serde_json::Value = journal
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .find(|l: &serde_json::Value| l["path"] == nm.to_str().unwrap())
+        .unwrap();
+    assert_eq!(line["bytes"].as_u64().unwrap(), bytes, "the clean counts what the scan counted");
+}

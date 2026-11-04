@@ -237,6 +237,12 @@ pub enum Prepared {
     Immutable,
     /// A file with `chattr +a`.
     AppendOnly,
+    /// A home with an idle Node project whose `node_modules` holds a
+    /// character device of the user's (`node_modules/dev/null`).
+    DeviceTree,
+    /// A folder of the user's on the user's own tmpfs holding a character
+    /// device of theirs (`cache/null`), for a move into that tmpfs's Trash.
+    DeviceTrash,
 }
 
 impl Prepared {
@@ -245,6 +251,8 @@ impl Prepared {
             Prepared::Device => "DDC_FIXTURE_DEVICE",
             Prepared::Immutable => "DDC_FIXTURE_IMMUTABLE",
             Prepared::AppendOnly => "DDC_FIXTURE_APPEND_ONLY",
+            Prepared::DeviceTree => "DDC_FIXTURE_DEVICE_TREE",
+            Prepared::DeviceTrash => "DDC_FIXTURE_DEVICE_TRASH",
         }
     }
 
@@ -253,6 +261,8 @@ impl Prepared {
             Prepared::Device => "device",
             Prepared::Immutable => "immutable",
             Prepared::AppendOnly => "append-only",
+            Prepared::DeviceTree => "device tree",
+            Prepared::DeviceTrash => "device trash",
         }
     }
 }
