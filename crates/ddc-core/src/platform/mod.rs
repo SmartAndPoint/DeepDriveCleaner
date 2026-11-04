@@ -183,6 +183,7 @@ mod pins {
     const _: fn(i32, i32) = imp::signals::kill_group;
     const _: fn(i32, i32) -> io::Result<()> = imp::signals::signal_group;
     const _: fn(i32) -> ! = imp::signals::reraise;
+    const _: fn(&str) -> io::Result<()> = imp::signals::watch_event;
     const _: i32 = imp::signals::SIGKILL;
 
     const _: fn(&Path) -> io::Result<VolumeStats> = imp::statfs::statfs;

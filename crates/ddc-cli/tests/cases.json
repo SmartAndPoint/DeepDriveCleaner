@@ -257,6 +257,7 @@
     {"name": "schedule install", "reason": "it installs into the user's real scheduler (launchd's gui/<uid> domain, the systemd user manager) whatever HOME is"},
     {"name": "schedule install --interval", "reason": "schedule install is never run"},
     {"name": "schedule install --threshold", "reason": "schedule install is never run"},
-    {"name": "schedule uninstall", "reason": "it removes the user's real scheduled scan (the launchd agent, the systemd user timer) whatever HOME is"}
+    {"name": "schedule uninstall", "reason": "it removes the user's real scheduled scan (the launchd agent, the systemd user timer) whatever HOME is"},
+    {"name": "--cancel-event", "reason": "the Windows app's Stop: it needs an event the app made; tests/rules_cli.rs covers a name nobody made and, on Windows, a set event"}
   ]
 }

@@ -12,19 +12,27 @@
 //! process when the handler returns or the time runs out, so the handler
 //! waits, and the report may be lost.
 //!
+//! The Windows app's Stop is a named event (`--cancel-event`, [`watch_event`]):
+//! once it is set, a command that installed the handler stops as on SIGTERM
+//! (15, exit 143); one that did not (a scan) ends at once with 143, as
+//! SIGTERM's default does on Unix.
+//!
 //! The jobs are kept under a lock, not in atomics as on Unix: the handler
 //! runs on a thread of its own, where a lock is allowed, and a handle value
 //! is reused once closed, so a reader without the lock could end another
 //! command's job.
 
 use std::io::{self, Write as _};
-use std::os::windows::io::{AsRawHandle as _, OwnedHandle};
+use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _, OwnedHandle};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
+use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+use windows_sys::Win32::Storage::FileSystem::SYNCHRONIZE;
 use windows_sys::Win32::System::Console::{CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, SetConsoleCtrlHandler};
 use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+use windows_sys::Win32::System::Threading::{INFINITE, OpenEventW, WaitForSingleObject};
 use windows_sys::core::BOOL;
 
 /// Ends a command at once (on Windows every stop does).
@@ -33,6 +41,8 @@ pub const SIGKILL: i32 = 9;
 pub(super) const SIGHUP: i32 = 1;
 /// Ctrl-C and Ctrl-Break.
 pub(super) const SIGINT: i32 = 2;
+/// The Windows app's Stop (`--cancel-event`), as SIGTERM on macOS.
+pub(super) const SIGTERM: i32 = 15;
 
 /// The exit code of a command whose job ddc ended.
 const ENDED: u32 = 1;
@@ -43,6 +53,8 @@ const CLOSE_GRACE: Duration = Duration::from_millis(4_500);
 const NOTICE: &[u8] = b"\nddc: stopping after the current item\n";
 
 static CANCEL: AtomicBool = AtomicBool::new(false);
+/// Set once [`install`] ran: a command that reads the cancel flag.
+static INSTALLED: OnceLock<Result<(), String>> = OnceLock::new();
 static SIGNAL: AtomicI32 = AtomicI32::new(0);
 /// The jobs of the commands running now, by their pid.
 static JOBS: Mutex<Vec<(i32, OwnedHandle)>> = Mutex::new(Vec::new());
@@ -104,7 +116,6 @@ unsafe extern "system" fn on_ctrl(kind: u32) -> BOOL {
 
 /// Installs the console control handler and returns the flag it sets.
 pub fn install() -> io::Result<&'static AtomicBool> {
-    static INSTALLED: OnceLock<Result<(), String>> = OnceLock::new();
     INSTALLED
         .get_or_init(|| {
             // SAFETY: a handler of the documented signature, added once for
@@ -213,6 +224,54 @@ pub fn signal_group(group: i32, _sig: i32) -> io::Result<()> {
     Ok(())
 }
 
+/// Watches the named event the Windows app creates for this run
+/// (`--cancel-event`): once it is set, the stop is SIGTERM's (15, exit 143):
+/// the cancel flag, every running job ended, the journal and the report
+/// written. Opened for `SYNCHRONIZE` only. An event already set stops the
+/// run before its first item. Any process of the session can open a named
+/// event, so at worst it stops a clean early, which is safe.
+pub fn watch_event(name: &str) -> io::Result<()> {
+    let wide: Vec<u16> = name.encode_utf16().chain([0]).collect();
+    // SAFETY: a NUL-terminated wide name; the handle is checked below.
+    let raw = unsafe { OpenEventW(SYNCHRONIZE, 0, wide.as_ptr()) };
+    if raw.is_null() {
+        let e = io::Error::last_os_error();
+        return Err(if e.kind() == io::ErrorKind::NotFound {
+            io::Error::new(e.kind(), "no such event: the app creates it before it starts ddc")
+        } else {
+            e
+        });
+    }
+    // SAFETY: a handle OpenEventW just returned, owned by nobody else.
+    let event = unsafe { OwnedHandle::from_raw_handle(raw) };
+    let stop = || {
+        // A command that reads no cancel flag (a scan, or a clean before it
+        // installed its handler) ends at once, as SIGTERM's default does on
+        // Unix: never a run that goes on with its probes refused.
+        // Its running probes' jobs are ended first, and none starts after.
+        cancel(SIGTERM);
+        if INSTALLED.get().is_none_or(Result::is_err) {
+            reraise(SIGTERM);
+        }
+        let _ = io::stderr().write_all(NOTICE);
+    };
+    // SAFETY: the event is open for the call; 0 is no wait.
+    if unsafe { WaitForSingleObject(event.as_raw_handle(), 0) } == WAIT_OBJECT_0 {
+        stop();
+        return Ok(());
+    }
+    std::thread::Builder::new().name("ddc-cancel-event".into()).spawn(move || {
+        // SAFETY: the event is open for as long as this thread owns it.
+        if unsafe { WaitForSingleObject(event.as_raw_handle(), INFINITE) } == WAIT_OBJECT_0 {
+            stop();
+        } else {
+            let e = io::Error::last_os_error();
+            let _ = writeln!(io::stderr(), "ddc: warning: the cancel event cannot be watched, Stop will not work: {e}");
+        }
+    })?;
+    Ok(())
+}
+
 /// Ends the process with the shell's code for a death by `sig`.
 pub fn reraise(sig: i32) -> ! {
     std::process::exit(128 + sig)
@@ -241,6 +300,51 @@ mod tests {
         assert_eq!(unsafe { on_ctrl(CTRL_C_EVENT) }, 1);
         assert!(flag.load(Ordering::SeqCst));
         assert_eq!(received(), Some(SIGINT));
+    }
+
+    /// An event with a name of this test's own, set or not.
+    fn event(set: bool) -> (String, OwnedHandle) {
+        use windows_sys::Win32::System::Threading::CreateEventW;
+        let name = format!("ddc-test-cancel-{}-{set}", std::process::id());
+        let wide: Vec<u16> = name.encode_utf16().chain([0]).collect();
+        // SAFETY: no security attributes; manual reset; a NUL-terminated name.
+        let raw = unsafe { CreateEventW(std::ptr::null(), 1, i32::from(set), wide.as_ptr()) };
+        assert!(!raw.is_null(), "{}", io::Error::last_os_error());
+        // SAFETY: a handle CreateEventW just returned, owned by nobody else.
+        (name, unsafe { OwnedHandle::from_raw_handle(raw) })
+    }
+
+    /// The app's Stop: once the event is set, the flag and SIGTERM.
+    #[test]
+    fn a_set_cancel_event_is_sigterm() {
+        use windows_sys::Win32::System::Threading::SetEvent;
+        let (name, handle) = event(false);
+        install().unwrap();
+        watch_event(&name).unwrap();
+        assert!(!CANCEL.load(Ordering::SeqCst), "not before it is set");
+        // SAFETY: the event is open for the call.
+        assert_ne!(unsafe { SetEvent(handle.as_raw_handle()) }, 0);
+        let started = std::time::Instant::now();
+        while !CANCEL.load(Ordering::SeqCst) && started.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(received(), Some(SIGTERM));
+    }
+
+    /// An event already set stops the run at once, before its first item.
+    #[test]
+    fn a_cancel_event_already_set_stops_at_once() {
+        let (name, _handle) = event(true);
+        install().unwrap();
+        watch_event(&name).unwrap();
+        assert!(CANCEL.load(Ordering::SeqCst) && received() == Some(SIGTERM));
+    }
+
+    #[test]
+    fn a_cancel_event_nobody_created_is_an_error() {
+        let e = watch_event("ddc-test-no-such-event").unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::NotFound);
+        assert!(e.to_string().contains("no such event"), "{e}");
     }
 
     #[test]
