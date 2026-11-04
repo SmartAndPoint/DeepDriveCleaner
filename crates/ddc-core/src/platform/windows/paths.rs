@@ -111,7 +111,7 @@ pub(super) fn simplified(path: PathBuf) -> PathBuf {
 
 /// A name the plain (Win32) form keeps as it is: no trailing dot or space,
 /// which Win32 strips, and no device name such as `NUL` or `com1.txt`.
-fn plainly_spelled(name: &OsStr) -> bool {
+pub(super) fn plainly_spelled(name: &OsStr) -> bool {
     let Some(name) = name.to_str() else { return true };
     if name.ends_with('.') || name.ends_with(' ') {
         return false;

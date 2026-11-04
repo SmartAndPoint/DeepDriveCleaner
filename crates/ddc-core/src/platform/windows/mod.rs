@@ -3,7 +3,8 @@
 //! rule catalog" (DDC-007) ports it module by module, then flips the literal
 //! and declares its capabilities, in the same commit that enables its release
 //! archives. `unsafe` is allowed here only for the Win32 calls through
-//! `windows-sys`, each block with a `// SAFETY:` comment (seam ADR §2).
+//! `windows-sys`, and in `trash.rs` the shell's COM interfaces through
+//! `windows`, each block with a `// SAFETY:` comment (seam ADR §2).
 
 #![allow(unsafe_code)]
 
@@ -25,6 +26,7 @@ pub mod statfs;
 pub mod term;
 #[cfg(test)]
 pub mod testing;
+pub mod trash;
 pub mod usage;
 mod wide;
 

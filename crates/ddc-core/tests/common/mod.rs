@@ -7,6 +7,8 @@ pub mod fixtures;
 pub mod git;
 #[cfg(target_os = "linux")]
 pub mod mounts;
+#[cfg(target_os = "windows")]
+pub mod recycle;
 
 #[cfg(target_os = "linux")]
 #[allow(unused_imports)] // each test binary uses its own part of `common`

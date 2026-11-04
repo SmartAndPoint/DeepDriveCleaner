@@ -16,8 +16,15 @@ success-output = "immediate"
 # guard, so it is killed at 240 s, not 120.
 [test-groups]
 load = { max-threads = 4 }
+# The Recycle Bin tests on the lab's test volume set one HKCU value, the
+# volume's MaxCapacity: one at a time.
+recycle = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = '(package(ddc-loadgen) & kind(test)) | binary(golden_cli) | binary(load_cli) | binary(interrupt_cli)'
 test-group = 'load'
 slow-timeout = { period = "60s", terminate-after = 4 }
+
+[[profile.default.overrides]]
+filter = 'binary(recycle_bin)'
+test-group = 'recycle'
