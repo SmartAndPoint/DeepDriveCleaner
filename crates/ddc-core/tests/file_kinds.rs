@@ -19,11 +19,16 @@ use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
 use ddc_core::exec::{self, Consent, ExecOptions, MemoryJournal, Outcome, Ports};
 use ddc_core::plan::{PlanOptions, build_plan};
-use ddc_core::platform::types::TrashError;
+use ddc_core::platform::types::{TrashAsk, TrashDone, TrashError};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
 use ddc_core::scan::{Progress, WalkOptions};
 use rustix::fs::inotify;
+
+/// One part of a move to the Trash, for `trash::admit`.
+fn ask<'a>(name: &'a std::ffi::OsStr, path: &'a Path, is_dir: bool) -> TrashAsk<'a> {
+    TrashAsk { name, path, bytes: 0, is_dir }
+}
 
 /// An inotify watch for opens of `path`.
 fn watch_opens(path: &Path) -> OwnedFd {
@@ -139,8 +144,10 @@ fn a_device_node_moves_into_the_trash_unopened() {
     let parent = ddc_core::platform::fsops::DirFd::open(&dir).unwrap();
     let name = item.file_name().unwrap();
 
-    trash::would_trash(&parent, name, &item).unwrap();
-    let place = trash::trash_item(&parent, name, &item, id).unwrap().expect("Linux tells the place");
+    trash::admit(&mut trash::Budget, &parent, &[ask(name, &item, true)]).unwrap();
+    let TrashDone::Moved(Some(place)) = trash::trash_item(&parent, name, &item, id).unwrap() else {
+        panic!("Linux moves and tells the place");
+    };
 
     let landed = place.trash.join("files").join(&place.name);
     assert_eq!(ddc_core::platform::meta::lstat(&landed).unwrap().id(), id, "moved, not copied");
@@ -167,8 +174,9 @@ fn an_exfat_trash_that_stays_open_refuses_the_move() {
     let folder = ddc_core::platform::fsops::DirFd::open(file.parent().unwrap()).unwrap();
     let name = file.file_name().unwrap();
 
-    assert!(matches!(trash::would_trash(&folder, name, &file), Err(TrashError::CrossesFilesystem)), "before");
+    let admit = || trash::admit(&mut trash::Budget, &folder, &[ask(name, &file, false)]);
+    assert!(matches!(admit(), Err(TrashError::CrossesFilesystem)), "before");
     assert!(matches!(trash::trash_item(&folder, name, &file, id), Err(TrashError::CrossesFilesystem)));
     assert!(file.exists(), "nothing moved");
-    assert!(matches!(trash::would_trash(&folder, name, &file), Err(TrashError::CrossesFilesystem)), "after");
+    assert!(matches!(admit(), Err(TrashError::CrossesFilesystem)), "after");
 }
