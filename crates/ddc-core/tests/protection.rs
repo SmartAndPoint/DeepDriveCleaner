@@ -132,6 +132,44 @@ fn a_kept_finding_names_what_protects_it_and_the_rule_it_displaced() {
     assert_eq!(by_flag.exclusions, [h.exclusion("c/node_modules", Exclude, Flag, false)]);
 }
 
+/// A keep marker named in another ASCII case keeps its folder on every
+/// filesystem: `.DDC-KEEP` at a finding's top, `.Ddc-Keep` deeper. Where
+/// the filesystem tells case apart this keeps more than the name says, the
+/// safe side (safety ADR, amendment of 2026-11-04, §6).
+#[test]
+fn a_keep_marker_in_another_case_keeps_its_folder() {
+    if common::unsupported("a_keep_marker_in_another_case_keeps_its_folder") {
+        return;
+    }
+    let h = Home::new();
+    h.t.write("a/node_modules/.DDC-KEEP", "");
+    h.t.write("b/node_modules/dep/.Ddc-Keep", "");
+    let r = h.scan(&Settings::default(), &ScanFlags::default());
+
+    assert_eq!(protection(&r, &h, "a/node_modules").markers, [h.marker("a/node_modules")]);
+    assert_eq!(protection(&r, &h, "b/node_modules").markers, [h.marker("b/node_modules/dep")]);
+    assert_eq!(finding(&r, &h, "c/node_modules").rule, "node.node_modules", "the others stay");
+}
+
+/// Rule names match byte for byte on every filesystem: `Node_Modules` is
+/// not `node_modules`, so it is not that rule's finding (safety ADR,
+/// amendment of 2026-11-04, §6).
+#[test]
+fn a_rule_name_in_another_case_is_not_the_rule() {
+    if common::unsupported("a_rule_name_in_another_case_is_not_the_rule") {
+        return;
+    }
+    let h = Home::new();
+    h.t.write("x/package.json", "{}");
+    h.t.write("x/package-lock.json", "{}");
+    h.t.file("x/Node_Modules/dep/index.js", 100);
+    let r = h.scan(&Settings::default(), &ScanFlags::default());
+
+    let upper = h.path("x/Node_Modules");
+    assert!(!r.findings.iter().any(|f| f.path == upper), "Node_Modules is no finding");
+    assert_eq!(finding(&r, &h, "a/node_modules").rule, "node.node_modules");
+}
+
 /// The identities `ddc keep remove` compares: a marker at a finding's top
 /// names that folder's own `(dev, ino)`, whichever route claimed it.
 #[test]
