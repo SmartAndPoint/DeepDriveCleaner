@@ -84,6 +84,14 @@ ssh "$host" "cd ~/$remote/src && find . -type f | sed 's|^\./||' | LC_ALL=C sort
 
 filter=""
 for a in "$@"; do filter+=" $(printf '%q' "$a")"; done
+# The lab's Recycle Bin test volume (story "Windows scanner and rule catalog", step
+# 10b), for a filtered run only: a full run skips the tests that need it, as the
+# environment group of the skip list says.
+recycle="${DDC_RECYCLE_TEST_VOLUME:-}"
+if [ -n "$recycle" ] && [ -z "$filter" ]; then
+    echo "DDC_RECYCLE_TEST_VOLUME is for a filtered run; a full run skips the tests that need it" >&2
+    exit 2
+fi
 ssh "$host" bash -s <<EOF
 set -uo pipefail
 d=~/$remote
@@ -95,6 +103,7 @@ export HOME="\$h" USERPROFILE="\$(w "\$h")" APPDATA="\$(w "\$h/AppData/Roaming")
 export HOMEDRIVE="\${USERPROFILE%%\\\\*}" HOMEPATH="\${USERPROFILE#*:}"
 export TMP="\$(w "\$d/tmp")" TEMP="\$(w "\$d/tmp")"
 export PATH="\$d/cargo/bin:\$PATH" NEXTEST_PROFILE=ci CARGO_TERM_COLOR=never
+${recycle:+export DDC_RECYCLE_TEST_VOLUME=$(printf '%q' "$recycle")}
 cd "\$d/src"
 if [ -z "$filter" ]; then
     cargo clippy --workspace --all-targets --locked --target $target -- -D warnings || exit 1

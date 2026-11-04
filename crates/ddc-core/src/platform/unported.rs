@@ -31,23 +31,3 @@ pub mod iopolicy {
         super::unsupported()
     }
 }
-
-#[cfg(not(target_os = "linux"))] // ported: `linux/trash.rs`
-pub mod trash {
-    use std::ffi::OsStr;
-    use std::path::Path;
-
-    use crate::platform::fsops::DirFd;
-    use crate::platform::types::{TrashAsk, TrashDone, TrashError};
-
-    #[derive(Debug, Default)]
-    pub struct Budget;
-
-    pub fn trash_item(_: &DirFd, _: &OsStr, _: &Path, _: (u64, u64)) -> Result<TrashDone, TrashError> {
-        Err(TrashError::Other(super::unsupported::<()>().unwrap_err()))
-    }
-
-    pub fn admit(_: &mut Budget, _: &DirFd, _: &[TrashAsk<'_>]) -> Result<(), TrashError> {
-        Err(TrashError::Other(super::unsupported::<()>().unwrap_err()))
-    }
-}

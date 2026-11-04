@@ -723,6 +723,36 @@ fn only_the_os_modules_and_the_counters_allow_unsafe_code() {
     );
 }
 
+/// The `windows` crate, for the shell's COM interfaces, in one file (seam
+/// ADR §2, amended 2026-11-04; safety ADR §5, the Recycle Bin on Windows):
+/// every other Win32 call goes through `windows-sys`, and only `ddc-core`
+/// depends on it.
+#[test]
+fn only_the_recycle_bin_names_the_windows_crate() {
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let marks =
+        ["windows::Win32", "windows::Wdk", "windows::core", "windows_core::", "use windows::", "use windows_core"];
+    let mut naming = Vec::new();
+    let this = Path::new(file!()).file_name().unwrap();
+    for path in rust_files(&crates).into_iter().filter(|p| !p.components().any(|c| c.as_os_str() == "target")) {
+        // This test names the marks it looks for.
+        if path.file_name() == Some(this) {
+            continue;
+        }
+        let text = code(&path);
+        if marks.iter().any(|m| text.contains(m)) {
+            naming.push(path.strip_prefix(&crates).unwrap().to_string_lossy().replace('\\', "/"));
+        }
+    }
+    assert_eq!(naming, ["ddc-core/src/platform/windows/trash.rs"]);
+    for entry in std::fs::read_dir(&crates).unwrap() {
+        let krate = entry.unwrap().path();
+        let Ok(manifest) = std::fs::read_to_string(krate.join("Cargo.toml")) else { continue };
+        let depends = manifest.lines().any(|l| l.starts_with("windows ") || l.starts_with("windows-core"));
+        assert_eq!(depends, krate.ends_with("ddc-core"), "{}", krate.display());
+    }
+}
+
 /// The code of a Rust file: every line but `//` comments.
 fn code(path: &Path) -> String {
     let text = std::fs::read_to_string(path).unwrap();

@@ -342,6 +342,8 @@ dependencies = [
  "tempfile",
  "thiserror",
  "trash",
+ "windows",
+ "windows-core",
  "windows-sys",
 ]
 

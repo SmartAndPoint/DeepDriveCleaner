@@ -325,6 +325,21 @@ impl DirFd {
         Ok(unsafe { OwnedHandle::from_raw_handle(handle) })
     }
 
+    /// The child folder `name`, opened by name relative to this folder and
+    /// never through a link: the Recycle Bin's walk of an item's size
+    /// (safety ADR §5, the Recycle Bin on Windows, settled at 10b's lab).
+    pub(super) fn open_child_dir(&self, name: &OsStr) -> io::Result<Self> {
+        let handle = self.child(name, FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE, 0)?;
+        let tag = info::<FILE_ATTRIBUTE_TAG_INFO>(&handle)?;
+        if is_link(&tag) {
+            return Err(io::Error::from_raw_os_error(A_LINK));
+        }
+        if tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0 {
+            return Err(io::Error::from_raw_os_error(NOT_A_DIRECTORY));
+        }
+        Ok(Self(handle))
+    }
+
     /// The child's id, attributes, sizes and link count in one call, by name
     /// relative to this folder, without opening a handle to it
     /// (`NtQueryInformationByName` with `FileStatInformation`, Windows 10
@@ -482,7 +497,7 @@ fn folders_writable(root: &Path) {
 }
 
 /// FAT and exFAT, as `GetVolumeInformationW` names them (lowercased).
-fn is_fat(fs_type: &str) -> bool {
+pub(super) fn is_fat(fs_type: &str) -> bool {
     matches!(fs_type, "fat" | "fat12" | "fat16" | "fat32" | "exfat")
 }
 

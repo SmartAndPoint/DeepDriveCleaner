@@ -45,9 +45,10 @@ use windows_sys::Win32::Foundation::{
     ERROR_INVALID_FUNCTION, ERROR_INVALID_LEVEL, ERROR_INVALID_PARAMETER, ERROR_NO_MORE_FILES, ERROR_NOT_SUPPORTED,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_BASIC_INFO, FILE_FULL_DIR_INFO, FILE_ID_EXTD_DIR_INFO,
-    FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_STANDARD_INFO, FileFullDirectoryInfo, FileFullDirectoryRestartInfo,
-    FileIdExtdDirectoryInfo, FileIdExtdDirectoryRestartInfo, GetFileInformationByHandleEx, SYNCHRONIZE,
+    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO,
+    FILE_FULL_DIR_INFO, FILE_ID_EXTD_DIR_INFO, FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_STANDARD_INFO,
+    FileFullDirectoryInfo, FileFullDirectoryRestartInfo, FileIdExtdDirectoryInfo, FileIdExtdDirectoryRestartInfo,
+    GetFileInformationByHandleEx, SYNCHRONIZE,
 };
 use windows_sys::Win32::System::IO::DeviceIoControl;
 
@@ -140,23 +141,7 @@ pub fn list(
         FileIdExtdDirectoryRestartInfo,
         FileIdExtdDirectoryInfo,
         size_of::<FILE_ID_EXTD_DIR_INFO>(),
-        |record| {
-            // SAFETY (of the read): `record` starts a FILE_ID_EXTD_DIR_INFO the
-            // call wrote, and `read_all` checked its fixed part is left; read
-            // unaligned.
-            let header = unsafe { std::ptr::read_unaligned(record.as_ptr().cast::<FILE_ID_EXTD_DIR_INFO>()) };
-            let name = name_of(record, std::mem::offset_of!(FILE_ID_EXTD_DIR_INFO, FileName), header.FileNameLength);
-            let id = id_of(&FILE_ID_INFO { VolumeSerialNumber: dev, FileId: header.FileId });
-            Raw {
-                name,
-                attributes: header.FileAttributes,
-                tag: header.ReparsePointTag,
-                alloc: header.AllocationSize,
-                modified: header.LastWriteTime,
-                created: header.CreationTime,
-                id: Some(id),
-            }
-        },
+        |record| extd_raw(record, dev),
     ) {
         Ok(raws) => entries.extend(raws.into_iter().filter_map(|raw| entry(&folder, raw, dev, times))),
         Err(e) if refused_class(&e) => {
@@ -165,23 +150,7 @@ pub fn list(
                 FileFullDirectoryRestartInfo,
                 FileFullDirectoryInfo,
                 size_of::<FILE_FULL_DIR_INFO>(),
-                |record| {
-                    // SAFETY (of the read): as above, for FILE_FULL_DIR_INFO.
-                    let header = unsafe { std::ptr::read_unaligned(record.as_ptr().cast::<FILE_FULL_DIR_INFO>()) };
-                    let name =
-                        name_of(record, std::mem::offset_of!(FILE_FULL_DIR_INFO, FileName), header.FileNameLength);
-                    Raw {
-                        name,
-                        attributes: header.FileAttributes,
-                        // `EaSize` carries the reparse tag when the entry is a
-                        // reparse point (it is `WIN32_FIND_DATA.dwReserved0`).
-                        tag: if header.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 { header.EaSize } else { 0 },
-                        alloc: header.AllocationSize,
-                        modified: header.LastWriteTime,
-                        created: header.CreationTime,
-                        id: None,
-                    }
-                },
+                full_raw,
             )
             .map_err(|e| read_error(&e))?;
             entries.extend(raws.into_iter().filter_map(|raw| entry(&folder, raw, dev, times)));
@@ -199,12 +168,115 @@ pub fn list(
     })
 }
 
+/// A `FileIdExtdDirectoryInfo` record, on the volume `dev`.
+fn extd_raw(record: &[u8], dev: u64) -> Raw {
+    // SAFETY (of the read): `record` starts a FILE_ID_EXTD_DIR_INFO the call
+    // wrote, and `read_all` checked its fixed part is left; read unaligned.
+    let header = unsafe { std::ptr::read_unaligned(record.as_ptr().cast::<FILE_ID_EXTD_DIR_INFO>()) };
+    let name = name_of(record, std::mem::offset_of!(FILE_ID_EXTD_DIR_INFO, FileName), header.FileNameLength);
+    let id = id_of(&FILE_ID_INFO { VolumeSerialNumber: dev, FileId: header.FileId });
+    Raw {
+        name,
+        attributes: header.FileAttributes,
+        tag: header.ReparsePointTag,
+        alloc: header.AllocationSize,
+        len: header.EndOfFile,
+        modified: header.LastWriteTime,
+        created: header.CreationTime,
+        id: Some(id),
+    }
+}
+
+/// A `FileFullDirectoryInfo` record, the class of a volume without file ids.
+fn full_raw(record: &[u8]) -> Raw {
+    // SAFETY (of the read): as in `extd_raw`, for FILE_FULL_DIR_INFO.
+    let header = unsafe { std::ptr::read_unaligned(record.as_ptr().cast::<FILE_FULL_DIR_INFO>()) };
+    let name = name_of(record, std::mem::offset_of!(FILE_FULL_DIR_INFO, FileName), header.FileNameLength);
+    Raw {
+        name,
+        attributes: header.FileAttributes,
+        // `EaSize` carries the reparse tag when the entry is a reparse point
+        // (it is `WIN32_FIND_DATA.dwReserved0`).
+        tag: if header.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 { header.EaSize } else { 0 },
+        alloc: header.AllocationSize,
+        len: header.EndOfFile,
+        modified: header.LastWriteTime,
+        created: header.CreationTime,
+        id: None,
+    }
+}
+
+/// The size the Recycle Bin counts for the item `name` in `parent` (safety
+/// ADR §5, the Recycle Bin on Windows, settled at 10b's lab): the length of
+/// a file or a link; for a folder, the length of every name below it, as
+/// the shell counts: a hard-linked file once per name, links not followed
+/// and counted at their own length, alternate streams left out. It stops
+/// once the sum passes `limit`, with that sum. Each folder is opened by
+/// name beneath its parent, never through a link, and closed once read; a
+/// folder whose entries are in the cloud is an error, never listed.
+pub(super) fn recycled_size(parent: &DirFd, name: &OsStr, limit: u64) -> io::Result<u64> {
+    let item = parent.child(name, FILE_READ_ATTRIBUTES | SYNCHRONIZE, 0)?;
+    let tag = info::<FILE_ATTRIBUTE_TAG_INFO>(&item)?;
+    if tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0 || name_surrogate(tag.FileAttributes, tag.ReparseTag) {
+        return Ok(u64::try_from(info::<FILE_STANDARD_INFO>(&item)?.EndOfFile).unwrap_or(0));
+    }
+    drop(item);
+    let mut total = 0u64;
+    let root = parent.open_child_dir(name)?;
+    let below = lengths_in(&root, &mut total)?;
+    let mut stack = vec![(root, below.into_iter())];
+    while total <= limit {
+        let Some((dir, names)) = stack.last_mut() else { break };
+        match names.next() {
+            Some(name) => {
+                let child = dir.open_child_dir(&name)?;
+                let below = lengths_in(&child, &mut total)?;
+                stack.push((child, below.into_iter()));
+            }
+            None => drop(stack.pop()),
+        }
+    }
+    Ok(total)
+}
+
+/// Adds the length of each entry of `dir` to `total`, and names the
+/// subfolders the walk enters: folders, not links.
+fn lengths_in(dir: &DirFd, total: &mut u64) -> io::Result<Vec<OsString>> {
+    if info::<FILE_BASIC_INFO>(dir.handle())?.FileAttributes & RECALL_BY_HANDLE != 0 {
+        return Err(io::Error::other("a folder whose entries are in the cloud"));
+    }
+    let size = size_of::<FILE_ID_EXTD_DIR_INFO>();
+    let raws = match read_all(dir, FileIdExtdDirectoryRestartInfo, FileIdExtdDirectoryInfo, size, |r| extd_raw(r, 0)) {
+        Err(e) if refused_class(&e) => read_all(
+            dir,
+            FileFullDirectoryRestartInfo,
+            FileFullDirectoryInfo,
+            size_of::<FILE_FULL_DIR_INFO>(),
+            full_raw,
+        )?,
+        other => other?,
+    };
+    let mut folders = Vec::new();
+    for raw in raws {
+        if raw.name == OsStr::new(".") || raw.name == OsStr::new("..") {
+            continue;
+        }
+        *total = total.saturating_add(u64::try_from(raw.len).unwrap_or(0));
+        if raw.attributes & FILE_ATTRIBUTE_DIRECTORY != 0 && !name_surrogate(raw.attributes, raw.tag) {
+            folders.push(raw.name);
+        }
+    }
+    Ok(folders)
+}
+
 /// One record of a listing, before it becomes an entry.
 struct Raw {
     name: OsString,
     attributes: u32,
     tag: u32,
     alloc: i64,
+    /// `EndOfFile`: the length, which the Recycle Bin counts.
+    len: i64,
     modified: i64,
     created: i64,
     /// From the listing; `None` where the class carries no id (FAT).
@@ -449,6 +521,26 @@ mod tests {
     }
 
     #[test]
+    fn the_recycled_size_counts_every_name_and_never_follows_a_link() {
+        let d = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("big"), vec![1u8; 50_000]).unwrap();
+        let item = d.path().join("item");
+        fs::create_dir_all(item.join("sub").join("deeper")).unwrap();
+        fs::write(item.join("a"), vec![1u8; 3000]).unwrap();
+        fs::hard_link(item.join("a"), item.join("sub").join("b")).unwrap();
+        fs::write(item.join("sub").join("deeper").join("c"), vec![1u8; 10]).unwrap();
+        junction(&item.join("link"), outside.path());
+        fs::write(d.path().join("file"), vec![1u8; 77]).unwrap();
+        let parent = DirFd::open(d.path()).unwrap();
+        let size = |name: &str, limit: u64| recycled_size(&parent, OsStr::new(name), limit);
+        assert_eq!(size("item", u64::MAX).unwrap(), 6010, "a file once per name; the junction as itself");
+        assert!(size("item", 100).unwrap() > 100, "stops past the limit");
+        assert_eq!(size("file", 0).unwrap(), 77);
+        assert!(size("missing", u64::MAX).is_err());
+    }
+
+    #[test]
     fn a_listing_agrees_with_meta_on_every_entry() {
         let d = tempfile::tempdir().unwrap();
         fs::write(d.path().join("f"), vec![1u8; 9000]).unwrap();
@@ -569,6 +661,7 @@ mod tests {
             attributes: 0,
             tag: 0,
             alloc: 8192,
+            len: 5000,
             modified: 0,
             created: 0,
             id: None,

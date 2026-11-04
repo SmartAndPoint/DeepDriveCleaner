@@ -14,10 +14,26 @@
 #
 # The firewall rule this script adds (and, often, the one the capability created) covers
 # the Private network profile: a network marked Public refuses ssh until it is marked Private.
+#
+# On a lab machine it also makes the Recycle Bin test volume (story "Windows scanner and
+# rule catalog", step 10b), alone or together with the steps above:
+#
+#   .\windows-host-setup.ps1 -TestVolume [-TestVolumeLetter R]
+#   .\windows-host-setup.ps1 -RemoveTestVolume
+#
+# That is a 1 GB expandable VHDX in the work folder with one NTFS partition and a drive
+# letter (the first free one from R, or -TestVolumeLetter), attached again at each startup
+# by a scheduled task. The tests that set a small Recycle Bin size run on it through
+# DDC_RECYCLE_TEST_VOLUME, so the system drive's bin keeps its size. -RemoveTestVolume
+# detaches it and deletes the file and the task; the volume's Recycle Bin key under HKCU
+# stays, harmless.
 
 param(
-    [Parameter(Mandatory = $true)][string]$PubKey,
-    [string]$Dir = 'ddc-native'
+    [string]$PubKey,
+    [string]$Dir = 'ddc-native',
+    [switch]$TestVolume,
+    [switch]$RemoveTestVolume,
+    [string]$TestVolumeLetter
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,6 +42,75 @@ if (-not $me.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'Run this in PowerShell opened as Administrator.'
 }
 function Step($m) { Write-Host "`n== $m" -ForegroundColor Cyan }
+if (-not ($PubKey -or $TestVolume -or $RemoveTestVolume)) {
+    throw 'Pass -PubKey to prepare the machine, -TestVolume or -RemoveTestVolume for the test volume.'
+}
+$work = Join-Path $env:USERPROFILE $Dir
+$vhdx = Join-Path $work 'recycle-test.vhdx'
+$task = 'ddc recycle test volume'
+
+if ($RemoveTestVolume) {
+    Step 'removing the Recycle Bin test volume'
+    Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
+    if (Test-Path $vhdx) {
+        if ((Get-DiskImage -ImagePath $vhdx).Attached) { Dismount-DiskImage -ImagePath $vhdx | Out-Null }
+        Remove-Item $vhdx
+    }
+}
+
+if ($TestVolume) {
+    Step 'the Recycle Bin test volume'
+    New-Item -ItemType Directory -Force $work | Out-Null
+    if (-not (Test-Path $vhdx)) {
+        # diskpart, not New-VHD: that one needs the Hyper-V module, which Home editions lack.
+        $commands = Join-Path $env:TEMP 'ddc-recycle-test-vhdx.txt'
+        "create vdisk file=`"$vhdx`" maximum=1024 type=expandable" | Set-Content -Encoding ascii $commands
+        diskpart /s $commands | Out-Null
+        $code = $LASTEXITCODE
+        Remove-Item $commands
+        if ($code -ne 0) { throw "diskpart could not create $vhdx" }
+    }
+    if (-not (Get-DiskImage -ImagePath $vhdx).Attached) { Mount-DiskImage -ImagePath $vhdx | Out-Null }
+    $disk = Get-DiskImage -ImagePath $vhdx | Get-Disk
+    if ($disk.IsOffline) { Set-Disk -Number $disk.Number -IsOffline $false }
+    if ($disk.PartitionStyle -eq 'RAW') { Initialize-Disk -Number $disk.Number -PartitionStyle GPT }
+    $part = Get-Partition -DiskNumber $disk.Number | Where-Object Type -eq 'Basic' | Select-Object -First 1
+    # Formatted before it gets a letter, so Explorer offers no "format this disk" dialog;
+    # a partition an earlier run left unformatted is formatted now.
+    if (-not $part) { $part = New-Partition -DiskNumber $disk.Number -UseMaximumSize }
+    if ((Get-Volume -Partition $part).FileSystem -ne 'NTFS') {
+        Format-Volume -Partition $part -FileSystem NTFS -NewFileSystemLabel 'ddc-recycle-test' -Confirm:$false | Out-Null
+    }
+    $part = Get-Partition -DiskNumber $disk.Number -PartitionNumber $part.PartitionNumber
+    if ($TestVolumeLetter -and "$($part.DriveLetter)" -match '^[A-Z]$' -and
+        "$($part.DriveLetter)" -ne $TestVolumeLetter.Substring(0, 1).ToUpper()) {
+        Write-Warning "the test volume already has the letter $($part.DriveLetter); -TestVolumeLetter is not applied"
+    }
+    if ("$($part.DriveLetter)" -notmatch '^[A-Z]$') {
+        $used = [IO.DriveInfo]::GetDrives() | ForEach-Object { $_.Name.Substring(0, 1).ToUpper() }
+        if ($TestVolumeLetter) {
+            $letter = $TestVolumeLetter.Substring(0, 1).ToUpper()
+            if ($used -contains $letter) { throw "drive letter $letter is taken; pass another -TestVolumeLetter" }
+        } else {
+            $letter = 'RSTUVWXYZ'.ToCharArray() | ForEach-Object { "$_" } | Where-Object { $used -notcontains $_ } |
+                Select-Object -First 1
+            if (-not $letter) { throw 'no free drive letter from R to Z; pass -TestVolumeLetter' }
+        }
+        Set-Partition -DiskNumber $disk.Number -PartitionNumber $part.PartitionNumber -NewDriveLetter $letter
+        $part = Get-Partition -DiskNumber $disk.Number -PartitionNumber $part.PartitionNumber
+    }
+    if (-not (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)) {
+        $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
+            -Argument "-NoProfile -NonInteractive -Command Mount-DiskImage -ImagePath '$($vhdx.Replace("'", "''"))'"
+        Register-ScheduledTask -TaskName $task -Action $action -Trigger (New-ScheduledTaskTrigger -AtStartup) `
+            -User 'NT AUTHORITY\SYSTEM' -RunLevel Highest | Out-Null
+    }
+    $root = "$($part.DriveLetter):\"
+    Write-Host "The test volume is $root. On the developer machine, for the tests that need it:"
+    Write-Host "  DDC_RECYCLE_TEST_VOLUME='$root' DDC_WINDOWS_HOST=<that host> scripts/native-windows.sh -E 'binary(recycle_bin)'"
+}
+
+if (-not $PubKey) { Step 'done'; exit 0 }
 
 Step 'OpenSSH Server'
 $cap = Get-WindowsCapability -Online -Name 'OpenSSH.Server*'
@@ -70,7 +155,6 @@ Step 'long paths, the work folder, its Defender exclusion'
 New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled `
     -Value 1 -PropertyType DWord -Force | Out-Null
 & 'C:\Program Files\Git\cmd\git.exe' config --system core.longpaths true
-$work = Join-Path $env:USERPROFILE $Dir
 New-Item -ItemType Directory -Force $work | Out-Null
 Add-MpPreference -ExclusionPath $work
 
