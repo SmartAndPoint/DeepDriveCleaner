@@ -171,7 +171,19 @@ fn decide(folder: &Path, given: Option<(u64, u64)>, roots: &[PathBuf]) -> (Optio
     }
     let identity = Some(found);
     let result = match dir.stat_child(KEEP_MARKER.as_ref()) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => KeepResult::Absent,
+        // The scan keeps a folder for a marker in any ASCII case (safety
+        // ADR, amendment of 2026-11-04, §6), and only `.ddc-keep` is
+        // removed here: another spelling is named, so the person knows what
+        // still protects the folder.
+        Err(e) if e.kind() == io::ErrorKind::NotFound => match other_marker(&real) {
+            Some(name) => KeepResult::Failed {
+                error: format!(
+                    "the marker here is named {}; ddc removes only {KEEP_MARKER}, so delete it yourself",
+                    name.to_string_lossy()
+                ),
+            },
+            None => KeepResult::Absent,
+        },
         Err(e) => failed(e),
         Ok(st) if !st.is_file => refused(KeepRefusal::NotAFile),
         Ok(_) => match dir.unlink_child(KEEP_MARKER.as_ref()) {
@@ -181,6 +193,15 @@ fn decide(folder: &Path, given: Option<(u64, u64)>, roots: &[PathBuf]) -> (Optio
         },
     };
     (identity, result)
+}
+
+/// A keep marker in `dir` spelled otherwise than `.ddc-keep`.
+fn other_marker(dir: &Path) -> Option<std::ffi::OsString> {
+    crate::stats::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.file_name())
+        .find(|name| crate::rules::is_keep_marker(name) && name.as_os_str() != KEEP_MARKER)
 }
 
 #[cfg(test)]

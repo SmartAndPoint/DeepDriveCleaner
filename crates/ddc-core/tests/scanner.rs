@@ -163,6 +163,11 @@ fn names_in_another_case_or_form_are_two_folders_where_the_filesystem_keeps_two(
                 assert_ne!(owner(&out, &first).ino, owner(&out, &second).ino);
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // The test trees of a Linux run lie on a case-sensitive,
+                // non-normalizing filesystem: there it must be two.
+                if cfg!(target_os = "linux") {
+                    panic!("{b:?} folded into {a:?} on Linux");
+                }
                 assert!(second.join("x").is_file(), "{b:?} is {a:?} on this filesystem");
                 let out = walk(t.root(), &visitor);
                 assert_eq!(out.owners.len(), 1, "one folder, counted once: {:#?}", out.owners);

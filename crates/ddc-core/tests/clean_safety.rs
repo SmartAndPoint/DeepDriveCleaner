@@ -760,7 +760,8 @@ fn keep_marker_created_after_the_scan_cancels_deletion() {
 }
 
 /// A keep marker made after the scan in another ASCII case cancels the
-/// deletion as `.ddc-keep` does: at the item's top and deeper.
+/// deletion as `.ddc-keep` does: at the item's top, deeper, and in a
+/// folder above it, which the guard lists rather than stats.
 #[test]
 fn a_keep_marker_in_another_case_made_after_the_scan_cancels_deletion() {
     if common::unsupported("a_keep_marker_in_another_case_made_after_the_scan_cancels_deletion") {
@@ -769,15 +770,18 @@ fn a_keep_marker_in_another_case_made_after_the_scan_cancels_deletion() {
     let fx = Fx::new();
     let top = fx.node_project("p");
     let deep = fx.node_project("q");
+    let above = fx.node_project("r");
     let plan = fx.plan();
     fx.t.write("p/node_modules/.DDC-KEEP", "");
     fx.t.write("q/node_modules/dep/.Ddc-Keep", "");
+    fx.t.write("r/.Ddc-Keep", "");
 
     let (r, _) = fx.run_yes(&plan);
 
     assert_eq!(outcome(&r, &top), &Outcome::Skipped(SkipReason::Kept));
     assert_eq!(outcome(&r, &deep), &Outcome::Skipped(SkipReason::Kept));
-    assert!(top.exists() && deep.exists());
+    assert_eq!(outcome(&r, &above), &Outcome::Skipped(SkipReason::Kept), "a marker above, in another case");
+    assert!(top.exists() && deep.exists() && above.exists());
 }
 
 #[test]

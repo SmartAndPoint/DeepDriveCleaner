@@ -203,17 +203,16 @@ fn an_exfat_trash_that_stays_open_refuses_the_move() {
     assert!(matches!(admit(), Err(TrashError::CrossesFilesystem)), "after");
 }
 
-/// On a case-insensitive folder, a protected folder named in another case
-/// is the protected folder: `DOCUMENTS` in a plan is refused as
-/// `Documents` is, by its folded path and by the identity the filesystem
-/// resolves it to (safety ADR, amendment of 2026-11-04, §6).
-fn a_protected_folder_in_another_case_is_refused_on(test: &str, mount: Mount) {
-    let Some(dir) = common::mount(test, mount) else { return };
-    let t = TreeBuilder::new_in(&dir);
+/// A protected folder named in another case is refused: `DOCUMENTS` in a
+/// plan is `Protected` as `Documents` is. The guard's case-folded path
+/// check decides it before its identity check is reached, on a
+/// case-sensitive folder and on a case-insensitive one alike (safety ADR,
+/// amendment of 2026-11-04, §6).
+fn a_protected_folder_in_another_case_is_refused_in(t: &TreeBuilder) {
     let home = t.dir("home");
     let data = tempfile::tempdir().unwrap();
     let cv = t.file("home/Documents/cv.pdf", 100);
-    let nm = idle_node_project(&t, "home/p");
+    let nm = idle_node_project(t, "home/p");
     let mut plan = build_plan(&scan_in(&home, data.path()), &Catalog::builtin(&home), &PlanOptions::default());
     let mut forged = plan.items.iter().find(|i| i.finding.path == nm).expect("the node_modules item").clone();
     let upper = home.join("DOCUMENTS");
@@ -228,19 +227,56 @@ fn a_protected_folder_in_another_case_is_refused_on(test: &str, mount: Mount) {
 }
 
 #[test]
+fn a_protected_folder_in_another_case_is_refused() {
+    a_protected_folder_in_another_case_is_refused_in(&TreeBuilder::new());
+}
+
+#[test]
 fn a_protected_folder_in_another_case_is_refused_on_casefold() {
-    a_protected_folder_in_another_case_is_refused_on(
-        "a_protected_folder_in_another_case_is_refused_on_casefold",
-        Mount::Casefold,
-    );
+    let test = "a_protected_folder_in_another_case_is_refused_on_casefold";
+    let Some(dir) = common::mount(test, Mount::Casefold) else { return };
+    a_protected_folder_in_another_case_is_refused_in(&TreeBuilder::new_in(&dir));
 }
 
 #[test]
 fn a_protected_folder_in_another_case_is_refused_on_exfat() {
-    a_protected_folder_in_another_case_is_refused_on(
-        "a_protected_folder_in_another_case_is_refused_on_exfat",
-        Mount::Exfat,
-    );
+    let test = "a_protected_folder_in_another_case_is_refused_on_exfat";
+    let Some(dir) = common::mount(test, Mount::Exfat) else { return };
+    a_protected_folder_in_another_case_is_refused_in(&TreeBuilder::new_in(&dir));
+}
+
+/// Rule names match byte for byte on a case-insensitive folder too:
+/// `Node_Modules` is no `node_modules` finding, though the filesystem
+/// finds the one name by the other (safety ADR, amendment of 2026-11-04,
+/// §6).
+fn a_rule_name_in_another_case_is_not_the_rule_in(t: &TreeBuilder) {
+    let home = t.dir("home");
+    let data = tempfile::tempdir().unwrap();
+    let nm = idle_node_project(t, "home/p");
+    for f in ["package.json", "package-lock.json"] {
+        t.write(&format!("home/x/{f}"), "{}");
+    }
+    t.file("home/x/Node_Modules/dep/index.js", 100);
+
+    let scan = scan_in(&home, data.path());
+
+    let upper = home.join("x/Node_Modules");
+    assert!(!scan.findings.iter().any(|f| f.path == upper), "Node_Modules is no finding: {:#?}", scan.findings);
+    assert!(scan.findings.iter().any(|f| f.path == nm && f.rule == "node.node_modules"));
+}
+
+#[test]
+fn a_rule_name_in_another_case_is_not_the_rule_on_casefold() {
+    let test = "a_rule_name_in_another_case_is_not_the_rule_on_casefold";
+    let Some(dir) = common::mount(test, Mount::Casefold) else { return };
+    a_rule_name_in_another_case_is_not_the_rule_in(&TreeBuilder::new_in(&dir));
+}
+
+#[test]
+fn a_rule_name_in_another_case_is_not_the_rule_on_exfat() {
+    let test = "a_rule_name_in_another_case_is_not_the_rule_on_exfat";
+    let Some(dir) = common::mount(test, Mount::Exfat) else { return };
+    a_rule_name_in_another_case_is_not_the_rule_in(&TreeBuilder::new_in(&dir));
 }
 
 /// On a case-insensitive folder, a `.DDC-KEEP` keeps its folder: below a
