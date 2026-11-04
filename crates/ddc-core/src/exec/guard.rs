@@ -507,7 +507,7 @@ impl<'a> Guard<'a> {
             added,
             now: self.now,
             kept: self.markers.iter().any(|m| m.starts_with(path))
-                || holds_keep_marker(path)
+                || (st.is_dir && holds_keep_marker(path))
                 || session.as_ref().is_some_and(|s| s.kept),
             protected: protected_in_home(PLATFORM).iter().any(|rel| self.home.join(rel).starts_with(path))
                 || session.as_ref().is_some_and(|s| s.protected),
@@ -669,14 +669,16 @@ impl<'a> Guard<'a> {
         self.markers.iter().any(|m| m.starts_with(path)) || holds_keep_marker(path) || self.marker_above(path)
     }
 
-    /// A keep marker, in any ASCII case, in a directory above `path`,
-    /// within its scan root: one listing per ancestor.
+    /// A keep marker in a directory above `path`, within its scan root, in
+    /// any ASCII case: one listing per ancestor. Outside every root only
+    /// `.ddc-keep` itself is looked up, up to `/`; that item is refused as
+    /// outside the roots, and the dry run must not call it kept instead.
     pub(super) fn marker_above(&self, path: &Path) -> bool {
         let root = self.roots.iter().filter(|r| path.starts_with(r)).max_by_key(|r| r.as_os_str().len());
         path.ancestors()
             .skip(1)
             .take_while(|a| root.is_none_or(|r| a.starts_with(r)))
-            .any(|a| fs::symlink_metadata(a.join(KEEP_MARKER)).is_ok() || self.lists_marker(a))
+            .any(|a| fs::symlink_metadata(a.join(KEEP_MARKER)).is_ok() || (root.is_some() && self.lists_marker(a)))
     }
 
     /// [`lists_keep_marker`] for `dir`, listed once per run.
