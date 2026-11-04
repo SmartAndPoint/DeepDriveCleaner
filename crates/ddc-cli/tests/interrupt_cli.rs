@@ -262,12 +262,12 @@ fn stop_and_signal(w: &mut Watched, sig: i32) -> bool {
     true
 }
 
-/// `.last-scan.json.tmp-*` files in `data`.
+/// `.last-scan.json.tmp-*` and `.previous-scan.json.tmp-*` files in `data`.
 fn temp_files(data: &Path) -> Vec<String> {
     fs::read_dir(data)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .filter(|n| n.starts_with(".last-scan.json.tmp-"))
+        .filter(|n| n.starts_with(".last-scan.json.tmp-") || n.starts_with(".previous-scan.json.tmp-"))
         .collect()
 }
 

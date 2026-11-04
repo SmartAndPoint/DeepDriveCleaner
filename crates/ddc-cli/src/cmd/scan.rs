@@ -5,6 +5,7 @@ use std::process::ExitCode;
 
 use anyhow::Context as _;
 use ddc_core::env::Env;
+use ddc_core::model::WrittenBy;
 use ddc_core::progress::WalkStep;
 use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, ScanOptions};
@@ -43,9 +44,15 @@ pub fn run(args: ScanArgs) -> anyhow::Result<ExitCode> {
     let opts = ScanOptions { walk, ..resolved.options };
     let reporter = progress::Reporter::new(args.progress.is_some());
     let progress = Progress::default();
-    let report = reporter.walk(&progress, "scanning", WalkStep::Scan, None, || report::scan(&env, &opts, &progress))?;
+    let mut report =
+        reporter.walk(&progress, "scanning", WalkStep::Scan, None, || report::scan(&env, &opts, &progress))?;
     reporter.walk_done(WalkStep::Scan, &report.totals, None);
-    store::write_last_scan(&env, &report).context("cannot save the scan report")?;
+    let defaults = super::default_roots(&env, &settings);
+    let saved = store::write_last_scan(&env, &mut report, WrittenBy::Scan, defaults.as_deref())
+        .context("cannot save the scan report")?;
+    if let Some(warning) = super::not_kept(&env, &saved.kept) {
+        eprintln!("ddc: warning: {warning}");
+    }
     let own_roots = super::own_roots(given_roots, &report, &env, &settings);
     if own_roots && env.data_dir_is_default() {
         eprintln!("ddc: The app will show this report until its next scan.");

@@ -9,12 +9,13 @@ use ddc_core::env::Env;
 use ddc_core::exec::{
     self, Consent, ExecOptions, ExecProgress, FileJournal, Ports, SystemCommands, SystemProcesses, SystemTrash,
 };
+use ddc_core::model::WrittenBy;
 use ddc_core::plan::{PlanOptions, build_plan};
 use ddc_core::progress::{Phase, WalkStep};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
 use ddc_core::scan::{Progress, WalkOptions};
-use ddc_core::settings::ScanFlags;
+use ddc_core::settings::{self, ScanFlags};
 use ddc_core::store::{self, LockMode};
 
 use crate::cli::{CategoryArg, ClassArg, CleanArgs};
@@ -36,9 +37,10 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
         return Ok(ExitCode::from(exit::REFUSED));
     }
     let env = Env::from_process(args.data_dir.clone())?;
-    let resolved = super::resolve(
+    let settings = settings::load(&env)?;
+    let resolved = settings.resolve(
         &env,
-        ScanFlags {
+        &ScanFlags {
             paths: args.paths.clone(),
             excludes: args.exclude.clone(),
             skips: args.skip.clone(),
@@ -84,10 +86,16 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
     let scan_progress = Progress::default();
     // Read before the rescan replaces the file.
     let expected = store::last_scan_files(&env);
-    let scanned = reporter
+    let mut scanned = reporter
         .walk(&scan_progress, "scanning", WalkStep::Recheck, expected, || report::scan(&env, &opts, &scan_progress))?;
     reporter.walk_done(WalkStep::Recheck, &scanned.totals, expected);
-    store::write_last_scan(&env, &scanned).context("cannot save the scan report")?;
+    // Saved before anything is removed, so it keeps the report before it as a scan does.
+    let defaults = super::default_roots(&env, &settings);
+    let saved = store::write_last_scan(&env, &mut scanned, WrittenBy::CleanRecheck, defaults.as_deref())
+        .context("cannot save the scan report")?;
+    if let Some(warning) = super::not_kept(&env, &saved.kept) {
+        eprintln!("ddc: warning: {warning}");
+    }
 
     let mut classes: Vec<RiskClass> = args.classes.iter().map(|c| class(*c)).collect();
     if args.yes && classes.is_empty() {

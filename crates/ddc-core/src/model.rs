@@ -42,9 +42,23 @@ pub struct ScanReport {
     /// has `private_bytes`; without `full-disk-access` `full_disk_access`
     /// is true.
     pub capabilities: Vec<Capability>,
-    /// RFC 3339, UTC.
+    /// RFC 3339, UTC: when the scan started. An edit never changes it.
     pub generated_at: String,
     pub duration_ms: u64,
+    /// Which save wrote this report. Absent in a report an older ddc saved
+    /// and in one not saved yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub written_by: Option<WrittenBy>,
+    /// RFC 3339, UTC, to the second: when the report was last saved. Set at
+    /// every save, an edit's too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub written_at: Option<String>,
+    /// The `written_at` of the report in `previous-scan.json` when this one
+    /// was saved; absent when there was none. `previous-scan.json` and
+    /// `last-scan.json` belong together when it equals the kept report's
+    /// `written_at`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_written_at: Option<String>,
     #[serde(serialize_with = "crate::json_path::path")]
     pub home: PathBuf,
     #[serde(serialize_with = "crate::json_path::paths")]
@@ -81,6 +95,12 @@ pub struct ScanReport {
     /// when every path is UTF-8.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lossy_paths: Option<u64>,
+    /// The sorted ids of the platform's rules when the scan ran, the ids
+    /// `ddc rules --json` lists. A rule switched off in `settings.json` is
+    /// still listed: its findings are reported as `ignored`. An edit keeps
+    /// the list of the report it edits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules_in_force: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -138,6 +158,35 @@ pub struct ClassTotal {
     pub bytes: u64,
     pub selected_count: u64,
     pub selected_bytes: u64,
+}
+
+/// Which save wrote a report (ADR "Menu bar app: Swift shell over the ddc
+/// CLI", §6 item 14). `scan`, `background` and `clean-recheck` keep the
+/// report they replace in `previous-scan.json` when it is whole; the others
+/// leave that file as it is. A new value bumps `SCHEMA_VERSION`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum WrittenBy {
+    /// `ddc scan`.
+    Scan,
+    /// `ddc scan --background`, the scheduled scan.
+    Background,
+    /// A terminal `ddc clean`'s re-check, saved before anything is removed.
+    CleanRecheck,
+    /// A terminal `ddc clean`'s re-check, edited by what the clean did.
+    Clean,
+    /// `ddc clean --items`, edited by what the clean did.
+    CleanItems,
+    /// `ddc disk free`, after a tool cleaned the Homebrew cache.
+    DiskFree,
+}
+
+impl WrittenBy {
+    /// Whether this save moves the report it replaces to
+    /// `previous-scan.json` when that report is whole.
+    pub fn keeps(self) -> bool {
+        matches!(self, Self::Scan | Self::Background | Self::CleanRecheck)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

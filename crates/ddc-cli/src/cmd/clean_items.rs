@@ -17,7 +17,7 @@ use ddc_core::exec::{
     self, Consent, ExecOptions, ExecProgress, ExecReport, FileJournal, ItemReport, Outcome, Ports, SystemCommands,
     SystemProcesses, SystemTrash,
 };
-use ddc_core::model::ScanReport;
+use ddc_core::model::{ScanReport, WrittenBy};
 use ddc_core::plan::{ListedItem, ListedItems, Refused, plan_listed_checked};
 use ddc_core::platform::signals;
 use ddc_core::progress::{Phase, WalkStep};
@@ -176,7 +176,7 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
         .map(|i| (i.path.clone(), after_clean::remeasure(&catalog, &i.rule, &i.path, &opts.walk)))
         .collect();
     after_clean::edit(&mut base, &clean, fresh.as_ref(), &remeasured, &opts, Some(&read_at));
-    clean.last_scan_saved = match store::write_last_scan(&env, &base) {
+    clean.last_scan_saved = match store::write_last_scan(&env, &mut base, WrittenBy::CleanItems, None) {
         Ok(_) => true,
         Err(e) => {
             eprintln!("ddc: warning: cannot save the scan report: {e}");

@@ -38,7 +38,7 @@
       "type": "boolean"
     },
     "generated_at": {
-      "description": "RFC 3339, UTC.",
+      "description": "RFC 3339, UTC: when the scan started. An edit never changes it.",
       "type": "string"
     },
     "home": {
@@ -84,6 +84,23 @@
       "description": "The platform the CLI was built for.",
       "$ref": "#/$defs/Platform"
     },
+    "previous_written_at": {
+      "description": "The `written_at` of the report in `previous-scan.json` when this one\nwas saved; absent when there was none. `previous-scan.json` and\n`last-scan.json` belong together when it equals the kept report's\n`written_at`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "rules_in_force": {
+      "description": "The sorted ids of the platform's rules when the scan ran, the ids\n`ddc rules --json` lists. A rule switched off in `settings.json` is\nstill listed: its findings are reported as `ignored`. An edit keeps\nthe list of the report it edits.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
     "scan_roots": {
       "type": "array",
       "items": {
@@ -115,6 +132,24 @@
       "items": {
         "$ref": "#/$defs/Volume"
       }
+    },
+    "written_at": {
+      "description": "RFC 3339, UTC, to the second: when the report was last saved. Set at\nevery save, an edit's too.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "written_by": {
+      "description": "Which save wrote this report. Absent in a report an older ddc saved\nand in one not saved yet.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WrittenBy"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
@@ -1535,6 +1570,41 @@
       "required": [
         "linked",
         "probe"
+      ]
+    },
+    "WrittenBy": {
+      "description": "Which save wrote a report (ADR \"Menu bar app: Swift shell over the ddc\nCLI\", §6 item 14). `scan`, `background` and `clean-recheck` keep the\nreport they replace in `previous-scan.json` when it is whole; the others\nleave that file as it is. A new value bumps `SCHEMA_VERSION`.",
+      "oneOf": [
+        {
+          "description": "`ddc scan`.",
+          "type": "string",
+          "const": "scan"
+        },
+        {
+          "description": "`ddc scan --background`, the scheduled scan.",
+          "type": "string",
+          "const": "background"
+        },
+        {
+          "description": "A terminal `ddc clean`'s re-check, saved before anything is removed.",
+          "type": "string",
+          "const": "clean-recheck"
+        },
+        {
+          "description": "A terminal `ddc clean`'s re-check, edited by what the clean did.",
+          "type": "string",
+          "const": "clean"
+        },
+        {
+          "description": "`ddc clean --items`, edited by what the clean did.",
+          "type": "string",
+          "const": "clean-items"
+        },
+        {
+          "description": "`ddc disk free`, after a tool cleaned the Homebrew cache.",
+          "type": "string",
+          "const": "disk-free"
+        }
       ]
     }
   }

@@ -119,8 +119,10 @@ fn quoted(word: &str) -> String {
 fn stable(json: &[u8]) -> serde_json::Value {
     let mut v: serde_json::Value = serde_json::from_slice(json).unwrap();
     let report = v.as_object_mut().unwrap();
-    report.remove("generated_at");
-    report.remove("duration_ms");
+    // The second scan's save also keeps the first and names it.
+    for key in ["generated_at", "duration_ms", "written_at", "previous_written_at"] {
+        report.remove(key);
+    }
     for volume in report["volumes"].as_array_mut().unwrap() {
         volume.as_object_mut().unwrap().remove("free_bytes");
     }
