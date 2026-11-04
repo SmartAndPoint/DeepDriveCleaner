@@ -218,6 +218,13 @@ impl Tree {
     }
 }
 
+/// A short random name, never a Windows device name (`con`, `prn`, `aux`,
+/// `nul`): Windows opens the device instead, so no file can be made in such
+/// a "folder", on every OS alike so the cases stay the same.
+fn short_name() -> impl Strategy<Value = String> {
+    "[a-z]{1,3}".prop_filter("a Windows device name", |s| !matches!(s.as_str(), "con" | "prn" | "aux" | "nul"))
+}
+
 /// `rel` under `home`; `""` is `home` itself, with no trailing separator.
 fn abs(home: &Path, rel: &Path) -> PathBuf {
     if rel.as_os_str().is_empty() { home.to_path_buf() } else { home.join(rel) }
@@ -576,8 +583,8 @@ fn trees() -> impl Strategy<Value = Tree> {
     )
         .prop_map(|(base, markers)| -> Seed { (base, vec![], markers, vec![]) });
     let base = prop_oneof![1 => Just(String::new()), 4 => select(v.bases.clone())];
-    let component = prop_oneof![4 => select(v.dir_names), 1 => "[a-z]{1,3}"];
-    let file = (prop_oneof![4 => select(v.file_names), 1 => "[a-z]{1,3}"], 0..VARIANTS);
+    let component = prop_oneof![4 => select(v.dir_names), 1 => short_name()];
+    let file = (prop_oneof![4 => select(v.file_names), 1 => short_name()], 0..VARIANTS);
     let plain = (
         base,
         prop::collection::vec(component, 0..=2),
@@ -587,7 +594,7 @@ fn trees() -> impl Strategy<Value = Tree> {
     let artifacts = v.artifacts;
     let artifact = (
         prop_oneof![2 => Just(String::new()), 1 => select(v.bases)],
-        prop::option::of("[a-z]{1,3}"),
+        prop::option::of(short_name()),
         any::<(Index, Index)>(),
         any::<(bool, Index)>(),
         prop::collection::vec((any::<Index>(), 0..VARIANTS), 0..=2),
