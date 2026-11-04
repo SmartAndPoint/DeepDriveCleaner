@@ -184,7 +184,7 @@ Without Full Disk Access some of `~/Library` cannot be read; the report lists th
 - each `review` item is asked about one by one (`[y/N]`): the Trash by default, deleted permanently with `--permanent`;
 - a last question shows the count, the size and what it frees; only `y` cleans.
 
-Right before touching an item it checks it again (see [Safety](#safety)) and skips it with a reason if anything changed. Every action is written to the journal.
+Right before touching an item it checks it again (see [Safety](#safety)) and skips it with a reason if anything changed. Every action is written to the journal. Afterwards it updates `last-scan.json` with what it did, after a Ctrl-C too, so the app shows the disk as the clean left it.
 
 ```
 ddc clean [PATH…] [--dry-run] [--yes] [--class CLASS]… [--category CATEGORY]… [--min-size SIZE]
@@ -324,7 +324,7 @@ Says in one sentence whether the disk of your home folder has more in use than a
 - **low disk**: under 10 % of the disk is free. It wins over grew and still says how much grew. `notify_low_disk: false` in `settings.json` turns it off.
 - **quiet**: neither. Less in use than at the scan never counts.
 
-After the app's clean (`ddc clean` with the app's list of items), the comparison starts from the free space that clean read at its end; a plain `ddc clean` from a terminal does not set it. With no saved scan, or none of this disk, there is nothing to compare with: only low disk can be said.
+After a clean, from a terminal or from the app, the comparison starts from the free space that clean read at its end. With no saved scan, or none of this disk, there is nothing to compare with: only low disk can be said.
 
 It takes no lock, so it runs while a scan or a clean runs, and it never changes the saved scan. It keeps its readings in `space.json`, one an hour for 14 days. `--json` follows [`docs/space.schema.json`](docs/space.schema.json). When the disk cannot be read it exits 1 and prints no JSON; an unreadable `settings.json` is only a warning here, and low disk then counts.
 
@@ -412,7 +412,7 @@ The install script (under [Install](#on-an-older-macos-or-the-command-line-only)
 
 | Path | What |
 |---|---|
-| `~/Library/Application Support/DeepDriveCleaner/last-scan.json` | The last scan's report, which the app shows. `ddc clean --items` edits it after cleaning instead of scanning again; the next scan replaces it. |
+| `~/Library/Application Support/DeepDriveCleaner/last-scan.json` | The last scan's report, which the app shows. `ddc clean` and `ddc clean --items` edit it after cleaning instead of scanning again; the next scan replaces it. |
 | `~/Library/Application Support/DeepDriveCleaner/previous-scan.json` | The report before the last one, for comparing two scans. `ddc scan`, the background scan and the check `ddc clean` makes before it removes anything move the report they replace here, when it is a whole scan of the home (or of the `roots` in the settings). A clean's edit and `ddc disk free` leave it as it is. |
 | `~/Library/Application Support/DeepDriveCleaner/last-disk.json` | The last `ddc disk` report; the next one replaces it. |
 | `~/Library/Application Support/DeepDriveCleaner/space.json` | What `ddc space` read of the free space: one reading an hour for 14 days, and the latest. |

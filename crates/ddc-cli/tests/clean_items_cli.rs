@@ -459,6 +459,34 @@ fn sigterm_or_sighup_during_a_tool_ends_the_tool_and_ddc_with_the_report() {
     }
 }
 
+/// Story "Keep the previous scan report, and say who wrote each": a signal
+/// during a terminal `ddc clean` still saves its edit, with what was done,
+/// before ddc ends by the signal.
+// Unix only: it sends ddc a signal.
+#[cfg(unix)]
+#[test]
+fn a_signal_during_a_terminal_clean_saves_its_edit_before_ddc_ends() {
+    if common::unsupported("a_signal_during_a_terminal_clean_saves_its_edit_before_ddc_ends") {
+        return;
+    }
+    let fx = Fx::new();
+    // The uv cache is the bigger safe item, so the clean runs it first.
+    let pid_file = fx.fake_uv();
+    let mut child = fx.ddc(&["clean", "--yes"]).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let tool = wait_for_pid(&pid_file, Duration::from_secs(60));
+
+    Command::new("/bin/kill").args(["-TERM", &child.id().to_string()]).status().unwrap();
+    let status = wait_within(&mut child, Duration::from_secs(10)).expect("ddc ends");
+
+    assert_eq!(ddc_loadgen::platform::exit_signal(&status), Some(libc::SIGTERM), "ddc ends by the signal");
+    assert!(!alive(tool), "the tool's group got the signal");
+    assert!(fx.path("q/__pycache__").exists(), "never started");
+    let after = fx.last_scan();
+    assert_eq!(after["written_by"], "clean", "the edit was saved");
+    assert!(found(&after, &fx.path("q/__pycache__")).is_some(), "the not-run item stays");
+    assert!(found(&after, &fx.path(".cache/uv")).is_some(), "the tool removed nothing");
+}
+
 #[test]
 fn ctrl_c_in_a_terminal_reaches_the_tool_and_stops_the_clean_after_it() {
     if common::unsupported("ctrl_c_in_a_terminal_reaches_the_tool_and_stops_the_clean_after_it") {

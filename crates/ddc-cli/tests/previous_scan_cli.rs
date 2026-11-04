@@ -13,6 +13,7 @@ use std::process::{Command, Output, Stdio};
 use ddc_core::exec::report::CleanReport;
 use ddc_core::model::{ScanReport, WrittenBy};
 use ddc_core::rules::listing::RuleList;
+use ddc_core::space::{BaselineSource, SpaceReport};
 use ddc_core::store::{LAST_SCAN, PREVIOUS_SCAN};
 use ddc_loadgen::isolate::ClearEnv as _;
 
@@ -243,6 +244,65 @@ fn a_clean_of_a_list_keeps_nothing_and_carries_the_pair_forward() {
     assert_eq!(full.previous_written_at, c.written_at, "carried forward from the project report");
     assert_eq!(fx.previous(), Some(home));
     assert!(fx.temps().is_empty(), "{:?}", fx.temps());
+}
+
+/// A terminal `ddc clean` edits the re-check it saved by what it removed,
+/// as `clean --items` does: `ddc space` then compares from the clean.
+#[test]
+fn a_terminal_clean_edits_its_recheck_and_keeps_nothing() {
+    if common::unsupported("a_terminal_clean_edits_its_recheck_and_keeps_nothing") {
+        return;
+    }
+    let fx = Fx::new();
+    fx.ddc(&["clean", "--dry-run"]);
+    let recheck_bytes = fx.last_bytes();
+    let recheck = fx.last();
+    let pyc = fx.home.join("q/__pycache__");
+    let removed = recheck.findings.iter().find(|f| f.path == pyc).expect("a finding at q/__pycache__").bytes;
+
+    // Its own re-check keeps the dry run's; the edit keeps nothing.
+    fx.ddc(&["clean", "--yes"]);
+    assert!(!pyc.exists() && !fx.home.join("r/__pycache__").exists());
+    let cleaned = fx.last();
+    assert_eq!(cleaned.written_by, Some(WrittenBy::Clean));
+    assert_to_the_second(cleaned.written_at.as_deref());
+    assert_eq!(cleaned.previous_written_at, recheck.written_at);
+    assert_eq!(fx.previous(), Some(recheck_bytes));
+    assert!(
+        cleaned
+            .findings
+            .iter()
+            .all(|f| !f.path.starts_with(fx.home.join("q")) && !f.path.starts_with(fx.home.join("r")))
+    );
+    let both = removed + recheck.findings.iter().find(|f| f.path == fx.home.join("r/__pycache__")).unwrap().bytes;
+    assert_eq!(cleaned.totals.scanned_bytes, recheck.totals.scanned_bytes - both, "the totals drop by what left");
+    let volume = cleaned.volumes.iter().find(|v| v.roots.contains(&fx.home)).expect("the home's volume");
+    assert_to_the_second(volume.read_at.as_deref());
+
+    let space: SpaceReport = contract::holds("space", &fx.ddc(&["space", "--json"]).stdout);
+    let baseline = space.baseline.expect("a baseline");
+    assert_eq!(baseline.source, BaselineSource::Clean);
+    assert_eq!(Some(baseline.at), volume.read_at.clone());
+    assert_eq!(baseline.free_bytes, volume.free_bytes);
+    assert!(fx.temps().is_empty(), "{:?}", fx.temps());
+}
+
+/// A terminal clean with nothing selected saves only its re-check, as a
+/// dry run does.
+#[test]
+fn a_terminal_clean_with_nothing_selected_saves_only_its_recheck() {
+    if common::unsupported("a_terminal_clean_with_nothing_selected_saves_only_its_recheck") {
+        return;
+    }
+    let fx = Fx::new();
+    fx.scan(None);
+    let scanned = fx.last_bytes();
+    let out = fx.ddc(&["clean", "--yes", "--min-size", "1T"]);
+    assert!(String::from_utf8_lossy(&out.stdout).contains("Nothing selected; nothing was changed."));
+    let recheck = fx.last();
+    assert_eq!(recheck.written_by, Some(WrittenBy::CleanRecheck));
+    assert_eq!(fx.previous(), Some(scanned));
+    assert!(fx.home.join("q/__pycache__").exists());
 }
 
 #[test]

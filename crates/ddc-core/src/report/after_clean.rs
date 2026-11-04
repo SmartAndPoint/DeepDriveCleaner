@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 
 use super::{ScanOptions, count_findings, hidden, sort_findings};
 use crate::exec::report::CleanReport;
-use crate::exec::{Outcome, SkipReason, VolumeSpace};
+use crate::exec::{ExecReport, Outcome, SkipReason, VolumeSpace};
 use crate::model::{FolderEntryKind, ScanReport};
 use crate::rules::entries::has_entries;
 use crate::rules::{Catalog, RuleVisitor};
@@ -138,23 +138,60 @@ pub fn edit(
     opts: &ScanOptions,
     read_at: Option<&str>,
 ) {
+    let items = clean.items.iter().map(|i| Done { path: &i.path, bytes: i.bytes, outcome: &i.outcome });
+    edit_items(report, items, &clean.volumes, fresh, remeasured, opts, read_at);
+}
+
+/// [`edit`] for a terminal `ddc clean` (story "Keep the previous scan
+/// report, and say who wrote each"): the run's own items, which are only
+/// the selected ones. Its report is the re-check itself, so `fresh` is
+/// `None` and an item the clean did not touch stays as it is.
+pub fn edit_run(
+    report: &mut ScanReport,
+    run: &ExecReport,
+    remeasured: &HashMap<PathBuf, Remeasured>,
+    opts: &ScanOptions,
+    read_at: Option<&str>,
+) {
+    let items = run.items.iter().map(|i| Done { path: &i.path, bytes: Some(i.bytes), outcome: &i.outcome });
+    edit_items(report, items, &run.volumes, None, remeasured, opts, read_at);
+}
+
+/// What a clean did to one item, as the edit reads it.
+struct Done<'a> {
+    path: &'a Path,
+    /// The clean's measure; `None` when the item was refused before it was run.
+    bytes: Option<u64>,
+    outcome: &'a Outcome,
+}
+
+/// The edit of [`edit`] and [`edit_run`], over any clean's items.
+fn edit_items<'a>(
+    report: &mut ScanReport,
+    items: impl IntoIterator<Item = Done<'a>>,
+    volumes: &[VolumeSpace],
+    fresh: Option<&ScanReport>,
+    remeasured: &HashMap<PathBuf, Remeasured>,
+    opts: &ScanOptions,
+    read_at: Option<&str>,
+) {
     let mut edit = Edit { report, opts, removed: HashSet::new(), lines: Vec::new() };
-    for item in &clean.items {
-        match &item.outcome {
-            Outcome::Deleted => edit.remove(&item.path, false, item.bytes),
-            Outcome::Trashed => edit.remove(&item.path, true, item.bytes),
-            Outcome::Native { .. } => match remeasured.get(&item.path) {
-                Some(Remeasured::Gone) => edit.remove(&item.path, false, item.bytes),
-                Some(Remeasured::Measured(m)) => edit.resize(&item.path, m),
+    for item in items {
+        match item.outcome {
+            Outcome::Deleted => edit.remove(item.path, false, item.bytes),
+            Outcome::Trashed => edit.remove(item.path, true, item.bytes),
+            Outcome::Native { .. } => match remeasured.get(item.path) {
+                Some(Remeasured::Gone) => edit.remove(item.path, false, item.bytes),
+                Some(Remeasured::Measured(m)) => edit.resize(item.path, m),
                 Some(Remeasured::Unknown) | None => {}
             },
-            Outcome::Skipped(reason) => edit.refresh(&item.path, fresh, gone_from_disk(reason)),
-            Outcome::NotRun => edit.refresh(&item.path, fresh, false),
+            Outcome::Skipped(reason) => edit.refresh(item.path, fresh, gone_from_disk(reason)),
+            Outcome::NotRun => edit.refresh(item.path, fresh, false),
             // A failed action may have removed part of it: the next scan measures it.
             Outcome::Failed { .. } => {}
         }
     }
-    edit.finish(&clean.volumes, read_at);
+    edit.finish(volumes, read_at);
 }
 
 /// Edits `report` for findings a tool changed outside a clean: `ddc disk

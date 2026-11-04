@@ -1,7 +1,10 @@
 //! `ddc clean`: fresh scan → plan → confirmation → execution.
 
+use std::collections::HashMap;
 use std::io::{IsTerminal as _, Write as _};
+use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::SystemTime;
 
 use anyhow::Context as _;
 use ddc_core::class::{Category, RiskClass};
@@ -12,6 +15,7 @@ use ddc_core::exec::{
 use ddc_core::model::WrittenBy;
 use ddc_core::plan::{PlanOptions, build_plan};
 use ddc_core::progress::{Phase, WalkStep};
+use ddc_core::report::after_clean::{self, Remeasured};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
 use ddc_core::scan::{Progress, WalkOptions};
@@ -151,7 +155,7 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
     let exec_progress = ExecProgress::default();
     // The scan's skips: no harness's records are read under one, and a
     // worktree's re-check walks none of them.
-    let skips: Vec<std::path::PathBuf> = opts.skip.iter().chain(&opts.user_skips).cloned().collect();
+    let skips: Vec<PathBuf> = opts.skip.iter().chain(&opts.user_skips).cloned().collect();
     let result = reporter.clean(&exec_progress, &scanned.home, cancel, |events| {
         exec::execute(
             &env,
@@ -171,6 +175,20 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
             },
         )
     })?;
+    // `last-scan.json` follows what was done, after a cancel too: saved
+    // before a signal ends ddc below. The volumes' free space was read again
+    // at the end of the run (`Volume::read_at`, for `ddc space`).
+    let read_at = humantime::format_rfc3339_seconds(SystemTime::now()).to_string();
+    let remeasured: HashMap<PathBuf, Remeasured> = result
+        .items
+        .iter()
+        .filter(|i| matches!(i.outcome, exec::Outcome::Native { .. }))
+        .map(|i| (i.path.clone(), after_clean::remeasure(&catalog, &i.rule, &i.path, &opts.walk)))
+        .collect();
+    after_clean::edit_run(&mut scanned, &result, &remeasured, &opts, Some(&read_at));
+    if let Err(e) = store::write_last_scan(&env, &mut scanned, WrittenBy::Clean, None) {
+        eprintln!("ddc: warning: cannot save the scan report: {e}");
+    }
     prompt::print_result(&mut out, &result, &scanned.home, &journal_path, &style)?;
     out.flush()?;
     if let Some(sig) = ddc_core::platform::signals::received() {
