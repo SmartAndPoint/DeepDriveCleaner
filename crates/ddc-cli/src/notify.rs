@@ -123,7 +123,7 @@ pub fn message(d: &Decision, clean: Option<&str>) -> String {
     let junk = format!("About {} of developer junk can be freed", human(d.reclaimable));
     let run = match clean {
         Some(clean) => format!("Run `{clean}` to review."),
-        None => "Run `ddc clean` with the scanned folder to review.".to_owned(),
+        None => "Run ddc clean with the scanned folder to review.".to_owned(),
     };
     match (d.reason, &d.volume, d.free) {
         (Some(NotifyReason::LowDisk), Some(volume), Some(free)) => {

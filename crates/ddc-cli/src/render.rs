@@ -100,7 +100,7 @@ pub fn clean_command(roots: &[PathBuf], home: &Path) -> Option<String> {
 pub fn clean_hint(roots: &[PathBuf], home: &Path) -> String {
     match clean_command(roots, home) {
         Some(command) => format!("run `{command}` to review and confirm"),
-        None => "run `ddc clean` with the scanned folder to review and confirm (its name cannot be pasted)".to_owned(),
+        None => "review and confirm with ddc clean and the scanned folder (its name cannot be pasted)".to_owned(),
     }
 }
 
@@ -947,12 +947,22 @@ mod tests {
         assert!(clean_hint(&[PathBuf::from("/h/a\u{1b}[2J")], home).contains("cannot be pasted"));
     }
 
+    /// Whether there is no `/bin/sh` here (Windows), after printing why
+    /// `test` skips.
+    fn without_sh(test: &str) -> bool {
+        let missing = !Path::new("/bin/sh").exists();
+        if missing {
+            eprintln!("skipped {test}: no /bin/sh to paste into");
+        }
+        missing
+    }
+
     /// The suggested command, pasted into the system's own `sh`, names the
     /// same path: each word is read back by `printf '%s\0'`. Where no
     /// `/bin/sh` exists (Windows) there is nothing to paste into.
     #[test]
     fn the_clean_command_pasted_into_sh_names_the_same_paths() {
-        if !Path::new("/bin/sh").exists() {
+        if without_sh("the_clean_command_pasted_into_sh_names_the_same_paths") {
             return;
         }
         let home = Path::new("/h");

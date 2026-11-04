@@ -54,58 +54,82 @@ fn file_name(p: &Path) -> String {
     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-fn read_trimmed(path: &Path) -> String {
-    crate::platform::read_found(path, crate::platform::FOUND_MAX).map(|s| s.trim().to_owned()).unwrap_or_default()
+/// A project pin that exists but could not be read (a symlink, a FIFO, not
+/// UTF-8): the walk records it so its toolchain keeps every version.
+pub(crate) const UNREADABLE_PIN: &str = "\0unreadable";
+
+/// The trimmed text of a pin file in the home: `Some("")` when it does not
+/// exist, `None` when it exists but cannot be read, so the caller keeps
+/// every version (fail closed). A marker is read only when it is a regular
+/// file (safety ADR, amendment of 2026-11-04): a pin that dotfiles or
+/// home-manager made a symlink is one that cannot be read.
+fn read_pin(path: &Path) -> Option<String> {
+    match fs::symlink_metadata(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(String::new()),
+        Err(_) => None,
+        Ok(_) => crate::platform::read_found(path, crate::platform::FOUND_MAX).ok().map(|s| s.trim().to_owned()),
+    }
+}
+
+/// Whether a project pin of this toolchain could not be read: every version
+/// is then kept.
+fn unreadable(pins: &[String]) -> bool {
+    pins.iter().any(|p| p == UNREADABLE_PIN)
 }
 
 pub(crate) fn version_key(v: &str) -> Vec<u64> {
     v.trim_start_matches('v').split('.').map(|p| p.parse().unwrap_or(0)).collect()
 }
 
-/// Resolves an nvm alias to one installed version name; `None` if unresolvable.
-/// `installed` must be sorted ascending by version.
-pub(crate) fn nvm_resolve(alias: &str, installed: &[String], home: &Path, depth: u8) -> Option<String> {
+/// Resolves an nvm alias to one installed version name: `Ok(None)` if it
+/// names nothing installed, `Err` if an alias file on the way exists but
+/// cannot be read. `installed` must be sorted ascending by version.
+pub(crate) fn nvm_resolve(alias: &str, installed: &[String], home: &Path, depth: u8) -> Result<Option<String>, ()> {
     let alias = alias.trim();
     if alias.is_empty() || alias == "system" || depth > 2 {
-        return None;
+        return Ok(None);
     }
     if alias == "node" || alias == "stable" {
-        return installed.last().cloned();
+        return Ok(installed.last().cloned());
     }
     if alias.starts_with("lts/") {
-        let target = read_trimmed(&home.join(".nvm/alias").join(alias));
+        let target = read_pin(&home.join(".nvm/alias").join(alias)).ok_or(())?;
         return nvm_resolve(&target, installed, home, depth + 1);
     }
     let prefix = alias.trim_start_matches('v');
-    installed
+    Ok(installed
         .iter()
         .filter(|v| {
             let v = v.trim_start_matches('v');
             v == prefix || v.starts_with(&format!("{prefix}."))
         })
         .max_by_key(|v| version_key(v))
-        .cloned()
+        .cloned())
 }
 
-/// Versions nvm must keep; `None` = the default cannot be resolved (rule yields nothing).
+/// Versions nvm must keep; `None` = the default cannot be resolved, or a pin
+/// cannot be read (rule yields nothing).
 pub(crate) fn nvm_protected(names: &[String], home: &Path, pins: &[String]) -> Option<HashSet<String>> {
     let mut installed = names.to_vec();
     installed.sort_by_key(|v| version_key(v));
-    if installed.len() <= 1 {
+    if installed.len() <= 1 || unreadable(pins) {
         return None;
     }
-    let default = nvm_resolve(&read_trimmed(&home.join(".nvm/alias/default")), &installed, home, 0)?;
-    let mut keep: HashSet<String> = pins.iter().filter_map(|p| nvm_resolve(p, &installed, home, 0)).collect();
+    let default = nvm_resolve(&read_pin(&home.join(".nvm/alias/default"))?, &installed, home, 0).ok()??;
+    let mut keep = HashSet::new();
+    for pin in pins {
+        keep.extend(nvm_resolve(pin, &installed, home, 0).ok()?);
+    }
     keep.insert(default);
     Some(keep)
 }
 
 fn pyenv_protected(names: &[String], home: &Path, pins: &[String]) -> Option<HashSet<String>> {
-    if names.len() <= 1 {
+    if names.len() <= 1 || unreadable(pins) {
         return None;
     }
     let versions = home.join(".pyenv/versions");
-    let global = read_trimmed(&home.join(".pyenv/version"));
+    let global = read_pin(&home.join(".pyenv/version"))?;
     let mut keep = HashSet::new();
     for pin in global.split_whitespace().map(str::to_owned).chain(pins.iter().cloned()) {
         if names.contains(&pin) {
@@ -134,10 +158,10 @@ fn pyenv_protected(names: &[String], home: &Path, pins: &[String]) -> Option<Has
 }
 
 fn rustup_protected(names: &[String], home: &Path, pins: &[String]) -> Option<HashSet<String>> {
-    if names.len() <= 1 {
+    if names.len() <= 1 || unreadable(pins) {
         return None;
     }
-    let settings = read_trimmed(&home.join(".rustup/settings.toml"));
+    let settings = read_pin(&home.join(".rustup/settings.toml"))?;
     let default = settings.lines().find_map(|l| {
         let l = l.trim();
         l.strip_prefix("default_toolchain")

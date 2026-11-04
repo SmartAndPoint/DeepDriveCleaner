@@ -166,10 +166,14 @@ fn a_bind_mount_has_its_parents_device_and_a_mountinfo_entry() {
     assert_eq!(ddc_core::platform::statfs::statfs(&inner).unwrap().mount_point, inner);
 }
 
+/// The device, and a marker that is one: `read_found` refuses it before
+/// it reads a byte (safety ADR, amendment of 2026-11-04).
 #[test]
 fn the_prepared_device_is_a_character_device() {
     let Some(dev) = common::prepared("the_prepared_device_is_a_character_device", Prepared::Device) else { return };
-    assert!(fs::symlink_metadata(dev).unwrap().file_type().is_char_device());
+    assert!(fs::symlink_metadata(&dev).unwrap().file_type().is_char_device());
+    let read = ddc_core::platform::read_found(&dev, ddc_core::platform::FOUND_MAX);
+    assert_eq!(read.map_err(|e| e.kind()), Err(std::io::ErrorKind::InvalidInput), "a device reads as no marker");
 }
 
 #[test]

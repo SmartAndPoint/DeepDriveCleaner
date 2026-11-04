@@ -341,18 +341,20 @@ impl Visitor for RuleVisitor<'_> {
             self.markers.lock().unwrap_or_else(|p| p.into_inner()).push((dir.to_path_buf(), dir_id));
             return;
         }
-        if entry.kind != EntryKind::File {
+        if entry.kind == EntryKind::Dir {
             return;
         }
         // Large files outside findings — including inside unlisted claims (app bundles).
         let in_finding = in_claim && matches!(owner, Some((_, tag)) if self.catalog.rule(tag).listed);
-        if !in_finding && entry.alloc >= self.large_threshold {
+        if entry.kind == EntryKind::File && !in_finding && entry.alloc >= self.large_threshold {
             let mut large = self.large.lock().unwrap_or_else(|p| p.into_inner());
             large.push((entry.alloc, dir.join(&entry.name)));
             if large.len() > 4 * LARGE_FILE_LIMIT {
                 sort_large(&mut large);
             }
         }
+        // A pin of any other kind (a symlink, a FIFO) is read below, and
+        // cannot be: it keeps its toolchain whole.
         let Some(name) = entry.name.to_str() else {
             return;
         };
@@ -368,10 +370,18 @@ impl Visitor for RuleVisitor<'_> {
         {
             return;
         }
+        let mut pins = self.pins.lock().unwrap_or_else(|p| p.into_inner());
         let Ok(text) = crate::platform::read_found(&dir.join(name), crate::platform::FOUND_MAX) else {
+            // A pin that cannot be read (a symlink, not UTF-8): its
+            // toolchain keeps every version, never the pin's guess.
+            let kind = match name {
+                ".nvmrc" | ".node-version" => &mut pins.node,
+                ".python-version" => &mut pins.python,
+                _ => &mut pins.rust,
+            };
+            kind.push(super::toolchain::UNREADABLE_PIN.to_owned());
             return;
         };
-        let mut pins = self.pins.lock().unwrap_or_else(|p| p.into_inner());
         match name {
             ".nvmrc" | ".node-version" => pins.node.extend(
                 text.lines()

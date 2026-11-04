@@ -16,7 +16,12 @@
       {"path": "home/{rule:cache.npm}/_cacache/blob", "bytes": 30000},
       {"path": "home/My Code/__pycache__/a.cpython-312.pyc", "bytes": 5000},
       {"path": "home/it's/__pycache__/a.cpython-312.pyc", "bytes": 5000},
-      {"path": "beside/work/__pycache__/a.cpython-312.pyc", "bytes": 5000}
+      {"path": "beside/work/__pycache__/a.cpython-312.pyc", "bytes": 5000},
+      {"path": "home/line\nbreak/__pycache__/a.cpython-312.pyc", "bytes": 5000, "unix": true},
+      {"path": "home/tab\there/__pycache__/a.cpython-312.pyc", "bytes": 5000, "unix": true},
+      {"path": "home/back\\slash/__pycache__/a.cpython-312.pyc", "bytes": 5000, "unix": true},
+      {"path": "home/-rf/__pycache__/a.cpython-312.pyc", "bytes": 5000},
+      {"path": "home/esc\u001b[2J/__pycache__/a.cpython-312.pyc", "bytes": 5000, "unix": true}
     ]
   },
   "data_dir_commands": ["scan", "clean", "disk", "disk agents", "agent status", "disk free", "disk brew-packages", "keep remove", "notify ack", "notify snooze", "space"],
@@ -57,6 +62,40 @@
       "group": "roots",
       "args": ["scan", "{home}/My Code", "{home}/it's"],
       "expect": {"exit": 0, "roots": ["{home}/My Code", "{home}/it's"], "rules": ["python.pycache"], "stdout": {"contains": ["`ddc clean ~/'My Code' ~/'it'\\''s'`"]}}
+    },
+    {
+      "name": "a root with a tab keeps it literal inside the quotes, so sh names the same folder",
+      "group": "roots",
+      "unix": true,
+      "args": ["scan", "{home}/tab\there"],
+      "expect": {"exit": 0, "roots": ["{home}/tab\there"], "rules": ["python.pycache"], "stdout": {"contains": ["`ddc clean ~/'tab\there'`"]}}
+    },
+    {
+      "name": "a root with a backslash is quoted, and the backslash stays",
+      "group": "roots",
+      "unix": true,
+      "args": ["scan", "{home}/back\\slash"],
+      "expect": {"exit": 0, "roots": ["{home}/back\\slash"], "rules": ["python.pycache"], "stdout": {"contains": ["`ddc clean ~/'back\\slash'`"]}}
+    },
+    {
+      "name": "a root with a leading dash follows ~/, so it is never read as an option",
+      "group": "roots",
+      "args": ["scan", "{home}/-rf"],
+      "expect": {"exit": 0, "roots": ["{home}/-rf"], "rules": ["python.pycache"], "stdout": {"contains": ["`ddc clean ~/-rf`"]}}
+    },
+    {
+      "name": "a root with a newline keeps it literal inside the quotes; the command spans two lines",
+      "group": "roots",
+      "unix": true,
+      "args": ["scan", "{home}/line\nbreak"],
+      "expect": {"exit": 0, "roots": ["{home}/line\nbreak"], "rules": ["python.pycache"], "stdout": {"contains": ["`ddc clean ~/'line\nbreak'`"]}}
+    },
+    {
+      "name": "a root with an escape character gets no command, only words, and no escape reaches the terminal",
+      "group": "roots",
+      "unix": true,
+      "args": ["scan", "{home}/esc\u001b[2J"],
+      "expect": {"exit": 0, "roots": ["{home}/esc\u001b[2J"], "rules": ["python.pycache"], "stdout": {"contains": ["review and confirm with ddc clean and the scanned folder (its name cannot be pasted)"], "not_contains": ["`ddc clean", "\u001b"]}}
     },
     {
       "name": "a nested root is dropped: the suggestion names the outer one",
@@ -240,7 +279,8 @@
     }
   ],
   "not_run": [
-    {"pattern": "^ddc schedule install$", "reason": "it installs into the user's real scheduler (launchd's gui/<uid> domain, the systemd user manager) whatever HOME is"}
+    {"pattern": "^ddc schedule install$", "reason": "it installs into the user's real scheduler (launchd's gui/<uid> domain, the systemd user manager) whatever HOME is"},
+    {"pattern": "^ddc clean ~/'line$", "reason": "the follow-through pairs backticks line by line, so a command whose root holds a newline arrives cut at it; render.rs's unit test pastes the whole command into /bin/sh instead"}
   ],
   "uncovered": [
     {"name": "clean --yes", "reason": "it deletes without asking; the cases never clean for real"},
