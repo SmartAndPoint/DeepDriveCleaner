@@ -8,6 +8,7 @@ use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ddc_core::env::Env;
+use ddc_core::model::WrittenBy;
 use ddc_core::notify::{NOTIFY_SCHEMA_VERSION, NotifyReport, NotifyStatus, SkipCause};
 use ddc_core::report::volumes::StatFs;
 use ddc_core::report::{self, ScanOptions};
@@ -113,8 +114,12 @@ pub fn run_with(
         walk: background_walk(),
         ..resolved.options
     };
-    let report = report::scan_with(env, &opts, &Progress::default(), statfs)?;
-    store::write_last_scan(env, &report)?;
+    let mut report = report::scan_with(env, &opts, &Progress::default(), statfs)?;
+    let defaults = super::default_roots(env, &settings);
+    let saved = store::write_last_scan(env, &mut report, WrittenBy::Background, defaults.as_deref())?;
+    if let Some(warning) = super::not_kept(env, &saved.kept) {
+        log(env, &warning);
+    }
     for root in report.scan_roots.iter().filter(|r| !report.volumes.iter().any(|v| v.roots.contains(r))) {
         log(env, &format!("no volume information for {}; low disk is not checked there", root.display()));
     }

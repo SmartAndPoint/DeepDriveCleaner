@@ -21,8 +21,9 @@ use std::process::ExitCode;
 
 use ddc_core::env::Env;
 use ddc_core::model::ScanReport;
-use ddc_core::report::recheck::same_roots;
+use ddc_core::report::recheck::{same_roots, walked_roots};
 use ddc_core::settings::{self, Resolved, ScanFlags, Settings};
+use ddc_core::store::{Kept, PREVIOUS_SCAN};
 
 use crate::cli::{AgentAction, Cli, Command, DiskAction, DiskArgs, KeepAction};
 
@@ -58,6 +59,24 @@ fn resolve(env: &Env, flags: ScanFlags) -> anyhow::Result<Resolved> {
 /// counts as other roots.
 fn own_roots(given: bool, report: &ScanReport, env: &Env, settings: &Settings) -> bool {
     given && !settings.resolve(env, &ScanFlags::default()).is_ok_and(|r| same_roots(report, env, &r.options))
+}
+
+/// The roots a scan without paths walks, as its report names them: a save
+/// keeps the report it replaces only when it is of these
+/// (`store::write_last_scan`). `None` when no Settings root resolves.
+fn default_roots(env: &Env, settings: &Settings) -> Option<Vec<PathBuf>> {
+    settings.resolve(env, &ScanFlags::default()).ok().and_then(|r| walked_roots(env, &r.options))
+}
+
+/// What to say when a save could not keep the report it replaced; the save
+/// itself went on.
+fn not_kept(env: &Env, kept: &Kept) -> Option<String> {
+    match kept {
+        Kept::Failed(e) => {
+            Some(format!("cannot keep the previous report in {}: {e}", env.data_dir().join(PREVIOUS_SCAN).display()))
+        }
+        Kept::Kept { .. } | Kept::Nothing => None,
+    }
 }
 
 /// Settings folders that do not exist (an unplugged disk) were skipped.

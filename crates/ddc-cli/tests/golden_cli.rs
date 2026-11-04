@@ -98,6 +98,7 @@ struct Where {
 /// Access.
 const VOLATILE: &[&str] = &[
     "generated_at",
+    "written_at",
     "duration_ms",
     "as_of",
     "idle_days",
@@ -109,6 +110,11 @@ const VOLATILE: &[&str] = &[
     "container",
 ];
 
+/// Keys left out of the goldens: `previous_written_at` (a fresh data folder
+/// has none, and `previous_scan_cli.rs` checks it) and the catalog's rule
+/// ids, which every new rule would move in every golden.
+const UNRECORDED: &[&str] = &["previous_written_at", "rules_in_force"];
+
 /// The modification time of every `Old` entry ([`ddc_loadgen::desc::OLD_SECS`]);
 /// any other activity or modification time (a finding's newest change inside,
 /// an entry's own) is the build's own time.
@@ -119,6 +125,7 @@ fn normalise(v: &mut Value, at: &Where) {
         Value::String(s) if s.contains(&at.base) => *s = s.replace(&at.base, "<run>"),
         Value::Array(items) => items.iter_mut().for_each(|i| normalise(i, at)),
         Value::Object(map) => {
+            map.retain(|k, _| !UNRECORDED.contains(&k.as_str()));
             for (k, item) in map.iter_mut() {
                 match k.as_str() {
                     k if VOLATILE.contains(&k) => *item = Value::Null,

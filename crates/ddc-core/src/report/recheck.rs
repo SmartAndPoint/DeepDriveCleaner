@@ -61,8 +61,13 @@ pub fn walk_for(list: &[ListedItem], catalog: &Catalog, previous: Option<&ScanRe
 /// report of `ddc scan ~/Code` is not the one to edit after a clean of the
 /// home: the caller takes it for no report.
 pub fn same_roots(report: &ScanReport, env: &Env, opts: &ScanOptions) -> bool {
-    report.home == env.home()
-        && crate::scan::normalized_roots(&super::roots_of(env, opts)).is_ok_and(|roots| roots == report.scan_roots)
+    report.home == env.home() && walked_roots(env, opts).is_some_and(|roots| roots == report.scan_roots)
+}
+
+/// The roots a scan of `opts` walks, normalized as the walk normalizes them:
+/// what its report's `scan_roots` will be. `None` when one cannot be resolved.
+pub fn walked_roots(env: &Env, opts: &ScanOptions) -> Option<Vec<PathBuf>> {
+    crate::scan::normalized_roots(&super::roots_of(env, opts)).ok()
 }
 
 /// The directories a pruned re-check opens.

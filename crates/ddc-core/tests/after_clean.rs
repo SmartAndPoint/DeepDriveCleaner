@@ -161,6 +161,12 @@ fn a_deleted_finding_leaves_with_the_reports_own_figures() {
     assert_eq!(after.totals.unowned_bytes, before.totals.unowned_bytes);
     assert_eq!((&after.generated_at, after.duration_ms), (&before.generated_at, before.duration_ms));
     check_totals(&after);
+
+    // An edit keeps the rules the edited report was scanned with.
+    let mut older = before.clone();
+    older.rules_in_force = Some(vec!["python.pycache".to_owned()]);
+    let edited = home.edited(&older, vec![item(&path, "python.pycache", Some(1), Outcome::Deleted)], &[]);
+    assert_eq!(edited.rules_in_force, older.rules_in_force);
 }
 
 #[test]

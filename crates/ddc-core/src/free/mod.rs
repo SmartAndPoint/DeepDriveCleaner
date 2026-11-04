@@ -23,6 +23,7 @@ pub use model::*;
 use crate::disk::{ActionId, Sources};
 use crate::env::Env;
 use crate::exec::{AreaActionEntry, AreaJournal, CmdOutput, CommandRunner, NATIVE_TIMEOUT, ProcessTable};
+use crate::model::WrittenBy;
 use crate::platform::{self, Capability, CapabilityAbsent};
 use crate::report::after_clean::{self, Remeasured};
 use crate::report::{ScanOptions, recheck};
@@ -355,7 +356,7 @@ pub fn edit_last_scan(env: &Env, opts: &ScanOptions, reports: &[ActionReport]) -
         return ReportEdit::Unchanged;
     }
     after_clean::edit_tool_cleaned(&mut scan, &remeasured, opts);
-    match store::write_last_scan(env, &scan) {
+    match store::write_last_scan(env, &mut scan, WrittenBy::DiskFree, None) {
         Ok(_) => ReportEdit::Edited,
         Err(_) => ReportEdit::Failed,
     }

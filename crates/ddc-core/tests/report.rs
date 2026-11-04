@@ -9,12 +9,13 @@ use std::time::{Duration, SystemTime};
 use common::{OLD, TreeBuilder};
 use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
-use ddc_core::model::{NotSelected, ScanReport};
+use ddc_core::model::{NotSelected, ScanReport, WrittenBy};
 use ddc_core::plan::{PlanOptions, build_plan};
 use ddc_core::platform::statfs::VolumeStats;
 use ddc_core::report::volumes::StatFs;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
+use ddc_core::rules::listing::RuleList;
 use ddc_core::scan::{Progress, WalkOptions};
 use ddc_core::store;
 
@@ -218,8 +219,8 @@ fn last_scan_is_written_atomically() {
         return;
     }
     let fx = populated();
-    let r = fx.scan();
-    let path = store::write_last_scan(&fx.env(), &r).unwrap();
+    let mut r = fx.scan();
+    let path = store::write_last_scan(&fx.env(), &mut r, WrittenBy::Scan, None).unwrap().path;
     let names: Vec<String> = std::fs::read_dir(fx.data.path())
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -227,6 +228,28 @@ fn last_scan_is_written_atomically() {
     assert_eq!(names, vec![store::LAST_SCAN.to_owned()], "no temp files left");
     assert_eq!(path, fx.data.path().join(store::LAST_SCAN));
     assert_eq!(store::read_last_scan(&fx.env()).unwrap(), Some(r));
+}
+
+/// The sorted ids `ddc rules --json` lists.
+fn rule_ids() -> Vec<String> {
+    let mut ids: Vec<String> = RuleList::builtin().rules.into_iter().map(|r| r.id).collect();
+    ids.sort();
+    ids
+}
+
+#[test]
+fn the_report_lists_the_rules_in_force_a_switched_off_one_too() {
+    if common::unsupported("the_report_lists_the_rules_in_force_a_switched_off_one_too") {
+        return;
+    }
+    let fx = populated();
+    let ids = rule_ids();
+    let r = fx.scan();
+    assert_eq!(r.rules_in_force.as_ref(), Some(&ids));
+    assert_eq!((r.written_by, r.written_at, r.previous_written_at), (None, None, None), "stamped only when saved");
+    let opts = ScanOptions { disabled_rules: vec![ids[0].clone()], ..fx.opts() };
+    let off = report::scan(&fx.env(), &opts, &Progress::default()).unwrap();
+    assert_eq!(off.rules_in_force, Some(ids), "a switched-off rule is still in force: its findings are ignored");
 }
 
 #[test]

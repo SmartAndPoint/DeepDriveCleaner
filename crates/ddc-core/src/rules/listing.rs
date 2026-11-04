@@ -152,6 +152,14 @@ pub struct RuleInfo {
     pub switchable: bool,
 }
 
+/// The sorted ids of platform `p`'s rules, the ids [`RuleList::for_platform`]
+/// lists: a scan report's `rules_in_force`.
+pub fn rule_ids(p: Platform) -> Vec<String> {
+    let mut ids: Vec<String> = rules_of(p).iter().map(|r| r.id.to_owned()).collect();
+    ids.sort();
+    ids
+}
+
 /// The group of a rule id; `None` for an id in no group.
 pub fn group_of(id: &str) -> Option<&'static str> {
     GROUPS.iter().find(|(_, ids)| ids.contains(&id)).map(|(label, _)| *label)

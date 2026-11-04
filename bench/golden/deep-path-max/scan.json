@@ -392,5 +392,7 @@
     "selected_reclaimable_bytes": 10031104,
     "unowned_bytes": 0
   },
-  "volumes": null
+  "volumes": null,
+  "written_at": null,
+  "written_by": "scan"
 }

@@ -413,6 +413,7 @@ The install script (under [Install](#on-an-older-macos-or-the-command-line-only)
 | Path | What |
 |---|---|
 | `~/Library/Application Support/DeepDriveCleaner/last-scan.json` | The last scan's report, which the app shows. `ddc clean --items` edits it after cleaning instead of scanning again; the next scan replaces it. |
+| `~/Library/Application Support/DeepDriveCleaner/previous-scan.json` | The report before the last one, for comparing two scans. `ddc scan`, the background scan and the check `ddc clean` makes before it removes anything move the report they replace here, when it is a whole scan of the home (or of the `roots` in the settings). A clean's edit and `ddc disk free` leave it as it is. |
 | `~/Library/Application Support/DeepDriveCleaner/last-disk.json` | The last `ddc disk` report; the next one replaces it. |
 | `~/Library/Application Support/DeepDriveCleaner/space.json` | What `ddc space` read of the free space: one reading an hour for 14 days, and the latest. |
 | `~/Library/Application Support/DeepDriveCleaner/settings.json` | Settings shared by the app and the terminal (below). |

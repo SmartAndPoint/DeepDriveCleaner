@@ -21,7 +21,7 @@ use ddc_core::free::{
     self, ActionList, ActionListError, ActionReport, ActionResult, FREE_SCHEMA_VERSION, FreeContext, FreeReport,
     ListedAction, Refusal, ReportEdit,
 };
-use ddc_core::model::SCHEMA_VERSION;
+use ddc_core::model::{SCHEMA_VERSION, WrittenBy};
 use ddc_core::platform::{self, Capability, CapabilityAbsent};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::scan::{Progress, WalkOptions};
@@ -893,10 +893,10 @@ fn after_brew_cleanup_the_homebrew_cache_finding_is_measured_again() {
     let env = fx.env();
     let opts =
         ScanOptions { walk: WalkOptions { threads: Some(2), ..WalkOptions::default() }, ..ScanOptions::default() };
-    let scan = report::scan(&env, &opts, &Progress::default()).unwrap();
+    let mut scan = report::scan(&env, &opts, &Progress::default()).unwrap();
     let cache = fx.brew_cache();
     let before = scan.findings.iter().find(|f| f.rule == "cache.homebrew").expect("a cache.homebrew finding").bytes;
-    store::write_last_scan(&env, &scan).unwrap();
+    store::write_last_scan(&env, &mut scan, WrittenBy::Scan, None).unwrap();
     gone(cache.join("downloads"), &fx.holding());
 
     let ran = [report_of(ActionId::BrewCleanup, None, ActionResult::Freed)];
@@ -907,6 +907,13 @@ fn after_brew_cleanup_the_homebrew_cache_finding_is_measured_again() {
     let after = store::read_last_scan(&env).unwrap().unwrap();
     let finding = after.findings.iter().find(|f| f.rule == "cache.homebrew");
     assert!(finding.is_none_or(|f| f.bytes < before), "{finding:?}");
+    // The edit says who wrote it, keeps the scan's start and rules, and
+    // leaves the report before it where it is (here: none).
+    assert_eq!(after.written_by, Some(WrittenBy::DiskFree));
+    assert!(after.written_at.is_some());
+    assert_eq!(after.generated_at, scan.generated_at);
+    assert_eq!(after.rules_in_force, scan.rules_in_force);
+    assert!(!env.data_dir().join(store::PREVIOUS_SCAN).exists());
 
     // A report of other roots is not that report.
     let other = ScanOptions { roots: vec![fx.t.dir("home/Projects")], ..opts.clone() };

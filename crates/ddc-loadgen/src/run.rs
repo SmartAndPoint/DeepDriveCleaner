@@ -15,7 +15,7 @@ use ddc_core::exec::report::CleanReport;
 use ddc_core::plan::ListedItems;
 use ddc_core::platform::{self, Capability, procs, statfs, usage};
 use ddc_core::settings::SETTINGS;
-use ddc_core::store::{LAST_DISK, LAST_SCAN};
+use ddc_core::store::{LAST_DISK, LAST_SCAN, PREVIOUS_SCAN};
 
 use crate::isolate::{self, Target};
 use crate::limits::{self, Mode};
@@ -377,7 +377,7 @@ fn owner_state(home: &Path) -> Vec<(PathBuf, Option<SystemTime>)> {
     let data = home.join("Library/Application Support/DeepDriveCleaner");
     let logs = home.join("Library/Logs/DeepDriveCleaner");
     let mut paths = vec![data.clone()];
-    paths.extend([SETTINGS, LAST_SCAN, LAST_DISK, "lock", "notify-state.json"].map(|f| data.join(f)));
+    paths.extend([SETTINGS, LAST_SCAN, PREVIOUS_SCAN, LAST_DISK, "lock", "notify-state.json"].map(|f| data.join(f)));
     // The background scan appends to its log in place, which leaves the folder's time as it was.
     paths.extend([home.join("Library/LaunchAgents"), logs.clone()]);
     paths.extend(["actions.jsonl", "background.log"].map(|f| logs.join(f)));

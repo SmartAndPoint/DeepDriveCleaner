@@ -24,6 +24,7 @@ use ddc_core::report::contents::ContentsLimits;
 use ddc_core::report::recheck::{self, Full, RecheckError, Walk, walk_for};
 use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::report::{self, ScanOptions};
+use ddc_core::rules::listing::RuleList;
 use ddc_core::rules::{Catalog, RULES, Rule, Scope};
 use ddc_core::scan::{DirListing, DirReader, Progress, ReadError, StdReader, Times, WalkOptions};
 
@@ -468,6 +469,25 @@ fn the_pruned_recheck_opens_only_the_items_their_ancestors_and_a_siblings_family
     }
     let newer = format!("{}/PyCharm2024.1", common::rule_path("ide.jetbrains-old-data"));
     assert!(opened.contains(&home.t.path(&newer)), "the family is read");
+}
+
+#[test]
+fn a_pruned_recheck_lists_the_rules_in_force() {
+    if common::unsupported("a_pruned_recheck_lists_the_rules_in_force") {
+        return;
+    }
+    let home = Home::new();
+    home.t.file("one/__pycache__/m.pyc", 100);
+    home.unrelated();
+    let reviewed = home.review();
+    let list = [home.listed(&reviewed, "one/__pycache__")];
+    let catalog = home.catalog();
+    let (scanned, _) =
+        recheck::pruned(&home.env(), &home.opts(), &catalog, &list, &Progress::default(), &SystemStatFs, None).unwrap();
+    let mut ids: Vec<String> = RuleList::builtin().rules.into_iter().map(|r| r.id).collect();
+    ids.sort();
+    assert_eq!(scanned.rules_in_force, Some(ids));
+    assert_eq!(scanned.rules_in_force, reviewed.rules_in_force);
 }
 
 #[test]

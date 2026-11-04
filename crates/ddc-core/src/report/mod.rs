@@ -314,6 +314,10 @@ pub(crate) fn scan_inner(
         cancelled: out.cancelled,
         not_scanned: visitor.not_scanned(),
         lossy_paths: None,
+        written_by: None,
+        written_at: None,
+        previous_written_at: None,
+        rules_in_force: Some(crate::rules::listing::rule_ids(crate::platform::PLATFORM)),
     };
     report.lossy_paths = crate::json_path::count_lossy(&report);
     Ok(Scanned { report, index, errors: out.errors })

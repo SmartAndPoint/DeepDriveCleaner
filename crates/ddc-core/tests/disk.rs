@@ -18,6 +18,7 @@ use ddc_core::disk::{
     SimulatorStatus, Sources,
 };
 use ddc_core::env::Env;
+use ddc_core::model::WrittenBy;
 use ddc_core::platform::Capability;
 use ddc_core::platform::statfs::VolumeStats;
 use ddc_core::report::volumes::StatFs;
@@ -149,8 +150,8 @@ fn area<'r>(r: &'r DiskReport, id: &str) -> &'r disk::Area {
 
 fn scan_home(fx: &Fixture, env: &Env, roots: Vec<PathBuf>, statfs: &dyn StatFs) {
     let opts = ScanOptions { roots, ..ScanOptions::default() };
-    let r = report::scan_with(env, &opts, &Progress::default(), statfs).unwrap();
-    store::write_last_scan(env, &r).unwrap();
+    let mut r = report::scan_with(env, &opts, &Progress::default(), statfs).unwrap();
+    store::write_last_scan(env, &mut r, WrittenBy::Scan, None).unwrap();
     assert!(fx.t.path("data/last-scan.json").exists());
 }
 
