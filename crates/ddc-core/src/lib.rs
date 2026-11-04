@@ -8,6 +8,7 @@
 
 pub mod agents;
 pub mod brew;
+pub mod changes;
 pub mod class;
 pub mod conda;
 pub mod disk;

@@ -30,6 +30,7 @@ fn refusal_for(cmd: &Command, supported: Result<(), Unsupported>, declared: &[Ca
         Command::Scan(_)
         | Command::Clean(_)
         | Command::Space(_)
+        | Command::Changes(_)
         | Command::Keep { .. }
         | Command::Du(_)
         | Command::Notify { .. }

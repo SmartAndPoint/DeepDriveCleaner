@@ -15,6 +15,7 @@ use ddc_core::space::{self, BaselineSource, SpaceReport, SpaceState};
 
 use crate::cli::SpaceArgs;
 use crate::notify::volume_name;
+use crate::render::{age, mid_sentence};
 use crate::size::human;
 
 pub fn run(args: &SpaceArgs) -> anyhow::Result<ExitCode> {
@@ -88,14 +89,6 @@ fn sentence(r: &SpaceReport) -> String {
     }
 }
 
-/// A volume's name inside a sentence: only a leading "The " is lower-cased.
-fn mid_sentence(name: &str) -> String {
-    match name.strip_prefix("The ") {
-        Some(rest) => format!("the {rest}"),
-        None => name.to_owned(),
-    }
-}
-
 /// How full a volume is, in whole percent rounded down, as the app's
 /// `NotificationText` says it.
 fn percent_full(total: u64, free: u64) -> u64 {
@@ -104,26 +97,6 @@ fn percent_full(total: u64, free: u64) -> u64 {
     }
     let used = u128::from(total - free.min(total));
     u64::try_from(used * 100 / u128::from(total)).unwrap_or(100)
-}
-
-/// "just now", "5 min ago", "2 h ago", "3 d ago": `at` seen from `now`, with
-/// the thresholds of the app's `Wording.age`. `None` when either time cannot
-/// be read.
-fn age(at: &str, now: &str) -> Option<String> {
-    let secs = |t: &str| -> Option<i128> {
-        let t = humantime::parse_rfc3339_weak(t).ok()?;
-        Some(match t.duration_since(std::time::UNIX_EPOCH) {
-            Ok(d) => i128::from(d.as_secs()),
-            Err(e) => -i128::from(e.duration().as_secs()),
-        })
-    };
-    let minutes = (secs(now)? - secs(at)?) / 60;
-    Some(match minutes {
-        ..1 => "just now".to_owned(),
-        1..60 => format!("{minutes} min ago"),
-        60..2880 => format!("{} h ago", minutes / 60),
-        _ => format!("{} d ago", minutes / 1440),
-    })
 }
 
 #[cfg(test)]
@@ -218,17 +191,6 @@ mod tests {
             sentence(&r),
             "30.0 GiB more in use on /Volumes/Work than at the last scan, just now. `ddc scan` shows where."
         );
-        assert_eq!(mid_sentence("The startup disk"), "the startup disk");
-        assert_eq!(mid_sentence("Theatre"), "Theatre");
-        let ago = |secs: u64| age(&at(NOW - secs), &at(NOW));
-        assert_eq!(ago(59).as_deref(), Some("just now"));
-        assert_eq!(ago(60).as_deref(), Some("1 min ago"));
-        assert_eq!(ago(3599).as_deref(), Some("59 min ago"));
-        assert_eq!(ago(3600).as_deref(), Some("1 h ago"));
-        assert_eq!(ago(48 * 3600 - 1).as_deref(), Some("47 h ago"));
-        assert_eq!(ago(48 * 3600).as_deref(), Some("2 d ago"));
-        assert_eq!(age(&at(NOW + 600), &at(NOW)).as_deref(), Some("just now"), "a baseline from the future");
-        assert_eq!(age("yesterday", &at(NOW)), None);
         let mut odd = r.clone();
         odd.baseline.as_mut().unwrap().at = "yesterday".into();
         assert_eq!(
