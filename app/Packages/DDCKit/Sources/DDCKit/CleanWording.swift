@@ -32,6 +32,7 @@ public enum CleanWording {
         case .entryLocked(let lock): entryLock(lock)
         case .insideAnotherItem: "Removed with the folder it is in"
         case .trashCrossesFilesystem: "No Trash on its own disk · --permanent removes it"
+        case .recycleBinRefuses(let cause): recycleBin(cause)
         case .agentLive(let harness, .running): "\(harnessName(harness)) is running"
         case .agentLive(let harness, .lockHeld): "\(harnessName(harness)) holds a lock on it"
         case .agentLive(let harness, .unknown): "Could not tell whether \(harnessName(harness)) is using it"
@@ -116,6 +117,21 @@ public enum CleanWording {
             case .inUseUnknownCwd(_, let name): .reason(.inUseUnknownCwd(pid: 0, name: name))
             default: .reason(reason)
             }
+        }
+    }
+
+    /// Why the Recycle Bin refused an item, each naming `--permanent`.
+    static func recycleBin(_ cause: SkipReason.RecycleBinCause) -> String {
+        switch cause {
+        case .noBin: "No Recycle Bin on its drive · --permanent removes it"
+        case .tooLarge: "Too large for the Recycle Bin · --permanent removes it"
+        case .binFull: "The Recycle Bin is full · empty it, or --permanent removes it"
+        case .nukeOnDelete: "The Recycle Bin of its drive deletes at once · --permanent removes it"
+        case .noRecycleFiles: "A policy turns the Recycle Bin off · --permanent removes it"
+        case .pathRefused: "Its path is too long for the Recycle Bin · --permanent removes it"
+        case .settingsUnreadable:
+            "The Recycle Bin's settings could not be read · recycle any file on that drive once in Explorer, or --permanent removes it"
+        case .wouldDestroy: "Windows would delete it, not recycle it · --permanent removes it"
         }
     }
 

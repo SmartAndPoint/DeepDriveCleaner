@@ -18,8 +18,8 @@ use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
 use ddc_core::exec::{
     self, Consent, ExecError, ExecEvents, ExecOptions, ExecPhase, ExecProgress, ExecReport, ExecSnapshot, Journal,
-    JournalEntry, MemoryJournal, OpenVnode, Outcome, Ports, ProcStart, ProcessTable, SkipReason, SystemProcesses,
-    TrashError, TrashPlace, TrashTarget, TrashedTo, Trasher,
+    JournalEntry, MemoryJournal, OpenVnode, Outcome, Ports, ProcStart, ProcessTable, RecycleBinCause, SkipReason,
+    SystemProcesses, TrashDone, TrashError, TrashPlace, TrashTarget, TrashedTo, Trasher,
 };
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{Action, Plan, PlanItem, PlanOptions, build_plan};
@@ -161,7 +161,7 @@ fn deletes_selected_items_and_journals_each() {
     assert_eq!(journal.0.len(), 2, "one journal line per action");
     let e = journal.0.iter().find(|e| e.path == nm).unwrap();
     // The journal's own version, not the scan report's (safety ADR, amendment of 2026-10-28).
-    assert_eq!((e.rule.as_str(), e.method, e.schema_version), ("node.node_modules", "delete", 10));
+    assert_eq!((e.rule.as_str(), e.method, e.schema_version), ("node.node_modules", "delete", 11));
     let line = serde_json::to_value(e).unwrap();
     assert_eq!(line["kind"], "item");
     for key in ["ts", "path", "dev", "ino", "rule", "class", "method", "bytes", "outcome"] {
@@ -312,16 +312,16 @@ fn a_trash_that_would_cross_skips_the_item_and_a_told_place_is_journaled() {
     }
     struct Crossing;
     impl Trasher for Crossing {
-        fn trash(&self, _: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+        fn trash(&self, _: &TrashTarget<'_>) -> Result<TrashDone, TrashError> {
             Err(TrashError::CrossesFilesystem)
         }
     }
     struct Telling(PathBuf);
     impl Trasher for Telling {
-        fn trash(&self, t: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+        fn trash(&self, t: &TrashTarget<'_>) -> Result<TrashDone, TrashError> {
             fs::create_dir_all(self.0.join("files"))?;
             fs::rename(t.path, self.0.join("files").join(t.name))?;
-            Ok(Some(TrashPlace { trash: self.0.clone(), name: t.name.to_owned() }))
+            Ok(TrashDone::Moved(Some(TrashPlace { trash: self.0.clone(), name: t.name.to_owned() })))
         }
     }
     let fx = Fx::new();
@@ -356,6 +356,58 @@ fn a_trash_that_would_cross_skips_the_item_and_a_told_place_is_journaled() {
     assert_eq!(outcome(&r, &orphan), &Outcome::Trashed);
     let line = journal.0.iter().find(|l| l.path == orphan).unwrap();
     assert_eq!(line.trash, Some(TrashedTo { trash: told, name: PathBuf::from("node_modules") }));
+}
+
+/// The Recycle Bin's answers (safety ADR §5, the Recycle Bin on Windows,
+/// planned 2026-11-04): an item it refuses is skipped with the cause and
+/// stays, whatever the cause; one held open at the move is `held-open` and
+/// stays; one the shell destroyed is `removed-not-recycled`, journaled so,
+/// never `failed` and never `trashed`.
+#[test]
+fn the_recycle_bins_refusal_hold_and_destruction_are_reported_as_such() {
+    if common::unsupported("the_recycle_bins_refusal_hold_and_destruction_are_reported_as_such") {
+        return;
+    }
+    let fx = Fx::new();
+    let [x, y, z] = ["x", "y", "z"].map(|p| {
+        fx.t.file(&format!("{p}/node_modules/a.js"), 100);
+        fx.t.path(&format!("{p}/node_modules"))
+    });
+    let mut plan = fx.plan();
+    select_all(&mut plan);
+    let run = |trash: &dyn Trasher| {
+        let mut journal = MemoryJournal::default();
+        let ports =
+            Ports { commands: &FakeCommands::default(), trash, procs: &FakeProcs::new(vec![]), journal: &mut journal };
+        let env = fx.env();
+        let r = exec::execute(
+            &env,
+            &Catalog::builtin(fx.t.root()),
+            &plan,
+            &Consent::Interactive,
+            ports,
+            &ExecOptions::default(),
+        )
+        .unwrap();
+        (r, journal)
+    };
+    let bin = || common::fakes::BinTrash::new(fx.data.path().join("Bin"), u64::MAX);
+
+    for cause in RecycleBinCause::ALL {
+        let (r, journal) = run(&bin().refusing(&x, cause).holding(&y).holding(&z));
+        assert_eq!(outcome(&r, &x), &Outcome::Skipped(SkipReason::RecycleBinRefuses { cause }));
+        assert_eq!(outcome(&r, &y), &Outcome::Skipped(SkipReason::HeldOpen));
+        assert!(x.join("a.js").exists() && y.join("a.js").exists() && z.join("a.js").exists(), "nothing moved");
+        assert!(journal.0.iter().all(|l| l.outcome != Outcome::Trashed));
+    }
+
+    let (r, journal) = run(&bin().destroying(&z));
+    assert_eq!(outcome(&r, &z), &Outcome::RemovedNotRecycled);
+    assert!(!z.exists());
+    let line = journal.0.iter().find(|l| l.path == z).unwrap();
+    assert_eq!(line.outcome, Outcome::RemovedNotRecycled);
+    assert_eq!(serde_json::to_value(line).unwrap()["outcome"], "removed-not-recycled");
+    assert!(r.items.iter().all(|i| !matches!(i.outcome, Outcome::Failed { .. })));
 }
 
 #[test]

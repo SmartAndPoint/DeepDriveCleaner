@@ -24,8 +24,11 @@ use crate::platform::{Capability, Platform};
 /// 8: the skip reason `trash-crosses-filesystem` (safety ADR §5, amendment
 /// of 2026-11-01). 9: the entry locks `build-in-use` and `builds-unknown`
 /// (safety ADR, amendment of 2026-11-02). 10: the skip reason `held-open`
-/// (safety ADR §5, amendment of 2026-11-02).
-pub const CLEAN_SCHEMA_VERSION: u32 = 10;
+/// (safety ADR §5, amendment of 2026-11-02). 11: the skip reason
+/// `recycle-bin-refuses` with its `cause`, and the outcome
+/// `removed-not-recycled` (safety ADR §5, the Recycle Bin on Windows,
+/// planned 2026-11-04).
+pub const CLEAN_SCHEMA_VERSION: u32 = 11;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CleanReport {

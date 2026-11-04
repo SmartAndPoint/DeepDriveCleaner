@@ -24,7 +24,7 @@ use ddc_core::env::Env;
 use ddc_core::exec::preflight::{self, Prediction, PreflightLine, PreflightPorts};
 use ddc_core::exec::{
     self, AgentLiveBy, Consent, ExecOptions, ExecReport, JournalEntry, MemoryJournal, OpenVnode, Outcome, Ports,
-    ProcStart, ProcessTable, SkipReason, TrashError, TrashPlace, TrashTarget, Trasher,
+    ProcStart, ProcessTable, RecycleBinCause, SkipReason, TrashDone, TrashError, TrashTarget, Trasher,
 };
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{Action, ActionKind, ListedItem, ListedPlan, plan_listed_with};
@@ -200,7 +200,7 @@ struct RecordingTrash {
 }
 
 impl Trasher for RecordingTrash {
-    fn trash(&self, target: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+    fn trash(&self, target: &TrashTarget<'_>) -> Result<TrashDone, TrashError> {
         let path = target.path;
         if path.file_name() == self.fail.as_deref() {
             return Err(std::io::Error::other("the Trash refused it").into());
@@ -211,7 +211,7 @@ impl Trasher for RecordingTrash {
         std::fs::create_dir_all(&to)?;
         std::fs::rename(path, to.join(path.file_name().unwrap()))?;
         moved.push(path.to_path_buf());
-        Ok(None)
+        Ok(TrashDone::Moved(None))
     }
 }
 
@@ -277,6 +277,54 @@ fn a_session_entry_without_a_trash_is_predicted_and_skipped_as_crossing() {
     for stays in [transcript, format!("{PROJECT}/{A}"), format!("{HISTORY}/{A}")] {
         assert!(h.path(&stays).exists(), "{stays}");
     }
+}
+
+/// A session's key and companions are asked together, once, before
+/// anything moves: a Recycle Bin with room for less than all of them
+/// refuses the whole session `bin-full` in the dry run and in the clean,
+/// with nothing moved. A companion the shell destroyed is journaled
+/// `removed-not-recycled`, the session stops there as `failed`, and the key
+/// stays (safety ADR §5, the Recycle Bin on Windows, planned 2026-11-04).
+#[test]
+fn a_session_is_asked_of_the_recycle_bin_once_and_a_destroyed_companion_stops_it() {
+    if common::unsupported("a_session_is_asked_of_the_recycle_bin_once_and_a_destroyed_companion_stops_it") {
+        return;
+    }
+    let h = Home::new();
+    h.two_sessions();
+    let transcript = format!("{PROJECT}/{A}.jsonl");
+    let items = [h.entry(&transcript, TRANSCRIPTS)];
+    let none = FakeProcs::new(Vec::new());
+    let [(Some(total), Prediction::WouldTrash)] = h.predict(&items, &none, &[])[..] else {
+        panic!("a session the Trash takes")
+    };
+    let bin = |room| common::fakes::BinTrash::new(h.data.path().join("Bin"), room);
+
+    let short = bin(total - 1);
+    let full = Prediction::WouldSkip(SkipReason::RecycleBinRefuses { cause: RecycleBinCause::BinFull });
+    assert_eq!(h.predict_with(&items, &none, &[], &short).into_iter().map(|(_, p)| p).collect::<Vec<_>>(), [full]);
+    let short = bin(total - 1);
+    let plan = h.plan(&items, &none);
+    let (run, journal) = h.run(&plan, &short, &none, &[]);
+    assert_eq!(outcomes(&run), [Outcome::Skipped(SkipReason::RecycleBinRefuses { cause: RecycleBinCause::BinFull })]);
+    let asks = short.asks.borrow();
+    assert_eq!(asks.len(), 1, "one ask for the whole session: {asks:?}");
+    assert_eq!(asks[0].len(), 3, "the key and its two companions: {asks:?}");
+    assert_eq!(asks[0].last(), Some(&h.path(&transcript)), "the key last");
+    assert!(journal.iter().all(|l| l.outcome != Outcome::Trashed));
+    for stays in [transcript.clone(), format!("{PROJECT}/{A}"), format!("{PROJECT}/{A}.desktop-released.json")] {
+        assert!(h.path(&stays).exists(), "{stays}");
+    }
+
+    let folder = h.path(&format!("{PROJECT}/{A}"));
+    let plan = h.plan(&items, &none);
+    let (run, journal) = h.run(&plan, &bin(total).destroying(&folder), &none, &[]);
+    assert!(matches!(&outcomes(&run)[..], [Outcome::Failed { error }] if error.contains("removed, not recycled")));
+    let line = journal.iter().find(|l| l.path == folder).expect("the destroyed companion's line");
+    assert_eq!(line.outcome, Outcome::RemovedNotRecycled);
+    assert_eq!(line.entry.as_deref(), Some(h.path(&transcript).as_path()));
+    assert!(!folder.exists());
+    assert!(h.path(&transcript).exists(), "the key stays");
 }
 
 /// AC 3: a session's entry goes to the Trash, its companions first, by

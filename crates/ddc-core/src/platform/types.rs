@@ -10,6 +10,9 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
 // ---- Directory listing (`platform::bulk`, `scan::reader`) ----
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -187,12 +190,94 @@ pub struct TrashPlace {
     pub name: OsString,
 }
 
+/// What a move to the Trash did, when it did something.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TrashDone {
+    /// The item is in the Trash, at the place given when the Trash tells.
+    Moved(Option<TrashPlace>),
+    /// The item is gone from its folder and is not in the Recycle Bin: the
+    /// shell destroyed it instead (safety ADR §5, the Recycle Bin on
+    /// Windows). Never on macOS or Linux.
+    RemovedNotRecycled,
+}
+
+/// One part of a move the Trash is asked about before it moves anything:
+/// `name` in the verified folder every part of one ask shares, `bytes` its
+/// size as measured for the clean.
+#[derive(Debug, Clone, Copy)]
+pub struct TrashAsk<'a> {
+    pub name: &'a std::ffi::OsStr,
+    pub path: &'a Path,
+    pub bytes: u64,
+    pub is_dir: bool,
+}
+
+/// Why the Recycle Bin refuses an item (safety ADR §5, the Recycle Bin on
+/// Windows, planned 2026-11-04). Nothing moved; `--permanent` removes it
+/// instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum RecycleBinCause {
+    /// The item's volume has no Recycle Bin: not a local fixed drive, or
+    /// the shell finds none there.
+    NoBin,
+    /// The item is larger than the bin's maximum size.
+    TooLarge,
+    /// The item fits the bin's maximum, not the room left in it: Windows
+    /// would destroy the user's oldest recycled items to make room.
+    BinFull,
+    /// The volume's bin deletes at once (`NukeOnDelete`).
+    NukeOnDelete,
+    /// A policy turns the Recycle Bin off (`NoRecycleFiles`).
+    NoRecycleFiles,
+    /// The shell does not take the item's path (longer than `MAX_PATH`).
+    PathRefused,
+    /// A setting the checks need could not be read: refused, never guessed.
+    SettingsUnreadable,
+    /// The shell would delete or copy the item instead of recycling it.
+    WouldDestroy,
+}
+
+impl RecycleBinCause {
+    /// Every cause, in the order of the ADR.
+    pub const ALL: [Self; 8] = [
+        Self::NoBin,
+        Self::TooLarge,
+        Self::BinFull,
+        Self::NukeOnDelete,
+        Self::NoRecycleFiles,
+        Self::PathRefused,
+        Self::SettingsUnreadable,
+        Self::WouldDestroy,
+    ];
+}
+
+impl fmt::Display for RecycleBinCause {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::NoBin => "no Recycle Bin on the item's drive",
+            Self::TooLarge => "larger than the Recycle Bin's maximum size",
+            Self::BinFull => "the Recycle Bin is full; empty it",
+            Self::NukeOnDelete => "the Recycle Bin of this drive deletes at once",
+            Self::NoRecycleFiles => "a policy turns the Recycle Bin off",
+            Self::PathRefused => "the path is too long for the Recycle Bin",
+            Self::SettingsUnreadable => "the Recycle Bin's settings could not be read",
+            Self::WouldDestroy => "the shell would delete it, not recycle it",
+        })
+    }
+}
+
 /// Why a move to the Trash did not happen. Nothing was moved either way.
 #[derive(Debug)]
 pub enum TrashError {
     /// The item's filesystem has no Trash ddc may use, or the move would
     /// cross into another (safety ADR §5, amendment of 2026-11-01).
     CrossesFilesystem,
+    /// The Recycle Bin refuses the item (Windows only).
+    RecycleBinRefuses(RecycleBinCause),
+    /// Another process holds the item or a file below it, so the move was
+    /// refused with the item whole (Windows only).
+    HeldOpen,
     Other(io::Error),
 }
 
@@ -200,8 +285,46 @@ impl fmt::Display for TrashError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::CrossesFilesystem => f.write_str("no Trash on the item's filesystem"),
+            Self::RecycleBinRefuses(cause) => cause.fmt(f),
+            Self::HeldOpen => f.write_str("held open by another process"),
             Self::Other(e) => e.fmt(f),
         }
+    }
+}
+
+/// The room left in each volume's Recycle Bin during one clean or one dry
+/// run (safety ADR §5, the Recycle Bin on Windows, planned 2026-11-04):
+/// read once per volume, at the first ask there, and taken from by each
+/// ask that fits, all of its bytes or none. Nothing is given back, so a
+/// dry run and its clean, asking in the same order, refuse the same items.
+#[derive(Debug, Clone)]
+pub struct BinBudget<K: Ord> {
+    room: std::collections::BTreeMap<K, u64>,
+}
+
+impl<K: Ord> Default for BinBudget<K> {
+    fn default() -> Self {
+        Self { room: std::collections::BTreeMap::new() }
+    }
+}
+
+impl<K: Ord> BinBudget<K> {
+    /// Takes `bytes` from `volume`'s room, reading the room through `read`
+    /// at the volume's first ask: [`RecycleBinCause::BinFull`] when they do
+    /// not fit, and nothing is taken. A room that cannot be read refuses
+    /// with `read`'s cause, and is read again at the next ask.
+    pub fn take(
+        &mut self,
+        volume: K,
+        bytes: u64,
+        read: impl FnOnce() -> Result<u64, RecycleBinCause>,
+    ) -> Result<(), RecycleBinCause> {
+        let room = match self.room.entry(volume) {
+            std::collections::btree_map::Entry::Occupied(e) => e.into_mut(),
+            std::collections::btree_map::Entry::Vacant(e) => e.insert(read()?),
+        };
+        *room = room.checked_sub(bytes).ok_or(RecycleBinCause::BinFull)?;
+        Ok(())
     }
 }
 
@@ -461,5 +584,56 @@ mod tests {
         assert_eq!(with_cwd.app_bundle().as_deref(), Some("Cursor"));
         let named_only = ProcInfo { name: "Cursor".into(), ..ProcInfo::default() };
         assert_eq!(named_only.app_bundle(), None);
+    }
+
+    #[test]
+    fn a_bin_budget_reads_each_volume_once_and_takes_all_or_nothing() {
+        let reads = std::cell::Cell::new(0);
+        let room = |n: u64| {
+            let reads = &reads;
+            move || {
+                reads.set(reads.get() + 1);
+                Ok(n)
+            }
+        };
+        let mut budget = BinBudget::<u8>::default();
+        assert_eq!(budget.take(1, 40, room(100)), Ok(()));
+        assert_eq!(budget.take(1, 40, room(999)), Ok(()), "the room is read at the first ask only");
+        assert_eq!(budget.take(1, 40, room(999)), Err(RecycleBinCause::BinFull), "20 left");
+        assert_eq!(budget.take(1, 20, room(999)), Ok(()), "a refused ask took nothing");
+        assert_eq!(budget.take(1, 1, room(999)), Err(RecycleBinCause::BinFull));
+        assert_eq!(budget.take(2, 50, room(50)), Ok(()), "another volume has its own room");
+        assert_eq!(reads.get(), 2);
+    }
+
+    #[test]
+    fn a_bin_room_that_cannot_be_read_refuses_and_is_read_again() {
+        let mut budget = BinBudget::<u8>::default();
+        assert_eq!(
+            budget.take(1, 1, || Err(RecycleBinCause::SettingsUnreadable)),
+            Err(RecycleBinCause::SettingsUnreadable)
+        );
+        assert_eq!(budget.take(1, 1, || Ok(1)), Ok(()));
+    }
+
+    #[test]
+    fn every_recycle_bin_cause_is_listed_once_and_named_in_kebab_case() {
+        let names: Vec<String> = RecycleBinCause::ALL
+            .iter()
+            .map(|c| serde_json::to_value(c).unwrap().as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "no-bin",
+                "too-large",
+                "bin-full",
+                "nuke-on-delete",
+                "no-recycle-files",
+                "path-refused",
+                "settings-unreadable",
+                "would-destroy"
+            ]
+        );
     }
 }

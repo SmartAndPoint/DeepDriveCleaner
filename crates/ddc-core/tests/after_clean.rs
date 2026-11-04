@@ -169,6 +169,25 @@ fn a_deleted_finding_leaves_with_the_reports_own_figures() {
     assert_eq!(edited.rules_in_force, older.rules_in_force);
 }
 
+/// An item Windows destroyed instead of recycling leaves the last scan as a
+/// deleted one does, and nothing of it is counted in a Trash (safety ADR §5,
+/// the Recycle Bin on Windows, planned 2026-11-04).
+#[test]
+fn an_item_removed_not_recycled_leaves_as_a_deleted_one() {
+    if common::unsupported("an_item_removed_not_recycled_leaves_as_a_deleted_one") {
+        return;
+    }
+    let home = Home::new();
+    home.t.file("q/__pycache__/a/m.pyc", 10_000);
+    let before = home.scan();
+    let path = home.t.path("q/__pycache__");
+    let destroyed =
+        home.edited(&before, vec![item(&path, "python.pycache", Some(1), Outcome::RemovedNotRecycled)], &[]);
+    let deleted = home.edited(&before, vec![item(&path, "python.pycache", Some(1), Outcome::Deleted)], &[]);
+    assert!(!has(&destroyed, &path));
+    assert_eq!(serde_json::to_value(&destroyed).unwrap(), serde_json::to_value(&deleted).unwrap());
+}
+
 #[test]
 fn skipped_failed_and_not_run_items_stay_and_an_item_the_report_does_not_hold_edits_nothing() {
     if common::unsupported("skipped_failed_and_not_run_items_stay_and_an_item_the_report_does_not_hold_edits_nothing") {

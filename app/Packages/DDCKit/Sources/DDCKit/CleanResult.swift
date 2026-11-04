@@ -30,8 +30,13 @@ public struct CleanResult: Sendable, Equatable {
         public let error: String
     }
 
+    /// Deleted, and asked to go to the Recycle Bin but destroyed instead:
+    /// the space is freed either way.
     public let deleted: Tally
     public let trashed: Tally
+    /// The items Windows deleted instead of moving them to the Recycle Bin,
+    /// under `~`: never counted as moved there.
+    public let notRecycled: [String]
     /// Items cleaned by their tool's commands.
     public let toolsRun: Tally
     public let skipped: Tally
@@ -69,6 +74,7 @@ public struct CleanResult: Sendable, Equatable {
         var skipped = Tally()
         var notRun = Tally()
         var failures: [Failure] = []
+        var notRecycled: [String] = []
         var byCause: [CleanWording.Cause: (count: Int, bytes: UInt64, paths: [String])] = [:]
         var causeOrder: [CleanWording.Cause] = []
         var apps: [String] = []
@@ -83,6 +89,10 @@ public struct CleanResult: Sendable, Equatable {
             case .trashed:
                 trashed.count += 1
                 trashed.bytes += bytes
+            case .removedNotRecycled:
+                deleted.count += 1
+                deleted.bytes += bytes
+                notRecycled.append(Wording.tilde(item.path, home: home))
             case .native(let commands):
                 tools.count += 1
                 tools.bytes += bytes
@@ -120,6 +130,7 @@ public struct CleanResult: Sendable, Equatable {
         return CleanResult(
             deleted: deleted,
             trashed: trashed,
+            notRecycled: notRecycled,
             toolsRun: tools,
             skipped: skipped,
             failed: Int(report.failed),

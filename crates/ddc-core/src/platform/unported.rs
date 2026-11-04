@@ -38,13 +38,16 @@ pub mod trash {
     use std::path::Path;
 
     use crate::platform::fsops::DirFd;
-    use crate::platform::types::{TrashError, TrashPlace};
+    use crate::platform::types::{TrashAsk, TrashDone, TrashError};
 
-    pub fn trash_item(_: &DirFd, _: &OsStr, _: &Path, _: (u64, u64)) -> Result<Option<TrashPlace>, TrashError> {
+    #[derive(Debug, Default)]
+    pub struct Budget;
+
+    pub fn trash_item(_: &DirFd, _: &OsStr, _: &Path, _: (u64, u64)) -> Result<TrashDone, TrashError> {
         Err(TrashError::Other(super::unsupported::<()>().unwrap_err()))
     }
 
-    pub fn would_trash(_: &DirFd, _: &OsStr, _: &Path) -> Result<(), TrashError> {
+    pub fn admit(_: &mut Budget, _: &DirFd, _: &[TrashAsk<'_>]) -> Result<(), TrashError> {
         Err(TrashError::Other(super::unsupported::<()>().unwrap_err()))
     }
 }

@@ -92,7 +92,12 @@ fn clean(home: &Path) {
         &catalog,
         &plan.plan,
         &Consent::Listed,
-        Ports { commands: &FakeCommands::default(), trash: &SystemTrash, procs: &none, journal: &mut journal },
+        Ports {
+            commands: &FakeCommands::default(),
+            trash: &SystemTrash::default(),
+            procs: &none,
+            journal: &mut journal,
+        },
         &ExecOptions { cancel: &AtomicBool::new(false), ..ExecOptions::default() },
     )
     .unwrap();

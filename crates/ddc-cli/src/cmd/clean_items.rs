@@ -147,7 +147,12 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
             &catalog,
             &listed.plan,
             &Consent::Listed,
-            Ports { commands: &commands, trash: &SystemTrash, procs: &SystemProcesses, journal: &mut journal },
+            Ports {
+                commands: &commands,
+                trash: &SystemTrash::default(),
+                procs: &SystemProcesses,
+                journal: &mut journal,
+            },
             &ExecOptions {
                 cancel,
                 progress: Some(&exec_progress),
@@ -216,7 +221,7 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
     }
     // With --json the report carries failures; the run itself succeeded. As
     // plain `clean`, the text mode fails on an item that failed.
-    let failed = result.items.iter().any(|i| matches!(i.outcome, Outcome::Failed { .. }));
+    let failed = result.items.iter().any(|i| matches!(i.outcome, Outcome::Failed { .. } | Outcome::RemovedNotRecycled));
     Ok(if !args.json && failed { ExitCode::FAILURE } else { ExitCode::SUCCESS })
 }
 
@@ -231,8 +236,12 @@ fn dry_run(
 ) -> anyhow::Result<ExitCode> {
     let _lock = store::try_lock(env, LockMode::Shared)?;
     let commands = SystemCommands::new(env);
-    let ports =
-        PreflightPorts { commands: &commands, procs: &SystemProcesses, reader: &SystemReader, trash: &SystemTrash };
+    let ports = PreflightPorts {
+        commands: &commands,
+        procs: &SystemProcesses,
+        reader: &SystemReader,
+        trash: &SystemTrash::default(),
+    };
     let mut out = std::io::stdout().lock();
     let home = env.home().to_path_buf();
     let skips: Vec<PathBuf> = opts.skip.iter().chain(&opts.user_skips).cloned().collect();

@@ -278,12 +278,28 @@ pub fn reason(r: &SkipReason) -> String {
         SkipReason::TrashCrossesFilesystem => {
             "no Trash on its own filesystem; --permanent removes it instead".to_owned()
         }
+        SkipReason::RecycleBinRefuses { cause } => recycle_bin_text(*cause),
         SkipReason::AgentLive { harness, by } => match by {
             AgentLiveBy::Running => format!("{} is running; quit it and run again", harness_name(*harness)),
             AgentLiveBy::LockHeld => format!("{} holds a lock on it", harness_name(*harness)),
             AgentLiveBy::Unknown => format!("could not tell whether {} is using it", harness_name(*harness)),
         },
         SkipReason::WorktreeKept { condition, detail } => format!("kept by condition {condition}: {detail}"),
+    }
+}
+
+/// Why the Recycle Bin refused an item, and what the user can do: each
+/// names `--permanent` (safety ADR §5, the Recycle Bin on Windows).
+fn recycle_bin_text(cause: ddc_core::exec::RecycleBinCause) -> String {
+    match cause {
+        ddc_core::exec::RecycleBinCause::BinFull => {
+            "the Recycle Bin has no room for it; empty the Recycle Bin, or --permanent removes it instead".to_owned()
+        }
+        // A bin never used on that drive has no settings yet.
+        ddc_core::exec::RecycleBinCause::SettingsUnreadable => "the Recycle Bin's settings could not be read; \
+             recycling any file on that drive once in Explorer creates them, or --permanent removes it instead"
+            .to_owned(),
+        cause => format!("{cause}; --permanent removes it instead"),
     }
 }
 
@@ -352,9 +368,19 @@ fn cause_text(cause: UnknownCause) -> &'static str {
 
 pub fn print_result(w: &mut impl Write, r: &ExecReport, home: &Path, journal: &Path, style: &Style) -> io::Result<()> {
     let count = |pred: &dyn Fn(&Outcome) -> bool| r.items.iter().filter(|i| pred(&i.outcome)).count();
+    let destroyed = count(&|o| matches!(o, Outcome::RemovedNotRecycled));
+    // Only where the Recycle Bin destroyed something: never on macOS or Linux.
+    let not_recycled = if destroyed > 0 {
+        format!(
+            " · removed, not recycled {destroyed} ({})",
+            human(r.bytes_where(|o| matches!(o, Outcome::RemovedNotRecycled)))
+        )
+    } else {
+        String::new()
+    };
     writeln!(
         w,
-        "\n{} deleted {} ({}) · moved to Trash {} ({}) · ran tools {} · skipped {} · failed {}",
+        "\n{} deleted {} ({}) · moved to Trash {} ({}){not_recycled} · ran tools {} · skipped {} · failed {}",
         style.bold("Done:"),
         count(&|o| matches!(o, Outcome::Deleted)),
         human(r.bytes_where(|o| matches!(o, Outcome::Deleted))),
@@ -380,6 +406,11 @@ pub fn print_result(w: &mut impl Write, r: &ExecReport, home: &Path, journal: &P
         match &item.outcome {
             Outcome::Skipped(why) => writeln!(w, "  skipped  {}: {}", tilde(&item.path, home), reason(why))?,
             Outcome::Failed { error } => writeln!(w, "  failed   {}: {error}", tilde(&item.path, home))?,
+            Outcome::RemovedNotRecycled => writeln!(
+                w,
+                "  removed  {}: Windows deleted it instead of moving it to the Recycle Bin",
+                tilde(&item.path, home)
+            )?,
             Outcome::Native { commands } if commands.iter().any(|c| !c.success) => {
                 writeln!(w, "  tool failed for {}", tilde(&item.path, home))?
             }
@@ -484,6 +515,47 @@ mod tests {
         let d = interactive(&mut p, Path::new("/h"), Cursor::new(input), &mut out, &Style { color: false, all: false })
             .unwrap();
         (d, p)
+    }
+
+    #[test]
+    fn every_recycle_bin_refusal_names_permanent_and_a_full_bin_says_to_empty_it() {
+        for cause in ddc_core::exec::RecycleBinCause::ALL {
+            let text = reason(&SkipReason::RecycleBinRefuses { cause });
+            assert!(text.contains("--permanent"), "{cause:?}: {text}");
+        }
+        let full = reason(&SkipReason::RecycleBinRefuses { cause: ddc_core::exec::RecycleBinCause::BinFull });
+        assert!(full.contains("empty the Recycle Bin"), "{full}");
+        let unread =
+            reason(&SkipReason::RecycleBinRefuses { cause: ddc_core::exec::RecycleBinCause::SettingsUnreadable });
+        assert!(unread.contains("once in Explorer"), "{unread}");
+        let destroy = reason(&SkipReason::RecycleBinRefuses { cause: ddc_core::exec::RecycleBinCause::WouldDestroy });
+        assert_eq!(destroy.matches("instead").count(), 1, "{destroy}");
+    }
+
+    #[test]
+    fn an_item_removed_not_recycled_has_its_part_and_its_line_and_none_without_one() {
+        let report = |outcome: Outcome| ExecReport {
+            items: vec![ddc_core::exec::ItemReport {
+                path: PathBuf::from("/h/x/node_modules"),
+                rule: "node.node_modules".into(),
+                class: RiskClass::Review,
+                action: "trash",
+                bytes: 4096,
+                outcome,
+            }],
+            ..ExecReport::default()
+        };
+        let text = |r: &ExecReport| {
+            let mut out = Vec::new();
+            print_result(&mut out, r, Path::new("/h"), Path::new("/h/j"), &Style { color: false, all: false }).unwrap();
+            String::from_utf8(out).unwrap()
+        };
+        let destroyed = text(&report(Outcome::RemovedNotRecycled));
+        assert!(destroyed.contains("removed, not recycled 1"), "{destroyed}");
+        assert!(destroyed.contains("  removed  ~/x/node_modules: Windows deleted it instead"), "{destroyed}");
+        assert!(destroyed.contains("failed 0"), "not a failure: {destroyed}");
+        let trashed = text(&report(Outcome::Trashed));
+        assert!(!trashed.contains("not recycled"), "{trashed}");
     }
 
     #[test]

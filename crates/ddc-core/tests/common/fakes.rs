@@ -12,8 +12,8 @@ use std::time::Duration;
 use ddc_core::agents::builds::Host;
 use ddc_core::env::Env;
 use ddc_core::exec::{
-    CmdOutput, CommandRunner, OpenVnode, ProcInfo, ProcStart, ProcessTable, SystemCommands, TrashError, TrashPlace,
-    TrashTarget, Trasher,
+    BinBudget, CmdOutput, CommandRunner, OpenVnode, ProcInfo, ProcStart, ProcessTable, RecycleBinCause, SystemCommands,
+    TrashAsk, TrashDone, TrashError, TrashTarget, Trasher,
 };
 
 /// Told each call of [`FakeCommands`] before it answers.
@@ -283,11 +283,89 @@ pub struct FakeTrash(pub PathBuf);
 pub struct CrossingTrash;
 
 impl Trasher for CrossingTrash {
-    fn trash(&self, _: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+    fn trash(&self, _: &TrashTarget<'_>) -> Result<TrashDone, TrashError> {
         Err(TrashError::CrossesFilesystem)
     }
-    fn would_trash(&self, _: &TrashTarget<'_>) -> Result<(), TrashError> {
+    fn admit(&self, _: &ddc_core::platform::fsops::DirFd, _: &[TrashAsk<'_>]) -> Result<(), TrashError> {
         Err(TrashError::CrossesFilesystem)
+    }
+}
+
+/// A Recycle Bin of the tests (safety ADR §5, the Recycle Bin on Windows,
+/// planned 2026-11-04): it moves into a folder of the test tree, as
+/// [`FakeTrash`] does, and has a room each ask takes from, all of its bytes
+/// or none. A path in `refused` is refused for its cause, one in `held` is
+/// held open at the move, one in `destroyed` is deleted instead of moved.
+/// `asks` records the paths of each ask, in order.
+pub struct BinTrash {
+    pub dir: PathBuf,
+    pub room: u64,
+    pub refused: Vec<(PathBuf, RecycleBinCause)>,
+    pub held: Vec<PathBuf>,
+    pub destroyed: Vec<PathBuf>,
+    pub asks: RefCell<Vec<Vec<PathBuf>>>,
+    budget: RefCell<BinBudget<()>>,
+}
+
+impl BinTrash {
+    pub fn new(dir: PathBuf, room: u64) -> Self {
+        Self {
+            dir,
+            room,
+            refused: Vec::new(),
+            held: Vec::new(),
+            destroyed: Vec::new(),
+            asks: RefCell::default(),
+            budget: RefCell::default(),
+        }
+    }
+
+    pub fn refusing(mut self, path: &Path, cause: RecycleBinCause) -> Self {
+        self.refused.push((path.to_path_buf(), cause));
+        self
+    }
+
+    pub fn holding(mut self, path: &Path) -> Self {
+        self.held.push(path.to_path_buf());
+        self
+    }
+
+    pub fn destroying(mut self, path: &Path) -> Self {
+        self.destroyed.push(path.to_path_buf());
+        self
+    }
+}
+
+impl Trasher for BinTrash {
+    fn admit(&self, _: &ddc_core::platform::fsops::DirFd, asks: &[TrashAsk<'_>]) -> Result<(), TrashError> {
+        self.asks.borrow_mut().push(asks.iter().map(|a| a.path.to_path_buf()).collect());
+        for ask in asks {
+            if let Some((_, cause)) = self.refused.iter().find(|(p, _)| p == ask.path) {
+                return Err(TrashError::RecycleBinRefuses(*cause));
+            }
+        }
+        let bytes = asks.iter().map(|a| a.bytes).sum();
+        self.budget.borrow_mut().take((), bytes, || Ok(self.room)).map_err(TrashError::RecycleBinRefuses)
+    }
+
+    #[allow(clippy::disallowed_methods)] // the shell's destruction, faked by path in a test tree
+    fn trash(&self, target: &TrashTarget<'_>) -> Result<TrashDone, TrashError> {
+        if self.held.iter().any(|p| p == target.path) {
+            return Err(TrashError::HeldOpen);
+        }
+        if self.destroyed.iter().any(|p| p == target.path) {
+            if target.is_dir {
+                fs::remove_dir_all(target.path)?;
+            } else {
+                fs::remove_file(target.path)?;
+            }
+            return Ok(TrashDone::RemovedNotRecycled);
+        }
+        let n = self.asks.borrow().len();
+        let to = self.dir.join(n.to_string());
+        fs::create_dir_all(&to)?;
+        fs::rename(target.path, to.join(target.name))?;
+        Ok(TrashDone::Moved(None))
     }
 }
 
@@ -295,16 +373,16 @@ impl Trasher for CrossingTrash {
 pub struct AnyTrash;
 
 impl Trasher for AnyTrash {
-    fn trash(&self, _: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+    fn trash(&self, _: &TrashTarget<'_>) -> Result<TrashDone, TrashError> {
         Err(io::Error::other("nothing moves in a dry run").into())
     }
 }
 
 impl Trasher for FakeTrash {
-    fn trash(&self, target: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+    fn trash(&self, target: &TrashTarget<'_>) -> Result<TrashDone, TrashError> {
         fs::create_dir_all(&self.0)?;
         fs::rename(target.path, self.0.join(target.name))?;
-        Ok(None)
+        Ok(TrashDone::Moved(None))
     }
 }
 

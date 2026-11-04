@@ -40,7 +40,7 @@ use crate::platform::fsops::DirFd;
 /// What a [`ProcessTable`] lists: a fake table names it here, not under `platform`.
 pub use crate::platform::procs::{OpenVnode, ProcInfo, ProcStart};
 /// What a [`Trasher`] answers: a fake Trash names it here, not under `platform`.
-pub use crate::platform::types::{TrashError, TrashPlace};
+pub use crate::platform::types::{BinBudget, RecycleBinCause, TrashAsk, TrashDone, TrashError, TrashPlace};
 use crate::rules::entries::{self, EntryLock};
 use crate::rules::{Catalog, KEEP_MARKER};
 use crate::scan::{self, EntryMeta, OwnerKind, Progress, Tag, Visitor, WalkOptions};
@@ -74,7 +74,8 @@ pub enum SkipReason {
     },
     /// Another process holds the folder (Windows only, safety ADR §5,
     /// amendment of 2026-11-02): a process works inside it, or a file below
-    /// it is open, so the tombstone rename was refused. Nothing moved.
+    /// it is open, so the tombstone rename, or the Recycle Bin's move, was
+    /// refused. Nothing moved.
     HeldOpen,
     /// An app that owns the item is running; `name` is its bundle name.
     OwnerRunning {
@@ -112,6 +113,12 @@ pub enum SkipReason {
     /// would cross into another (safety ADR §5, amendment of 2026-11-01):
     /// nothing moved. `--permanent` removes it instead.
     TrashCrossesFilesystem,
+    /// The Recycle Bin refuses the item, for `cause` (Windows only, safety
+    /// ADR §5, the Recycle Bin on Windows, planned 2026-11-04): nothing
+    /// moved. `--permanent` removes it instead.
+    RecycleBinRefuses {
+        cause: RecycleBinCause,
+    },
     /// A coding agent's harness uses its data: the whole folder is refused
     /// while it runs (ADR "Agent footprint: worktrees, harness data and
     /// bounded consent for agents", §3).
@@ -147,6 +154,11 @@ pub enum AgentLiveBy {
 pub enum Outcome {
     Deleted,
     Trashed,
+    /// Asked to go to the Recycle Bin, the item is gone and is not there:
+    /// the shell destroyed it instead (Windows only, safety ADR §5, the
+    /// Recycle Bin on Windows). Its space is freed, so it is not `failed`;
+    /// without `--json` the clean still exits 1.
+    RemovedNotRecycled,
     Native {
         commands: Vec<CommandResult>,
     },
@@ -241,12 +253,27 @@ pub struct TrashTarget<'a> {
 
 pub trait Trasher {
     /// Moves `target` to the Trash, and tells where it went when it can.
-    fn trash(&self, target: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError>;
+    fn trash(&self, target: &TrashTarget<'_>) -> Result<TrashDone, TrashError>;
 
-    /// The dry run's question: would [`Self::trash`] find a Trash for
-    /// `target`? Moves nothing. A Trash that always has one says yes.
-    fn would_trash(&self, _target: &TrashTarget<'_>) -> Result<(), TrashError> {
+    /// The check before a move, asked by the clean and by the dry run
+    /// alike: would the Trash take `asks`, every part of one move, all in
+    /// the folder `parent`? Moves nothing; an answer of yes takes their
+    /// bytes from the Recycle Bin's room, where there is one. A Trash that
+    /// always takes an item says yes.
+    fn admit(&self, _parent: &DirFd, _asks: &[TrashAsk<'_>]) -> Result<(), TrashError> {
         Ok(())
+    }
+}
+
+/// The skip reason a Trash's refusal stands for, the same before and at a
+/// move; `None` for an error that is not a refusal, which the move meets
+/// (before it: no prediction; at it: `failed`).
+pub(crate) fn trash_refusal(e: &TrashError) -> Option<SkipReason> {
+    match e {
+        TrashError::CrossesFilesystem => Some(SkipReason::TrashCrossesFilesystem),
+        TrashError::RecycleBinRefuses(cause) => Some(SkipReason::RecycleBinRefuses { cause: *cause }),
+        TrashError::HeldOpen => Some(SkipReason::HeldOpen),
+        TrashError::Other(_) => None,
     }
 }
 
@@ -453,7 +480,8 @@ pub fn execute(
                 }
             }
         };
-        if (item.action == Action::TrashEntry && outcome == Outcome::Trashed) || removed_by_git(item, &outcome) {
+        let gone = matches!(outcome, Outcome::Trashed | Outcome::RemovedNotRecycled);
+        if (item.action == Action::TrashEntry && gone) || removed_by_git(item, &outcome) {
             removed.push(path.clone());
         }
         if outcome == Outcome::NotRun {
@@ -627,7 +655,7 @@ fn act(
         match fb {
             Fallback::Delete => delete::remove(v, path, false),
             Fallback::DeleteWritable => delete::remove(v, path, true),
-            Fallback::Trash => trash(ports, v, path, place),
+            Fallback::Trash => trash(ports, v, path, item.finding.bytes, place),
             Fallback::Skip => Outcome::Skipped(SkipReason::ToolNotReady {
                 program: program.to_owned(),
                 detail: format!("no {program} lists this folder"),
@@ -636,7 +664,7 @@ fn act(
     };
     match item.action {
         Action::Delete { make_writable } => delete::remove(v, path, make_writable),
-        Action::Trash | Action::TrashEntry => trash(ports, v, path, place),
+        Action::Trash | Action::TrashEntry => trash(ports, v, path, item.finding.bytes, place),
         Action::Native { cmd, fallback: fb } => {
             // A long clean reaches this item minutes after the guard's snapshot,
             // and a tool waits on a lock a process took meanwhile (uv).
@@ -736,13 +764,17 @@ pub struct MovedCompanion {
     pub bytes: u64,
     /// Where it went, when the Trash tells.
     pub place: Option<TrashPlace>,
+    /// `false` when the shell destroyed it instead of recycling it.
+    pub recycled: bool,
 }
 
-/// A session's entry: each companion to the Trash first, by name, each
-/// checked unchanged through the parent descriptor right before its move,
-/// then the key (the transcript) last, so a session whose transcript is
-/// still there is never one with nothing left to resume. The first failure
-/// stops it: what moved stays moved, and is journaled; the key stays.
+/// A session's entry: the key and every companion asked together, once,
+/// before anything moves (safety ADR §5, the Recycle Bin on Windows); then
+/// each companion to the Trash, by name, each checked unchanged through the
+/// parent descriptor right before its move, then the key (the transcript)
+/// last, so a session whose transcript is still there is never one with
+/// nothing left to resume. The first failure stops it: what moved stays
+/// moved, and is journaled; the key stays.
 fn trash_session(
     ports: &Ports<'_>,
     v: &guard::Verified,
@@ -752,11 +784,24 @@ fn trash_session(
 ) -> (Outcome, Vec<MovedCompanion>) {
     let mut moved = Vec::new();
     let Some(parent) = path.parent() else { return (Outcome::Skipped(SkipReason::Protected), moved) };
-    for c in &parts.companions {
+    if !v.unchanged() {
+        return (Outcome::Skipped(SkipReason::ChangedSinceScan), moved);
+    }
+    let paths: Vec<PathBuf> = parts.companions.iter().map(|c| parent.join(&c.name)).collect();
+    let mut asks: Vec<TrashAsk<'_>> = parts
+        .companions
+        .iter()
+        .zip(&paths)
+        .map(|(c, at)| TrashAsk { name: &c.name, path: at, bytes: c.bytes, is_dir: c.is_dir })
+        .collect();
+    asks.push(TrashAsk { name: &v.name, path, bytes: parts.key_bytes, is_dir: v.is_dir });
+    if let Some(reason) = ports.trash.admit(&v.parent, &asks).err().as_ref().and_then(trash_refusal) {
+        return (Outcome::Skipped(reason), moved);
+    }
+    for (c, at) in parts.companions.iter().zip(paths) {
         let unchanged = v.parent.stat_child(&c.name).is_ok_and(|st| {
             !st.is_symlink && st.is_dir == c.is_dir && (st.is_dir || st.is_file) && (st.dev, st.ino) == c.id
         });
-        let at = parent.join(&c.name);
         if !unchanged {
             let outcome = if moved.is_empty() {
                 Outcome::Skipped(SkipReason::ChangedSinceScan)
@@ -766,43 +811,71 @@ fn trash_session(
             return (outcome, moved);
         }
         let target = TrashTarget { path: &at, parent: &v.parent, name: &c.name, id: c.id, is_dir: c.is_dir };
-        let to = match ports.trash.trash(&target) {
-            Ok(to) => to,
-            Err(TrashError::CrossesFilesystem) if moved.is_empty() => {
-                return (Outcome::Skipped(SkipReason::TrashCrossesFilesystem), moved);
+        match ports.trash.trash(&target) {
+            Ok(TrashDone::Moved(to)) => {
+                moved.push(MovedCompanion { path: at, id: c.id, bytes: c.bytes, place: to, recycled: true });
             }
-            Err(e) => return (Outcome::Failed { error: format!("{}: {e}", at.display()) }, moved),
-        };
-        moved.push(MovedCompanion { path: at, id: c.id, bytes: c.bytes, place: to });
-    }
-    match trash(ports, v, path, place) {
-        // The key had no Trash after its companions went: they stay there.
-        Outcome::Skipped(SkipReason::TrashCrossesFilesystem) if !moved.is_empty() => {
-            let error = format!("{}: no Trash on its own filesystem after its companions moved", path.display());
-            (Outcome::Failed { error }, moved)
+            Ok(TrashDone::RemovedNotRecycled) => {
+                let error = format!("{} was removed, not recycled", at.display());
+                moved.push(MovedCompanion { path: at, id: c.id, bytes: c.bytes, place: None, recycled: false });
+                return (Outcome::Failed { error }, moved);
+            }
+            Err(e) => {
+                let outcome = match trash_refusal(&e) {
+                    Some(reason) if moved.is_empty() => Outcome::Skipped(reason),
+                    _ => Outcome::Failed { error: format!("{}: {e}", at.display()) },
+                };
+                return (outcome, moved);
+            }
         }
-        // The key changed after its companions went: they stay in the Trash.
-        Outcome::Skipped(_) if !moved.is_empty() => {
-            let error = format!("{} changed after the check", path.display());
-            (Outcome::Failed { error }, moved)
-        }
-        outcome => (outcome, moved),
     }
+    if moved.is_empty() {
+        return (move_checked(ports, v, path, place), moved);
+    }
+    // The companions went: a key the Trash refuses now, or one that changed,
+    // leaves them there, and the item failed.
+    if !v.unchanged() {
+        return (Outcome::Failed { error: format!("{} changed after the check", path.display()) }, moved);
+    }
+    let target = TrashTarget { path, parent: &v.parent, name: &v.name, id: v.id, is_dir: v.is_dir };
+    let outcome = match ports.trash.trash(&target) {
+        Ok(TrashDone::Moved(to)) => {
+            place.set(to);
+            Outcome::Trashed
+        }
+        Ok(TrashDone::RemovedNotRecycled) => Outcome::RemovedNotRecycled,
+        Err(e) => Outcome::Failed { error: format!("{}: {e}, after its companions moved", path.display()) },
+    };
+    (outcome, moved)
 }
 
-/// `place` is told where the item went, when the Trash tells.
-fn trash(ports: &Ports<'_>, v: &guard::Verified, path: &Path, place: &Cell<Option<TrashPlace>>) -> Outcome {
+/// The item to the Trash: asked first, `bytes` its size, then moved.
+/// `place` is told where it went, when the Trash tells.
+fn trash(ports: &Ports<'_>, v: &guard::Verified, path: &Path, bytes: u64, place: &Cell<Option<TrashPlace>>) -> Outcome {
+    if !v.unchanged() {
+        return Outcome::Skipped(SkipReason::ChangedSinceScan);
+    }
+    let ask = TrashAsk { name: &v.name, path, bytes, is_dir: v.is_dir };
+    if let Some(reason) = ports.trash.admit(&v.parent, &[ask]).err().as_ref().and_then(trash_refusal) {
+        return Outcome::Skipped(reason);
+    }
+    move_checked(ports, v, path, place)
+}
+
+/// The move alone, the item checked unchanged right before it: for an
+/// item already asked about.
+fn move_checked(ports: &Ports<'_>, v: &guard::Verified, path: &Path, place: &Cell<Option<TrashPlace>>) -> Outcome {
     if !v.unchanged() {
         return Outcome::Skipped(SkipReason::ChangedSinceScan);
     }
     let target = TrashTarget { path, parent: &v.parent, name: &v.name, id: v.id, is_dir: v.is_dir };
     match ports.trash.trash(&target) {
-        Ok(to) => {
+        Ok(TrashDone::Moved(to)) => {
             place.set(to);
             Outcome::Trashed
         }
-        Err(TrashError::CrossesFilesystem) => Outcome::Skipped(SkipReason::TrashCrossesFilesystem),
-        Err(e) => Outcome::Failed { error: e.to_string() },
+        Ok(TrashDone::RemovedNotRecycled) => Outcome::RemovedNotRecycled,
+        Err(e) => trash_refusal(&e).map_or_else(|| Outcome::Failed { error: e.to_string() }, Outcome::Skipped),
     }
 }
 
@@ -876,4 +949,25 @@ fn keep_markers(targets: Vec<PathBuf>, opts: &ExecOptions<'_>, walked: &Progress
         }
     }
     markers.0.into_inner().unwrap_or_else(|p| p.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Trash's typed refusals are skips, the same before a move and at
+    /// it; any other error is not a refusal (safety ADR §5, the Recycle Bin
+    /// on Windows, settled at 10a's planning).
+    #[test]
+    fn a_trash_refusal_is_a_skip_and_any_other_error_is_not() {
+        assert_eq!(trash_refusal(&TrashError::CrossesFilesystem), Some(SkipReason::TrashCrossesFilesystem));
+        assert_eq!(trash_refusal(&TrashError::HeldOpen), Some(SkipReason::HeldOpen));
+        for cause in RecycleBinCause::ALL {
+            assert_eq!(
+                trash_refusal(&TrashError::RecycleBinRefuses(cause)),
+                Some(SkipReason::RecycleBinRefuses { cause })
+            );
+        }
+        assert_eq!(trash_refusal(&TrashError::Other(io::Error::other("x"))), None);
+    }
 }

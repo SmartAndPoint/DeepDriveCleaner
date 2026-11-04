@@ -155,6 +155,7 @@ fn a_file_held_open_inside_a_dataset_is_in_use() {
 #[test]
 fn a_dataset_item_moves_into_the_datasets_own_trash() {
     use ddc_core::platform::trash;
+    use ddc_core::platform::types::TrashDone;
     use std::os::unix::fs::MetadataExt as _;
     let Some(top) = common::mount("a_dataset_item_moves_into_the_datasets_own_trash", Mount::ZfsChild) else {
         return;
@@ -167,8 +168,10 @@ fn a_dataset_item_moves_into_the_datasets_own_trash() {
     let name = file.file_name().unwrap();
     let uid = std::fs::metadata(tree.root()).unwrap().uid();
 
-    trash::would_trash(&folder, name, &file).unwrap();
-    let place = trash::trash_item(&folder, name, &file, id).unwrap().expect("Linux tells the place");
+    trash::admit(&mut trash::Budget, &folder, &[ask(name, &file)]).unwrap();
+    let TrashDone::Moved(Some(place)) = trash::trash_item(&folder, name, &file, id).unwrap() else {
+        panic!("Linux tells the place")
+    };
     assert_eq!(place.trash, top.join(format!(".Trash-{uid}")));
     let landed = ddc_core::platform::meta::lstat(&place.trash.join("files").join(&place.name)).unwrap();
     assert_eq!(landed.id(), id);
@@ -302,4 +305,9 @@ fn the_guard_refuses_a_finding_that_is_a_dataset_whatever_the_plan_says() {
     let item = report.items.iter().find(|i| i.path == nm).expect("planned");
     assert_eq!(item.outcome, Outcome::Skipped(Skip::Incomplete), "{report:#?}");
     assert!(nm.join("dep/index.js").exists(), "nothing removed");
+}
+
+/// One part of a move to the Trash, for `trash::admit`.
+fn ask<'a>(name: &'a std::ffi::OsStr, path: &'a std::path::Path) -> ddc_core::platform::types::TrashAsk<'a> {
+    ddc_core::platform::types::TrashAsk { name, path, bytes: 0, is_dir: false }
 }

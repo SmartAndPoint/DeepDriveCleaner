@@ -17,8 +17,8 @@ use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
 use ddc_core::exec::preflight::{self, Prediction, PreflightLine, PreflightPorts};
 use ddc_core::exec::{
-    self, Consent, ExecOptions, ExecReport, MemoryJournal, Outcome, Ports, ProcessTable, SkipReason, TrashError,
-    TrashPlace, TrashTarget, Trasher,
+    self, Consent, ExecOptions, ExecReport, MemoryJournal, Outcome, Ports, ProcessTable, SkipReason, TrashDone,
+    TrashError, TrashTarget, Trasher,
 };
 use ddc_core::model::{OriginKind, ScanReport};
 use ddc_core::plan::{ActionKind, ListedItem, ListedPlan, PlanOptions, build_plan, plan_listed_with};
@@ -154,11 +154,11 @@ struct RecordingTrash {
 }
 
 impl Trasher for RecordingTrash {
-    fn trash(&self, target: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+    fn trash(&self, target: &TrashTarget<'_>) -> Result<TrashDone, TrashError> {
         std::fs::create_dir_all(&self.dir)?;
         std::fs::rename(target.path, self.dir.join(target.name))?;
         self.moved.lock().unwrap().push(target.path.to_path_buf());
-        Ok(None)
+        Ok(TrashDone::Moved(None))
     }
 }
 
