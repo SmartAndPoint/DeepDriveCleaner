@@ -391,7 +391,7 @@ ddc schedule status
 |---|---|
 | 0 | Done. `clean --items --json`, `disk free --json` and `keep remove --json` exit 0 even when an item or action failed or was refused: the report says which. |
 | 1 | An error; in text mode, `clean` also exits 1 when an item failed, `disk free` when an action failed, and `keep remove` when the file was not removed for a reason other than being gone already. |
-| 2 | Refused before anything was touched: run as root, a malformed list, a forbidden option, a confirmation that cannot be asked without a terminal, or a scan root another account owns, in an elevated terminal (Windows). |
+| 2 | Refused before anything was touched: run as root, a malformed list, a forbidden option, a confirmation that cannot be asked without a terminal, a scan root another account owns, in an elevated terminal (Windows), or a cancel event that cannot be opened (the Windows app's `--cancel-event`). |
 | 69 | Unavailable: ddc does not support this platform yet, where only `--version`, `--help` and `rules` run, or the command needs something this platform lacks. Nothing was scanned or changed. |
 | 75 | Busy: a clean is running, or a clean was asked for while another scan or clean runs. Try again when it ends. |
 

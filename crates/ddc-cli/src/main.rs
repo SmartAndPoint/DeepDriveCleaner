@@ -32,6 +32,14 @@ fn main() -> ExitCode {
     }
     let json = cli.command.prints_json();
     platform::init_process();
+    // The app's Stop; a name that cannot be opened is a usage error: the app
+    // could not stop this run.
+    if let Some(name) = &cli.cancel_event
+        && let Err(e) = ddc_core::platform::signals::watch_event(name)
+    {
+        eprintln!("ddc: --cancel-event {name}: {e}");
+        return ExitCode::from(exit::REFUSED);
+    }
     match cmd::run(cli) {
         Ok(code) => code,
         Err(err) => {

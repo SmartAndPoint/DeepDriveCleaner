@@ -228,3 +228,43 @@ fn an_unknown_platform_is_a_usage_error() {
     let out = ddc(&["rules", "--platform", "nope"]);
     assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
 }
+
+/// The Windows app's `--cancel-event` names an event the app made: one
+/// nobody made, and the flag anywhere but Windows, is a usage error before
+/// anything runs (story "Windows scanner and rule catalog", step 9c-2).
+#[test]
+fn a_cancel_event_that_cannot_be_opened_is_a_usage_error() {
+    let out = ddc(&["--cancel-event", "ddc-test-no-such-event", "rules"]);
+    assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--cancel-event ddc-test-no-such-event"));
+    assert!(out.stdout.is_empty(), "nothing listed");
+}
+
+/// A command that reads no cancel flag (`rules`, as a scan) ends at once
+/// with 143 when its cancel event is already set, as SIGTERM's default does
+/// on Unix: nothing printed, nothing run.
+#[cfg(windows)]
+#[test]
+fn a_set_cancel_event_ends_a_command_at_once_with_143() {
+    use std::io::BufRead as _;
+    let name = format!("ddc-test-cancel-{}", std::process::id());
+    let script = format!(
+        "$e = [System.Threading.EventWaitHandle]::new($true, 'ManualReset', '{name}'); \
+         [Console]::Out.WriteLine('ready'); [Console]::Out.Flush(); Start-Sleep -Seconds 60"
+    );
+    let mut holder = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut line = String::new();
+    std::io::BufReader::new(holder.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    let out = ddc(&["--cancel-event", &name, "rules"]);
+    let _ = holder.kill();
+    let _ = holder.wait();
+    assert_eq!(line.trim(), "ready");
+    assert_eq!(out.status.code(), Some(143), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(out.stdout.is_empty(), "nothing listed");
+}

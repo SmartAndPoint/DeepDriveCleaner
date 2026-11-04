@@ -14,6 +14,12 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
+    /// The Windows app's Stop: the name of an event it creates for this run.
+    /// Once the event is set, a clean stops after the current item, ends the
+    /// running tool and writes its journal and report, as on SIGTERM (ADR
+    /// "Windows app: Tauri 2 shell over the ddc CLI", §1). Windows only.
+    #[arg(long, global = true, hide = true, value_name = "NAME")]
+    pub cancel_event: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]

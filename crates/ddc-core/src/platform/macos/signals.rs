@@ -136,3 +136,9 @@ pub fn reraise(sig: i32) -> ! {
     // A signal whose default is to end the process does not return here.
     std::process::exit(128 + sig)
 }
+
+/// The Windows app's cancel event (`--cancel-event`): Windows only; a stop
+/// here is SIGTERM.
+pub fn watch_event(_name: &str) -> io::Result<()> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "a cancel event is a Windows feature; send SIGTERM"))
+}
