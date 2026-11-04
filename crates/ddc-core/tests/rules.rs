@@ -449,6 +449,52 @@ fn pyenv_and_rustup_keep_global_and_pinned_versions() {
     s.absent(&t, ".rustup/toolchains/1.99.1-aarch64-apple-darwin");
 }
 
+/// A pin that is a symlink (dotfiles, home-manager) is no longer read
+/// (safety ADR, amendment of 2026-11-04): its toolchain keeps every
+/// version, never one the pin might have named. In the home (pyenv's
+/// global, rustup's settings, nvm's default) and in a project alike.
+#[test]
+fn a_symlinked_pin_keeps_every_version_of_its_toolchain() {
+    if common::unsupported("a_symlinked_pin_keeps_every_version_of_its_toolchain") {
+        return;
+    }
+    let toolchains = |t: &TreeBuilder| {
+        for v in ["3.11.9", "3.12.3", "3.13.1"] {
+            t.file(&format!(".pyenv/versions/{v}/bin/python"), 100);
+        }
+        for tc in ["stable-aarch64-apple-darwin", "nightly-aarch64-apple-darwin"] {
+            t.file(&format!(".rustup/toolchains/{tc}/bin/rustc"), 100);
+        }
+        for v in ["v20.11.0", "v22.4.0"] {
+            t.file(&format!(".nvm/versions/node/{v}/bin/node"), 100);
+        }
+    };
+    // In the home.
+    let t = TreeBuilder::new();
+    toolchains(&t);
+    t.write("dotfiles/python-version", "3.12.3");
+    t.symlink(t.path("dotfiles/python-version"), ".pyenv/version");
+    t.write("dotfiles/settings.toml", "default_toolchain = \"stable-aarch64-apple-darwin\"\n");
+    t.symlink(t.path("dotfiles/settings.toml"), ".rustup/settings.toml");
+    t.write("dotfiles/default", "v22");
+    t.symlink(t.path("dotfiles/default"), ".nvm/alias/default");
+    let s = scan(&t);
+    assert!(s.found.iter().all(|f| !f.rule.id.starts_with("toolchain.")), "{:?}", s.summary(&t));
+
+    // In a project, with the home's own pins readable.
+    let t = TreeBuilder::new();
+    toolchains(&t);
+    t.write(".pyenv/version", "3.12.3");
+    t.write(".rustup/settings.toml", "default_toolchain = \"stable-aarch64-apple-darwin\"\n");
+    t.write(".nvm/alias/default", "v22");
+    t.write("dotfiles/pin", "3.11.9");
+    t.symlink(t.path("dotfiles/pin"), "proj/.python-version");
+    t.symlink(t.path("dotfiles/pin"), "proj/.nvmrc");
+    t.symlink(t.path("dotfiles/pin"), "proj/rust-toolchain");
+    let s = scan(&t);
+    assert!(s.found.iter().all(|f| !f.rule.id.starts_with("toolchain.")), "{:?}", s.summary(&t));
+}
+
 #[test]
 fn only_outdated_jetbrains_data_is_found() {
     if common::unsupported("only_outdated_jetbrains_data_is_found") {

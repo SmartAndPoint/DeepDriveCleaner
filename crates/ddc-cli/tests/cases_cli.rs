@@ -59,6 +59,10 @@ mod format {
         pub path: String,
         pub bytes: Option<usize>,
         pub text: Option<String>,
+        /// Made only on Unix: a Windows name holds no control character
+        /// and no backslash.
+        #[serde(default)]
+        pub unix: bool,
     }
 
     #[derive(Deserialize)]
@@ -66,6 +70,9 @@ mod format {
     pub struct Case {
         pub name: String,
         pub group: Group,
+        /// Run only on Unix, where its fixture's odd names exist.
+        #[serde(default)]
+        pub unix: bool,
         pub cwd: Option<String>,
         pub args: Vec<String>,
         /// `settings.json` in the data folder, whole.
@@ -227,7 +234,7 @@ mod place {
             for d in ["home", "data"].iter().copied().chain(fixture.dirs.iter().map(String::as_str)) {
                 fs::create_dir_all(sb.root.join(sb.expand(d))).unwrap();
             }
-            for f in &fixture.files {
+            for f in fixture.files.iter().filter(|f| !f.unix || cfg!(unix)) {
                 let p = sb.root.join(sb.expand(&f.path));
                 fs::create_dir_all(p.parent().unwrap()).unwrap();
                 let bytes = match (&f.text, f.bytes) {
@@ -780,7 +787,7 @@ fn group(g: Group) {
     let file = file();
     let not_run: Vec<Regex> = file.not_run.iter().map(|n| Regex::new(&n.pattern).unwrap()).collect();
     let mut failures = Vec::new();
-    for case in file.cases.iter().filter(|c| c.group == g) {
+    for case in file.cases.iter().filter(|c| c.group == g && (!c.unix || cfg!(unix))) {
         let found = catch_unwind(AssertUnwindSafe(|| run_case(&file, &not_run, case)))
             .unwrap_or_else(|p| vec![format!("panicked: {}", panic_text(&p))]);
         if !found.is_empty() {

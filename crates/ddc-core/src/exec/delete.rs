@@ -25,14 +25,9 @@ pub(super) fn remove(v: &Verified, path: &Path, make_writable: bool) -> Outcome 
     // Safety ADR, amendment of 2026-11-04: the name is cut so the suffix
     // fits, and cut shorter when the filesystem's own limit is lower. The
     // suffix stays whole: the scan's `ddc.tombstone` rule looks for it.
-    let mut keep = NAME_MAX.saturating_sub(suffix.len());
-    let tomb = loop {
-        let tomb = tomb_name(&v.name, &suffix, keep);
-        match v.parent.rename_child(&v.name, &tomb) {
-            Ok(()) => break tomb,
-            Err(e) if e.kind() == io::ErrorKind::InvalidFilename && keep > 0 => keep /= 2,
-            Err(e) => return rename_failed(&e),
-        }
+    let tomb = match rename_to_tomb(&v.name, &suffix, |tomb| v.parent.rename_child(&v.name, tomb)) {
+        Ok(tomb) => tomb,
+        Err(e) => return rename_failed(&e),
     };
     // The rename went through the verified parent; make sure it moved the
     // directory we checked, not something swapped in meanwhile.
@@ -56,6 +51,32 @@ pub(super) fn remove(v: &Verified, path: &Path, make_writable: bool) -> Outcome 
     match result {
         Ok(()) => Outcome::Deleted,
         Err(e) => Outcome::Failed { error: format!("{e} (left as {})", tomb_path.display()) },
+    }
+}
+
+/// Renames to a tombstone through `rename`: first `name` cut to fit
+/// [`NAME_MAX`] with `suffix`, then, while the filesystem says the name is
+/// too long, with half as much of `name` as the last try used, down to the
+/// suffix alone. Each try is shorter than the one before.
+fn rename_to_tomb(
+    name: &OsStr,
+    suffix: &str,
+    mut rename: impl FnMut(&OsStr) -> io::Result<()>,
+) -> io::Result<OsString> {
+    let mut keep = NAME_MAX.saturating_sub(suffix.len());
+    loop {
+        let tomb = tomb_name(name, suffix, keep);
+        match rename(&tomb) {
+            Ok(()) => return Ok(tomb),
+            Err(e) if e.kind() == io::ErrorKind::InvalidFilename => {
+                let used = tomb.len() - suffix.len();
+                if used == 0 {
+                    return Err(e);
+                }
+                keep = used / 2;
+            }
+            Err(e) => return Err(e),
+        }
     }
 }
 
@@ -180,5 +201,40 @@ mod tests {
         assert!(text.ends_with(suffix));
         assert_eq!(text.len() - suffix.len(), keep - keep % 2, "whole two-byte characters only");
         assert_eq!(tomb_name(OsStr::new(&long), suffix, 0), OsString::from(suffix), "the floor: the suffix alone");
+    }
+
+    /// While the filesystem says the name is too long, each try is shorter
+    /// than the last, down to the suffix alone; then the rename fails. A
+    /// short name is not tried twice.
+    #[test]
+    fn a_name_too_long_for_the_filesystem_is_tried_shorter_each_time() {
+        let suffix = ".ddc-deleting-1-1";
+        let too_long = || io::Error::from(io::ErrorKind::InvalidFilename);
+        let tries = |name: &str, limit: usize| {
+            let mut seen = Vec::new();
+            let out = rename_to_tomb(OsStr::new(name), suffix, |t| {
+                seen.push(t.len());
+                if t.len() > limit { Err(too_long()) } else { Ok(()) }
+            });
+            (out.map(|t| t.len()), seen)
+        };
+        // eCryptfs-like: 143 bytes.
+        let (out, seen) = tries(&"a".repeat(255), 143);
+        assert!(out.as_ref().is_ok_and(|n| *n <= 143), "{out:?}");
+        assert!(seen.windows(2).all(|w| w[1] < w[0]), "shorter each time: {seen:?}");
+        // A short name the filesystem refuses whole: one try with it, then
+        // shorter, then the suffix alone, then the failure.
+        let (out, seen) = tries("node_modules", 0);
+        assert_eq!(out.unwrap_err().kind(), io::ErrorKind::InvalidFilename);
+        assert_eq!(seen.first(), Some(&("node_modules".len() + suffix.len())));
+        assert_eq!(seen.last(), Some(&suffix.len()));
+        assert!(seen.windows(2).all(|w| w[1] < w[0]), "never the same try twice: {seen:?}");
+        // Another error is not retried.
+        let mut calls = 0;
+        let out = rename_to_tomb(OsStr::new("x"), suffix, |_| {
+            calls += 1;
+            Err(io::Error::from(io::ErrorKind::PermissionDenied))
+        });
+        assert_eq!((out.unwrap_err().kind(), calls), (io::ErrorKind::PermissionDenied, 1));
     }
 }

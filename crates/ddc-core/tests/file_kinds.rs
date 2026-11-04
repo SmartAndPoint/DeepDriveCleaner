@@ -1,8 +1,9 @@
 //! Special files and the Trash on exFAT (safety ADR, amendment of
 //! 2026-11-04; story "Linux file kinds: special files, immutable flags,
-//! sparse files and odd names", DDC-010), on the fixtures and mounts of the
-//! Gate's linux-mounts job. Elsewhere every test here skips, in the
-//! environment group of `.config/native-skips/linux.txt`.
+//! sparse files and odd names", DDC-010). What any user can make (a FIFO, a
+//! socket) runs everywhere; the device nodes and exFAT come from the
+//! fixtures and mounts of the Gate's linux-mounts job, and elsewhere those
+//! tests skip, in the environment group of `.config/native-skips/linux.txt`.
 #![cfg(target_os = "linux")]
 
 mod common;
@@ -45,6 +46,57 @@ fn opened(watch: &OwnedFd) -> bool {
     }
 }
 
+/// The scan and a clean of the plan for `home`, deleting (no Trash).
+fn scan_and_clean(home: &Path) -> (ddc_core::model::ScanReport, exec::ExecReport) {
+    let data = tempfile::tempdir().unwrap();
+    let env = Env::with_paths(home, data.path(), &data.path().join("logs"), SystemTime::now()).unwrap();
+    let opts = ScanOptions { walk: WalkOptions { threads: Some(2), ..Default::default() }, ..Default::default() };
+    let scan = report::scan(&env, &opts, &Progress::default()).unwrap();
+    let catalog = Catalog::builtin(home);
+    let plan = build_plan(&scan, &catalog, &PlanOptions::default());
+    let mut journal = MemoryJournal::default();
+    let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
+    let ports = Ports {
+        commands: &FakeCommands::default(),
+        trash: &CrossingTrash,
+        procs: &FakeProcs::new(vec![]),
+        journal: &mut journal,
+    };
+    let r = exec::execute(&env, &catalog, &plan, &consent, ports, &ExecOptions::default()).unwrap();
+    (scan, r)
+}
+
+/// A FIFO and a socket inside a finding are never opened by the scan, the
+/// plan or a clean, which unlinks them with their folder: inotify sees
+/// every open of either. Any user makes both, so this runs in every gate.
+#[test]
+fn a_fifo_and_a_socket_in_a_finding_are_never_opened() {
+    let t = TreeBuilder::new();
+    let old = SystemTime::now() - std::time::Duration::from_secs(60 * 86_400);
+    for f in ["p/package.json", "p/package-lock.json"] {
+        let path = t.write(f, "{}");
+        std::fs::File::options().write(true).open(path).unwrap().set_modified(old).unwrap();
+    }
+    t.file("p/node_modules/dep/index.js", 20_000);
+    let nm = t.path("p/node_modules");
+    let fifo = nm.join("dep/pipe");
+    rustix::fs::mknodat(rustix::fs::CWD, &fifo, rustix::fs::FileType::Fifo, rustix::fs::Mode::from_raw_mode(0o644), 0)
+        .unwrap();
+    let sock = nm.join("dep/dev.sock");
+    drop(std::os::unix::net::UnixListener::bind(&sock).unwrap());
+    let watches = [watch_opens(&fifo), watch_opens(&sock)];
+
+    let (scan, r) = scan_and_clean(t.root());
+
+    assert!(scan.findings.iter().any(|f| f.path == nm && !f.incomplete), "the finding, whole");
+    let item = r.items.iter().find(|i| i.path == nm).expect("node_modules was cleaned");
+    assert_eq!(item.outcome, Outcome::Deleted);
+    assert!(!nm.exists());
+    for (watch, what) in watches.iter().zip(["the FIFO", "the socket"]) {
+        assert!(!opened(watch), "{what} was opened");
+    }
+}
+
 /// A device node inside a finding is counted at nothing, never opened by
 /// the scan, the plan or the clean, and unlinked with its folder by a
 /// permanent delete. The open is what reads a device: inotify sees every
@@ -59,26 +111,12 @@ fn a_device_node_in_a_finding_is_counted_never_opened_and_unlinked() {
     let nm = home.join("p/node_modules");
     let node = nm.join("dev/null");
     let watch = watch_opens(&node);
-    let data = tempfile::tempdir().unwrap();
-    let env = Env::with_paths(&home, data.path(), &data.path().join("logs"), SystemTime::now()).unwrap();
-    let opts = ScanOptions { walk: WalkOptions { threads: Some(2), ..Default::default() }, ..Default::default() };
 
-    let scan = report::scan(&env, &opts, &Progress::default()).unwrap();
+    let (scan, r) = scan_and_clean(&home);
+
     let finding = scan.findings.iter().find(|f| f.path == nm).expect("the node_modules finding");
     assert!(finding.bytes < 64 * 1024, "the node allocates nothing: {}", finding.bytes);
     assert!(!finding.incomplete, "a device is no reason to stop");
-    let catalog = Catalog::builtin(&home);
-    let plan = build_plan(&scan, &catalog, &PlanOptions::default());
-    let mut journal = MemoryJournal::default();
-    let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
-    let ports = Ports {
-        commands: &FakeCommands::default(),
-        trash: &CrossingTrash,
-        procs: &FakeProcs::new(vec![]),
-        journal: &mut journal,
-    };
-    let r = exec::execute(&env, &catalog, &plan, &consent, ports, &ExecOptions::default()).unwrap();
-
     let item = r.items.iter().find(|i| i.path == nm).expect("node_modules was cleaned");
     assert_eq!(item.outcome, Outcome::Deleted);
     assert!(!nm.exists());

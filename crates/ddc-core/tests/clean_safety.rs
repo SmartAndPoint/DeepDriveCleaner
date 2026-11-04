@@ -1657,9 +1657,10 @@ fn a_fifo_where_a_marker_should_be_never_blocks_the_scan() {
 /// A FIFO and a socket inside a finding (a dev server's socket, a build's
 /// pipe) count as nothing, and a clean removes them with their folder:
 /// unlinked by a permanent delete, renamed with it into the Trash, never
-/// opened (safety ADR, amendment of 2026-11-04). No writer and no listener:
-/// an open of either would block or fail, and nextest's timeout catches a
-/// block.
+/// opened (safety ADR, amendment of 2026-11-04). This test proves the
+/// counting and the removal on every Unix; that nothing opens them is
+/// proved on Linux with inotify (`file_kinds.rs`), since an open with
+/// `O_NONBLOCK` neither blocks on the FIFO nor succeeds on the socket.
 #[cfg(unix)]
 #[test]
 fn a_fifo_and_a_socket_in_a_finding_count_nothing_and_go_with_it() {
