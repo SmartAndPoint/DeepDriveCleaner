@@ -29,7 +29,7 @@ use crate::platform::types::EntryStat;
 use crate::report::backups;
 use crate::report::contents::CLAUDE_RECORDS;
 use crate::rules::entries::{self, BACKUP_RULE, EntryFacts, EntryShape, SessionPart, lock_of, session_part};
-use crate::rules::{Catalog, KEEP_MARKER, owns, protected_in_home, protected_system, worktree};
+use crate::rules::{Catalog, KEEP_MARKER, is_keep_marker, owns, protected_in_home, protected_system, worktree};
 use crate::scan::reader::SF_DATALESS;
 use crate::scan::{self, DirCtx, DirReader, EntryMeta, OwnerKind, Progress, SystemReader, Tag, Visitor, WalkOptions};
 use crate::stats;
@@ -722,7 +722,7 @@ pub(super) fn walk_item(path: &Path, reader: &dyn DirReader) -> Option<Walked> {
             false
         }
         fn on_file(&self, _: &Path, _: (u64, u64), entry: &EntryMeta, _: Option<(OwnerKind, Tag)>) {
-            if entry.name == KEEP_MARKER {
+            if is_keep_marker(&entry.name) {
                 *self.0.lock().unwrap_or_else(|p| p.into_inner()) = true;
             }
         }

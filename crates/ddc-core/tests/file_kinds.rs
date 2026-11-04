@@ -10,15 +10,15 @@ mod common;
 
 use std::mem::MaybeUninit;
 use std::os::fd::OwnedFd;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use common::fakes::{CrossingTrash, FakeCommands, FakeProcs};
 use common::{Mount, Prepared, TreeBuilder};
 use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
-use ddc_core::exec::{self, Consent, ExecOptions, MemoryJournal, Outcome, Ports};
-use ddc_core::plan::{PlanOptions, build_plan};
+use ddc_core::exec::{self, Consent, ExecOptions, MemoryJournal, Outcome, Ports, SkipReason};
+use ddc_core::plan::{Plan, PlanOptions, build_plan};
 use ddc_core::platform::types::{TrashAsk, TrashDone, TrashError};
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::Catalog;
@@ -54,11 +54,23 @@ fn opened(watch: &OwnedFd) -> bool {
 /// The scan and a clean of the plan for `home`, deleting (no Trash).
 fn scan_and_clean(home: &Path) -> (ddc_core::model::ScanReport, exec::ExecReport) {
     let data = tempfile::tempdir().unwrap();
-    let env = Env::with_paths(home, data.path(), &data.path().join("logs"), SystemTime::now()).unwrap();
+    let scan = scan_in(home, data.path());
+    let plan = build_plan(&scan, &Catalog::builtin(home), &PlanOptions::default());
+    let r = clean_in(home, data.path(), &plan);
+    (scan, r)
+}
+
+/// The scan of `home`, its data in `data`.
+fn scan_in(home: &Path, data: &Path) -> ddc_core::model::ScanReport {
+    let env = Env::with_paths(home, data, &data.join("logs"), SystemTime::now()).unwrap();
     let opts = ScanOptions { walk: WalkOptions { threads: Some(2), ..Default::default() }, ..Default::default() };
-    let scan = report::scan(&env, &opts, &Progress::default()).unwrap();
+    report::scan(&env, &opts, &Progress::default()).unwrap()
+}
+
+/// A clean of `plan` for `home` with `--yes`, deleting (no Trash).
+fn clean_in(home: &Path, data: &Path, plan: &Plan) -> exec::ExecReport {
+    let env = Env::with_paths(home, data, &data.join("logs"), SystemTime::now()).unwrap();
     let catalog = Catalog::builtin(home);
-    let plan = build_plan(&scan, &catalog, &PlanOptions::default());
     let mut journal = MemoryJournal::default();
     let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
     let ports = Ports {
@@ -67,8 +79,19 @@ fn scan_and_clean(home: &Path) -> (ddc_core::model::ScanReport, exec::ExecReport
         procs: &FakeProcs::new(vec![]),
         journal: &mut journal,
     };
-    let r = exec::execute(&env, &catalog, &plan, &consent, ports, &ExecOptions::default()).unwrap();
-    (scan, r)
+    exec::execute(&env, &catalog, plan, &consent, ports, &ExecOptions::default()).unwrap()
+}
+
+/// An idle Node project at `rel` under `home`; its `node_modules`.
+fn idle_node_project(home: &Path, rel: &str) -> PathBuf {
+    let t = TreeBuilder::new_in(home);
+    let old = SystemTime::now() - std::time::Duration::from_secs(60 * 86_400);
+    for f in ["package.json", "package-lock.json"] {
+        let path = t.write(&format!("{rel}/{f}"), "{}");
+        std::fs::File::options().write(true).open(path).unwrap().set_modified(old).unwrap();
+    }
+    t.file(&format!("{rel}/node_modules/dep/index.js"), 20_000);
+    t.path(&format!("{rel}/node_modules"))
 }
 
 /// A FIFO and a socket inside a finding are never opened by the scan, the
@@ -179,4 +202,69 @@ fn an_exfat_trash_that_stays_open_refuses_the_move() {
     assert!(matches!(trash::trash_item(&folder, name, &file, id), Err(TrashError::CrossesFilesystem)));
     assert!(file.exists(), "nothing moved");
     assert!(matches!(admit(), Err(TrashError::CrossesFilesystem)), "after");
+}
+
+/// On a case-insensitive folder, a protected folder named in another case
+/// is the protected folder: `DOCUMENTS` in a plan is refused as
+/// `Documents` is, by its folded path and by the identity the filesystem
+/// resolves it to (safety ADR, amendment of 2026-11-04, §6).
+fn a_protected_folder_in_another_case_is_refused_on(test: &str, mount: Mount) {
+    let Some(dir) = common::mount(test, mount) else { return };
+    let home = TreeBuilder::new_in(&dir).dir("home");
+    let data = tempfile::tempdir().unwrap();
+    let cv = TreeBuilder::new_in(&home).file("Documents/cv.pdf", 100);
+    let nm = idle_node_project(&home, "p");
+    let mut plan = build_plan(&scan_in(&home, data.path()), &Catalog::builtin(&home), &PlanOptions::default());
+    let mut forged = plan.items.iter().find(|i| i.finding.path == nm).expect("the node_modules item").clone();
+    let upper = home.join("DOCUMENTS");
+    forged.finding.path = upper.clone();
+    plan.items = vec![forged];
+
+    let r = clean_in(&home, data.path(), &plan);
+
+    let item = r.items.iter().find(|i| i.path == upper).expect("the forged item");
+    assert_eq!(item.outcome, Outcome::Skipped(SkipReason::Protected));
+    assert!(cv.exists());
+}
+
+#[test]
+fn a_protected_folder_in_another_case_is_refused_on_casefold() {
+    a_protected_folder_in_another_case_is_refused_on(
+        "a_protected_folder_in_another_case_is_refused_on_casefold",
+        Mount::Casefold,
+    );
+}
+
+#[test]
+fn a_protected_folder_in_another_case_is_refused_on_exfat() {
+    a_protected_folder_in_another_case_is_refused_on(
+        "a_protected_folder_in_another_case_is_refused_on_exfat",
+        Mount::Exfat,
+    );
+}
+
+/// On a case-insensitive folder, a `.DDC-KEEP` keeps its folder: below a
+/// finding's top in the scan, and at its top when made after the scan,
+/// where the guard finds it through the filesystem and the walk by name.
+#[test]
+fn a_keep_marker_in_another_case_keeps_its_folder_on_casefold() {
+    let Some(dir) = common::mount("a_keep_marker_in_another_case_keeps_its_folder_on_casefold", Mount::Casefold) else {
+        return;
+    };
+    let home = TreeBuilder::new_in(&dir).dir("home");
+    let data = tempfile::tempdir().unwrap();
+    let kept = idle_node_project(&home, "a");
+    TreeBuilder::new_in(&kept).write("dep/.DDC-KEEP", "");
+    let later = idle_node_project(&home, "b");
+
+    let scan = scan_in(&home, data.path());
+    let finding = scan.findings.iter().find(|f| f.path == kept).expect("the kept finding");
+    assert_eq!(finding.rule, "user.kept");
+    let plan = build_plan(&scan, &Catalog::builtin(&home), &PlanOptions::default());
+    TreeBuilder::new_in(&later).write(".Ddc-Keep", "");
+    let r = clean_in(&home, data.path(), &plan);
+
+    let item = r.items.iter().find(|i| i.path == later).expect("b's node_modules was planned");
+    assert_eq!(item.outcome, Outcome::Skipped(SkipReason::Kept));
+    assert!(later.join("dep/index.js").exists());
 }

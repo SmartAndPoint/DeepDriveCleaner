@@ -42,7 +42,7 @@ pub use crate::platform::procs::{OpenVnode, ProcInfo, ProcStart};
 /// What a [`Trasher`] answers: a fake Trash names it here, not under `platform`.
 pub use crate::platform::types::{BinBudget, RecycleBinCause, TrashAsk, TrashDone, TrashError, TrashPlace};
 use crate::rules::entries::{self, EntryLock};
-use crate::rules::{Catalog, KEEP_MARKER};
+use crate::rules::{Catalog, is_keep_marker};
 use crate::scan::{self, EntryMeta, OwnerKind, Progress, Tag, Visitor, WalkOptions};
 
 /// Why an item was left alone. Serialized into the journal and the clean report.
@@ -930,7 +930,7 @@ fn keep_markers(targets: Vec<PathBuf>, opts: &ExecOptions<'_>, walked: &Progress
             false
         }
         fn on_file(&self, dir: &Path, _: (u64, u64), entry: &EntryMeta, _: Option<(OwnerKind, Tag)>) {
-            if entry.name == KEEP_MARKER {
+            if is_keep_marker(&entry.name) {
                 self.0.lock().unwrap_or_else(|p| p.into_inner()).push(dir.to_path_buf());
             }
         }

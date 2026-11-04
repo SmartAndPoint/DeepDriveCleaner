@@ -19,6 +19,14 @@ use crate::scan::{DirCtx, DirListing, EntryKind, EntryMeta, OwnerKind, Post, Pre
 /// A file with this name protects its directory and everything below.
 pub const KEEP_MARKER: &str = ".ddc-keep";
 
+/// `true` when a listed name is the keep marker. ASCII case is ignored, so a
+/// `.DDC-KEEP` keeps its folder on a case-insensitive folder, where the
+/// filesystem would find it, and on a case-sensitive one too: the safe side
+/// (safety ADR, amendment of 2026-11-04, §6).
+pub fn is_keep_marker(name: &std::ffi::OsStr) -> bool {
+    name.as_encoded_bytes().eq_ignore_ascii_case(KEEP_MARKER.as_bytes())
+}
+
 /// Files at least this large outside every finding are listed for manual review.
 pub const LARGE_FILE_BYTES: u64 = 500 << 20;
 /// How many large files are kept.
@@ -281,7 +289,7 @@ impl Visitor for RuleVisitor<'_> {
         // A marker always keeps the folder; the matchers ran first so that
         // the report names the rule it displaced. A kept worktree is one
         // `user.kept` finding, its artifacts with it.
-        if matcher::DirView::has_child(&view, KEEP_MARKER) {
+        if listing.entries.iter().any(|e| is_keep_marker(&e.name)) {
             return Post::Claim(self.kept(dir.path, matched.as_ref().map(Matched::tag), true));
         }
         match matched {
@@ -337,7 +345,7 @@ impl Visitor for RuleVisitor<'_> {
     fn on_file(&self, dir: &Path, dir_id: (u64, u64), entry: &EntryMeta, owner: Option<(OwnerKind, Tag)>) {
         let in_claim = matches!(owner, Some((OwnerKind::Claim, _)));
         // A keep marker of any kind (file, symlink) inside a finding protects it.
-        if in_claim && entry.name == KEEP_MARKER {
+        if in_claim && is_keep_marker(&entry.name) {
             self.markers.lock().unwrap_or_else(|p| p.into_inner()).push((dir.to_path_buf(), dir_id));
             return;
         }
@@ -361,7 +369,7 @@ impl Visitor for RuleVisitor<'_> {
         // Pins inside claimed artifacts (packages shipping .nvmrc) do not count;
         // pins inside projects the user protected do.
         let in_artifact = in_claim && !matches!(owner, Some((_, tag)) if tag == self.catalog.kept);
-        if name == KEEP_MARKER
+        if is_keep_marker(entry.name.as_os_str())
             || in_artifact
             || !matches!(
                 name,

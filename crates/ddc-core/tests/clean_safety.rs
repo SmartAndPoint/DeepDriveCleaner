@@ -759,6 +759,27 @@ fn keep_marker_created_after_the_scan_cancels_deletion() {
     assert_eq!(outcome(&r, &deep), &Outcome::Skipped(SkipReason::Kept));
 }
 
+/// A keep marker made after the scan in another ASCII case cancels the
+/// deletion as `.ddc-keep` does: at the item's top and deeper.
+#[test]
+fn a_keep_marker_in_another_case_made_after_the_scan_cancels_deletion() {
+    if common::unsupported("a_keep_marker_in_another_case_made_after_the_scan_cancels_deletion") {
+        return;
+    }
+    let fx = Fx::new();
+    let top = fx.node_project("p");
+    let deep = fx.node_project("q");
+    let plan = fx.plan();
+    fx.t.write("p/node_modules/.DDC-KEEP", "");
+    fx.t.write("q/node_modules/dep/.Ddc-Keep", "");
+
+    let (r, _) = fx.run_yes(&plan);
+
+    assert_eq!(outcome(&r, &top), &Outcome::Skipped(SkipReason::Kept));
+    assert_eq!(outcome(&r, &deep), &Outcome::Skipped(SkipReason::Kept));
+    assert!(top.exists() && deep.exists());
+}
+
 #[test]
 fn running_owner_process_skips_its_cache() {
     if common::unsupported("running_owner_process_skips_its_cache") {

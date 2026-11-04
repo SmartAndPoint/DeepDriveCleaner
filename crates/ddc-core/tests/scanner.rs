@@ -137,6 +137,42 @@ fn unreadable_directory_is_reported_and_siblings_are_counted() {
     assert_eq!(out.total_bytes, alloc(&sibling) + folders(&[t.root(), &t.path("open"), &locked]));
 }
 
+/// Names are bytes to the walk: `Cache` beside `cache`, and an NFC name
+/// beside its NFD twin, are two folders, each counted, wherever the
+/// filesystem keeps them apart. Where it folds them (APFS for both, a
+/// case-insensitive volume for case), the second create finds the first,
+/// and the walk counts the one folder once (safety ADR, amendment of
+/// 2026-11-04, §6).
+#[test]
+fn names_in_another_case_or_form_are_two_folders_where_the_filesystem_keeps_two() {
+    if common::unsupported("names_in_another_case_or_form_are_two_folders_where_the_filesystem_keeps_two") {
+        return;
+    }
+    for (a, b) in [("Cache", "cache"), ("\u{e9}t\u{e9}", "e\u{301}te\u{301}")] {
+        let t = TreeBuilder::new();
+        t.file(&format!("{a}/x"), 40_000);
+        let (first, second) = (t.path(a), t.path(b));
+        let visitor = TestVisitor { claim_paths: vec![first.clone(), second.clone()], ..Default::default() };
+        match std::fs::create_dir(&second) {
+            Ok(()) => {
+                t.file(&format!("{b}/y"), 70_000);
+                let out = walk(t.root(), &visitor);
+                assert_eq!(out.owners.len(), 2, "{a:?} and {b:?} are two folders: {:#?}", out.owners);
+                assert_eq!(owner(&out, &first).bytes, reference_alloc(&first));
+                assert_eq!(owner(&out, &second).bytes, reference_alloc(&second));
+                assert_ne!(owner(&out, &first).ino, owner(&out, &second).ino);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                assert!(second.join("x").is_file(), "{b:?} is {a:?} on this filesystem");
+                let out = walk(t.root(), &visitor);
+                assert_eq!(out.owners.len(), 1, "one folder, counted once: {:#?}", out.owners);
+                assert_eq!(out.owners[0].bytes, reference_alloc(&first));
+            }
+            Err(e) => panic!("create {b:?}: {e}"),
+        }
+    }
+}
+
 #[test]
 fn claimed_subtree_is_attributed_to_its_owner() {
     if common::unsupported("claimed_subtree_is_attributed_to_its_owner") {
