@@ -31,8 +31,11 @@ use crate::plan::PlanItem;
 /// 2026-11-01). 9: in an `item` line, the entry locks `build-in-use` and
 /// `builds-unknown` (safety ADR, amendment of 2026-11-02). 10: in an `item`
 /// line, the skip reason `held-open` (safety ADR §5, amendment of
-/// 2026-11-02).
-pub const JOURNAL_SCHEMA_VERSION: u32 = 10;
+/// 2026-11-02). 11: in an `item` line, the skip reason `recycle-bin-refuses`
+/// with its `cause`, and the outcome `removed-not-recycled`, a session's
+/// companion's line included (safety ADR §5, the Recycle Bin on Windows,
+/// planned 2026-11-04).
+pub const JOURNAL_SCHEMA_VERSION: u32 = 11;
 
 /// Where an item went in the Trash: the trash folder and the name in its
 /// `files/`. Absent where the Trash does not tell (macOS): a trash on
@@ -108,7 +111,8 @@ impl JournalEntry {
         }
     }
 
-    /// A companion of `item`, a session's entry, moved to the Trash with it.
+    /// A companion of `item`, a session's entry, moved to the Trash with it,
+    /// or destroyed by the shell on its way there.
     pub fn companion(item: &PlanItem, moved: &MovedCompanion) -> Self {
         let f = &item.finding;
         Self {
@@ -125,7 +129,7 @@ impl JournalEntry {
             private_bytes: None,
             entry: Some(f.path.clone()),
             trash: moved.place.clone().map(TrashedTo::from),
-            outcome: Outcome::Trashed,
+            outcome: if moved.recycled { Outcome::Trashed } else { Outcome::RemovedNotRecycled },
         }
     }
 }

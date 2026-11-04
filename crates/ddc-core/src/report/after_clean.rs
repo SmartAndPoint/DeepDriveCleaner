@@ -180,6 +180,8 @@ fn edit_items<'a>(
         match item.outcome {
             Outcome::Deleted => edit.remove(item.path, false, item.bytes),
             Outcome::Trashed => edit.remove(item.path, true, item.bytes),
+            // Destroyed, not recycled: gone, and nothing went to a Trash.
+            Outcome::RemovedNotRecycled => edit.remove(item.path, false, item.bytes),
             Outcome::Native { .. } => match remeasured.get(item.path) {
                 Some(Remeasured::Gone) => edit.remove(item.path, false, item.bytes),
                 Some(Remeasured::Measured(m)) => edit.resize(item.path, m),

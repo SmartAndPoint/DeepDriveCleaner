@@ -21,8 +21,11 @@ use crate::scan::ProgressSnapshot;
 /// of 2026-11-01). 6: the skip reason `trash-crosses-filesystem` (safety ADR
 /// §5, amendment of 2026-11-01). 7: the entry locks `build-in-use` and
 /// `builds-unknown` (safety ADR, amendment of 2026-11-02). 8: the skip
-/// reason `held-open` (safety ADR §5, amendment of 2026-11-02).
-pub const PROGRESS_SCHEMA_VERSION: u32 = 8;
+/// reason `held-open` (safety ADR §5, amendment of 2026-11-02). 9: the skip
+/// reason `recycle-bin-refuses` with its `cause`, and the outcome
+/// `removed-not-recycled` (safety ADR §5, the Recycle Bin on Windows,
+/// planned 2026-11-04).
+pub const PROGRESS_SCHEMA_VERSION: u32 = 9;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ProgressLine {

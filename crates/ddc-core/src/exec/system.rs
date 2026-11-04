@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use super::{CmdOutput, CommandRunner, ProcessTable, TrashError, TrashPlace, TrashTarget, Trasher};
+use super::{CmdOutput, CommandRunner, ProcessTable, TrashAsk, TrashDone, TrashError, TrashTarget, Trasher};
 use crate::env::Env;
 use crate::platform::procs::{self, OpenVnode, ProcInfo, ProcStart};
 use crate::platform::{meta, process, signals, trash};
@@ -140,16 +140,21 @@ pub(super) fn executable(path: &Path) -> bool {
 /// The system Trash (`platform::trash`): on macOS through `NSFileManager`
 /// (no AppleScript, no Automation prompt); on Linux ddc's own move into a
 /// freedesktop trash folder on the item's own mount (safety ADR §5,
-/// amendment of 2026-11-01).
-pub struct SystemTrash;
+/// amendment of 2026-11-01). One per clean or dry run: it keeps the
+/// Recycle Bin's room the run's asks take from (safety ADR §5, the Recycle
+/// Bin on Windows, planned 2026-11-04).
+#[derive(Default)]
+pub struct SystemTrash {
+    budget: std::cell::RefCell<trash::Budget>,
+}
 
 impl Trasher for SystemTrash {
-    fn trash(&self, target: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+    fn trash(&self, target: &TrashTarget<'_>) -> Result<TrashDone, TrashError> {
         trash::trash_item(target.parent, target.name, target.path, target.id)
     }
 
-    fn would_trash(&self, target: &TrashTarget<'_>) -> Result<(), TrashError> {
-        trash::would_trash(target.parent, target.name, target.path)
+    fn admit(&self, parent: &crate::platform::fsops::DirFd, asks: &[TrashAsk<'_>]) -> Result<(), TrashError> {
+        trash::admit(&mut self.budget.borrow_mut(), parent, asks)
     }
 }
 

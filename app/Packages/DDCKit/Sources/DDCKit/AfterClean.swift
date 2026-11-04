@@ -19,7 +19,8 @@ extension SkipReason {
         switch self {
         // `agentLive`: quitting the agent clears it.
         // `heldOpen`: closing the program that holds it clears it.
-        case .ownerRunning, .inUse, .inUseUnknownCwd, .heldOpen, .toolNotReady, .agentLive:
+        // A full Recycle Bin: emptying it clears it.
+        case .ownerRunning, .inUse, .inUseUnknownCwd, .heldOpen, .toolNotReady, .agentLive, .recycleBinRefuses(.binFull):
             .keep
         // `incomplete`: the walk was partial; nothing in it says a permission would fix it.
         // `worktreeKept`: the worktree changed since the scan let it go.
@@ -27,9 +28,10 @@ extension SkipReason {
              .incomplete, .worktreeKept:
             .rescan
         // `foreignOwner`: only that user, or root, can remove it.
-        // `trashCrossesFilesystem`: only `--permanent` removes it.
+        // `trashCrossesFilesystem`, and the Recycle Bin's other refusals:
+        // only `--permanent` removes it.
         case .kept, .protected, .projectRoot, .scanRoot, .outsideScanRoots, .actionNotAllowed, .needsConfirmation,
-             .insideAnotherItem, .nativeUnavailable, .foreignOwner, .trashCrossesFilesystem:
+             .insideAnotherItem, .nativeUnavailable, .foreignOwner, .trashCrossesFilesystem, .recycleBinRefuses:
             .never
         }
     }
@@ -43,7 +45,7 @@ extension CleanReport.Outcome {
         switch self {
         case .skipped(let reason): reason.afterClean == .keep
         case .notRun: true
-        case .deleted, .trashed, .native, .failed: false
+        case .deleted, .trashed, .removedNotRecycled, .native, .failed: false
         }
     }
 }
@@ -63,6 +65,17 @@ extension CleanWording {
     public static func trashed(_ result: CleanResult) -> String? {
         guard result.trashed.count > 0 else { return nil }
         return "\(ByteSize.human(result.trashed.bytes)) went to the Trash. It comes back when you empty the Trash."
+    }
+
+    /// "Windows deleted 2 items instead of moving them to the Recycle Bin:
+    /// ~/a, ~/b. They cannot be restored."; nil when there were none.
+    public static func notRecycled(_ result: CleanResult) -> String? {
+        let paths = result.notRecycled
+        guard !paths.isEmpty else { return nil }
+        let them = paths.count == 1 ? "it" : "them"
+        let they = paths.count == 1 ? "It cannot" : "They cannot"
+        return "Windows deleted \(Wording.items(paths.count)) instead of moving \(them) to the Recycle Bin: "
+            + "\(Wording.list(paths)). \(they) be restored."
     }
 
     /// The free-space note, only when something was deleted or a tool ran:

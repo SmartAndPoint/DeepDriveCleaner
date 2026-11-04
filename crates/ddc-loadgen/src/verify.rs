@@ -8,8 +8,7 @@ use std::time::SystemTime;
 use ddc_core::env::Env;
 use ddc_core::exec::preflight::{PreflightPorts, PreflightSummary, preflight};
 use ddc_core::exec::{
-    CmdOutput, CommandRunner, OpenVnode, ProcInfo, ProcStart, ProcessTable, TrashError, TrashPlace, TrashTarget,
-    Trasher,
+    CmdOutput, CommandRunner, OpenVnode, ProcInfo, ProcStart, ProcessTable, TrashDone, TrashError, TrashTarget, Trasher,
 };
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{Plan, PlanOptions, build_plan};
@@ -131,7 +130,7 @@ impl CommandRunner for NoTools {
 struct NoTrash;
 
 impl Trasher for NoTrash {
-    fn trash(&self, _: &TrashTarget<'_>) -> Result<Option<TrashPlace>, TrashError> {
+    fn trash(&self, _: &TrashTarget<'_>) -> Result<TrashDone, TrashError> {
         Err(TrashError::Other(std::io::Error::other("nothing moves in a preflight")))
     }
 }

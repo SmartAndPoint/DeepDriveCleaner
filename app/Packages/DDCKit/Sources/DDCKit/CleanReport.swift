@@ -39,11 +39,28 @@ public enum SkipReason: Sendable, Equatable, Hashable {
     /// No Trash on the item's own disk that ddc may use (Linux): nothing
     /// moved; `--permanent` removes it instead.
     case trashCrossesFilesystem
+    /// The Recycle Bin refuses the item (Windows), for `cause`: nothing
+    /// moved; `--permanent` removes it instead.
+    case recycleBinRefuses(RecycleBinCause)
     /// A coding agent uses its data now, or whether it does could not be told.
     case agentLive(harness: AgentsReport.HarnessID, by: AgentLiveBy)
     /// A linked worktree one of the six conditions keeps: `condition` is its
     /// number, 1 to 6, `detail` says why.
     case worktreeKept(condition: Int, detail: String)
+
+    /// Why the Recycle Bin refuses an item (`RecycleBinCause` in
+    /// `crates/ddc-core/src/platform/types.rs`).
+    public enum RecycleBinCause: String, Decodable, Sendable, Hashable, CaseIterable {
+        case noBin = "no-bin"
+        case tooLarge = "too-large"
+        /// It fits the bin's maximum, not the room left: emptying the bin clears it.
+        case binFull = "bin-full"
+        case nukeOnDelete = "nuke-on-delete"
+        case noRecycleFiles = "no-recycle-files"
+        case pathRefused = "path-refused"
+        case settingsUnreadable = "settings-unreadable"
+        case wouldDestroy = "would-destroy"
+    }
 
     /// What shows a coding agent in use (`AgentLiveBy` in `crates/ddc-core/src/exec/mod.rs`).
     public enum AgentLiveBy: String, Decodable, Sendable, Hashable, CaseIterable {
@@ -60,12 +77,12 @@ public enum SkipReason: Sendable, Equatable, Hashable {
         "missing", "not-a-directory", "symlink", "changed-since-scan", "parent-changed", "rule-mismatch",
         "outside-scan-roots", "scan-root", "protected", "project-root", "kept", "in-use", "in-use-unknown-cwd",
         "owner-running", "held-open", "needs-confirmation", "action-not-allowed", "incomplete", "foreign-owner", "native-unavailable",
-        "tool-not-ready", "not-an-entry", "entry-locked", "inside-another-item", "trash-crosses-filesystem", "agent-live",
-        "worktree-kept",
+        "tool-not-ready", "not-an-entry", "entry-locked", "inside-another-item", "trash-crosses-filesystem",
+        "recycle-bin-refuses", "agent-live", "worktree-kept",
     ]
 
     enum CodingKeys: String, CodingKey {
-        case reason, pid, name, program, detail, lock, harness, by, condition
+        case reason, pid, name, program, detail, lock, harness, by, condition, cause
     }
 
     /// Reads the reason from the container of the item it is flattened into.
@@ -99,6 +116,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
         case "entry-locked": self = .entryLocked(try c.decode(EntryLock.self, forKey: .lock))
         case "inside-another-item": self = .insideAnotherItem
         case "trash-crosses-filesystem": self = .trashCrossesFilesystem
+        case "recycle-bin-refuses": self = .recycleBinRefuses(try c.decode(RecycleBinCause.self, forKey: .cause))
         case "agent-live":
             self = .agentLive(
                 harness: try c.decode(AgentsReport.HarnessID.self, forKey: .harness), by: try c.decode(AgentLiveBy.self, forKey: .by))
@@ -113,7 +131,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
 /// `clean --items --json`: what happened to each listed item.
 public struct CleanReport: Decodable, Sendable, Equatable {
     /// `CLEAN_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 10
+    public static let schemaVersion = 11
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)
@@ -195,6 +213,9 @@ public struct CleanReport: Decodable, Sendable, Equatable {
     public enum Outcome: Sendable, Equatable {
         case deleted
         case trashed
+        /// Asked to go to the Recycle Bin, the item is gone and is not there
+        /// (Windows): its space is freed, but it cannot be restored.
+        case removedNotRecycled
         /// The tool's own commands ran; one with `success: false` failed or was interrupted.
         case native([CommandResult])
         case skipped(SkipReason)
@@ -212,6 +233,7 @@ public struct CleanReport: Decodable, Sendable, Equatable {
             switch try c.decode(String.self, forKey: .outcome) {
             case "deleted": self = .deleted
             case "trashed": self = .trashed
+            case "removed-not-recycled": self = .removedNotRecycled
             case "native": self = .native(try c.decode([CommandResult].self, forKey: .commands))
             case "skipped": self = .skipped(try SkipReason(from: decoder.container(keyedBy: SkipReason.CodingKeys.self)))
             case "failed": self = .failed(try c.decode(String.self, forKey: .error))

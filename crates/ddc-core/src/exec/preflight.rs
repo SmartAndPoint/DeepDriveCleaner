@@ -31,7 +31,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::guard::{Guard, Verified, Walked, walk_item};
-use super::{CommandRunner, ProcessTable, SkipReason, TrashError, TrashTarget, Trasher};
+use super::{CommandRunner, ProcessTable, SkipReason, TrashAsk, Trasher, trash_refusal};
 use crate::class::{Fallback, Location, ReadyProbe, RiskClass};
 use crate::conda;
 use crate::env::Env;
@@ -340,20 +340,27 @@ fn check(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
         },
     };
     if matches!(prediction, Prediction::WouldTrash) {
-        would_trash(ports.trash, &verified, path).map_err(|reason| (Some(walked.bytes), reason))?;
+        admit(ports.trash, &verified, path, walked.bytes).map_err(|reason| (Some(walked.bytes), reason))?;
     }
     Ok((walked.bytes, prediction))
 }
 
-/// The Trash's own answer for an item the clean would move there: no usable
-/// Trash on its filesystem is `trash-crosses-filesystem`, where the clean
-/// would skip it (safety ADR §5, amendment of 2026-11-01, step 6). Any
-/// other answer is the clean's to meet: a failure is not predicted.
-fn would_trash(trash: &dyn Trasher, v: &Verified, path: &Path) -> Result<(), SkipReason> {
-    let target = TrashTarget { path, parent: &v.parent, name: &v.name, id: v.id, is_dir: v.is_dir };
-    match trash.would_trash(&target) {
-        Err(TrashError::CrossesFilesystem) => Err(SkipReason::TrashCrossesFilesystem),
-        Ok(()) | Err(TrashError::Other(_)) => Ok(()),
+/// The Trash's own answer for an item the clean would move there, `bytes`
+/// its size: no usable Trash on its filesystem is
+/// `trash-crosses-filesystem` (safety ADR §5, amendment of 2026-11-01, step
+/// 6), a Recycle Bin that refuses it is `recycle-bin-refuses` with its
+/// cause, and an item that fits takes its bytes from the bin's room, as in
+/// the clean (the Recycle Bin on Windows, planned 2026-11-04). Any other
+/// answer is the clean's to meet: a failure is not predicted.
+fn admit(trash: &dyn Trasher, v: &Verified, path: &Path, bytes: u64) -> Result<(), SkipReason> {
+    admit_all(trash, v, &[TrashAsk { name: &v.name, path, bytes, is_dir: v.is_dir }])
+}
+
+/// [`admit`] for every part of one move, asked together.
+fn admit_all(trash: &dyn Trasher, v: &Verified, asks: &[TrashAsk<'_>]) -> Result<(), SkipReason> {
+    match trash.admit(&v.parent, asks).err().as_ref().and_then(trash_refusal) {
+        Some(reason) => Err(reason),
+        None => Ok(()),
     }
 }
 
@@ -428,8 +435,8 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
         let verified = guard
             .check(&planned(item, rule, RiskClass::UserData, Action::TrashEntry))
             .map_err(|reason| (None, reason))?;
-        would_trash(ports.trash, &verified, path).map_err(|reason| (None, reason))?;
         let bytes = if st.is_dir { walk_item(path, ports.reader).map_or(st.alloc, |w| w.bytes) } else { st.alloc };
+        admit(ports.trash, &verified, path, bytes).map_err(|reason| (None, reason))?;
         return Ok((bytes, Prediction::WouldTrash));
     }
     // A session's entry: the guard's own check finds its companions, walks
@@ -438,9 +445,19 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
         let verified = guard
             .check(&planned(item, rule, RiskClass::UserData, Action::TrashEntry))
             .map_err(|reason| (None, reason))?;
-        // The companions share the key's folder, and so its Trash.
-        would_trash(ports.trash, &verified, path).map_err(|reason| (None, reason))?;
-        let parts = verified.session.unwrap_or_default();
+        // The companions share the key's folder, and so its Trash: the key
+        // and every companion are asked together, as the clean asks.
+        let parts = verified.session.clone().unwrap_or_default();
+        let parent = path.parent().unwrap_or(path);
+        let paths: Vec<PathBuf> = parts.companions.iter().map(|c| parent.join(&c.name)).collect();
+        let mut asks: Vec<TrashAsk<'_>> = parts
+            .companions
+            .iter()
+            .zip(&paths)
+            .map(|(c, at)| TrashAsk { name: &c.name, path: at, bytes: c.bytes, is_dir: c.is_dir })
+            .collect();
+        asks.push(TrashAsk { name: &verified.name, path, bytes: parts.key_bytes, is_dir: verified.is_dir });
+        admit_all(ports.trash, &verified, &asks).map_err(|reason| (None, reason))?;
         let bytes = parts.key_bytes + parts.companions.iter().map(|c| c.bytes).sum::<u64>();
         return Ok((bytes, Prediction::WouldTrash));
     }
@@ -485,7 +502,7 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
     let verified = guard
         .check(&planned(item, rule, RiskClass::UserData, Action::TrashEntry))
         .map_err(|reason| (Some(walked.bytes), reason))?;
-    would_trash(ports.trash, &verified, path).map_err(|reason| (Some(walked.bytes), reason))?;
+    admit(ports.trash, &verified, path, walked.bytes).map_err(|reason| (Some(walked.bytes), reason))?;
     Ok((walked.bytes, Prediction::WouldTrash))
 }
 

@@ -5,7 +5,7 @@ import Testing
 @Suite("Review window: the result")
 struct CleanResultTests {
     /// A report with every outcome, in the clean schema's shape.
-    private func report(_ items: [String], version: Int = 10) throws -> CleanReport {
+    private func report(_ items: [String], version: Int = 11) throws -> CleanReport {
         let json = """
             {"schema_version": \(version), "ddc_version": "0.2.0", "platform": "macos", "capabilities": ["private-size", "in-use-check", "dataless-files", "full-disk-access", "local-snapshots", "whole-disk", "coding-agents", "homebrew", "schedule", "notifications"], "cancelled": true, "failed": 2, "local_snapshots": 1,
              "journal": "/Users/example/Library/Logs/DeepDriveCleaner/actions.jsonl",
@@ -129,5 +129,36 @@ struct CleanResultTests {
         #expect(SkipReason.heldOpen.afterClean == .keep)
         #expect(CleanWording.clearing([.heldOpen, .heldOpen], again: "clean again")
             == ["A program has a folder, or a file in it, open; close it, then clean again."])
+    }
+
+    @Test("the Recycle Bin's refusals name --permanent, a full bin clears when emptied, an item Windows destroyed counts as deleted and is named apart")
+    func recycleBin() throws {
+        let report = try report([
+            item("a", #""outcome": "skipped", "reason": "recycle-bin-refuses", "cause": "bin-full""#, bytes: 100),
+            item("b", #""outcome": "skipped", "reason": "recycle-bin-refuses", "cause": "too-large""#, bytes: 200, ino: 2),
+            item("c", #""outcome": "removed-not-recycled""#, bytes: 300, ino: 3),
+        ])
+        #expect(report.items[0].outcome == .skipped(.recycleBinRefuses(.binFull)))
+        #expect(report.items[1].outcome == .skipped(.recycleBinRefuses(.tooLarge)))
+        #expect(report.items[2].outcome == .removedNotRecycled)
+        for cause in SkipReason.RecycleBinCause.allCases {
+            #expect(CleanWording.reason(.recycleBinRefuses(cause)).contains("--permanent"), "\(cause)")
+        }
+        #expect(SkipReason.recycleBinRefuses(.binFull).afterClean == .keep)
+        #expect(SkipReason.recycleBinRefuses(.tooLarge).afterClean == .never)
+        #expect(CleanWording.clearing([.recycleBinRefuses(.binFull)], again: "clean again")
+            == ["The Recycle Bin is full; empty it, then clean again."])
+        #expect(!CleanReport.Outcome.removedNotRecycled.staysSelected)
+
+        let items = try ReviewFixture.items()
+        let confirmation = DDCKit.Confirmation(items, selection: try ReviewFixture.recordedSelection(items), deletePermanently: false)
+        let result = CleanResult.make(report: report, confirmation: confirmation, volumes: [])
+        #expect(result.deleted.count == 1 && result.deleted.bytes == 300, "its space is freed")
+        #expect(result.trashed.count == 0, "never counted as moved to the Recycle Bin")
+        #expect(result.notRecycled.count == 1 && result.notRecycled[0].hasSuffix("/c"))
+        #expect(CleanWording.notRecycled(result)
+            == "Windows deleted 1 item instead of moving it to the Recycle Bin: \(result.notRecycled[0]). It cannot be restored.")
+        let missingCause = item("d", #""outcome": "skipped", "reason": "recycle-bin-refuses""#)
+        #expect(throws: (any Error).self) { try self.report([missingCause]) }
     }
 }

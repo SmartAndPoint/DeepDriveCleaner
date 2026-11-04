@@ -162,7 +162,12 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
             &catalog,
             &plan,
             &consent,
-            Ports { commands: &commands, trash: &SystemTrash, procs: &SystemProcesses, journal: &mut journal },
+            Ports {
+                commands: &commands,
+                trash: &SystemTrash::default(),
+                procs: &SystemProcesses,
+                journal: &mut journal,
+            },
             // The snapshots were counted for the note above: `tmutil` runs once.
             &ExecOptions {
                 cancel,
@@ -194,7 +199,10 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
     if let Some(sig) = ddc_core::platform::signals::received() {
         ddc_core::platform::signals::reraise(sig);
     }
-    let failed = result.items.iter().any(|i| matches!(i.outcome, exec::Outcome::Failed { .. }));
+    let failed = result
+        .items
+        .iter()
+        .any(|i| matches!(i.outcome, exec::Outcome::Failed { .. } | exec::Outcome::RemovedNotRecycled));
     Ok(if failed { ExitCode::FAILURE } else { ExitCode::SUCCESS })
 }
 

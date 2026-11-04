@@ -74,19 +74,30 @@ impl Fx {
         journal: &mut dyn Journal,
         cancel: &AtomicBool,
     ) -> (ExecReport, CleanReport) {
+        self.clean_with(items, commands, journal, cancel, &self.trash())
+    }
+
+    /// [`Self::clean`] with the Trash `trash`.
+    fn clean_with(
+        &self,
+        items: &[ListedItem],
+        commands: &FakeCommands,
+        journal: &mut dyn Journal,
+        cancel: &AtomicBool,
+        trash: &dyn ddc_core::exec::Trasher,
+    ) -> (ExecReport, CleanReport) {
         let catalog = self.catalog();
         let opts = ScanOptions { walk: WalkOptions { threads: Some(2), ..Default::default() }, ..Default::default() };
         let (scanned, entries) =
             report::scan_with_entries(&self.env(), &opts, &Progress::default(), &report::volumes::SystemStatFs)
                 .unwrap();
         let listed = plan_listed(&scanned, &entries, &catalog, items);
-        let trash = self.trash();
         let run = exec::execute(
             &self.env(),
             &catalog,
             &listed.plan,
             &Consent::Listed,
-            Ports { commands, trash: &trash, procs: &FakeProcs::new(vec![]), journal },
+            Ports { commands, trash, procs: &FakeProcs::new(vec![]), journal },
             &ExecOptions { cancel, ..ExecOptions::default() },
         )
         .unwrap();
@@ -315,6 +326,66 @@ fn the_dry_run_predicts_a_trash_that_would_cross() {
     let crossing = Prediction::WouldSkip(SkipReason::TrashCrossesFilesystem);
     assert_eq!(predictions, [&crossing, &crossing]);
     assert!(modules.exists() && pyenv.exists());
+}
+
+/// A Recycle Bin with room for two of three items, and one item it refuses
+/// as too large: the dry run and the clean refuse the same items, a refused
+/// item takes no room, and the third is `bin-full` (safety ADR §5, the
+/// Recycle Bin on Windows, planned 2026-11-04).
+#[test]
+fn the_dry_run_and_the_clean_refuse_the_same_items_for_the_bins_room() {
+    if common::unsupported("the_dry_run_and_the_clean_refuse_the_same_items_for_the_bins_room") {
+        return;
+    }
+    let fx = Fx::new();
+    let paths: Vec<PathBuf> = ["w", "x", "y", "z"].iter().map(|p| fx.review_modules(p)).collect();
+    let reviewed = fx.scan();
+    let items: Vec<ListedItem> = paths.iter().map(|p| listed(&reviewed, p)).collect();
+    let size = |p: &Path| reviewed.findings.iter().find(|f| f.path == p).map(|f| f.bytes).unwrap();
+    assert!(size(&paths[1]) > 0 && size(&paths[1]) == size(&paths[2]));
+    let room = size(&paths[1]) + size(&paths[2]);
+    let bin = || {
+        common::fakes::BinTrash::new(fx.data.path().join("Bin"), room)
+            .refusing(&paths[0], ddc_core::exec::RecycleBinCause::TooLarge)
+            .destroying(&paths[2])
+    };
+    let too_large = SkipReason::RecycleBinRefuses { cause: ddc_core::exec::RecycleBinCause::TooLarge };
+    let bin_full = SkipReason::RecycleBinRefuses { cause: ddc_core::exec::RecycleBinCause::BinFull };
+
+    let lines = fx.preflight_with(&items, &FakeProcs::new(vec![]), &FakeCommands::default(), &bin());
+    let predictions: Vec<&Prediction> = lines
+        .iter()
+        .filter_map(|l| match l {
+            PreflightLine::Item(i) => Some(&i.prediction),
+            PreflightLine::Summary(_) => None,
+        })
+        .collect();
+    assert_eq!(
+        predictions,
+        [
+            &Prediction::WouldSkip(too_large.clone()),
+            &Prediction::WouldTrash,
+            &Prediction::WouldTrash,
+            &Prediction::WouldSkip(bin_full.clone())
+        ]
+    );
+
+    let (run, report) =
+        fx.clean_with(&items, &FakeCommands::default(), &mut MemoryJournal::default(), &AtomicBool::new(false), &bin());
+    let outcomes: Vec<&Outcome> =
+        paths.iter().map(|p| &run.items.iter().find(|i| &i.path == p).unwrap().outcome).collect();
+    assert_eq!(
+        outcomes,
+        [&Outcome::Skipped(too_large), &Outcome::Trashed, &Outcome::RemovedNotRecycled, &Outcome::Skipped(bin_full)]
+    );
+    assert!(paths[0].exists() && !paths[1].exists() && !paths[2].exists() && paths[3].exists());
+    assert_eq!(report.failed, 0, "an item destroyed, not recycled, is not a failure");
+    let json = serde_json::to_value(&report).unwrap();
+    let last = &json["items"][3];
+    assert_eq!(
+        (&last["outcome"], &last["reason"], &last["cause"]),
+        (&"skipped".into(), &"recycle-bin-refuses".into(), &"bin-full".into())
+    );
 }
 
 #[test]

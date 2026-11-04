@@ -99,14 +99,15 @@ mod pins {
     use super::imp;
     use super::types::{
         DirListing, EntryStat, FileStat, OpenVnode, ProcInfo, ProcStart, ReadError, ReadErrorKind, RootOwner, Times,
-        TrashError, TrashPlace, Usage, VolumeStats,
+        TrashAsk, TrashDone, TrashError, Usage, VolumeStats,
     };
 
     type DirFd = imp::fsops::DirFd;
     type Identity = Option<(u64, u64)>;
     type ChildTimes = (Option<i64>, Option<i64>);
     type Waited = Option<(ExitStatus, Usage)>;
-    type Trashed = Result<Option<TrashPlace>, TrashError>;
+    type Trashed = Result<TrashDone, TrashError>;
+    type Budget = imp::trash::Budget;
 
     const _: fn(&Path, Identity, bool, Times) -> Result<DirListing, ReadError> = imp::bulk::list;
     const _: fn(&Path) -> io::Result<imp::bulk::Anchor> = imp::bulk::anchor;
@@ -193,7 +194,8 @@ mod pins {
     const _: fn() -> Option<u16> = imp::term::stderr_columns;
 
     const _: fn(&DirFd, &OsStr, &Path, (u64, u64)) -> Trashed = imp::trash::trash_item;
-    const _: fn(&DirFd, &OsStr, &Path) -> Result<(), TrashError> = imp::trash::would_trash;
+    const _: fn() -> Budget = <Budget as Default>::default;
+    const _: fn(&mut Budget, &DirFd, &[TrashAsk<'_>]) -> Result<(), TrashError> = imp::trash::admit;
 
     const _: fn(u32, bool) -> io::Result<Waited> = imp::usage::wait4;
     const _: fn() -> io::Result<Usage> = imp::usage::self_usage;

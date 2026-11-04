@@ -313,6 +313,19 @@
           ]
         },
         {
+          "description": "Asked to go to the Recycle Bin, the item is gone and is not there:\nthe shell destroyed it instead (Windows only, safety ADR §5, the\nRecycle Bin on Windows). Its space is freed, so it is not `failed`;\nwithout `--json` the clean still exits 1.",
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "const": "removed-not-recycled"
+            }
+          },
+          "required": [
+            "outcome"
+          ]
+        },
+        {
           "type": "object",
           "properties": {
             "commands": {
@@ -860,6 +873,51 @@
         "bytes"
       ]
     },
+    "RecycleBinCause": {
+      "description": "Why the Recycle Bin refuses an item (safety ADR §5, the Recycle Bin on\nWindows, planned 2026-11-04). Nothing moved; `--permanent` removes it\ninstead.",
+      "oneOf": [
+        {
+          "description": "The item's volume has no Recycle Bin: not a local fixed drive, or\nthe shell finds none there.",
+          "type": "string",
+          "const": "no-bin"
+        },
+        {
+          "description": "The item is larger than the bin's maximum size.",
+          "type": "string",
+          "const": "too-large"
+        },
+        {
+          "description": "The item fits the bin's maximum, not the room left in it: Windows\nwould destroy the user's oldest recycled items to make room.",
+          "type": "string",
+          "const": "bin-full"
+        },
+        {
+          "description": "The volume's bin deletes at once (`NukeOnDelete`).",
+          "type": "string",
+          "const": "nuke-on-delete"
+        },
+        {
+          "description": "A policy turns the Recycle Bin off (`NoRecycleFiles`).",
+          "type": "string",
+          "const": "no-recycle-files"
+        },
+        {
+          "description": "The shell does not take the item's path (longer than `MAX_PATH`).",
+          "type": "string",
+          "const": "path-refused"
+        },
+        {
+          "description": "A setting the checks need could not be read: refused, never guessed.",
+          "type": "string",
+          "const": "settings-unreadable"
+        },
+        {
+          "description": "The shell would delete or copy the item instead of recycling it.",
+          "type": "string",
+          "const": "would-destroy"
+        }
+      ]
+    },
     "RiskClass": {
       "oneOf": [
         {
@@ -1066,7 +1124,7 @@
           ]
         },
         {
-          "description": "Another process holds the folder (Windows only, safety ADR §5,\namendment of 2026-11-02): a process works inside it, or a file below\nit is open, so the tombstone rename was refused. Nothing moved.",
+          "description": "Another process holds the folder (Windows only, safety ADR §5,\namendment of 2026-11-02): a process works inside it, or a file below\nit is open, so the tombstone rename, or the Recycle Bin's move, was\nrefused. Nothing moved.",
           "type": "object",
           "properties": {
             "reason": {
@@ -1243,6 +1301,23 @@
           },
           "required": [
             "reason"
+          ]
+        },
+        {
+          "description": "The Recycle Bin refuses the item, for `cause` (Windows only, safety\nADR §5, the Recycle Bin on Windows, planned 2026-11-04): nothing\nmoved. `--permanent` removes it instead.",
+          "type": "object",
+          "properties": {
+            "cause": {
+              "$ref": "#/$defs/RecycleBinCause"
+            },
+            "reason": {
+              "type": "string",
+              "const": "recycle-bin-refuses"
+            }
+          },
+          "required": [
+            "reason",
+            "cause"
           ]
         },
         {

@@ -216,7 +216,7 @@ extension ReviewModel {
         let stage: Stage
         if let report {
             stage = .result(CleanResult.make(report: report, confirmation: confirmation, volumes: volumes))
-            let gone = report.items.filter { $0.outcome == .deleted || $0.outcome == .trashed }
+            let gone = report.items.filter { [CleanReport.Outcome.deleted, .trashed, .removedNotRecycled].contains($0.outcome) }
             var identities = Set(gone.map { Identity(path: $0.path, dev: $0.dev, ino: $0.ino) })
             // A finding inside a picked folder went to the Trash with it.
             let folders = gone.filter { $0.class == .userData }.map(\.path)

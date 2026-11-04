@@ -201,13 +201,16 @@ fn uid() -> u32 {
 #[test]
 fn a_tmpfs_item_moves_into_its_own_trash_with_its_identity() {
     use ddc_core::platform::trash;
+    use ddc_core::platform::types::TrashDone;
     let Some(top) = common::mount("a_tmpfs_item_moves_into_its_own_trash_with_its_identity", Mount::Tmpfs) else {
         return;
     };
     let (_tree, folder, file, id) = item_on(&top);
     let name = file.file_name().unwrap();
-    trash::would_trash(&folder, name, &file).unwrap();
-    let place = trash::trash_item(&folder, name, &file, id).unwrap().expect("Linux tells the place");
+    trash::admit(&mut trash::Budget, &folder, &[ask(name, &file)]).unwrap();
+    let TrashDone::Moved(Some(place)) = trash::trash_item(&folder, name, &file, id).unwrap() else {
+        panic!("Linux tells the place")
+    };
     assert_eq!(place.trash, top.join(format!(".Trash-{}", uid())));
     let landed = ddc_core::platform::meta::lstat(&place.trash.join("files").join(&place.name)).unwrap();
     assert_eq!(landed.id(), id);
@@ -230,7 +233,10 @@ fn a_root_topped_tmpfs_item_is_refused_and_stays() {
     };
     let (_tree, folder, file, id) = item_on(&dir);
     let name = file.file_name().unwrap();
-    assert!(matches!(trash::would_trash(&folder, name, &file), Err(TrashError::CrossesFilesystem)));
+    assert!(matches!(
+        trash::admit(&mut trash::Budget, &folder, &[ask(name, &file)]),
+        Err(TrashError::CrossesFilesystem)
+    ));
     assert!(matches!(trash::trash_item(&folder, name, &file, id), Err(TrashError::CrossesFilesystem)));
     assert!(file.exists(), "nothing moved");
     assert!(!dir.parent().unwrap().join(format!(".Trash-{}", uid())).exists());
@@ -248,7 +254,10 @@ fn a_btrfs_subvolume_item_is_refused_and_stays() {
     };
     let (_tree, folder, file, id) = item_on(&sub);
     let name = file.file_name().unwrap();
-    assert!(matches!(trash::would_trash(&folder, name, &file), Err(TrashError::CrossesFilesystem)));
+    assert!(matches!(
+        trash::admit(&mut trash::Budget, &folder, &[ask(name, &file)]),
+        Err(TrashError::CrossesFilesystem)
+    ));
     assert!(matches!(trash::trash_item(&folder, name, &file, id), Err(TrashError::CrossesFilesystem)));
     assert!(file.exists(), "nothing moved");
 }
@@ -258,15 +267,23 @@ fn a_btrfs_subvolume_item_is_refused_and_stays() {
 #[test]
 fn an_nfs_item_moves_into_the_exports_trash() {
     use ddc_core::platform::trash;
+    use ddc_core::platform::types::TrashDone;
     let Some(top) = common::mount("an_nfs_item_moves_into_the_exports_trash", Mount::Nfs) else {
         return;
     };
     let (_tree, folder, file, id) = item_on(&top);
     let name = file.file_name().unwrap();
-    trash::would_trash(&folder, name, &file).unwrap();
-    let place = trash::trash_item(&folder, name, &file, id).unwrap().expect("Linux tells the place");
+    trash::admit(&mut trash::Budget, &folder, &[ask(name, &file)]).unwrap();
+    let TrashDone::Moved(Some(place)) = trash::trash_item(&folder, name, &file, id).unwrap() else {
+        panic!("Linux tells the place")
+    };
     assert_eq!(place.trash, top.join(format!(".Trash-{}", uid())));
     let landed = ddc_core::platform::meta::lstat(&place.trash.join("files").join(&place.name)).unwrap();
     assert_eq!(landed.id(), id);
     assert!(!file.exists());
+}
+
+/// One part of a move to the Trash, for `trash::admit`.
+fn ask<'a>(name: &'a std::ffi::OsStr, path: &'a std::path::Path) -> ddc_core::platform::types::TrashAsk<'a> {
+    ddc_core::platform::types::TrashAsk { name, path, bytes: 0, is_dir: false }
 }

@@ -14,8 +14,8 @@
 //!
 //! No usable trash, or a rename that would cross a filesystem (`EXDEV`),
 //! is [`TrashError::CrossesFilesystem`]: nothing moves, and the item is
-//! skipped. The dry run asks [`would_trash`], the same choice with nothing
-//! made.
+//! skipped. The dry run and the clean ask [`admit`] first, the same choice
+//! with nothing made.
 
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Write as _};
@@ -28,7 +28,7 @@ use rustix::io::Errno;
 
 use super::bulk;
 use super::fsops::DirFd;
-use crate::platform::types::{TrashError, TrashPlace};
+use crate::platform::types::{TrashAsk, TrashDone, TrashError, TrashPlace};
 
 /// Linux's longest name, in bytes.
 const NAME_MAX: usize = 255;
@@ -39,13 +39,19 @@ const TRIES: u32 = 1000;
 /// Moves `name`, in the verified folder `parent` (at `path`), to the Trash
 /// of its own mount, and tells where it went. `id` is the identity the
 /// guard checked; the item must still have it where it lands.
-pub fn trash_item(parent: &DirFd, name: &OsStr, path: &Path, id: (u64, u64)) -> Result<Option<TrashPlace>, TrashError> {
-    move_into(parent.fd(), name, path, id, &home_trash()?).map(Some)
+pub fn trash_item(parent: &DirFd, name: &OsStr, path: &Path, id: (u64, u64)) -> Result<TrashDone, TrashError> {
+    move_into(parent.fd(), name, path, id, &home_trash()?).map(|place| TrashDone::Moved(Some(place)))
 }
 
-/// The dry run's answer: the same choice of a trash folder as
-/// [`trash_item`], with nothing made.
-pub fn would_trash(parent: &DirFd, _name: &OsStr, _path: &Path) -> Result<(), TrashError> {
+/// What one clean or one dry run keeps between its asks: nothing, since a
+/// freedesktop trash never refuses for room.
+#[derive(Debug, Default)]
+pub struct Budget;
+
+/// The check before a move, and the dry run's answer: the same choice of a
+/// trash folder as [`trash_item`], with nothing made. Every part of one ask
+/// shares `parent`, so it is chosen once.
+pub fn admit(_budget: &mut Budget, parent: &DirFd, _asks: &[TrashAsk<'_>]) -> Result<(), TrashError> {
     select(parent.fd(), &home_trash()?, false).map(|_| ())
 }
 
