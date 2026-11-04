@@ -33,7 +33,8 @@ public struct SpaceReport: Decodable, Sendable, Equatable {
         public enum Source: String, Codable, Sendable, CaseIterable {
             /// The scan read the free space, at the report's `generated_at`.
             case scanned = "scan"
-            /// A `clean --items` edit read it again, at the volume's `read_at`.
+            /// A clean's edit (`ddc clean`, `ddc clean --items`) read it again,
+            /// at the volume's `read_at`.
             case cleaned = "clean"
         }
 

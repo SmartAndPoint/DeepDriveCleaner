@@ -83,7 +83,7 @@
           "const": "scan"
         },
         {
-          "description": "A `clean --items` edit read it again, at the volume's `read_at`.",
+          "description": "A clean's edit (`ddc clean`, `ddc clean --items`) read it again, at\nthe volume's `read_at`.",
           "type": "string",
           "const": "clean"
         }

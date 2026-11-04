@@ -72,7 +72,8 @@ pub struct Baseline {
 pub enum BaselineSource {
     /// The scan read the free space, at the report's `generated_at`.
     Scan,
-    /// A `clean --items` edit read it again, at the volume's `read_at`.
+    /// A clean's edit (`ddc clean`, `ddc clean --items`) read it again, at
+    /// the volume's `read_at`.
     Clean,
 }
 

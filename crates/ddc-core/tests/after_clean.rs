@@ -14,7 +14,7 @@ use common::{OLD, TreeBuilder};
 use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
 use ddc_core::exec::report::{CLEAN_SCHEMA_VERSION, CleanItem, CleanReport};
-use ddc_core::exec::{Outcome, SkipReason, VolumeSpace};
+use ddc_core::exec::{ExecReport, ItemReport, Outcome, SkipReason, VolumeSpace};
 use ddc_core::model::{Finding, FolderEntry, ScanReport};
 use ddc_core::plan::ActionKind;
 use ddc_core::report::after_clean::{self, Measure, Remeasured};
@@ -507,6 +507,57 @@ fn lines_under_a_removed_path_leave_and_the_volumes_take_the_cleans_free_space()
     // volume read again says when; a scan's volumes carry no time of their own.
     assert_eq!(before.volumes[0].read_at, None);
     assert_eq!(after.volumes[0].read_at.as_deref(), Some("2026-11-03T10:00:00Z"));
+}
+
+/// Story "Keep the previous scan report, and say who wrote each": a
+/// terminal `ddc clean` edits its re-check by its run as a clean report of
+/// the same items does. Its report is the re-check, so an item it did not
+/// touch stays as it is.
+#[test]
+fn a_terminal_cleans_run_edits_as_its_clean_report_does() {
+    if common::unsupported("a_terminal_cleans_run_edits_as_its_clean_report_does") {
+        return;
+    }
+    let home = Home::new();
+    home.t.file("q/__pycache__/m.pyc", 10_000);
+    home.t.file("p/__pycache__/n.pyc", 3_000);
+    home.t.file("r/__pycache__/o.pyc", 2_000);
+    let before = home.scan();
+    let (q, p, r) = (home.t.path("q/__pycache__"), home.t.path("p/__pycache__"), home.t.path("r/__pycache__"));
+    let outcomes =
+        [(&q, Outcome::Deleted), (&p, Outcome::Skipped(SkipReason::ChangedSinceScan)), (&r, Outcome::NotRun)];
+    let volumes =
+        vec![VolumeSpace { mount_point: before.volumes[0].mount_point.clone(), free_before: 1, free_after: 99 }];
+    let run = ExecReport {
+        items: outcomes
+            .iter()
+            .map(|(path, outcome)| ItemReport {
+                path: path.to_path_buf(),
+                rule: "python.pycache".to_owned(),
+                class: RiskClass::Safe,
+                action: "delete",
+                bytes: 1,
+                outcome: outcome.clone(),
+            })
+            .collect(),
+        volumes: volumes.clone(),
+        ..ExecReport::default()
+    };
+    let at = Some("2026-11-04T10:00:00Z");
+    let mut by_run = before.clone();
+    after_clean::edit_run(&mut by_run, &run, &HashMap::new(), &home.opts(), at);
+
+    let mut done = clean(outcomes.iter().map(|(path, o)| item(path, "python.pycache", Some(1), o.clone())).collect());
+    done.volumes = volumes;
+    let mut by_report = before.clone();
+    after_clean::edit(&mut by_report, &done, None, &HashMap::new(), &home.opts(), at);
+    assert_eq!(by_run, by_report);
+
+    assert!(!has(&by_run, &q));
+    assert_eq!(by_run.totals.scanned_bytes, before.totals.scanned_bytes - finding(&before, &q).bytes);
+    assert_eq!((finding(&by_run, &p), finding(&by_run, &r)), (finding(&before, &p), finding(&before, &r)));
+    assert_eq!((by_run.volumes[0].free_bytes, by_run.volumes[0].read_at.as_deref()), (99, at));
+    check_totals(&by_run);
 }
 
 /// Story "Popover: say when used space grew since the last scan": only the
