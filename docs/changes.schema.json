@@ -1,0 +1,658 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChangesReport",
+  "description": "What `ddc changes --json` prints. Its own optional fields are always\nwritten, as null when absent; a row's (`trashed_in`, `moved_from`,\n`harness`, `approximate`) are left out when absent.",
+  "type": "object",
+  "properties": {
+    "baseline": {
+      "description": "`previous-scan.json`, when it decoded.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Side"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "cleaned_since": {
+      "description": "The person's own cleans between the two saves that named a finding of\nthe baseline, from the action journal.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Cleaned"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "compared_roots": {
+      "description": "The roots both reports read: the reports' own when equal, else the\ninner of two nested roots. Empty when not compared.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "current": {
+      "description": "`last-scan.json`, when it decoded.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Side"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "disk": {
+      "description": "In-use space on the home folder's volume. Null when not compared, or\nwhen either report lacks that volume.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Disk"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "groups": {
+      "description": "One entry per Review group with a compared change, biggest growth\nfirst.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Group"
+      }
+    },
+    "home": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Home"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "items": {
+      "description": "Every finding that changed, biggest change first.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Item"
+      }
+    },
+    "reason": {
+      "description": "Why the two reports were not compared; null when they were.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Reason"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "rest": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Rest"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "status": {
+      "$ref": "#/$defs/Status"
+    }
+  },
+  "required": [
+    "schema_version",
+    "status",
+    "compared_roots",
+    "groups",
+    "items"
+  ],
+  "$defs": {
+    "Cleaned": {
+      "type": "object",
+      "properties": {
+        "deleted": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "trashed": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "deleted",
+        "trashed"
+      ]
+    },
+    "Disk": {
+      "type": "object",
+      "properties": {
+        "before_at": {
+          "description": "RFC 3339: when each report read the free space, the volume's\n`read_at`, else the report's `generated_at`.",
+          "type": "string"
+        },
+        "before_in_use": {
+          "description": "Total minus free bytes in the baseline.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "delta": {
+          "description": "`now_in_use - before_in_use`: positive when in-use space grew.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "mount_point": {
+          "type": "string"
+        },
+        "now_at": {
+          "type": "string"
+        },
+        "now_in_use": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "mount_point",
+        "before_in_use",
+        "now_in_use",
+        "delta",
+        "before_at",
+        "now_at"
+      ]
+    },
+    "Group": {
+      "type": "object",
+      "properties": {
+        "by_harness": {
+          "description": "The part in each coding agent's worktrees or data.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HarnessDelta"
+          }
+        },
+        "cleaned": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "delta": {
+          "description": "The net change, the person's cleans and the Trash's intake from them\nleft out.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "gone": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "grew": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "group": {
+          "description": "The Review group's label, as `ddc rules --json` gives it; \"Other\" for\na rule in no group.",
+          "type": "string"
+        },
+        "moved": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "new": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "shrank": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "group",
+        "delta",
+        "new",
+        "grew",
+        "shrank",
+        "gone",
+        "cleaned",
+        "moved",
+        "by_harness"
+      ]
+    },
+    "HarnessDelta": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "delta": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "harness": {
+          "$ref": "#/$defs/OriginHarness"
+        }
+      },
+      "required": [
+        "harness",
+        "delta",
+        "count"
+      ]
+    },
+    "Home": {
+      "description": "The scanned folders as a whole.",
+      "type": "object",
+      "properties": {
+        "compared": {
+          "description": "Both reports read the same folders the same way, so their totals\ncompare.",
+          "type": "boolean"
+        },
+        "delta": {
+          "description": "`totals.scanned_bytes` now minus before; null when not compared.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "elsewhere": {
+          "description": "What `delta` leaves after the compared findings: growth in folders\nthat are no finding, and findings not compared. Null when not\ncompared.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "ignored_delta": {
+          "description": "The change of the ignored findings (types switched off), which the\ngroups leave out.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "reasons": {
+          "description": "Why not, when `compared` is false.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HomeReason"
+          }
+        }
+      },
+      "required": [
+        "compared",
+        "reasons",
+        "ignored_delta"
+      ]
+    },
+    "HomeReason": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "different-home",
+            "different-roots"
+          ]
+        },
+        {
+          "description": "One scan had Full Disk Access and the other not.",
+          "type": "string",
+          "const": "different-access"
+        },
+        {
+          "description": "A report's `skipped` or `inaccessible` list was cut short.",
+          "type": "string",
+          "const": "cut-list"
+        },
+        {
+          "description": "The reports did not read the same folders, `changed` ones apart.",
+          "type": "string",
+          "const": "different-not-read"
+        }
+      ]
+    },
+    "Item": {
+      "description": "One finding that changed.",
+      "type": "object",
+      "properties": {
+        "approximate": {
+          "description": "Either side shares some of its bytes with other files (clones, hard\nlinks): its size is an upper bound.",
+          "type": "boolean"
+        },
+        "before": {
+          "description": "Allocated bytes in each report; null on the side without it.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "cleaned": {
+          "description": "The bytes of it the person's cleans removed.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "delta": {
+          "description": "`now - before`, a missing side counting as 0.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "harness": {
+          "description": "The coding agent whose worktree or data it is.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OriginHarness"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignored": {
+          "description": "Ignored in the current report (or the baseline, when gone).",
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/ItemKind"
+        },
+        "moved_from": {
+          "description": "For a `moved` row: the path in the baseline.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "now": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "path": {
+          "type": "string"
+        },
+        "rule": {
+          "type": "string"
+        },
+        "trashed_in": {
+          "description": "For the Trash: the growth that is the person's trashed items.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "path",
+        "rule",
+        "kind",
+        "delta",
+        "cleaned",
+        "ignored"
+      ]
+    },
+    "ItemKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "new",
+            "grew",
+            "shrank",
+            "gone"
+          ]
+        },
+        {
+          "description": "Gone or shrunk by the person's own cleans, wholly.",
+          "type": "string",
+          "const": "cleaned"
+        },
+        {
+          "description": "Gone at one path and new at another with the same identity and rule.",
+          "type": "string",
+          "const": "moved"
+        },
+        {
+          "description": "One report did not read where it lies, or lacked its rule.",
+          "type": "string",
+          "const": "not-compared"
+        }
+      ]
+    },
+    "NotRead": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/NotReadKind"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "kind"
+      ]
+    },
+    "NotReadKind": {
+      "description": "Why a folder was not read, which picks its label and action.",
+      "oneOf": [
+        {
+          "description": "A cloud folder, never read.",
+          "type": "string",
+          "const": "cloud"
+        },
+        {
+          "description": "A folder the person skips (`skips` in `settings.json`, `--skip`).",
+          "type": "string",
+          "const": "skip"
+        },
+        {
+          "description": "A folder macOS asks before reading, left out of a scan without Full\nDisk Access.",
+          "type": "string",
+          "const": "prompting"
+        },
+        {
+          "description": "A folder the system refused to list.",
+          "type": "string",
+          "const": "refused"
+        },
+        {
+          "description": "A folder whose files are in the cloud only.",
+          "type": "string",
+          "const": "evicted"
+        },
+        {
+          "description": "Another disk mounted inside a root.",
+          "type": "string",
+          "const": "other-disk"
+        },
+        {
+          "description": "A file system snapshot (Linux).",
+          "type": "string",
+          "const": "snapshot"
+        },
+        {
+          "description": "A folder that changed while the walk listed it.",
+          "type": "string",
+          "const": "changed"
+        }
+      ]
+    },
+    "OriginHarness": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "opencode",
+            "cursor"
+          ]
+        },
+        {
+          "description": "A git worktree, whoever made it.",
+          "type": "string",
+          "const": "git"
+        }
+      ]
+    },
+    "Reason": {
+      "description": "Why two reports were not compared. When several hold, the first in this\norder is given.",
+      "oneOf": [
+        {
+          "description": "No `last-scan.json`.",
+          "type": "string",
+          "const": "no-report"
+        },
+        {
+          "description": "No `previous-scan.json`.",
+          "type": "string",
+          "const": "no-previous"
+        },
+        {
+          "description": "A report that does not decode with this version's types.",
+          "type": "string",
+          "const": "other-schema"
+        },
+        {
+          "description": "A report without `written_at` or `rules_in_force`: saved before\nversion 0.31.",
+          "type": "string",
+          "const": "predates-fields"
+        },
+        {
+          "description": "A report of a cancelled scan.",
+          "type": "string",
+          "const": "cancelled"
+        },
+        {
+          "description": "No root of one report lies at or inside a root of the other.",
+          "type": "string",
+          "const": "no-shared-root"
+        },
+        {
+          "description": "`last-scan.json` does not name `previous-scan.json` as its pair.",
+          "type": "string",
+          "const": "out-of-step"
+        }
+      ]
+    },
+    "Rest": {
+      "description": "What the disk's change leaves after the scanned folders.",
+      "type": "object",
+      "properties": {
+        "delta": {
+          "description": "The disk's `delta` minus the home's `delta` (or, when the home does\nnot compare, minus the compared findings' change). Null without a\ndisk.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "not_read": {
+          "description": "What the current report did not read.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NotRead"
+          }
+        }
+      },
+      "required": [
+        "not_read"
+      ]
+    },
+    "Side": {
+      "description": "One report, as the output names it.",
+      "type": "object",
+      "properties": {
+        "generated_at": {
+          "type": "string"
+        },
+        "written_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "written_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WrittenBy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "generated_at"
+      ]
+    },
+    "Status": {
+      "type": "string",
+      "enum": [
+        "compared",
+        "not-compared"
+      ]
+    },
+    "WrittenBy": {
+      "description": "Which save wrote a report (ADR \"Menu bar app: Swift shell over the ddc\nCLI\", §6 item 14). `scan`, `background` and `clean-recheck` keep the\nreport they replace in `previous-scan.json` when it is whole; the others\nleave that file as it is. A new value bumps `SCHEMA_VERSION`.",
+      "oneOf": [
+        {
+          "description": "`ddc scan`.",
+          "type": "string",
+          "const": "scan"
+        },
+        {
+          "description": "`ddc scan --background`, the scheduled scan.",
+          "type": "string",
+          "const": "background"
+        },
+        {
+          "description": "A terminal `ddc clean`'s re-check, saved before anything is removed.",
+          "type": "string",
+          "const": "clean-recheck"
+        },
+        {
+          "description": "A terminal `ddc clean`'s re-check, edited by what the clean did.",
+          "type": "string",
+          "const": "clean"
+        },
+        {
+          "description": "`ddc clean --items`, edited by what the clean did.",
+          "type": "string",
+          "const": "clean-items"
+        },
+        {
+          "description": "`ddc disk free`, after a tool cleaned the Homebrew cache.",
+          "type": "string",
+          "const": "disk-free"
+        }
+      ]
+    }
+  }
+}

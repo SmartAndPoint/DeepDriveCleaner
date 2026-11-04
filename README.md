@@ -333,6 +333,30 @@ ddc space                                          # one sentence
 ddc space --json | jq '{state, in_use_delta}'
 ```
 
+### `ddc changes`: what grew between the last two scans
+
+```
+ddc changes [--json] [--data-dir DIR]
+```
+
+Says where the growth went between the last two scans, without scanning. It compares `last-scan.json` with `previous-scan.json` and reads the action journal, so your own cleans are not counted as shrinking:
+
+- **the disk**: how much more (or less) is in use on your home folder's disk than at the earlier scan, and when that was;
+- **by group**: one line per Review group that grew ("Build outputs", "node_modules", …), with how many items are new and how many lie in coding agents' worktrees;
+- **elsewhere in your home folder**: growth in folders that are no finding;
+- **not read, or outside your home folder**: what is left of the disk's growth, with the kinds of folders the scan did not read (cloud folders, folders you skip, folders the system refused);
+- **your cleans**: what you cleaned between the two scans, and how much of it is in the Trash;
+- then every finding that changed, biggest first. Changes under 100 MiB beyond the 20 biggest fold into one line; `--json` lists them all.
+
+It compares only what both scans read and only rules both scans had, so a folder read for the first time, or a rule new in this version, never reads as new growth: such a row says "not compared". A target folder deleted and built again at the same path is one row. A scan of one project against a scan of the home compares that project only, and says so.
+
+When the two reports cannot be compared it says why in one sentence and exits 0: no saved scan yet, no earlier one, a report it cannot read, one saved before 0.31, a stopped scan, scans of different folders, or two reports that do not belong together. Growth then shows after the next scan. It takes no lock and writes nothing. `--json` follows [`docs/changes.schema.json`](docs/changes.schema.json). When a report or the journal is there but cannot be read it exits 1 and prints no JSON.
+
+```
+ddc changes                                        # the summary and the rows
+ddc changes --json | jq '.groups[] | {group, delta, new}'
+```
+
 ### `ddc agent`: what coding agents keep
 
 `ddc agent status` shows what coding-agent harnesses keep under your home folder: Claude Code, Codex, Cursor and opencode, with each one's folders and sizes, what of it runs, its live sessions and how many other transcripts it keeps. A Claude Code session is live while the process that wrote its record runs; a Codex thread is open while a process holds its lock file. It reads only the session records' named fields, the names of lock files and transcripts, the process list and sizes: never a transcript's content or a harness database. Its output shows project folders and session names. `--no-sizes` lists the sessions without measuring the folders, in a fraction of a second; `--json` follows [`docs/agents.schema.json`](docs/agents.schema.json). It saves nothing and removes nothing.

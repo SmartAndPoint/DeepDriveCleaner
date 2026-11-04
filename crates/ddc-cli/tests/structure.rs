@@ -2,7 +2,7 @@
 //! model", §8): its sources do not mention it.
 
 use ddc_loadgen::isolate::ClearEnv as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[test]
 fn background_sources_never_reference_cleanup() {
@@ -94,6 +94,41 @@ fn space_reaches_no_cleanup_lock_or_report_write() {
             "write_last_scan",
             "write_last_disk",
             "Notifier",
+        ] {
+            assert!(!code.contains(forbidden), "{} mentions {forbidden}", file.display());
+        }
+    }
+}
+
+/// `ddc changes` (story "ddc changes: what grew between the last two
+/// scans") reads two reports and the journal: it reaches no executor, no
+/// lock and no write. Its output names trashed bytes, so `trash` is allowed.
+#[test]
+fn changes_reaches_no_cleanup_lock_or_report_write() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let core = root.join("ddc-core/src/changes");
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&core).unwrap().map(|e| e.unwrap().path()).collect();
+    files.push(root.join("ddc-cli/src/cmd/changes.rs"));
+    files.sort();
+    assert!(files.len() >= 6, "{files:?}");
+    for file in files {
+        let text = std::fs::read_to_string(&file).unwrap();
+        let code: String = text.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+        for forbidden in [
+            "Executor",
+            "execute(",
+            "build_plan",
+            "plan::",
+            "Consent",
+            "remove_",
+            "Command::new",
+            "try_lock",
+            "write_last_scan",
+            "write_last_disk",
+            "write_atomic",
+            "fs::write",
+            "Notifier",
+            "FileJournal",
         ] {
             assert!(!code.contains(forbidden), "{} mentions {forbidden}", file.display());
         }

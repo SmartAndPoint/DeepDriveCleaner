@@ -34,6 +34,8 @@ pub enum Command {
     Disk(DiskArgs),
     /// Say whether used space on your home folder's disk grew since the last scan (no scan, no cleanup).
     Space(SpaceArgs),
+    /// Say what grew between the last two scans: by group, elsewhere, and your own cleans (no scan, no cleanup).
+    Changes(ChangesArgs),
     /// For coding agents: what their harnesses keep, and their live sessions.
     Agent {
         #[command(subcommand)]
@@ -80,6 +82,7 @@ impl Command {
                 Some(DiskAction::BrewPackages(a)) => a.json,
             },
             Command::Space(args) => args.json,
+            Command::Changes(args) => args.json,
             Command::Agent { action: AgentAction::Status(a) } => a.json,
             Command::Keep { action: KeepAction::Remove(a) } => a.json,
             Command::Schedule { .. } | Command::Notify { .. } | Command::Du(_) | Command::Diag => false,
@@ -351,6 +354,16 @@ fn parse_size(s: &str) -> Result<u64, String> {
     };
     let n: f64 = num.trim().parse().map_err(|_| format!("not a size: {s:?}"))?;
     Ok((n * mult as f64) as u64)
+}
+
+#[derive(Debug, Args)]
+pub struct ChangesArgs {
+    /// Print the result as JSON (schema: docs/changes.schema.json).
+    #[arg(long)]
+    pub json: bool,
+    /// Where the last two scans live (default: ~/Library/Application Support/DeepDriveCleaner).
+    #[arg(long, value_name = "DIR")]
+    pub data_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

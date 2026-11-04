@@ -123,6 +123,34 @@ fn bidi(c: char) -> bool {
     matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{200e}' | '\u{200f}' | '\u{061c}')
 }
 
+/// A volume's name inside a sentence: only a leading "The " is lower-cased.
+pub fn mid_sentence(name: &str) -> String {
+    match name.strip_prefix("The ") {
+        Some(rest) => format!("the {rest}"),
+        None => name.to_owned(),
+    }
+}
+
+/// "just now", "5 min ago", "2 h ago", "3 d ago": `at` seen from `now`, with
+/// the thresholds of the app's `Wording.age`. `None` when either time cannot
+/// be read.
+pub fn age(at: &str, now: &str) -> Option<String> {
+    let secs = |t: &str| -> Option<i128> {
+        let t = humantime::parse_rfc3339_weak(t).ok()?;
+        Some(match t.duration_since(std::time::UNIX_EPOCH) {
+            Ok(d) => i128::from(d.as_secs()),
+            Err(e) => -i128::from(e.duration().as_secs()),
+        })
+    };
+    let minutes = (secs(now)? - secs(at)?) / 60;
+    Some(match minutes {
+        ..1 => "just now".to_owned(),
+        1..60 => format!("{minutes} min ago"),
+        60..2880 => format!("{} h ago", minutes / 60),
+        _ => format!("{} d ago", minutes / 1440),
+    })
+}
+
 /// Colors only on a terminal and without `NO_COLOR`.
 pub fn use_color(is_terminal: bool, no_color: bool) -> bool {
     is_terminal && !no_color
@@ -928,6 +956,27 @@ pub fn refusal(r: Refusal) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `ddc space`, `ddc changes` and `ddc scan` say an age the same way, with
+    /// the app's thresholds.
+    #[test]
+    fn an_age_follows_the_apps_wording_and_a_volume_name_reads_mid_sentence() {
+        const NOW: u64 = 1_793_700_000;
+        let at = |secs: u64| {
+            humantime::format_rfc3339_seconds(std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs)).to_string()
+        };
+        let ago = |secs: u64| age(&at(NOW - secs), &at(NOW));
+        assert_eq!(ago(59).as_deref(), Some("just now"));
+        assert_eq!(ago(60).as_deref(), Some("1 min ago"));
+        assert_eq!(ago(3599).as_deref(), Some("59 min ago"));
+        assert_eq!(ago(3600).as_deref(), Some("1 h ago"));
+        assert_eq!(ago(48 * 3600 - 1).as_deref(), Some("47 h ago"));
+        assert_eq!(ago(48 * 3600).as_deref(), Some("2 d ago"));
+        assert_eq!(age(&at(NOW + 600), &at(NOW)).as_deref(), Some("just now"), "a baseline from the future");
+        assert_eq!(age("yesterday", &at(NOW)), None);
+        assert_eq!(mid_sentence("The startup disk"), "the startup disk");
+        assert_eq!(mid_sentence("Theatre"), "Theatre");
+    }
 
     #[test]
     fn the_clean_command_names_the_paths_the_scan_was_given() {
