@@ -16,6 +16,8 @@ final class ReviewWindowController {
     /// The Whole disk detail; `AppDelegate` sets it at launch, before
     /// anything can ask for the window.
     var wholeDisk: (() -> DiskView)?
+    /// What the "Grew since …" entry opens: Privacy Settings, Settings → Folders.
+    var grewLinks: GrewLinks = .none
 
     init(presence: DockPresenceController) {
         self.presence = presence
@@ -29,7 +31,7 @@ final class ReviewWindowController {
                 guard let self else { return }
                 if let window = self.window { self.presence.closeReturningToPopover(window) }
                 self.returnToPopover?()
-            }, wholeDisk: wholeDisk))
+            }, wholeDisk: wholeDisk, grewLinks: grewLinks))
             let window = NSWindow(contentViewController: hosting)
             window.title = "Review and Clean"
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]

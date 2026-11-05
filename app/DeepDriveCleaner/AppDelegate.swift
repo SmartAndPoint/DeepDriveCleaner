@@ -123,6 +123,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let agents = AgentsModel(runner: runner, log: { AppLog.write($0) })
             diskWindow = DiskWindowController(presence: presence, model: disk, agents: agents, popover: model)
             reviewWindow.wholeDisk = { DiskView(model: disk, agents: agents, popover: model) }
+            reviewWindow.grewLinks = GrewLinks(
+                openPrivacy: Self.privacy.openFullDiskAccess,
+                openFolders: { [weak self] in self?.settings?.show(pane: .folders) }
+            )
             // The store's writes reach the popover at once: ignored findings and the icon follow, with no scan.
             let store = SettingsStore(
                 url: data.settings,

@@ -830,7 +830,7 @@ public final class PopoverModel {
 
     /// What the Review window opens on: the report and the rules this popover shows now.
     public var snapshot: ReviewSnapshot? {
-        loadedReport.map { ReviewSnapshot(report: $0, rules: rules) }
+        loadedReport.map { ReviewSnapshot(report: $0, rules: rules, changes: attributedChanges) }
     }
 
     /// A notification was posted ("Background scan and notifications in the app").

@@ -67,6 +67,17 @@ public final class ReviewModel: ReviewRouting {
     /// The detail shows the Whole disk view (story "Whole disk in the app"):
     /// nothing is listed or cleaned there.
     public var wholeDisk = false
+    /// The detail shows the "Grew since …" entry (story "Popover and Review:
+    /// what grew since the earlier scan"): the same rows, by their change.
+    public var grewSince = false
+    /// Where the entry opened from the popover's link; the view scrolls there once.
+    public var grewSection: GrewSection?
+    /// The entry's own order: Change by default, not the shared `sort`.
+    public internal(set) var grewSort: GrewEntry.Sort = .default
+    /// The entry, built with the rows; nil when the snapshot has no result,
+    /// or nothing grew.
+    public internal(set) var grew: GrewEntry?
+    @ObservationIgnored private var grewChanges: ChangesReport?
     public var entry: ReviewItems.Entry?
     public var query = ""
     /// The rows' order in both views, from `AppPreferences`; `sortBy` changes it.
@@ -217,6 +228,9 @@ public final class ReviewModel: ReviewRouting {
             } else {
                 load(request)
             }
+            if let section = request.grew, grew != nil {
+                showGrew(at: section)
+            }
         }
         guard present() else { return false }
         windowOpen = true
@@ -232,6 +246,7 @@ public final class ReviewModel: ReviewRouting {
         guard let landing = items?.entry(for: group) else { return }
         notice = nil
         wholeDisk = false
+        grewSince = false
         mode = .groups
         entry = landing
     }
@@ -239,8 +254,10 @@ public final class ReviewModel: ReviewRouting {
     private func load(_ request: ReviewRequest) {
         notice = nil
         wholeDisk = false
+        grewSince = false
         guard let snapshot = snapshot() else {
             items = nil
+            grew = nil
             selection = []
             entry = nil
             reportScope = nil
@@ -249,6 +266,7 @@ public final class ReviewModel: ReviewRouting {
         }
         let items = make(snapshot)
         self.items = items
+        rebuildGrew()
         selection = items.defaultSelection(classes: request.classes)
         if let group = request.group {
             mode = .groups
@@ -279,9 +297,41 @@ public final class ReviewModel: ReviewRouting {
         let entry = self.entry
         let items = make(snapshot)
         self.items = items
+        rebuildGrew()
         selection = Set(items.rows.filter { $0.selectable && kept.contains(Identity($0.finding)) }.map(\.id))
         let entries = items.sidebar.flatMap(\.entries)
         self.entry = entry.flatMap { entries.contains($0) ? $0 : nil } ?? entries.first
+        if grew == nil { grewSince = false }
+    }
+
+    /// The "Grew since …" entry, in Groups mode, at `section`.
+    public func showGrew(at section: GrewSection = .top) {
+        guard grew != nil else { return }
+        notice = nil
+        wholeDisk = false
+        mode = .groups
+        grewSince = true
+        grewSection = section
+    }
+
+    /// A group's entry, the Whole disk view or a move in the sidebar leaves it.
+    public func leaveGrew() {
+        grewSince = false
+        grewSection = nil
+    }
+
+    /// A column of the entry's header clicked.
+    public func sortGrew(by column: GrewEntry.Sort.Column) {
+        grewSort = grewSort.clicking(column)
+        rebuildGrew()
+    }
+
+    private func rebuildGrew() {
+        guard let items, let grewChanges else {
+            grew = nil
+            return
+        }
+        grew = GrewEntry.make(items: items, changes: grewChanges, sort: grewSort, home: home, now: clock())
     }
 
     /// A type switched off or a minimum size raised in Settings applies at
@@ -317,6 +367,7 @@ public final class ReviewModel: ReviewRouting {
         let report = snapshot.report
         reportScope = ReportScope.of(report: report, settings: settings, home: home)
         scopeNotice = reportScope.flatMap { Wording.reportScope($0, roots: report.scanRoots, home: home, reportHome: report.home) }
+        grewChanges = snapshot.changes
         var items = ReviewItems.make(report: snapshot.report, settings: settings, rules: snapshot.rules)
         if !protected.isEmpty {
             items = items.locking(Set(items.rows.filter { protected.contains(Identity($0.finding)) }.map(\.id)), as: .protected)

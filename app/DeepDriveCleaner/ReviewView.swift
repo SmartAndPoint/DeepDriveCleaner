@@ -10,6 +10,8 @@ struct ReviewView: View {
     let close: () -> Void
     /// The Whole disk detail, shared with its own window.
     let wholeDisk: () -> DiskView
+    /// What the "Grew since …" entry's not-read section opens.
+    var grewLinks: GrewLinks = .none
     /// While the user types a filter, Return stays in it instead of opening
     /// the Clean sheet.
     @FocusState private var filterFocused: Bool
@@ -46,7 +48,13 @@ struct ReviewView: View {
                 HStack(spacing: 0) {
                     Sidebar(model: model, items: items).frame(width: 330)
                     Divider()
-                    if model.wholeDisk { wholeDisk() } else { content(items) }
+                    if model.wholeDisk {
+                        wholeDisk()
+                    } else if model.grewSince, model.mode == .groups, let grew = model.grew {
+                        GrewView(model: model, items: items, grew: grew.filtered(items: items, query: model.query), links: grewLinks)
+                    } else {
+                        content(items)
+                    }
                 }
             } else {
                 ContentUnavailableView {
@@ -186,6 +194,9 @@ private struct Sidebar: View {
         let sections = items.sidebar
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                if let grew = model.grew {
+                    GrewSidebarEntry(model: model, grew: grew)
+                }
                 ForEach(sections, id: \.riskClass) { section in
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 6) {
@@ -247,6 +258,7 @@ private struct Sidebar: View {
         model.entry = entries[next]
         model.mode = .groups
         model.wholeDisk = false
+        model.leaveGrew()
     }
 }
 
@@ -256,6 +268,7 @@ private struct WholeDiskEntry: View {
 
     var body: some View {
         Button {
+            model.leaveGrew()
             model.wholeDisk = true
         } label: {
             HStack(spacing: 8) {
@@ -279,11 +292,12 @@ private struct SidebarEntry: View {
     let entry: ReviewItems.Entry
 
     var body: some View {
-        let picked = model.entry == entry && !model.wholeDisk
+        let picked = model.entry == entry && !model.wholeDisk && !model.grewSince
         Button {
             model.entry = entry
             model.mode = .groups
             model.wholeDisk = false
+            model.leaveGrew()
         } label: {
             HStack(spacing: 8) {
                 Text(entry.group).font(.system(size: 13, weight: picked ? .semibold : .regular)).lineLimit(1)
@@ -358,6 +372,8 @@ struct ItemRow: View {
     var heading: (title: String, subtitle: String)?
     var shown: String?
     var detail: String?
+    /// The "Grew since …" entry's Change ("new", "+3.1 GiB") in the Changed column.
+    var change: String?
     @State private var confirmProtect = false
     /// Remove Protection…'s confirmation, once its words and git's answer are in.
     @State private var removal: RemoveProtection.Confirmation?
@@ -415,7 +431,7 @@ struct ItemRow: View {
             if RemoveProtectionButton.offered(row), model.removingProtection?.id != row.id {
                 RemoveProtectionButton(model: model, row: row, path: path) { askRemoval() }
             }
-            SortColumns(changed: CleanWording.changed(row.finding.modified, scanned: scanned), tooltip: CleanWording.changedHelp(row)) {
+            SortColumns(changed: change ?? CleanWording.changed(row.finding.modified, scanned: scanned), tooltip: change == nil ? CleanWording.changedHelp(row) : nil) {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(ByteSize.human(row.finding.bytes)).font(.system(size: 13)).monospacedDigit()
                     if let frees = frees {
