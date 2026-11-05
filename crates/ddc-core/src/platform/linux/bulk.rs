@@ -364,28 +364,38 @@ struct Doomed {
 /// since the guard's check, stops the removal with an error, and what lies
 /// beyond stays. So does running out of descriptors, one open per level. A
 /// folder of the user's own is made `u+rwx` on its own descriptor before
-/// anything in it is removed (Go's module cache is read-only).
-pub(super) fn remove_tree(dir: &OwnedFd, name: &OsStr) -> std::io::Result<()> {
+/// anything in it is removed (Go's module cache is read-only). The folder
+/// opened must still be `id`, the `(dev, ino)` the caller checked, before
+/// anything in it is touched. An entry gone meanwhile is already removed.
+pub(super) fn remove_tree(dir: &OwnedFd, name: &OsStr, id: (u64, u64)) -> std::io::Result<()> {
     let me = crate::platform::procs::uid();
     let top = stat(dir, c"", AtFlags::EMPTY_PATH, false)?;
     let parent = (top.dev, mount_id(dir, top.mnt_id));
     let name = rustix::ffi::CString::new(name.as_bytes()).map_err(|_| std::io::ErrorKind::InvalidInput)?;
-    let mut stack = vec![doomed(dir, name, parent, me)?];
+    let mut stack = vec![doomed(dir, name, parent, me, Some(id))?];
     while let Some(last) = stack.last_mut() {
         match last.left.pop() {
             Some((child, kind)) => {
                 let kind = if kind == FileType::Unknown {
-                    FileType::from_raw_mode(
-                        retry(|| rustix::fs::statat(&last.fd, &child, AtFlags::SYMLINK_NOFOLLOW))?.st_mode,
-                    )
+                    match retry(|| rustix::fs::statat(&last.fd, &child, AtFlags::SYMLINK_NOFOLLOW)) {
+                        Ok(st) => FileType::from_raw_mode(st.st_mode),
+                        Err(Errno::NOENT) => continue,
+                        Err(e) => return Err(e.into()),
+                    }
                 } else {
                     kind
                 };
                 if kind == FileType::Directory {
-                    let next = doomed(&last.fd, child, (last.dev, last.mnt_id), me)?;
-                    stack.push(next);
+                    match doomed(&last.fd, child, (last.dev, last.mnt_id), me, None) {
+                        Ok(next) => stack.push(next),
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(e) => return Err(e),
+                    }
                 } else {
-                    retry(|| rustix::fs::unlinkat(&last.fd, &child, AtFlags::empty()))?;
+                    match retry(|| rustix::fs::unlinkat(&last.fd, &child, AtFlags::empty())) {
+                        Ok(()) | Err(Errno::NOENT) => {}
+                        Err(e) => return Err(e.into()),
+                    }
                 }
             }
             None => {
@@ -400,12 +410,13 @@ pub(super) fn remove_tree(dir: &OwnedFd, name: &OsStr) -> std::io::Result<()> {
 }
 
 /// The folder `name` of `parent`, opened for [`remove_tree`] and listed, or
-/// why it must not be entered.
+/// why it must not be entered; `expect`, the `(dev, ino)` it must have.
 fn doomed(
     parent: &OwnedFd,
     name: rustix::ffi::CString,
     (dev, mnt_id): (u64, Option<u64>),
     me: u32,
+    expect: Option<(u64, u64)>,
 ) -> std::io::Result<Doomed> {
     let other = || std::io::Error::other(format!("another filesystem at {}, left in place", name.to_string_lossy()));
     let fd = match openat2(parent, &name) {
@@ -425,12 +436,18 @@ fn doomed(
     if st.dev != dev || st.mount_root == Some(true) || matches!((id, mnt_id), (Some(a), Some(b)) if a != b) {
         return Err(other());
     }
-    // Another user's folder is never changed (safety ADR, amendment of 2026-10-31).
-    if st.uid == me {
-        let mode = retry(|| rustix::fs::fstat(&fd))?.st_mode;
-        if mode & 0o700 != 0o700 {
-            retry(|| rustix::fs::fchmod(&fd, Mode::from_raw_mode((mode & 0o7777) | 0o700)))?;
-        }
+    if let Some(expect) = expect
+        && held(&fd)?.id != expect
+    {
+        return Err(std::io::Error::other(format!("{} changed since the check", name.to_string_lossy())));
+    }
+    // Another user's folder is never changed (safety ADR, amendment of
+    // 2026-10-31). Best effort: where chmod is refused, the unlink says why.
+    if st.uid == me
+        && let Ok(md) = retry(|| rustix::fs::fstat(&fd))
+        && md.st_mode & 0o700 != 0o700
+    {
+        let _ = retry(|| rustix::fs::fchmod(&fd, Mode::from_raw_mode((md.st_mode & 0o7777) | 0o700)));
     }
     let mut left = Vec::new();
     for entry in rustix::fs::Dir::read_from(&fd)? {

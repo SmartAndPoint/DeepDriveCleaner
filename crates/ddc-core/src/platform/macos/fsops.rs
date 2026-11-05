@@ -218,12 +218,14 @@ impl DirFd {
     /// what lies beyond stays. So does running out of descriptors, one open
     /// per level. A folder of the user's own is made `u+rwx` on its own
     /// descriptor before anything in it is removed (Go's module cache is
-    /// read-only). `path` names it in an error alone. Only `exec::delete`
-    /// calls it.
-    pub fn remove_tree(&self, name: &OsStr, _path: &Path) -> io::Result<()> {
+    /// read-only). The folder opened must still be `id`, the `(dev, ino)`
+    /// the guard checked, before anything in it is touched; an entry gone
+    /// meanwhile is already removed. `path` names it in an error alone.
+    /// Only `exec::delete` calls it.
+    pub fn remove_tree(&self, name: &OsStr, _path: &Path, id: (u64, u64)) -> io::Result<()> {
         let me = crate::platform::procs::uid();
         let dev = self.identity()?.0;
-        let mut stack = vec![doomed(self.0, cstring(name.as_bytes())?, dev, me)?];
+        let mut stack = vec![doomed(self.0, cstring(name.as_bytes())?, dev, me, Some(id))?];
         while let Some(last) = stack.last_mut() {
             match last.left.pop() {
                 Some((child, is_dir)) => {
@@ -236,19 +238,28 @@ impl DirFd {
                                 libc::fstatat(last.fd.0, child.as_ptr(), st.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW)
                             } != 0
                             {
-                                return Err(io::Error::last_os_error());
+                                match io::Error::last_os_error() {
+                                    e if e.kind() == io::ErrorKind::NotFound => continue,
+                                    e => return Err(e),
+                                }
                             }
                             // SAFETY: fstatat succeeded.
                             unsafe { st.assume_init() }.st_mode & libc::S_IFMT == libc::S_IFDIR
                         }
                     };
                     if is_dir {
-                        let next = doomed(last.fd.0, child, last.dev, me)?;
-                        stack.push(next);
+                        match doomed(last.fd.0, child, last.dev, me, None) {
+                            Ok(next) => stack.push(next),
+                            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                            Err(e) => return Err(e),
+                        }
                     } else {
                         // SAFETY: open fd, NUL-terminated name.
                         if unsafe { libc::unlinkat(last.fd.0, child.as_ptr(), 0) } != 0 {
-                            return Err(io::Error::last_os_error());
+                            let e = io::Error::last_os_error();
+                            if e.kind() != io::ErrorKind::NotFound {
+                                return Err(e);
+                            }
                         }
                     }
                 }
@@ -293,8 +304,9 @@ struct Doomed {
 }
 
 /// The folder `name` of `parent`, opened for [`DirFd::remove_tree`] and
-/// listed, or why it must not be entered.
-fn doomed(parent: c_int, name: CString, dev: u64, me: u32) -> io::Result<Doomed> {
+/// listed, or why it must not be entered; `expect`, the `(dev, ino)` it
+/// must have.
+fn doomed(parent: c_int, name: CString, dev: u64, me: u32, expect: Option<(u64, u64)>) -> io::Result<Doomed> {
     // SAFETY: open fd, NUL-terminated name.
     let raw = unsafe {
         libc::openat(parent, name.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
@@ -313,12 +325,14 @@ fn doomed(parent: c_int, name: CString, dev: u64, me: u32) -> io::Result<Doomed>
     if st.st_dev as u64 != dev {
         return Err(io::Error::other(format!("another volume at {}, left in place", name.to_string_lossy())));
     }
-    // Another user's folder is never changed (safety ADR, amendment of 2026-10-31).
+    if expect.is_some_and(|id| id != (st.st_dev as u64, st.st_ino)) {
+        return Err(io::Error::other(format!("{} changed since the check", name.to_string_lossy())));
+    }
+    // Another user's folder is never changed (safety ADR, amendment of
+    // 2026-10-31). Best effort: where chmod is refused, the unlink says why.
     if st.st_uid == me && st.st_mode & 0o700 != 0o700 {
         // SAFETY: open fd.
-        if unsafe { libc::fchmod(fd.0, (st.st_mode & 0o7777) | 0o700) } != 0 {
-            return Err(io::Error::last_os_error());
-        }
+        unsafe { libc::fchmod(fd.0, (st.st_mode & 0o7777) | 0o700) };
     }
     Ok(Doomed { left: list(&fd)?, fd, name, dev })
 }
@@ -326,9 +340,10 @@ fn doomed(parent: c_int, name: CString, dev: u64, me: u32) -> io::Result<Doomed>
 /// The names in the open folder `fd`, `.` and `..` left out, each with
 /// whether it is a folder where `d_type` tells.
 fn list(fd: &DirFd) -> io::Result<Vec<(CString, Option<bool>)>> {
-    // `fdopendir` takes the descriptor it is given: a duplicate, closed with it.
+    // `fdopendir` takes the descriptor it is given: a duplicate, closed with
+    // it, and closed on exec as the original is.
     // SAFETY: open fd.
-    let dup = unsafe { libc::dup(fd.0) };
+    let dup = unsafe { libc::fcntl(fd.0, libc::F_DUPFD_CLOEXEC, 0) };
     if dup < 0 {
         return Err(io::Error::last_os_error());
     }

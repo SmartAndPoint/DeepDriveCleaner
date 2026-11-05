@@ -16,9 +16,10 @@ use crate::platform::types::HeldOpen;
 /// units (NTFS, exFAT). A shorter limit (eCryptfs) is found by the retry.
 const NAME_MAX: usize = 255;
 
-/// Removes the verified folder: every folder of the user's own inside is
-/// made writable on its way out, so a read-only tree (Go's module cache)
-/// needs no flag of its own.
+/// Removes the verified folder. A read-only tree (Go's module cache) needs
+/// no flag of its own: on macOS and Linux every folder of the user's own
+/// inside is made writable on its way out, on Windows each folder's
+/// read-only attribute is cleared when the first try fails.
 pub(super) fn remove(v: &Verified, path: &Path) -> Outcome {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or_default();
     let suffix = format!(".ddc-deleting-{stamp}-{}", std::process::id());
@@ -46,7 +47,7 @@ pub(super) fn remove(v: &Verified, path: &Path) -> Outcome {
     // bind mount or a btrfs subvolume made inside since the guard's check
     // (safety ADR §5, amendment of 2026-11-04). A removal that stops keeps
     // its tombstone, never renamed back.
-    match v.parent.remove_tree(&tomb, &tomb_path) {
+    match v.parent.remove_tree(&tomb, &tomb_path, v.id) {
         Ok(()) => Outcome::Deleted,
         Err(e) => Outcome::Failed { error: format!("{e} (left as {})", tomb_path.display()) },
     }

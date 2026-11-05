@@ -222,13 +222,16 @@ impl DirFd {
     /// `path`: std's removal opens each entry relative to its folder's
     /// handle and never follows a link (safety ADR §5, amendment of
     /// 2026-11-04: Windows keeps it). Where it fails, the read-only
-    /// attributes FAT and exFAT honour are cleared and it is tried again.
-    /// Only `exec::delete` calls it.
+    /// attribute is cleared from the folders below, and from the files on
+    /// FAT and exFAT, which honour it, and it is tried again; the first
+    /// error is the one reported. `id` is the guard's, checked by the
+    /// caller's rename. Only `exec::delete` calls it.
     #[allow(clippy::disallowed_methods)] // the one place that deletes directory trees on Windows
-    pub fn remove_tree(&self, _name: &OsStr, path: &Path) -> io::Result<()> {
-        std::fs::remove_dir_all(path).or_else(|_| {
-            clear_read_only(path)?;
-            std::fs::remove_dir_all(path)
+    pub fn remove_tree(&self, _name: &OsStr, path: &Path, _id: (u64, u64)) -> io::Result<()> {
+        std::fs::remove_dir_all(path).or_else(|first| {
+            folders_writable(path);
+            let _ = clear_read_only(path);
+            std::fs::remove_dir_all(path).map_err(|_| first)
         })
     }
 
@@ -454,6 +457,28 @@ pub fn clear_read_only(root: &Path) -> io::Result<()> {
         return Ok(());
     }
     clear_read_only_below(root)
+}
+
+/// Clears the read-only attribute of every folder below `root`, never
+/// through a link (Go marks its module cache's folders so).
+fn folders_writable(root: &Path) {
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(md) = std::fs::symlink_metadata(&dir) else { continue };
+        if !md.is_dir() {
+            continue;
+        }
+        let mut perms = md.permissions();
+        if perms.readonly() {
+            perms.set_readonly(false);
+            let _ = std::fs::set_permissions(&dir, perms);
+        }
+        if let Ok(rd) = crate::stats::read_dir(&dir) {
+            stack.extend(
+                rd.filter_map(Result::ok).filter(|e| e.file_type().is_ok_and(|t| t.is_dir())).map(|e| e.path()),
+            );
+        }
+    }
 }
 
 /// FAT and exFAT, as `GetVolumeInformationW` names them (lowercased).
