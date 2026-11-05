@@ -129,6 +129,16 @@ struct ContractTests {
         #expect(String(body.1).matches(of: /"([^"]+)"/).map { String($0.1) } == NotReadable.promptingAreas)
     }
 
+    @Test("the Full Disk Access probes are the core's, in its order")
+    func fullDiskAccessProbes() throws {
+        let source = try rustSource("crates/ddc-core/src/report/mod.rs")
+        let body = try #require(source.firstMatch(of: /pub const FULL_DISK_ACCESS_PROBES: &\[\(&str, ProbeKind\)\] =\s*&\[([^;]*)\];/))
+        let core = String(body.1).matches(of: /\("([^"]+)", ProbeKind::(File|Folder)\)/).map { "\($0.1) \($0.2)" }
+        let app = FullDiskAccessProbe.homeRelative.map { "\($0.path) \($0.kind == .file ? "File" : "Folder")" }
+        #expect(core == app)
+        #expect(core.count == 2)
+    }
+
     @Test("every Types row has help text, and the groups are the core's")
     func typesHelp() throws {
         let rules = try Fixture.rules()

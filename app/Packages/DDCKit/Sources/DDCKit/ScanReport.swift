@@ -27,8 +27,9 @@ public struct ScanReport: Decodable, Sendable, Equatable {
     public let home: String
     public let scanRoots: [String]
     /// True unless a permission system withheld protected data. On macOS,
-    /// whether the CLI that wrote the report could read TCC.db: a fact about
-    /// that scan, not about the app now (the app probes for itself).
+    /// whether the CLI that wrote the report could read what only Full Disk
+    /// Access opens: a fact about that scan, not about the app now (the app
+    /// probes for itself).
     public let fullDiskAccess: Bool
     public let volumes: [Volume]
     public let minAgeDays: UInt64
