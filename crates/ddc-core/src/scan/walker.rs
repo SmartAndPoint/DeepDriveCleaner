@@ -317,7 +317,9 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             Pre::Region(tag) => {
                 lists = sh.visitor.lists_entries(&ctx, tag);
                 let wants = Wants { private: false, times: false };
-                owner = Some(sh.new_owner(tag, OwnerKind::Region, &dir, expect, parent, wants).on_subvolume(subvol));
+                let region = sh.new_owner(tag, OwnerKind::Region, &dir, expect, parent, wants).on_subvolume(subvol);
+                region.locked.fetch_add(u64::from(locked_dir), Relaxed);
+                owner = Some(region);
                 region_here = true;
             }
         }
@@ -376,7 +378,9 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         {
             // Rules keep working inside, as under a `Pre::Region`.
             let wants = Wants { private: false, times: false };
-            owner = Some(sh.new_owner(tag, OwnerKind::Region, &dir, expect, parent, wants).on_subvolume(subvol));
+            let region = sh.new_owner(tag, OwnerKind::Region, &dir, expect, parent, wants).on_subvolume(subvol);
+            region.locked.fetch_add(u64::from(locked_dir), Relaxed);
+            owner = Some(region);
         }
     }
 

@@ -192,7 +192,7 @@ public enum CleanWording {
     /// An immutable or append-only flag on the item or inside it, and what
     /// clears it: ddc never does (as `prompt.rs` says it on macOS).
     static let lockedFlag =
-        "It, or a file in it, is locked or append-only · chflags nouchg or nouappnd clears it, sudo chflags noschg a system flag"
+        "It, or a file in it, is locked or append-only · chflags nouchg or nouappnd clears it, sudo chflags noschg or nosappnd a system flag"
 }
 
 extension CleanWording {
