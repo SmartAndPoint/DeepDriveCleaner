@@ -792,6 +792,18 @@ struct ContractTests {
         #expect((scan["properties"] as? [String: Any])?["written_at"] != nil)
     }
 
+    @Test("the Grew since entry reaches no sheet: no clean starts from it, its rows tick as the window's do")
+    func grewEntryReachesNoSheet() throws {
+        let sources = try appSources()
+        let view = try #require(sources["ReviewGrewView.swift"])
+        for word in ["openSheet", "cleanSelected", "cleanConfirmedItems", "confirm: true", "SelectAllRow(", "PickedRow("] {
+            #expect(!view.contains(word), "\(word)")
+        }
+        let entry = try #require(sources["GrewEntry.swift"])
+        #expect(!entry.contains("openSheet") && !entry.contains("selection"), "a value: it ticks nothing")
+        #expect(Set(sources.filter { $0.value.contains(/openSheet\(/) }.map(\.key)) == ["ReviewView.swift", "ReviewGroupsView.swift", "ReviewModel.swift"])
+    }
+
     @Test("only the popover model runs ddc changes, from loadReport, and the band's link goes through it")
     func changesCallers() throws {
         let sources = try appSources()

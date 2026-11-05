@@ -48,9 +48,13 @@ public protocol ReviewRouting: AnyObject {
 public struct ReviewSnapshot: Sendable, Equatable {
     public let report: ScanReport
     public let rules: RuleList?
+    /// What grew since the report before it, while the result belongs to
+    /// `report` (`PopoverModel.attributedChanges`): the "Grew since …" entry.
+    public let changes: ChangesReport?
 
-    public init(report: ScanReport, rules: RuleList?) {
+    public init(report: ScanReport, rules: RuleList?, changes: ChangesReport? = nil) {
         self.report = report
         self.rules = rules
+        self.changes = changes
     }
 }
