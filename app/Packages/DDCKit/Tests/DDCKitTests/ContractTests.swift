@@ -792,6 +792,19 @@ struct ContractTests {
         #expect((scan["properties"] as? [String: Any])?["written_at"] != nil)
     }
 
+    @Test("both launch modes await the update decision before their tick; a normal launch ticks only when it is due")
+    func launchTickWaits() throws {
+        let app = try #require(try appSources()["AppDelegate.swift"])
+        let scheduled = try #require(app.firstMatch(of: /case \.startScheduledWork:[\s\S]*?case \.launchTick:/))
+        let waits = try #require(scheduled.output.range(of: "await updateCheck?.value"))
+        let ticks = try #require(scheduled.output.range(of: "await work?.tick()"))
+        #expect(waits.lowerBound < ticks.lowerBound)
+        let launch = try #require(app.firstMatch(of: /case \.launchTick:[\s\S]*?case \.scanIfDue:/))
+        let guarded = try #require(launch.output.range(of: "guard await updateCheck?.value == true else { return }"))
+        let tick = try #require(launch.output.range(of: "await work?.tick()"))
+        #expect(guarded.lowerBound < tick.lowerBound)
+    }
+
     @Test("the Grew since entry reaches no sheet: no clean starts from it, its rows tick as the window's do")
     func grewEntryReachesNoSheet() throws {
         let sources = try appSources()

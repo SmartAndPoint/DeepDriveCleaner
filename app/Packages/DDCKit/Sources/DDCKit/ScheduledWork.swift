@@ -69,7 +69,8 @@ public final class ScheduledWork {
             lastScheduled: preferences.lastScheduledScan,
             reminder: preferences.reminderScan,
             paused: preferences.scansPaused,
-            legacyAgentFound: legacyAgentFound()
+            legacyAgentFound: legacyAgentFound(),
+            updateScan: preferences.updateScanDue
         )
     }
 
@@ -80,6 +81,37 @@ public final class ScheduledWork {
     /// The popover footer's and the Schedule pane's seam.
     public func next() -> NextScan {
         ScanDue.next(inputs, now: clock(), calendar: calendar)
+    }
+
+    // MARK: - The launch ("Scan after an update when the saved report cannot be read")
+
+    /// At every launch, before its tick: records `build`, and makes the
+    /// scheduled scan due when this is a new build and the saved report at
+    /// `lastScan` is of an older schema. Returns whether that scan is due
+    /// now (also one a `.busy` or `.failed` tick left), for the launch's tick.
+    public func launched(build: String, lastScan: URL) async -> Bool {
+        let previous = preferences.lastLaunchedBuild
+        preferences.setLastLaunchedBuild(build)
+        let changed = previous != build
+        // A flag a busy or failed tick left is checked again too: a terminal
+        // `ddc scan` may have written a readable report while the app was closed.
+        guard changed || preferences.updateScanDue else { return false }
+        let report = await UpdateScan.savedReport(at: lastScan)
+        if preferences.updateScanDue, case .older = report {
+            // Still the old report: the flag stands.
+        } else if preferences.updateScanDue {
+            preferences.setUpdateScanDue(false)
+            log("launch: the saved report is \(report) now; no update scan is due")
+        }
+        // A Scan Now that ended while the header was read has loaded a readable report.
+        if changed, popover.loadedReport == nil,
+           UpdateScan.needed(buildChanged: true, report: report, scheduleEnabled: preferences.schedule.enabled, paused: preferences.scansPaused, legacyAgentFound: legacyAgentFound()) {
+            preferences.setUpdateScanDue(true)
+            log("launch: build \(previous ?? "none") → \(build), saved report \(report): update scan due")
+        } else if changed {
+            log("launch: build \(previous ?? "none") → \(build), saved report \(report)")
+        }
+        return preferences.updateScanDue && due() == .update
     }
 
     // MARK: - A tick
@@ -108,7 +140,10 @@ public final class ScheduledWork {
         } else if let due = due() {
             log("tick: \(due) scan due")
             await popover.start()
-            switch await popover.scheduledScan() {
+            // A person's Scan Now before this tick may have made it not due.
+            switch await popover.scheduledScan(stillDue: { [weak self] in self?.due() != nil }) {
+            case .notDue:
+                log("tick: nothing due after the report loaded")
             case .busy:
                 log("tick: a clean holds the lock; the scan stays due")
                 result = .busy
@@ -118,6 +153,7 @@ public final class ScheduledWork {
             case .scanned(let decision):
                 result = .scanned
                 preferences.setLastScheduledScan(now)
+                preferences.setUpdateScanDue(false)
                 // Only a reminder that was due is used up; a catch-up slot before it keeps it.
                 if let reminder = preferences.reminderScan, reminder <= now { preferences.setReminderScan(nil) }
                 // A newer decision replaces a pending one, a quiet one too.

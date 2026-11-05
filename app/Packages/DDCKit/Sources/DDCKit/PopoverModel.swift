@@ -67,6 +67,8 @@ public final class PopoverModel {
         public let started: Date
         /// Files read so far, from the CLI's `walk` events; nil before the first.
         public var files: UInt64?
+        /// The scheduled scan made due by an update (`UpdateScanDue`).
+        public var afterUpdate = false
     }
 
     public private(set) var report: ReportState = .loading
@@ -220,6 +222,12 @@ public final class PopoverModel {
             if let appVersion, report.ddcVersion != appVersion { parts.append("by ddc \(report.ddcVersion)") }
             return parts.joined(separator: " · ")
         }
+    }
+
+    /// The scanning state's title: "Scanning after the update…" for the
+    /// scan an update made due, else "Scanning your home folder…".
+    public var scanningTitle: String {
+        scan?.afterUpdate == true ? "Scanning after the update…" : "Scanning \(scope.dropFirst("in ".count))…"
     }
 
     /// "in your home folder".
@@ -466,6 +474,8 @@ public final class PopoverModel {
         switch decoded {
         case .success(let read):
             report = .loaded(read)
+            // A readable report, whoever wrote it: no scan after the update is left due.
+            if preferences.updateScanDue { preferences.setUpdateScanDue(false) }
         // Written by an older ddc, before an update: the next scan replaces it.
         case .failure(ScanReport.ReadError.otherSchema(let version)) where version < ScanReport.schemaVersion:
             report = .none
@@ -622,6 +632,8 @@ public final class PopoverModel {
     public enum ScheduledScan: Sendable, Equatable {
         /// The scan ran; the report on disk is shown.
         case scanned(NotifyDecision)
+        /// A scan the person started ended first and left nothing due.
+        case notDue
         /// A clean held the lock: the scan stays due for the next tick.
         case busy
         case failed(String)
@@ -631,9 +643,10 @@ public final class PopoverModel {
     /// waits for a scan the user started and never joins it: `.scan` would
     /// hand it that scan's output, which carries no decision. The popover
     /// shows it as scanning, with the elapsed time only.
-    public func scheduledScan() async -> ScheduledScan {
+    public func scheduledScan(stillDue: @MainActor () -> Bool = { true }) async -> ScheduledScan {
         if let scanTask { await scanTask.value }
         if let scheduledTask { _ = await scheduledTask.value }
+        guard stillDue() else { return .notDue }
         guard let runner else { return .failed("The app's embedded CLI is missing.") }
         let task = Task { await runScheduledScan(runner) }
         scheduledTask = task
@@ -646,7 +659,8 @@ public final class PopoverModel {
         // As a user's scan: a failure's warning lasts until the next scan starts.
         clearNotice("scan")
         clearNotice("busy")
-        scan = ScanProgress(started: clock(), files: nil)
+        // Read now: the report it saves clears the flag before the scan ends.
+        scan = ScanProgress(started: clock(), files: nil, afterUpdate: preferences.updateScanDue)
         defer { scan = nil }
         log("scheduled scan started")
         // Never `--threshold`: settings.json's threshold wins.

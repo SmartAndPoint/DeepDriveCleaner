@@ -248,7 +248,7 @@ private struct ScanningView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Scanning \(model.scope.dropFirst("in ".count))…").font(.system(size: 20, weight: .semibold))
+            Text(model.scanningTitle).font(.system(size: 20, weight: .semibold))
             ProgressView().progressViewStyle(.linear)
             if let scan = model.scan {
                 TimelineView(.periodic(from: scan.started, by: 1)) { context in
