@@ -56,6 +56,12 @@ pub struct ChangesReport {
     pub groups: Vec<Group>,
     /// Every finding that changed, biggest change first.
     pub items: Vec<Item>,
+    /// In-use space on the home folder's volume grew by at least
+    /// max(20 GiB, 5 % of its total) between the two reports: the rule of
+    /// `ddc space`'s `grew` (ADR "Menu bar app: Swift shell over the ddc
+    /// CLI" §6 item 13). False when not compared or without `disk`.
+    #[serde(default)]
+    pub grew: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -277,6 +283,7 @@ impl ChangesReport {
             cleaned_since: None,
             groups: Vec::new(),
             items: Vec::new(),
+            grew: false,
         }
     }
 }

@@ -324,6 +324,12 @@ private struct GrowthBandView: View {
                     .disabled(!model.canScan)
                     .font(.system(size: 13))
             }
+            if let link = band.link {
+                // Opens the Review window; it never ticks or cleans.
+                Button(link.title) { model.seeWhatGrew(link.section) }
+                    .buttonStyle(.link)
+                    .font(.system(size: 12))
+            }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)

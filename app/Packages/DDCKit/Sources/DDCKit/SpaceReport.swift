@@ -144,12 +144,36 @@ public struct GrowthBand: Sendable, Equatable {
     /// Low disk: drawn in the warning ink.
     public let warning: Bool
     public let scanButton: ScanButton
+    /// The attributed band's way to the Review window: never a clean or a tick.
+    public let link: Link?
 
-    public init(text: String, detail: String?, warning: Bool, scanButton: ScanButton) {
+    public enum Link: Sendable, Equatable {
+        /// "See What Grew": the entry's rows.
+        case seeWhatGrew
+        /// "Where Did It Go?": the entry's section of what was not read.
+        case whereDidItGo
+
+        public var title: String {
+            switch self {
+            case .seeWhatGrew: "See What Grew"
+            case .whereDidItGo: "Where Did It Go?"
+            }
+        }
+
+        public var section: GrewSection {
+            switch self {
+            case .seeWhatGrew: .top
+            case .whereDidItGo: .notRead
+            }
+        }
+    }
+
+    public init(text: String, detail: String?, warning: Bool, scanButton: ScanButton, link: Link? = nil) {
         self.text = text
         self.detail = detail
         self.warning = warning
         self.scanButton = scanButton
+        self.link = link
     }
 
     /// What VoiceOver reads for `text` and `detail`: the arrow is drawn, not said.
@@ -194,4 +218,99 @@ public struct GrowthBand: Sendable, Equatable {
         let age = Wording.date(rfc3339: baseline.at).map { ", \(Wording.age(of: $0, now: now))" } ?? ""
         return "↑ \(ByteSize.human(UInt64(delta))) more in use\(on) than \(since)\(age)."
     }
+}
+
+// MARK: - The attributed band ("Popover and Review: what grew since the earlier scan")
+
+extension GrowthBand {
+    /// After a scan, where the in-use growth between the last two scans went,
+    /// from a `changes` result that belongs to the loaded report. Nil unless
+    /// the CLI says it `grew`: the threshold is the CLI's. It never shows a
+    /// shrink, has no Scan Now, and keeps its text while scans are paused.
+    /// `roots` are the loaded report's scan roots.
+    public static func attributed(
+        _ changes: ChangesReport,
+        roots: [String],
+        home: String,
+        now: Date,
+        calendar: Calendar = .current,
+        locale: Locale = .autoupdatingCurrent
+    ) -> GrowthBand? {
+        guard changes.grew, changes.status == .compared, let disk = changes.disk, disk.delta > 0, let baseline = changes.baseline else {
+            return nil
+        }
+        let when = (baseline.writtenAt ?? baseline.generatedAt).nonEmpty.flatMap(Wording.date(rfc3339:))
+            .map { Wording.since($0, now: now, calendar: calendar, locale: locale) }
+        let amount = ByteSize.human(UInt64(disk.delta))
+        let text: String
+        if baseline.byClean {
+            // "at 15:20" today, "yesterday 10:04" before.
+            let at = when.map { $0.hasPrefix("today ") ? " at " + $0.dropFirst("today ".count) : " \($0)" } ?? ""
+            text = "↑ \(amount) more in use than after your clean" + at
+        } else {
+            text = "↑ \(amount) more in use" + (when.map { " since \($0)" } ?? " since the earlier scan")
+        }
+        let (line, link) = where_(changes, delta: disk.delta)
+        var clauses = [line]
+        let positive = positiveGroups(changes)
+        if let cleaned = changes.cleanedSince?.total, cleaned > 0, Double(cleaned) * 4 >= Double(positive) {
+            clauses.append("you cleaned \(ByteSize.human(cleaned)) since")
+        }
+        if !changes.comparedRoots.isEmpty, Set(changes.comparedRoots) != Set(roots) {
+            clauses.append("compared in \(changes.comparedRoots.map { Wording.tilde($0, home: home) }.joined(separator: ", ")) only")
+        }
+        return GrowthBand(text: text, detail: clauses.joined(separator: " · "), warning: false, scanButton: .none, link: link)
+    }
+
+    /// The positive group deltas' sum: what the findings explain.
+    static func positiveGroups(_ changes: ChangesReport) -> UInt64 {
+        changes.groups.reduce(0) { $0.addingReportingOverflow(UInt64(max($1.delta, 0))).partialValue }
+    }
+
+    /// The second line, by where the disk's growth went: mostly not read or
+    /// outside the home folder, mostly elsewhere in it, or the groups.
+    private static func where_(_ changes: ChangesReport, delta: Int64) -> (String, Link) {
+        let positive = Double(positiveGroups(changes))
+        let half = Double(delta) / 2
+        let compared = changes.home?.compared == true
+        let outside = compared
+            ? "Most of it is in folders ddc did not read or outside your home folder"
+            : "Most of it is outside the folders both scans read"
+        if let rest = changes.rest?.delta, Double(rest) >= half {
+            return (outside, .whereDidItGo)
+        }
+        if compared, let elsewhere = changes.home?.elsewhere, Double(elsewhere) >= half {
+            return ("Most of it is elsewhere in your home folder, in folders ddc does not clean", .seeWhatGrew)
+        }
+        // No group grew: what the findings do not explain is all there is.
+        guard positive > 0 else { return (outside, .whereDidItGo) }
+        let growing = changes.groups.filter { $0.delta > 0 }.sorted { $0.delta > $1.delta }
+        guard let top = growing.first, Double(top.delta) * 10 >= positive * 6 else {
+            return ("in \(growing.count) groups", .seeWhatGrew)
+        }
+        var line = "\(top.group) +\(ByteSize.human(UInt64(top.delta)))"
+        if top.new > 0 {
+            line += " · \(top.new) new"
+        } else if top.grew > 0 {
+            line += " · \(top.grew) grew"
+        }
+        if let harness = top.byHarness.max(by: { $0.delta < $1.delta }), harness.delta > 0, harness.delta * 2 > top.delta {
+            line += " · mostly in \(harnessPlace(harness.harness))"
+        }
+        return (line, .seeWhatGrew)
+    }
+
+    private static func harnessPlace(_ harness: ChangesReport.Harness) -> String {
+        switch harness {
+        case .claudeCode: "Claude Code worktrees or data"
+        case .codex: "Codex worktrees or data"
+        case .opencode: "OpenCode worktrees or data"
+        case .cursor: "Cursor worktrees or data"
+        case .git: "git worktrees"
+        }
+    }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
 }

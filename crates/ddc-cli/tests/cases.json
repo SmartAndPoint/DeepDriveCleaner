@@ -275,7 +275,7 @@
       "name": "changes --json in a fresh home has nothing to compare",
       "group": "commands",
       "args": ["changes", "--json"],
-      "expect": {"exit": 0, "schema": "changes", "stdout": {"contains": ["\"status\": \"not-compared\"", "\"reason\": \"no-report\""]}}
+      "expect": {"exit": 0, "schema": "changes", "stdout": {"contains": ["\"status\": \"not-compared\"", "\"reason\": \"no-report\"", "\"grew\": false"]}}
     },
     {
       "name": "schedule status in a fresh home is not installed",

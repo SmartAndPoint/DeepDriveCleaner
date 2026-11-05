@@ -211,6 +211,9 @@ public final class ReviewModel: ReviewRouting {
         if sheet == nil {
             if request.keepsSelection, !request.confirm, let group = request.group, windowOpen, items != nil, snapshot() != nil {
                 turn(to: group)
+            } else if request.keepsSelection, !request.confirm, request.grew != nil, windowOpen, items != nil, snapshot() != nil {
+                // The band's link: the report again, the person's ticks kept.
+                reload()
             } else {
                 load(request)
             }

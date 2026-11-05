@@ -207,6 +207,23 @@ public enum Wording {
         }
     }
 
+    /// When an earlier scan was saved, for "since …": "today 10:04",
+    /// "yesterday 10:04", a weekday within the last week ("Monday 10:04"),
+    /// else the date ("Oct 28, 10:04"). The time follows the user's clock.
+    public static func since(_ date: Date, now: Date, calendar: Calendar = .current, locale: Locale = .autoupdatingCurrent) -> String {
+        let time = date.formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: calendar, timeZone: calendar.timeZone))
+        if calendar.isDate(date, inSameDayAs: now) { return "today \(time)" }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+            return "yesterday \(time)"
+        }
+        if let week = calendar.date(byAdding: .day, value: -6, to: calendar.startOfDay(for: now)), date >= week, date < now {
+            let weekday = date.formatted(Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone).weekday(.wide))
+            return "\(weekday) \(time)"
+        }
+        let day = date.formatted(Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone).month(.abbreviated).day())
+        return "\(day), \(time)"
+    }
+
     /// The footer's next scheduled scan: "Next scan today, 13:00",
     /// "Next scan tomorrow, 10:00", "Next scan Monday, 10:00", "Next scan
     /// within the hour" when one is due (a missed slot, a Resume), "Scheduled

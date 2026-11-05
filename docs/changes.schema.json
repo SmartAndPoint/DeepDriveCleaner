@@ -55,6 +55,11 @@
         }
       ]
     },
+    "grew": {
+      "description": "In-use space on the home folder's volume grew by at least\nmax(20 GiB, 5 % of its total) between the two reports: the rule of\n`ddc space`'s `grew` (ADR \"Menu bar app: Swift shell over the ddc\nCLI\" §6 item 13). False when not compared or without `disk`.",
+      "type": "boolean",
+      "default": false
+    },
     "groups": {
       "description": "One entry per Review group with a compared change, biggest growth\nfirst.",
       "type": "array",

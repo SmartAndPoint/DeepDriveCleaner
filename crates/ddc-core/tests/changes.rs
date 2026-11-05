@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
 use ddc_core::changes::{
-    self, ChangesReport, HomeReason, Item, ItemKind, NotReadKind, Reason, Status, compare, compare_loaded,
+    self, ChangesReport, HomeReason, Item, ItemKind, NotReadKind, Reason, Side, Status, compare, compare_loaded,
     parse_journal,
 };
 use ddc_core::env::Env;
@@ -620,4 +620,90 @@ fn committed_changes_schema_is_current() {
     }
     let committed = fs::read_to_string(&path).unwrap_or_default();
     assert!(committed == schema, "docs/changes.schema.json is stale: run DDC_UPDATE_SCHEMA=1 cargo test");
+}
+
+/// `grew` is `ddc space`'s rule on the two reports' in-use space (story
+/// "Popover and Review: what grew since the earlier scan", DDC-002): at
+/// least max(20 GiB, 5 % of the current total).
+#[test]
+fn grew_is_true_exactly_when_the_disk_grew_by_the_threshold() {
+    // 1000 GiB: the threshold is 50 GiB.
+    let (b, n) = pair(report(BEFORE, 500 * G), report(NOW, 450 * G));
+    assert!(changes(&b, &n, "").grew, "50 GiB more in use");
+    let (b, n) = pair(report(BEFORE, 500 * G), report(NOW, 450 * G + 1));
+    assert!(!changes(&b, &n, "").grew, "a byte under");
+    let (b, n) = pair(report(BEFORE, 450 * G), report(NOW, 500 * G));
+    assert!(!changes(&b, &n, "").grew, "a shrink");
+    // 100 GiB: the threshold is 20 GiB.
+    let small = |written_at, free| {
+        let mut r = report(written_at, free);
+        r.volumes[0].total_bytes = 100 * G;
+        r
+    };
+    let (b, n) = pair(small(BEFORE, 80 * G), small(NOW, 60 * G));
+    assert!(changes(&b, &n, "").grew, "20 GiB on a small disk");
+    let (b, n) = pair(small(BEFORE, 80 * G), small(NOW, 60 * G + 1));
+    assert!(!changes(&b, &n, "").grew);
+    // No disk: the baseline lacks the volume.
+    let mut before = report(BEFORE, 500 * G);
+    before.volumes[0].mount_point = PathBuf::from("/Volumes/Other");
+    let (b, n) = pair(before, report(NOW, 100 * G));
+    let r = changes(&b, &n, "");
+    assert!(r.disk.is_none() && !r.grew);
+    // Not compared.
+    assert!(!ChangesReport::not_compared(Reason::NoPrevious, None, None).grew);
+    let (mut b, n) = pair(report(BEFORE, 500 * G), report(NOW, 100 * G));
+    b.cancelled = true;
+    let loaded = changes::Loaded { baseline: Some(b), current: Some(n), reasons: Vec::new() };
+    let r = compare_loaded(&loaded, &[], &[]);
+    assert_eq!(r.status, Status::NotCompared);
+    assert!(!r.grew);
+}
+
+/// The app's fixtures (story "Popover and Review: what grew since the
+/// earlier scan", DDC-002) are what `compare` writes, and valid against the
+/// committed schema. The current report is the app's `scan-report-groups.json`
+/// with the fields of 0.31 set here; the baseline is it without
+/// `r1/target`, with a smaller `p1/node_modules` and 60 GiB more free.
+/// `DDC_UPDATE_SCHEMA` writes them.
+#[test]
+#[allow(clippy::disallowed_methods)] // DDC_UPDATE_SCHEMA regenerates the committed files
+fn the_apps_changes_fixtures_are_reports_the_cli_wrote() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/Packages/DDCKit/Tests/DDCKitTests/Fixtures");
+    let mut now: ScanReport =
+        serde_json::from_str(&fs::read_to_string(dir.join("scan-report-groups.json")).unwrap()).unwrap();
+    now.written_at = Some("2026-10-19T08:05:00Z".to_owned());
+    now.rules_in_force = Some(now.findings.iter().map(|f| f.rule.clone()).collect());
+    let mut before = now.clone();
+    before.written_at = Some("2026-10-18T09:30:00Z".to_owned());
+    before.generated_at = "2026-10-18T09:29:40Z".to_owned();
+    before.findings.retain(|f| !f.path.ends_with("r1/target"));
+    let modules = before.findings.iter_mut().find(|f| f.path.ends_with("p1/node_modules")).unwrap();
+    modules.bytes -= 200_000;
+    before.totals.scanned_bytes -= 352_256 + 200_000;
+    before.volumes[0].free_bytes += 60 * G;
+    let (before, now) = pair(before, now);
+    let compared = compare(&before, &now, &[], &[]);
+    assert_eq!(compared.status, Status::Compared);
+    assert!(compared.grew, "60 GiB on a 1000 GiB disk");
+    assert_eq!(item(&compared, "/Users/example/r1/target").kind, ItemKind::New);
+    assert_eq!(item(&compared, "/Users/example/p1/node_modules").kind, ItemKind::Grew);
+    let not_compared = ChangesReport::not_compared(Reason::NoPrevious, None, Some(Side::of(&now)));
+
+    let schema: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/changes.schema.json")).unwrap(),
+    )
+    .unwrap();
+    let validator = jsonschema::validator_for(&schema).unwrap();
+    for (name, report) in [("changes-compared.json", &compared), ("changes-not-compared.json", &not_compared)] {
+        let text = serde_json::to_string_pretty(report).unwrap() + "\n";
+        if std::env::var_os("DDC_UPDATE_SCHEMA").is_some() {
+            fs::write(dir.join(name), &text).unwrap();
+        }
+        let committed = fs::read_to_string(dir.join(name)).unwrap_or_default();
+        assert!(committed == text, "{name} is stale: run DDC_UPDATE_SCHEMA=1 cargo test");
+        let value: serde_json::Value = serde_json::from_str(&committed).unwrap();
+        let errors: Vec<String> = validator.iter_errors(&value).map(|e| e.to_string()).collect();
+        assert!(errors.is_empty(), "{name}: {errors:?}");
+    }
 }

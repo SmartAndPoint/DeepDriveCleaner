@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "status": "not-compared",
+  "reason": "no-previous",
+  "baseline": null,
+  "current": {
+    "written_at": "2026-10-19T08:05:00Z",
+    "written_by": null,
+    "generated_at": "2026-10-19T08:04:55Z"
+  },
+  "compared_roots": [],
+  "disk": null,
+  "home": null,
+  "rest": null,
+  "cleaned_since": null,
+  "groups": [],
+  "items": [],
+  "grew": false
+}
