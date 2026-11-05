@@ -58,6 +58,9 @@ public enum ScanDue {
         case slot
         /// The one extra scan Remind me tomorrow adds to a weekly schedule.
         case reminder
+        /// The scan after an update whose saved report the app cannot read
+        /// (`UpdateScanDue`): the scheduled scan, made due at once.
+        case update
     }
 
     public struct Inputs: Sendable, Equatable {
@@ -69,13 +72,16 @@ public enum ScanDue {
         public var paused: Bool
         /// The 0.1.0 agent's plist exists.
         public var legacyAgentFound: Bool
+        /// `UpdateScanDue`: due now, beside the slot and the reminder, which it leaves as they are.
+        public var updateScan: Bool
 
-        public init(schedule: Schedule, lastScheduled: Date?, reminder: Date?, paused: Bool, legacyAgentFound: Bool) {
+        public init(schedule: Schedule, lastScheduled: Date?, reminder: Date?, paused: Bool, legacyAgentFound: Bool, updateScan: Bool = false) {
             self.schedule = schedule
             self.lastScheduled = lastScheduled
             self.reminder = reminder
             self.paused = paused
             self.legacyAgentFound = legacyAgentFound
+            self.updateScan = updateScan
         }
     }
 
@@ -101,6 +107,7 @@ public enum ScanDue {
 
     /// What is due with the schedule on, and since when.
     private static func pending(_ inputs: Inputs, now: Date, calendar: Calendar) -> (due: Due, since: Date)? {
+        if inputs.updateScan { return (.update, now) }
         guard let last = inputs.lastScheduled else { return (.slot, now) }
         let slot = lastSlot(inputs.schedule, atOrBefore: now, calendar: calendar)
         if last < slot { return (.slot, slot) }

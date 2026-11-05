@@ -25,7 +25,7 @@ struct LaunchModeTests {
     @Test("a normal start shows the status item and never quits on its own")
     func normalNeverQuits() {
         var mode = LaunchMode()
-        #expect(mode.handle(.launched(arguments: ["/app"])) == [.showStatusItem, .startUpdater])
+        #expect(mode.handle(.launched(arguments: ["/app"])) == [.showStatusItem, .startUpdater, .launchTick])
         for event in [LaunchMode.Event.workFinished, .activate, .notificationResponse, .workFinished] {
             #expect(!mode.handle(event).contains(.quit))
         }
@@ -78,5 +78,21 @@ struct LaunchModeTests {
         ])
         #expect(all.filter { $0 == .startUpdater }.count == 1)
         #expect(Array(all.prefix(2)) == [.showStatusItem, .startUpdater])
+    }
+
+    @Test("only a normal launch asks for the launch tick, once; a scheduled launch and its promotion never do")
+    func launchTickOnce() {
+        var normal = LaunchMode()
+        var effects = normal.handle(.launched(arguments: ["/app"]))
+        for event in [LaunchMode.Event.reopen(windowOpen: false), .activate, .notificationResponse, .workFinished] {
+            effects += normal.handle(event)
+        }
+        #expect(effects.filter { $0 == .launchTick }.count == 1)
+        var scheduled = LaunchMode()
+        effects = scheduled.handle(.launched(arguments: ["/app", LaunchMode.scheduledArgument]))
+        for event in [LaunchMode.Event.reopen(windowOpen: false), .activate, .workFinished] {
+            effects += scheduled.handle(event)
+        }
+        #expect(!effects.contains(.launchTick), "its own tick runs the scan after the update")
     }
 }

@@ -37,6 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var agent: SchedulerAgent?
     /// The launch's heal; a `--scheduled` instance quits only after it.
     private var healing: Task<Void, Never>?
+    /// The launch's decision on the scan after an update; both launch modes
+    /// await it before their tick, as they await `healing`.
+    private var updateCheck: Task<Bool, Never>?
     /// The runner every model shares; nil when the embedded CLI is missing.
     private var activity: RunnerActivity?
     /// The update line, and Sparkle behind it: created at launch, started on `.startUpdater`.
@@ -64,11 +67,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         activity = runner
         let data = DataDirectory.current()
         let preferences = AppPreferences()
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
         // A kept update the running build reaches is forgotten here, at launch.
         let update = UpdateModel(
             preferences: preferences,
             feedURL: SparkleUpdater.feedURL,
-            bundleVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0",
+            bundleVersion: build,
             busy: { [weak runner] in runner?.busy ?? false },
             log: { AppLog.write($0) }
         )
@@ -158,6 +162,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             self.agent = agent
             self.work = work
+            // At every launch: the build, and whether the saved report needs the scan after an update.
+            updateCheck = Task { await work.launched(build: build, lastScan: data.lastScan) }
             // While a relaunch waits or runs, no scan, clean or free starts.
             update.onJobsHeld = { [weak model, weak disk] held in
                 model?.setUpdateWaiting(held)
@@ -290,8 +296,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // A scan if due, then the pending notification and its ack; quits after all.
                 Task {
                     await healing?.value
+                    // The scan after an update runs in this tick; no second one.
+                    _ = await updateCheck?.value
                     await work?.tick()
                     apply(launchMode.handle(.workFinished))
+                }
+            case .launchTick:
+                Task {
+                    await healing?.value
+                    guard await updateCheck?.value == true else { return }
+                    AppLog.write("launch: the scan after the update is due")
+                    await model.start()
+                    await work?.tick()
                 }
             case .scanIfDue:
                 AppLog.write("reopen of the running app: scan if due")

@@ -22,6 +22,12 @@ public final class AppPreferences {
     public static let notReadableKey = "NotReadableFolders"
     public static let lastScheduledScanKey = "LastScheduledScan"
     public static let reminderScanKey = "ReminderScanAt"
+    /// The build (`CFBundleVersion`) of the last launch, written at every
+    /// launch (story "Scan after an update when the saved report cannot be read").
+    public static let lastLaunchedBuildKey = "LastLaunchedBuild"
+    /// The scheduled scan made due at the first launch of a new build whose
+    /// saved report is of an older schema (menu bar ADR §5, amended 2026-11-05).
+    public static let updateScanDueKey = "UpdateScanDue"
     public static let pendingNotificationKey = "PendingNotification"
     public static let permissionPendingKey = "NotificationPermissionPending"
     public static let permissionAskedKey = "NotificationPermissionAsked"
@@ -88,6 +94,7 @@ public final class AppPreferences {
         if !schedule.enabled {
             setReminderScan(nil)
             setPendingNotification(nil)
+            setUpdateScanDue(false)
         }
     }
 
@@ -106,6 +113,21 @@ public final class AppPreferences {
 
     public func setReminderScan(_ date: Date?) {
         if let date { defaults.set(date, forKey: Self.reminderScanKey) } else { defaults.removeObject(forKey: Self.reminderScanKey) }
+    }
+
+    /// `LastLaunchedBuild`; nil before the first launch of a build that writes it.
+    public var lastLaunchedBuild: String? { defaults.string(forKey: Self.lastLaunchedBuildKey) }
+
+    public func setLastLaunchedBuild(_ build: String) {
+        defaults.set(build, forKey: Self.lastLaunchedBuildKey)
+    }
+
+    /// `UpdateScanDue`: a scan after the update is due until a readable
+    /// report loads or scheduled scans are turned off.
+    public var updateScanDue: Bool { defaults.bool(forKey: Self.updateScanDueKey) }
+
+    public func setUpdateScanDue(_ due: Bool) {
+        if due { defaults.set(true, forKey: Self.updateScanDueKey) } else { defaults.removeObject(forKey: Self.updateScanDueKey) }
     }
 
     /// A decision held back by working hours; a newer one replaces it.

@@ -378,9 +378,176 @@ struct ScheduledScanTests {
         weekly.repeats = .weekly
         settings.setSchedule(weekly)
         #expect(rig.preferences.reminderScan != nil, "only off clears them")
+        rig.preferences.setUpdateScanDue(true)
         weekly.enabled = false
         settings.setSchedule(weekly)
         #expect(rig.preferences.reminderScan == nil && rig.preferences.pendingNotification == nil)
+        #expect(!rig.preferences.updateScanDue, "the scan after an update goes with them")
+    }
+
+    // MARK: - The scan after an update ("Scan after an update when the saved report cannot be read")
+
+    /// A report of an older schema on disk, scheduled scans on, the slot already scanned.
+    private func updated(_ rig: Rig) throws {
+        try data.write(lastScan: try Fixture.data("scan-report-v1"))
+        rig.preferences.setLastScheduledScan(at(20, 10))
+        rig.preferences.setLastLaunchedBuild("96")
+        // One defaults suite per test: a case before may have changed these.
+        rig.preferences.setSchedule(Schedule())
+        rig.preferences.setScansPaused(false)
+    }
+
+    /// The background scan saves the current report, as the CLI does.
+    private func scansTheGroupsReport(_ rig: Rig) async throws {
+        let url = data.directory.lastScan
+        let report = try Fixture.data("scan-report-groups")
+        await rig.runner.reply(.backgroundScan, FakeRunner.done(decision(notify: false))) { try? report.write(to: url) }
+    }
+
+    @Test("a new build over an older report makes the scheduled scan due; the launch's tick runs it once and nothing is left due")
+    func updateScan() async throws {
+        let rig = try Rig(self, now: at(20, 15))
+        try updated(rig)
+        #expect(rig.work.due() == nil, "the slot was scanned")
+        #expect(await rig.work.launched(build: "97", lastScan: data.directory.lastScan))
+        #expect(rig.preferences.updateScanDue && rig.preferences.lastLaunchedBuild == "97")
+        #expect(rig.work.due() == .update)
+        #expect(rig.work.next() == .at(at(20, 15)), "the footer: within the hour")
+        try await scansTheGroupsReport(rig)
+        #expect(await rig.work.tick() == .scanned)
+        #expect(await rig.runner.count(.backgroundScan) == 1)
+        #expect(rig.popover.loadedReport != nil)
+        #expect(!rig.preferences.updateScanDue && rig.work.due() == nil)
+        #expect(await rig.work.tick() == .notDue, "a --scheduled launch's tick runs it; no second scan follows")
+        #expect(await rig.work.launched(build: "97", lastScan: data.directory.lastScan) == false, "the same build again")
+    }
+
+    @Test("while it runs the popover says Scanning after the update…")
+    func updateScanTitle() async throws {
+        try data.write(lastScan: try Fixture.data("scan-report-v1"))
+        let runner = HoldingRunner(holding: [.backgroundScan])
+        await runner.reply(.backgroundScan, decision(notify: false))
+        let preferences = AppPreferences(defaults: defaults.defaults)
+        preferences.setUpdateScanDue(true)
+        preferences.setLastScheduledScan(at(20, 10))
+        let clock = Clock(at(20, 15))
+        let popover = try makeModel(runner: runner, data: data, defaults: defaults, clock: { clock.now })
+        let work = ScheduledWork(popover: popover, preferences: preferences, runner: runner, notifications: FakeNotifications(), legacyAgentFound: { false }, clock: { clock.now }, calendar: calendar)
+        let tick = Task { await work.tick() }
+        try await runner.waitHeld()
+        #expect(popover.scanningTitle == "Scanning after the update…")
+        await runner.release()
+        #expect(await tick.value == .scanned)
+        #expect(popover.scan == nil && !preferences.updateScanDue)
+    }
+
+    @Test("a reminder slot set before is kept and still runs at its time")
+    func updateScanKeepsReminder() async throws {
+        let rig = try Rig(self, now: at(19, 15))
+        rig.preferences.setSchedule(Schedule(enabled: true, repeats: .weekly, weekday: 2, hour: 10))
+        rig.preferences.setLastScheduledScan(at(19, 10))
+        rig.preferences.setReminderScan(at(20, 10))
+        rig.preferences.setUpdateScanDue(true)
+        // The report the update left: a readable one would clear the flag at load.
+        try data.write(lastScan: try Fixture.data("scan-report-v1"))
+        #expect(rig.work.due() == .update)
+        try await scansTheGroupsReport(rig)
+        #expect(await rig.work.tick() == .scanned)
+        #expect(rig.preferences.reminderScan == at(20, 10))
+        rig.clock.now = at(20, 10)
+        #expect(rig.work.due() == .reminder)
+    }
+
+    @Test("a Scan Now before the tick reads the new report: nothing is left due and no second scan follows")
+    func scanNowBeforeTheTick() async throws {
+        let rig = try Rig(self, now: at(20, 15))
+        try updated(rig)
+        #expect(await rig.work.launched(build: "97", lastScan: data.directory.lastScan))
+        await rig.popover.scanNow()
+        #expect(!rig.preferences.updateScanDue)
+        #expect(await rig.work.tick() == .notDue)
+        #expect(await rig.runner.count(.backgroundScan) == 0)
+    }
+
+    @Test("a tick that found it due while the person's Scan Now runs asks again after waiting, and scans nothing")
+    func tickWaitsForScanNow() async throws {
+        try data.write(lastScan: try Fixture.data("scan-report-v1"))
+        let runner = HoldingRunner(holding: [.scan])
+        await runner.reply(.scan, try Fixture.data("scan-report-groups"))
+        let preferences = AppPreferences(defaults: defaults.defaults)
+        preferences.setLastScheduledScan(at(20, 10))
+        preferences.setUpdateScanDue(true)
+        let clock = Clock(at(20, 15))
+        let popover = try makeModel(runner: runner, data: data, defaults: defaults, clock: { clock.now })
+        let work = ScheduledWork(popover: popover, preferences: preferences, runner: runner, notifications: FakeNotifications(), legacyAgentFound: { false }, clock: { clock.now }, calendar: calendar)
+        await popover.start()
+        let scanNow = Task { await popover.scanNow() }
+        try await runner.waitHeld()
+        #expect(work.due() == .update)
+        let tick = Task { await work.tick() }
+        // Let the tick reach its wait for the person's scan.
+        try await Task.sleep(for: .milliseconds(100))
+        await runner.release()
+        await scanNow.value
+        #expect(await tick.value == .notDue)
+        #expect(await runner.count(.scan) == 1)
+        #expect(await runner.count(.backgroundScan) == 0)
+        #expect(!preferences.updateScanDue)
+    }
+
+    @Test("a flag a busy tick left goes at the next launch when the saved report reads now; while paused the launch ticks nothing")
+    func staleFlag() async throws {
+        let rig = try Rig(self, now: at(20, 15))
+        try updated(rig)
+        rig.preferences.setLastLaunchedBuild("97")
+        rig.preferences.setUpdateScanDue(true)
+        rig.preferences.setScansPaused(true)
+        #expect(await rig.work.launched(build: "97", lastScan: data.directory.lastScan) == false, "paused: not due now")
+        #expect(rig.preferences.updateScanDue, "kept until Resume")
+        rig.preferences.setScansPaused(false)
+        try data.write(lastScan: try Fixture.data("scan-report-groups"))
+        #expect(await rig.work.launched(build: "97", lastScan: data.directory.lastScan) == false)
+        #expect(!rig.preferences.updateScanDue, "a terminal scan wrote a readable report")
+    }
+
+    @Test("nothing is made due for the same build, scheduled scans off or paused, no report, a readable or newer one, or the 0.1.0 agent")
+    func updateScanNotNeeded() async throws {
+        let cases: [(String, (Rig) throws -> Void)] = [
+            ("same build", { $0.preferences.setLastLaunchedBuild("97") }),
+            ("off", { rig in var off = Schedule(); off.enabled = false; rig.preferences.setSchedule(off) }),
+            ("paused", { $0.preferences.setScansPaused(true) }),
+            ("no report", { _ in try FileManager.default.removeItem(at: self.data.directory.lastScan) }),
+            ("readable", { _ in try self.data.write(lastScan: try Fixture.data("scan-report-groups")) }),
+            ("newer", { _ in try self.data.write(lastScan: try Fixture.edited("scan-report-groups") { $0["schema_version"] = ScanReport.schemaVersion + 1 }) }),
+            ("not JSON", { _ in try self.data.write(lastScan: Data("{".utf8)) }),
+            ("0.1.0 agent", { $0.legacy = true }),
+        ]
+        for (name, setup) in cases {
+            let rig = try Rig(self, now: at(20, 15))
+            try updated(rig)
+            try setup(rig)
+            #expect(await rig.work.launched(build: "97", lastScan: data.directory.lastScan) == false, "\(name)")
+            #expect(!rig.preferences.updateScanDue, "\(name)")
+            #expect(rig.preferences.lastLaunchedBuild == "97", "\(name): the build is recorded at every launch")
+        }
+        // No record of the last build: the first build that writes it counts as new.
+        let rig = try Rig(self, now: at(20, 15))
+        try updated(rig)
+        defaults.defaults.removeObject(forKey: AppPreferences.lastLaunchedBuildKey)
+        #expect(await rig.work.launched(build: "97", lastScan: data.directory.lastScan))
+    }
+
+    @Test("a clean holding the lock, or a failed scan, keeps it due; the popover offers Scan Now")
+    func updateScanStaysDue() async throws {
+        for outcome in [RunOutcome.busy, .error(status: 1)] {
+            let rig = try Rig(self, now: at(20, 15))
+            try updated(rig)
+            #expect(await rig.work.launched(build: "97", lastScan: data.directory.lastScan))
+            await rig.runner.reply(.backgroundScan, CLIRunner.Result(outcome: outcome, stdout: Data(), stderrTail: ["ddc: something"]))
+            #expect(await rig.work.tick() == (outcome == .busy ? .busy : .failed))
+            #expect(rig.preferences.updateScanDue && rig.work.due() == .update)
+            #expect(rig.popover.content == .firstScan && rig.popover.canScan)
+        }
     }
 
     @Test("two concurrent ticks give one background scan, one post and one ack")

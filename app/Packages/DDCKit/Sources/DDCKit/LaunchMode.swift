@@ -33,6 +33,10 @@ public struct LaunchMode: Sendable, Equatable {
         /// daily, Update and Relaunch, and the cask's auto_updates").
         case startUpdater
         case startScheduledWork
+        /// A normal launch's one tick, run when the scan after an update is
+        /// due (menu bar ADR §5, amended 2026-11-05): the app decides it
+        /// before, and the tick runs nothing when it is not.
+        case launchTick
         /// A reopen of the full app: the scheduler's tick, or a user's launch.
         case scanIfDue
         /// Bring the open windows to the front (a click on the Dock icon). Added
@@ -64,7 +68,7 @@ public struct LaunchMode: Sendable, Equatable {
                 return [.startScheduledWork]
             }
             mode = .normal
-            return [.showStatusItem, .startUpdater]
+            return [.showStatusItem, .startUpdater, .launchTick]
         case (.scheduled, .reopen), (.scheduled, .activate), (.scheduled, .notificationResponse):
             mode = .normal
             return [.showStatusItem, .startUpdater]
