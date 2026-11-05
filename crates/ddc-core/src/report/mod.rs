@@ -515,8 +515,8 @@ pub(crate) fn count_findings(totals: &mut Totals, findings: &[Finding]) {
     totals.ignored_bytes = ignored.iter().map(|f| f.bytes).sum();
 }
 
-/// TCC.db is readable only with Full Disk Access.
-/// Whether this process has Full Disk Access (it can read the TCC database).
+/// Whether this process has Full Disk Access: it can read what only that
+/// grant opens (see [`FULL_DISK_ACCESS_PROBES`]).
 pub fn full_disk_access(env: &Env) -> bool {
     full_disk_access_with(env, crate::platform::CAPABILITIES)
 }
@@ -527,7 +527,37 @@ pub fn full_disk_access(env: &Env) -> bool {
 /// capabilities", §3).
 pub fn full_disk_access_with(env: &Env, capabilities: &[crate::platform::Capability]) -> bool {
     !capabilities.contains(&crate::platform::Capability::FullDiskAccess)
-        || fs::File::open(env.home().join("Library/Application Support/com.apple.TCC/TCC.db")).is_ok()
+        || granted_by(FULL_DISK_ACCESS_PROBES.iter().map(|(rel, kind)| (env.home().join(rel), *kind)))
+}
+
+/// How a probe of [`FULL_DISK_ACCESS_PROBES`] is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeKind {
+    /// Opened for reading.
+    File,
+    /// Opened and one entry read: an open alone may pass where the listing
+    /// is refused.
+    Folder,
+}
+
+/// What only Full Disk Access opens, relative to the home folder, in the
+/// order it is tried (story "Full Disk Access check on macOS 27", DDC-002).
+/// The per-user TCC database opens with the grant on every macOS that has it,
+/// so older versions keep the answer they always had. macOS 27 has no such
+/// file, or refuses it even with the grant, and the Safari folder answers
+/// there. Without the grant neither opens, on any version. The app's
+/// `FullDiskAccessProbe` tries the same list (a DDCKit contract test compares
+/// them).
+pub const FULL_DISK_ACCESS_PROBES: &[(&str, ProbeKind)] =
+    &[("Library/Application Support/com.apple.TCC/TCC.db", ProbeKind::File), ("Library/Safari", ProbeKind::Folder)];
+
+/// Granted when any probe can be read; an error of one, whatever it is, only
+/// sends the check to the next. When none can be read, not granted.
+fn granted_by(probes: impl IntoIterator<Item = (PathBuf, ProbeKind)>) -> bool {
+    probes.into_iter().any(|(path, kind)| match kind {
+        ProbeKind::File => fs::File::open(&path).is_ok(),
+        ProbeKind::Folder => stats::read_dir(&path).is_ok_and(|mut entries| !matches!(entries.next(), Some(Err(_)))),
+    })
 }
 
 /// A file time as RFC 3339, `None` before 1970 or past year 9999: humantime
@@ -556,6 +586,83 @@ mod tests {
         let env = Env::with_paths(d.path(), &d.path().join("data"), &d.path().join("logs"), SystemTime::now()).unwrap();
         assert!(full_disk_access_with(&env, &[]));
         assert!(!full_disk_access_with(&env, &[crate::platform::Capability::FullDiskAccess]));
+    }
+
+    /// The two probes under a temporary home, as `full_disk_access_with`
+    /// builds them.
+    fn probes(home: &Path) -> Vec<(PathBuf, ProbeKind)> {
+        FULL_DISK_ACCESS_PROBES.iter().map(|(rel, kind)| (home.join(rel), *kind)).collect()
+    }
+
+    /// A probe that cannot be read: a file where its folder should be, so
+    /// opening it fails on every platform, as a refused one does.
+    fn unreadable(home: &Path, rel: &str) {
+        let parent = home.join(rel).parent().unwrap().to_path_buf();
+        fs::create_dir_all(parent.parent().unwrap()).unwrap();
+        fs::write(&parent, b"").unwrap();
+    }
+
+    fn tcc(home: &Path) {
+        let path = home.join(FULL_DISK_ACCESS_PROBES[0].0);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"").unwrap();
+    }
+
+    fn safari(home: &Path, with_entry: bool) {
+        let path = home.join(FULL_DISK_ACCESS_PROBES[1].0);
+        fs::create_dir_all(&path).unwrap();
+        if with_entry {
+            fs::write(path.join("History.db"), b"").unwrap();
+        }
+    }
+
+    #[test]
+    fn a_readable_tcc_database_grants_full_disk_access() {
+        let d = tempfile::tempdir().unwrap();
+        tcc(d.path());
+        assert!(granted_by(probes(d.path())));
+    }
+
+    /// macOS 27 has no per-user TCC database: the Safari folder answers, empty
+    /// or not.
+    #[test]
+    fn without_a_tcc_database_a_listable_safari_folder_grants_full_disk_access() {
+        let d = tempfile::tempdir().unwrap();
+        safari(d.path(), false);
+        assert!(granted_by(probes(d.path())));
+        safari(d.path(), true);
+        assert!(granted_by(probes(d.path())));
+    }
+
+    /// The probes are looked up in the environment's home.
+    #[test]
+    fn full_disk_access_reads_the_probes_in_the_home() {
+        let d = tempfile::tempdir().unwrap();
+        let env = Env::with_paths(d.path(), &d.path().join("data"), &d.path().join("logs"), SystemTime::now()).unwrap();
+        safari(d.path(), true);
+        assert!(full_disk_access_with(&env, &[crate::platform::Capability::FullDiskAccess]));
+    }
+
+    /// macOS 27 may also refuse the per-user TCC database with the grant on.
+    #[test]
+    fn a_refused_tcc_database_and_a_listable_safari_folder_grant_full_disk_access() {
+        let d = tempfile::tempdir().unwrap();
+        unreadable(d.path(), FULL_DISK_ACCESS_PROBES[0].0);
+        safari(d.path(), true);
+        assert!(granted_by(probes(d.path())));
+    }
+
+    /// Without the grant neither opens, on any macOS: not granted.
+    #[test]
+    fn when_no_probe_can_be_read_full_disk_access_is_not_granted() {
+        let d = tempfile::tempdir().unwrap();
+        assert!(!granted_by(probes(d.path())), "neither exists");
+        unreadable(d.path(), FULL_DISK_ACCESS_PROBES[0].0);
+        assert!(!granted_by(probes(d.path())), "a refused TCC database, no Safari folder");
+        let e = tempfile::tempdir().unwrap();
+        unreadable(e.path(), FULL_DISK_ACCESS_PROBES[0].0);
+        fs::write(e.path().join(FULL_DISK_ACCESS_PROBES[1].0), b"").unwrap();
+        assert!(!granted_by(probes(e.path())), "both refused");
     }
 
     #[test]

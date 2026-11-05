@@ -50,16 +50,23 @@ enum DebugMenu {
         }
     }
 
-    /// The popover's probe, logged with its errno: `EPERM` means no access,
-    /// `ENOENT` means no file, and then a `false` from the CLI proves nothing
-    /// about attribution.
+    /// The popover's probe, one line per step with its errno: `EPERM` means
+    /// no access, `ENOENT` no such file or folder; either sends the probe to
+    /// the next step. When every step says `ENOENT`, a `false` from the CLI
+    /// proves nothing about attribution.
     private static func probeFullDiskAccess() {
-        switch FullDiskAccessProbe(path: AppDelegate.tccDatabase).check() {
-        case .granted:
-            AppLog.write("probe: TCC.db opened: Full Disk Access is granted to this app")
-        case .missing(let code):
-            AppLog.write("probe: TCC.db not opened: errno \(code) (\(String(cString: strerror(code))))")
+        let steps = AppDelegate.fullDiskAccessProbe.steps()
+        for step in steps {
+            let name = step.location.url.lastPathComponent
+            if let code = step.errno {
+                AppLog.write("probe: \(name) not read: errno \(code) (\(String(cString: strerror(code))))")
+            } else {
+                AppLog.write("probe: \(name) read")
+            }
         }
+        AppLog.write(steps.last.map { $0.errno == nil } == true
+            ? "probe: Full Disk Access is granted to this app"
+            : "probe: Full Disk Access is not granted to this app")
     }
 
     private static func postTestNotification() {

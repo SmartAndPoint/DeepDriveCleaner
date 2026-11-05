@@ -6,11 +6,12 @@ import UserNotifications
 /// to `LaunchMode`, and applies what it decides (ADR §5).
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
-    /// The per-user TCC database: it opens only with Full Disk Access, which is
-    /// how the app and the CLI both tell. Built here only, never in DDCKit, so
-    /// no test ever touches it.
-    static let tccDatabase = FileManager.default.homeDirectoryForCurrentUser
-        .appending(path: "Library/Application Support/com.apple.TCC/TCC.db")
+    /// What only Full Disk Access opens, in the real home folder: how the app
+    /// and the CLI both tell. The real home is given here only, never in
+    /// DDCKit, so no test ever touches it.
+    static let fullDiskAccessProbe = FullDiskAccessProbe(
+        locations: FullDiskAccessProbe.locations(home: FileManager.default.homeDirectoryForCurrentUser)
+    )
 
     private var launchMode = LaunchMode()
     private var statusItem: StatusItemController?
@@ -105,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         model = PopoverModel(
             runner: runner,
             data: data,
-            probe: FullDiskAccessProbe(path: Self.tccDatabase),
+            probe: Self.fullDiskAccessProbe,
             preferences: preferences,
             router: review,
             nextScan: { [weak self] in self?.work?.next() ?? .off },

@@ -614,7 +614,8 @@ fn unreadable_folders_are_reported() {
 
     let r = fx.scan();
 
-    // A temp HOME has no TCC.db; without a permission system the access is full.
+    // A temp HOME has neither TCC.db nor Library/Safari; without a permission
+    // system the access is full.
     let tcc = ddc_core::platform::CAPABILITIES.contains(&ddc_core::platform::Capability::FullDiskAccess);
     assert_eq!(r.full_disk_access, !tcc);
     assert_eq!(r.inaccessible.len(), 1);

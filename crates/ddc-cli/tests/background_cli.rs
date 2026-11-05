@@ -129,6 +129,35 @@ fn with_full_disk_access_prompting_areas_are_scanned() {
 }
 
 #[test]
+fn without_a_tcc_database_a_listable_safari_folder_scans_the_prompting_areas() {
+    if common::unsupported("without_a_tcc_database_a_listable_safari_folder_scans_the_prompting_areas") {
+        return;
+    }
+    let (_tmp, home, data) = tree();
+    // macOS 27 has no per-user TCC.db: the Safari folder tells the grant.
+    let safari = home.join("Library/Safari");
+    fs::create_dir_all(&safari).unwrap();
+    fs::write(safari.join("History.db"), b"").unwrap();
+
+    let out = ddc(&home, &["scan", "--background", "--no-notify", "--data-dir", data.to_str().unwrap()]);
+
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let report: serde_json::Value = serde_json::from_slice(&fs::read(data.join("last-scan.json")).unwrap()).unwrap();
+    assert_eq!(report["full_disk_access"], true);
+    let documents = home.join("Documents");
+    assert!(report["skipped"].as_array().unwrap().iter().all(|s| s["path"] != documents.to_str().unwrap()));
+    assert!(
+        report["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["path"] == documents.join("node_modules").to_str().unwrap()),
+        "{}",
+        report["findings"]
+    );
+}
+
+#[test]
 fn background_scan_steps_aside_while_the_lock_is_held() {
     if common::unsupported("background_scan_steps_aside_while_the_lock_is_held") {
         return;
