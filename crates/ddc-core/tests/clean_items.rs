@@ -524,30 +524,6 @@ fn a_keep_marker_in_another_case_keeps_the_item_in_the_dry_run_and_the_clean() {
     assert!(deep.exists() && above.exists());
 }
 
-/// A reader that reports an immutable or append-only flag on each entry
-/// named in `flagged`, as a kernel or `st_flags` would.
-struct Flagged {
-    flagged: &'static [(&'static str, u32)],
-}
-
-impl DirReader for Flagged {
-    fn read(
-        &self,
-        dir: &Path,
-        expect: Option<(u64, u64)>,
-        want_private: bool,
-        times: Times,
-    ) -> Result<DirListing, ReadError> {
-        let mut listing = StdReader.read(dir, expect, want_private, times)?;
-        for e in &mut listing.entries {
-            if let Some((_, flag)) = self.flagged.iter().find(|(name, _)| e.name == *name) {
-                e.flags |= flag;
-            }
-        }
-        Ok(listing)
-    }
-}
-
 /// A file with an immutable flag, or a folder with an append-only one, set
 /// in a listed item after the review: the dry run's walk of the item reads
 /// the flag and predicts `immutable`, before any marker inside (safety ADR,
@@ -567,7 +543,7 @@ fn a_flag_set_inside_an_item_after_the_review_is_refused_by_the_dry_run() {
     let reviewed = fx.scan();
     fx.t.write("b/__pycache__/log/.ddc-keep", "");
     let items: Vec<ListedItem> = [&file, &folder, &plain].iter().map(|p| listed(&reviewed, p)).collect();
-    let reader = Flagged { flagged: &[("locked.pyc", UF_IMMUTABLE), ("log", UF_APPEND)] };
+    let reader = common::fakes::Flagged(&[("locked.pyc", UF_IMMUTABLE), ("log", UF_APPEND)]);
     let commands = FakeCommands::default();
     let ports = PreflightPorts {
         commands: &commands,

@@ -311,11 +311,12 @@ fn immutable_text() -> String {
     match ddc_core::platform::PLATFORM {
         ddc_core::platform::Platform::Linux => {
             "it, or a file in it, is immutable or append-only; ddc never clears that \
-             (as root: chattr -i, or chattr -a)"
+             (lsattr -R shows which; as root: chattr -i, or chattr -a)"
                 .to_owned()
         }
         _ => "it, or a file in it, is locked or append-only; ddc never clears that \
-              (chflags nouchg or nouappnd; sudo chflags noschg for a system flag; \
+              (ls -lO shows which; chflags nouchg or nouappnd; \
+              sudo chflags noschg or nosappnd for a system flag; \
               System Integrity Protection holds a restricted one)"
             .to_owned(),
     }

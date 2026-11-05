@@ -265,8 +265,20 @@ pub(crate) fn scan_inner(
         timeout: opts.probe_timeout,
         disabled_rules: &opts.disabled_rules,
     };
-    let mut findings: Vec<Finding> =
-        classify_probed(&out, &visitor, &probing).iter().map(|c| finding(c, env.now(), opts, &mut activity)).collect();
+    // A worktree's removal takes the findings inside it: a flag in one holds
+    // the worktree too (safety ADR, amendment of 2026-11-04, "Linux file kinds").
+    let locked: Vec<&Path> = out.owners.iter().filter(|o| o.locked > 0).map(|o| o.path.as_path()).collect();
+    let mut findings: Vec<Finding> = classify_probed(&out, &visitor, &probing)
+        .iter()
+        .map(|c| {
+            let mut f = finding(c, env.now(), opts, &mut activity);
+            if worktree::is_worktree_rule(c.rule) && locked.iter().any(|l| l.starts_with(&f.path)) {
+                f.not_selected = Some(NotSelected::Immutable);
+                f.selected = false;
+            }
+            f
+        })
+        .collect();
     sort_findings(&mut findings);
     let markers = visitor.keep_markers();
     let skips: Vec<PathBuf> = opts.skip.iter().chain(&opts.user_skips).cloned().collect();

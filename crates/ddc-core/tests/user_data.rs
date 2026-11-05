@@ -810,3 +810,36 @@ fn an_entry_evicted_to_the_cloud_after_the_plan_is_never_moved() {
     assert!(h.path("Downloads/old.zip").exists() && h.path("Downloads/Album/a.jpg").exists());
     assert!(!h.trash().exists(), "nothing reached the Trash");
 }
+
+/// A picked folder holding a file with an immutable flag set after the
+/// review: the dry run's walk of the entry reads the flag and predicts
+/// `immutable`, as the clean's walk before it refuses it (safety ADR,
+/// amendment of 2026-11-04, "Linux file kinds").
+#[test]
+fn a_picked_folder_with_a_flagged_file_inside_is_refused_by_the_dry_run() {
+    if common::unsupported("a_picked_folder_with_a_flagged_file_inside_is_refused_by_the_dry_run") {
+        return;
+    }
+    let home = Home::new();
+    home.tree.file("Downloads/stuff/inner.bin", 4_000);
+    home.tree.file("Downloads/other/plain.bin", 4_000);
+    let items = [home.pick("Downloads/stuff", "user.downloads"), home.pick("Downloads/other", "user.downloads")];
+    let reader = common::fakes::Flagged(&[("inner.bin", ddc_core::scan::reader::UF_IMMUTABLE)]);
+    let ports = PreflightPorts {
+        commands: &FakeCommands::default(),
+        procs: &FakeProcs::new(vec![]),
+        reader: &reader,
+        trash: &common::fakes::AnyTrash,
+    };
+    let mut predicted = Vec::new();
+    preflight::preflight(&home.env(), &home.catalog(), &[], &[], &items, &ports, &mut |line| {
+        if let PreflightLine::Item(i) = line {
+            predicted.push(i.prediction.clone());
+        }
+        Ok(())
+    })
+    .unwrap();
+
+    assert_eq!(predicted, [Prediction::WouldSkip(SkipReason::Immutable), Prediction::WouldTrash]);
+    assert!(home.path("Downloads/stuff/inner.bin").exists());
+}

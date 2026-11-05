@@ -492,3 +492,27 @@ pub fn app_process(pid: i32, exe: &str) -> ProcInfo {
         ..ProcInfo::default()
     }
 }
+
+/// A reader that reports an immutable or append-only flag on each entry
+/// named in its list, as a kernel or `st_flags` would (safety ADR,
+/// amendment of 2026-11-04, "Linux file kinds").
+pub struct Flagged(pub &'static [(&'static str, u32)]);
+
+impl ddc_core::scan::DirReader for Flagged {
+    fn read(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: ddc_core::scan::Times,
+    ) -> Result<ddc_core::scan::DirListing, ddc_core::scan::ReadError> {
+        let mut listing =
+            ddc_core::scan::DirReader::read(&ddc_core::scan::StdReader, dir, expect, want_private, times)?;
+        for e in &mut listing.entries {
+            if let Some((_, flag)) = self.0.iter().find(|(name, _)| e.name == *name) {
+                e.flags |= flag;
+            }
+        }
+        Ok(listing)
+    }
+}

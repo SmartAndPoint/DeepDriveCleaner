@@ -664,28 +664,6 @@ fn a_locked_file_or_folder_keeps_its_finding_out_of_a_plan_and_a_clean() {
     }
 }
 
-/// A reader that reports an immutable or append-only flag on each entry
-/// named in `flagged`, as a kernel or `st_flags` would.
-struct Flagged(&'static [(&'static str, u32)]);
-
-impl ddc_core::scan::DirReader for Flagged {
-    fn read(
-        &self,
-        dir: &Path,
-        expect: Option<(u64, u64)>,
-        want_private: bool,
-        times: ddc_core::scan::Times,
-    ) -> Result<ddc_core::scan::DirListing, ddc_core::scan::ReadError> {
-        let mut listing = ddc_core::scan::StdReader.read(dir, expect, want_private, times)?;
-        for e in &mut listing.entries {
-            if let Some((_, flag)) = self.0.iter().find(|(name, _)| e.name == *name) {
-                e.flags |= flag;
-            }
-        }
-        Ok(listing)
-    }
-}
-
 /// An immutable file, an append-only folder, or a finding flagged itself,
 /// as any platform's reader reports it: listed `immutable`, never selected,
 /// and a plan that names it anyway is refused before any rename (safety
@@ -695,6 +673,7 @@ fn a_flagged_entry_keeps_a_finding_unselected_and_unremoved() {
     if common::unsupported("a_flagged_entry_keeps_a_finding_unselected_and_unremoved") {
         return;
     }
+    use common::fakes::Flagged;
     use ddc_core::scan::reader::{SF_IMMUTABLE, UF_APPEND, UF_IMMUTABLE};
     let fx = Fx::new();
     let file = fx.node_project("a");
