@@ -660,8 +660,7 @@ fn act(
             return Outcome::Skipped(SkipReason::ChangedSinceScan);
         }
         match fb {
-            Fallback::Delete => delete::remove(v, path, false),
-            Fallback::DeleteWritable => delete::remove(v, path, true),
+            Fallback::Delete | Fallback::DeleteWritable => delete::remove(v, path),
             Fallback::Trash => trash(ports, v, path, item.finding.bytes, place),
             Fallback::Skip => Outcome::Skipped(SkipReason::ToolNotReady {
                 program: program.to_owned(),
@@ -670,7 +669,7 @@ fn act(
         }
     };
     match item.action {
-        Action::Delete { make_writable } => delete::remove(v, path, make_writable),
+        Action::Delete { .. } => delete::remove(v, path),
         Action::Trash | Action::TrashEntry => trash(ports, v, path, item.finding.bytes, place),
         Action::Native { cmd, fallback: fb } => {
             // A long clean reaches this item minutes after the guard's snapshot,

@@ -343,6 +343,106 @@ pub(super) fn stat_child(dir: &OwnedFd, name: &OsStr) -> Result<EntryStat, Errno
     })
 }
 
+/// One folder of a tree being removed ([`remove_tree`]).
+struct Doomed {
+    fd: OwnedFd,
+    /// Its name in the folder above.
+    name: rustix::ffi::CString,
+    dev: u64,
+    mnt_id: Option<u64>,
+    /// What is left to remove in it.
+    left: Vec<(rustix::ffi::CString, FileType)>,
+}
+
+/// Removes the folder `name` of `dir` and everything in it, through
+/// descriptors, never by path (safety ADR §5, amendment of 2026-11-04,
+/// "removal never crosses a mount"). Each folder opens from its parent's
+/// descriptor beneath it, never through a symlink or across a mount
+/// (`openat2`, or `openat` with `O_NOFOLLOW` where the kernel has none),
+/// and its `statx` must give its parent's device and mount id: a mount
+/// root, another mount, or a btrfs subvolume or ZFS dataset made inside
+/// since the guard's check, stops the removal with an error, and what lies
+/// beyond stays. So does running out of descriptors, one open per level. A
+/// folder of the user's own is made `u+rwx` on its own descriptor before
+/// anything in it is removed (Go's module cache is read-only).
+pub(super) fn remove_tree(dir: &OwnedFd, name: &OsStr) -> std::io::Result<()> {
+    let me = crate::platform::procs::uid();
+    let top = stat(dir, c"", AtFlags::EMPTY_PATH, false)?;
+    let parent = (top.dev, mount_id(dir, top.mnt_id));
+    let name = rustix::ffi::CString::new(name.as_bytes()).map_err(|_| std::io::ErrorKind::InvalidInput)?;
+    let mut stack = vec![doomed(dir, name, parent, me)?];
+    while let Some(last) = stack.last_mut() {
+        match last.left.pop() {
+            Some((child, kind)) => {
+                let kind = if kind == FileType::Unknown {
+                    FileType::from_raw_mode(
+                        retry(|| rustix::fs::statat(&last.fd, &child, AtFlags::SYMLINK_NOFOLLOW))?.st_mode,
+                    )
+                } else {
+                    kind
+                };
+                if kind == FileType::Directory {
+                    let next = doomed(&last.fd, child, (last.dev, last.mnt_id), me)?;
+                    stack.push(next);
+                } else {
+                    retry(|| rustix::fs::unlinkat(&last.fd, &child, AtFlags::empty()))?;
+                }
+            }
+            None => {
+                let Doomed { fd, name, .. } = stack.pop().expect("the last level");
+                drop(fd);
+                let above = stack.last().map_or(dir, |l| &l.fd);
+                retry(|| rustix::fs::unlinkat(above, &name, AtFlags::REMOVEDIR))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The folder `name` of `parent`, opened for [`remove_tree`] and listed, or
+/// why it must not be entered.
+fn doomed(
+    parent: &OwnedFd,
+    name: rustix::ffi::CString,
+    (dev, mnt_id): (u64, Option<u64>),
+    me: u32,
+) -> std::io::Result<Doomed> {
+    let other = || std::io::Error::other(format!("another filesystem at {}, left in place", name.to_string_lossy()));
+    let fd = match openat2(parent, &name) {
+        Err(Errno::NOSYS | Errno::PERM) => retry(|| {
+            rustix::fs::openat(
+                parent,
+                &name,
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+        })?,
+        Err(Errno::XDEV) => return Err(other()),
+        done => done?,
+    };
+    let st = stat(&fd, c"", AtFlags::EMPTY_PATH, false)?;
+    let id = mount_id(&fd, st.mnt_id);
+    if st.dev != dev || st.mount_root == Some(true) || matches!((id, mnt_id), (Some(a), Some(b)) if a != b) {
+        return Err(other());
+    }
+    // Another user's folder is never changed (safety ADR, amendment of 2026-10-31).
+    if st.uid == me {
+        let mode = retry(|| rustix::fs::fstat(&fd))?.st_mode;
+        if mode & 0o700 != 0o700 {
+            retry(|| rustix::fs::fchmod(&fd, Mode::from_raw_mode((mode & 0o7777) | 0o700)))?;
+        }
+    }
+    let mut left = Vec::new();
+    for entry in rustix::fs::Dir::read_from(&fd)? {
+        let entry = entry?;
+        let child = entry.file_name();
+        if child != c"." && child != c".." {
+            left.push((child.to_owned(), entry.file_type()));
+        }
+    }
+    Ok(Doomed { fd, name, dev: st.dev, mnt_id: id, left })
+}
+
 fn openat2(dir: &OwnedFd, rel: &CStr) -> Result<OwnedFd, Errno> {
     retry(|| {
         rustix::fs::openat2(

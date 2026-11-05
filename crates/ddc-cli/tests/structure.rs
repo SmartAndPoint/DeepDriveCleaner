@@ -497,6 +497,29 @@ fn keep_remove_unlinks_only_its_marker() {
     assert_eq!(calls, [("ddc-core/src/keep.rs".to_owned(), "KEEP_MARKER.as_ref()".to_owned())]);
 }
 
+/// A tree is removed in one place: `DirFd::remove_tree`, through
+/// descriptors, has one caller in every crate's sources, the executor's
+/// tombstone removal (safety ADR §5, amendment of 2026-11-04, "removal
+/// never crosses a mount").
+#[test]
+fn only_the_tombstone_removal_removes_a_tree() {
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut calls = Vec::new();
+    for name in ["ddc-cli", "ddc-core", "ddc-loadgen"] {
+        let src = crates.join(name).join("src");
+        let platform = src.join("platform");
+        for path in rust_files(&src).into_iter().filter(|p| !p.starts_with(&platform)) {
+            let text = code(&path);
+            let shipped = text.split("#[cfg(test)]\nmod tests {").next().unwrap();
+            for args in arguments(shipped, "remove_tree(") {
+                let rel = path.strip_prefix(&crates).unwrap().to_string_lossy().replace('\\', "/");
+                calls.push((rel, args.to_owned()));
+            }
+        }
+    }
+    assert_eq!(calls, [("ddc-core/src/exec/delete.rs".to_owned(), "&tomb, &tomb_path".to_owned())]);
+}
+
 /// No source enables a privilege (story "Windows scanner and rule catalog",
 /// step 7): with the backup, restore or take-ownership privilege enabled, an
 /// elevated token would pass every ACL. Only the Windows token module calls
