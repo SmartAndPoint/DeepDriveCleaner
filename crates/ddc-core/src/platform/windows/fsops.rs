@@ -470,7 +470,7 @@ fn folders_writable(root: &Path) {
         }
         let mut perms = md.permissions();
         if perms.readonly() {
-            perms.set_readonly(false);
+            super::meta::add_owner_rwx(&mut perms);
             let _ = std::fs::set_permissions(&dir, perms);
         }
         if let Ok(rd) = crate::stats::read_dir(&dir) {
