@@ -1,9 +1,9 @@
 //! Deletion through a tombstone: rename first (one operation, through the
-//! verified parent descriptor), then remove. An interrupted removal leaves a
-//! `*.ddc-deleting-*` directory that the next scan finds as `ddc.tombstone`.
+//! verified parent descriptor), then remove through descriptors, never by
+//! path. An interrupted or stopped removal leaves a `*.ddc-deleting-*`
+//! directory that the next scan finds as `ddc.tombstone`.
 
 use std::ffi::{OsStr, OsString};
-use std::fs;
 use std::io;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -16,7 +16,10 @@ use crate::platform::types::HeldOpen;
 /// units (NTFS, exFAT). A shorter limit (eCryptfs) is found by the retry.
 const NAME_MAX: usize = 255;
 
-pub(super) fn remove(v: &Verified, path: &Path, make_writable: bool) -> Outcome {
+/// Removes the verified folder: every folder of the user's own inside is
+/// made writable on its way out, so a read-only tree (Go's module cache)
+/// needs no flag of its own.
+pub(super) fn remove(v: &Verified, path: &Path) -> Outcome {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or_default();
     let suffix = format!(".ddc-deleting-{stamp}-{}", std::process::id());
     if !v.unchanged() {
@@ -39,16 +42,11 @@ pub(super) fn remove(v: &Verified, path: &Path, make_writable: bool) -> Outcome 
         }
     }
     let tomb_path = path.with_file_name(&tomb);
-    let mut result = remove_tree(&tomb_path);
-    if let Err(e) = &result
-        && (make_writable || e.kind() == io::ErrorKind::PermissionDenied)
-    {
-        make_dirs_writable(&tomb_path);
-        // FAT and exFAT on Windows: a read-only file refuses std's delete.
-        let _ = crate::platform::fsops::clear_read_only(&tomb_path);
-        result = remove_tree(&tomb_path);
-    }
-    match result {
+    // Through the verified parent's descriptor, never crossing a mount, a
+    // bind mount or a btrfs subvolume made inside since the guard's check
+    // (safety ADR §5, amendment of 2026-11-04). A removal that stops keeps
+    // its tombstone, never renamed back.
+    match v.parent.remove_tree(&tomb, &tomb_path) {
         Ok(()) => Outcome::Deleted,
         Err(e) => Outcome::Failed { error: format!("{e} (left as {})", tomb_path.display()) },
     }
@@ -103,35 +101,10 @@ fn rename_failed(e: &io::Error) -> Outcome {
     Outcome::Failed { error: format!("rename to tombstone: {e}") }
 }
 
-#[allow(clippy::disallowed_methods)] // the one place that deletes directory trees
-fn remove_tree(path: &Path) -> io::Result<()> {
-    // Does not follow symlinks (openat/unlinkat since Rust 1.58.1, CVE-2022-21658).
-    fs::remove_dir_all(path)
-}
-
-/// Adds `u+rwx` to every real directory below `root` (Go's module cache is read-only).
-fn make_dirs_writable(root: &Path) {
-    let me = crate::platform::procs::uid();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(md) = fs::symlink_metadata(&dir) else { continue };
-        // Another user's folder is never changed (safety ADR, amendment of 2026-10-31).
-        if !md.is_dir() || crate::platform::meta::owner(&md).is_some_and(|u| u != me) {
-            continue;
-        }
-        let mut perms = md.permissions();
-        crate::platform::meta::add_owner_rwx(&mut perms);
-        let _ = fs::set_permissions(&dir, perms);
-        if let Ok(rd) = crate::stats::read_dir(&dir) {
-            stack.extend(
-                rd.filter_map(Result::ok).filter(|e| e.file_type().is_ok_and(|t| t.is_dir())).map(|e| e.path()),
-            );
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use crate::exec::SkipReason;
     use crate::platform::fsops::DirFd;
@@ -180,7 +153,7 @@ mod tests {
         fs::rename(dir.path().join("cache"), dir.path().join("moved")).unwrap();
         fs::create_dir_all(dir.path().join("cache/new")).unwrap();
 
-        let out = remove(&v, &dir.path().join("cache"), false);
+        let out = remove(&v, &dir.path().join("cache"));
 
         assert_eq!(out, Outcome::Skipped(SkipReason::ChangedSinceScan));
         assert!(dir.path().join("cache/new").is_dir());

@@ -388,3 +388,30 @@ fn findings_holding_a_flag_only_root_sets_are_listed_and_refused_through_items()
     let item = r.items.iter().find(|i| i.path == plain).expect("listed");
     assert_eq!(item.outcome, Outcome::Deleted);
 }
+
+/// A tombstone that another filesystem was mounted into after the guard's
+/// check (a tmpfs, a bind mount, a btrfs subvolume of the user's): the
+/// removal through descriptors stops there with an error, and the mount,
+/// the bound folder and the subvolume keep what they hold (safety ADR §5,
+/// amendment of 2026-11-04, "removal never crosses a mount").
+#[test]
+fn a_removal_never_crosses_a_mount_made_inside_a_tombstone() {
+    use ddc_core::platform::fsops::DirFd;
+    let test = "a_removal_never_crosses_a_mount_made_inside_a_tombstone";
+    let (Some(mounts), Some(btrfs)) =
+        (common::prepared(test, Prepared::TombMounts), common::prepared(test, Prepared::TombSubvolume))
+    else {
+        return;
+    };
+    for (parent, name, keep) in [
+        (&mounts, "tmpfs.ddc-deleting-1-1", "mnt/keep"),
+        (&mounts, "bind.ddc-deleting-1-1", "mnt/keep"),
+        (&btrfs, "subvolume.ddc-deleting-1-1", "sub/keep"),
+    ] {
+        let tomb = parent.join(name);
+        let err = DirFd::open(parent).unwrap().remove_tree(name.as_ref(), &tomb).unwrap_err();
+        assert!(err.to_string().contains("another filesystem"), "{name}: {err}");
+        assert!(tomb.join(keep).exists(), "{name}: what lies beyond was removed");
+    }
+    assert!(mounts.join("bind-source/keep").exists());
+}

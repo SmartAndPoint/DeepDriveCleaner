@@ -247,6 +247,13 @@ pub enum Prepared {
     /// `chattr +i` file, `p2`'s a `chattr +a` file, `p3`'s a `chattr +i`
     /// folder, `p4`'s is `chattr +i` itself, and `p5`'s holds none.
     ImmutableTree,
+    /// Two tombstones of the user's, `tmpfs.ddc-deleting-1-1` and
+    /// `bind.ddc-deleting-1-1`, each holding `a.txt` and a mount at `mnt`
+    /// (a tmpfs, a bind mount of `bind-source`) with a file `keep`.
+    TombMounts,
+    /// A btrfs mount holding the tombstone `subvolume.ddc-deleting-1-1`,
+    /// with `a.txt` and a subvolume of the user's at `sub` holding `keep`.
+    TombSubvolume,
 }
 
 impl Prepared {
@@ -258,6 +265,8 @@ impl Prepared {
             Prepared::DeviceTree => "DDC_FIXTURE_DEVICE_TREE",
             Prepared::DeviceTrash => "DDC_FIXTURE_DEVICE_TRASH",
             Prepared::ImmutableTree => "DDC_FIXTURE_IMMUTABLE_TREE",
+            Prepared::TombMounts => "DDC_FIXTURE_TOMB_MOUNTS",
+            Prepared::TombSubvolume => "DDC_FIXTURE_TOMB_SUBVOLUME",
         }
     }
 
@@ -269,6 +278,8 @@ impl Prepared {
             Prepared::DeviceTree => "device tree",
             Prepared::DeviceTrash => "device trash",
             Prepared::ImmutableTree => "immutable tree",
+            Prepared::TombMounts => "tomb mounts",
+            Prepared::TombSubvolume => "tomb subvolume",
         }
     }
 }

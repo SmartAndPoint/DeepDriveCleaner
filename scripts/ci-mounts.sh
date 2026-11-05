@@ -315,6 +315,25 @@ sudo -n chattr +i "$d/p3/node_modules/dep"
 sudo -n chattr +i "$d/p4/node_modules"
 say DDC_FIXTURE_IMMUTABLE_TREE "$d"
 
+# Tombstones with another filesystem inside, as one made inside a finding after the guard's
+# check leaves it (same story, PR 4): a tmpfs, a bind mount and a btrfs subvolume of the
+# user's. The removal through descriptors stops at each and leaves what is beyond.
+d="$base/fixtures/tomb-mounts"
+mkdir -p "$d/tmpfs.ddc-deleting-1-1/mnt" "$d/bind.ddc-deleting-1-1/mnt" "$d/bind-source"
+echo data >"$d/tmpfs.ddc-deleting-1-1/a.txt"
+echo data >"$d/bind.ddc-deleting-1-1/a.txt"
+sudo -n mount -t tmpfs -o "size=1m,uid=$uid,gid=$gid,mode=0755" tmpfs "$d/tmpfs.ddc-deleting-1-1/mnt"
+echo keep >"$d/tmpfs.ddc-deleting-1-1/mnt/keep"
+echo keep >"$d/bind-source/keep"
+sudo -n mount --bind "$d/bind-source" "$d/bind.ddc-deleting-1-1/mnt"
+loop btrfs-tomb 300 mkfs.btrfs -q
+mkdir -p "$base/btrfs-tomb/subvolume.ddc-deleting-1-1"
+echo data >"$base/btrfs-tomb/subvolume.ddc-deleting-1-1/a.txt"
+btrfs subvolume create "$base/btrfs-tomb/subvolume.ddc-deleting-1-1/sub" >/dev/null
+echo keep >"$base/btrfs-tomb/subvolume.ddc-deleting-1-1/sub/keep"
+say DDC_FIXTURE_TOMB_MOUNTS "$d"
+say DDC_FIXTURE_TOMB_SUBVOLUME "$base/btrfs-tomb"
+
 # What a delete frees where the filesystem compresses (story "btrfs and ZFS on Linux:
 # subvolumes, datasets, snapshots and stable identities", DDC-010). 16 MiB is written
 # twice, as text that compresses well and as random bytes that do not, in a btrfs folder

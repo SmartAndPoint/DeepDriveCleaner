@@ -570,6 +570,53 @@ fn a_probe_that_times_out_skips_and_a_cancel_during_it_runs_no_prune() {
     assert_eq!(commands.calls.borrow().len(), 1, "no prune command: {:?}", commands.calls.borrow());
 }
 
+/// A symlink inside a finding goes with it and is never followed: what it
+/// points to stays (safety ADR §5, amendment of 2026-11-04, "removal never
+/// crosses a mount").
+#[cfg(unix)]
+#[test]
+fn a_symlink_inside_a_deleted_finding_is_unlinked_never_followed() {
+    if common::unsupported("a_symlink_inside_a_deleted_finding_is_unlinked_never_followed") {
+        return;
+    }
+    let fx = Fx::new();
+    let nm = fx.node_project("p");
+    let keep = fx.t.file("elsewhere/keep.txt", 100);
+    common::symlink(fx.t.path("elsewhere"), nm.join("dep/link"));
+    let plan = fx.plan();
+
+    let (r, _) = fx.run_yes(&plan);
+
+    assert_eq!(outcome(&r, &nm), &Outcome::Deleted);
+    assert!(!nm.exists() && keep.exists());
+}
+
+/// A folder inside a finding that cannot be opened, closed after the plan:
+/// the removal stops there, and the item is `failed`, naming the tombstone,
+/// which stays as the next scan's `ddc.tombstone`.
+#[cfg(unix)]
+#[test]
+fn a_folder_closed_after_the_plan_stops_the_removal_and_keeps_the_tombstone() {
+    if common::unsupported("a_folder_closed_after_the_plan_stops_the_removal_and_keeps_the_tombstone") {
+        return;
+    }
+    let fx = Fx::new();
+    let nm = fx.node_project("p");
+    fx.t.file("p/node_modules/closed/f.js", 100);
+    let plan = fx.plan();
+    common::set_mode(&fx.t.path("p/node_modules/closed"), 0o000);
+
+    let (r, _) = fx.run_yes(&plan);
+
+    let tomb = fs::read_dir(fx.t.path("p"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.to_string_lossy().contains(".ddc-deleting-"))
+        .expect("the tombstone stays");
+    assert!(matches!(outcome(&r, &nm), Outcome::Failed { error } if error.contains(&*tomb.to_string_lossy())));
+    common::set_mode(&tomb.join("closed"), 0o700);
+}
+
 #[test]
 fn read_only_trees_are_deleted() {
     if common::unsupported("read_only_trees_are_deleted") {

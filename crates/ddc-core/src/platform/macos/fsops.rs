@@ -209,6 +209,63 @@ impl DirFd {
         Ok(())
     }
 
+    /// Removes the folder `name` of this directory and everything in it,
+    /// through descriptors, never by path (safety ADR §5, amendment of
+    /// 2026-11-04, "removal never crosses a mount"). Each folder opens from
+    /// its parent's descriptor (`openat` with `O_NOFOLLOW | O_DIRECTORY`),
+    /// and its `fstat` must give its parent's device: a volume mounted
+    /// inside since the guard's check stops the removal with an error, and
+    /// what lies beyond stays. So does running out of descriptors, one open
+    /// per level. A folder of the user's own is made `u+rwx` on its own
+    /// descriptor before anything in it is removed (Go's module cache is
+    /// read-only). `path` names it in an error alone. Only `exec::delete`
+    /// calls it.
+    pub fn remove_tree(&self, name: &OsStr, _path: &Path) -> io::Result<()> {
+        let me = crate::platform::procs::uid();
+        let dev = self.identity()?.0;
+        let mut stack = vec![doomed(self.0, cstring(name.as_bytes())?, dev, me)?];
+        while let Some(last) = stack.last_mut() {
+            match last.left.pop() {
+                Some((child, is_dir)) => {
+                    let is_dir = match is_dir {
+                        Some(is_dir) => is_dir,
+                        None => {
+                            let mut st = MaybeUninit::<libc::stat>::zeroed();
+                            // SAFETY: open fd, NUL-terminated name, valid out-pointer.
+                            if unsafe {
+                                libc::fstatat(last.fd.0, child.as_ptr(), st.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW)
+                            } != 0
+                            {
+                                return Err(io::Error::last_os_error());
+                            }
+                            // SAFETY: fstatat succeeded.
+                            unsafe { st.assume_init() }.st_mode & libc::S_IFMT == libc::S_IFDIR
+                        }
+                    };
+                    if is_dir {
+                        let next = doomed(last.fd.0, child, last.dev, me)?;
+                        stack.push(next);
+                    } else {
+                        // SAFETY: open fd, NUL-terminated name.
+                        if unsafe { libc::unlinkat(last.fd.0, child.as_ptr(), 0) } != 0 {
+                            return Err(io::Error::last_os_error());
+                        }
+                    }
+                }
+                None => {
+                    let Doomed { fd, name, .. } = stack.pop().expect("the last level");
+                    drop(fd);
+                    let above = stack.last().map_or(self.0, |l| l.fd.0);
+                    // SAFETY: open fd, NUL-terminated name.
+                    if unsafe { libc::unlinkat(above, name.as_ptr(), libc::AT_REMOVEDIR) } != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Unlinks the child `name` of this directory (`unlinkat` without
     /// `AT_REMOVEDIR`, so never a folder). The only removal outside the
     /// executor: `ddc keep remove` calls it once, for `.ddc-keep`, after
@@ -222,4 +279,89 @@ impl DirFd {
         }
         Ok(())
     }
+}
+
+/// One folder of a tree being removed ([`DirFd::remove_tree`]).
+struct Doomed {
+    fd: DirFd,
+    /// Its name in the folder above.
+    name: CString,
+    dev: u64,
+    /// What is left to remove in it, each with whether it is a folder
+    /// (`None`: `DT_UNKNOWN`, to be `fstatat`ed).
+    left: Vec<(CString, Option<bool>)>,
+}
+
+/// The folder `name` of `parent`, opened for [`DirFd::remove_tree`] and
+/// listed, or why it must not be entered.
+fn doomed(parent: c_int, name: CString, dev: u64, me: u32) -> io::Result<Doomed> {
+    // SAFETY: open fd, NUL-terminated name.
+    let raw = unsafe {
+        libc::openat(parent, name.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+    };
+    if raw < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let fd = DirFd(raw);
+    let mut st = MaybeUninit::<libc::stat>::zeroed();
+    // SAFETY: open fd, valid out-pointer.
+    if unsafe { libc::fstat(fd.0, st.as_mut_ptr()) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: fstat succeeded.
+    let st = unsafe { st.assume_init() };
+    if st.st_dev as u64 != dev {
+        return Err(io::Error::other(format!("another volume at {}, left in place", name.to_string_lossy())));
+    }
+    // Another user's folder is never changed (safety ADR, amendment of 2026-10-31).
+    if st.st_uid == me && st.st_mode & 0o700 != 0o700 {
+        // SAFETY: open fd.
+        if unsafe { libc::fchmod(fd.0, (st.st_mode & 0o7777) | 0o700) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(Doomed { left: list(&fd)?, fd, name, dev })
+}
+
+/// The names in the open folder `fd`, `.` and `..` left out, each with
+/// whether it is a folder where `d_type` tells.
+fn list(fd: &DirFd) -> io::Result<Vec<(CString, Option<bool>)>> {
+    // `fdopendir` takes the descriptor it is given: a duplicate, closed with it.
+    // SAFETY: open fd.
+    let dup = unsafe { libc::dup(fd.0) };
+    if dup < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `dup` is an open descriptor this call now owns.
+    let dir = unsafe { libc::fdopendir(dup) };
+    if dir.is_null() {
+        let e = io::Error::last_os_error();
+        // SAFETY: `fdopendir` failed, so `dup` is still ours to close.
+        unsafe { libc::close(dup) };
+        return Err(e);
+    }
+    let mut out = Vec::new();
+    let result = loop {
+        // SAFETY: errno is this thread's; `readdir` sets it only on an error.
+        unsafe { *libc::__error() = 0 };
+        // SAFETY: `dir` is an open stream.
+        let entry = unsafe { libc::readdir(dir) };
+        if entry.is_null() {
+            // SAFETY: as above.
+            let errno = unsafe { *libc::__error() };
+            break if errno == 0 { Ok(()) } else { Err(io::Error::from_raw_os_error(errno)) };
+        }
+        // SAFETY: `readdir` returned an entry, valid until the next call.
+        let (name, kind) = unsafe { (std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()), (*entry).d_type) };
+        if name.to_bytes() != b"." && name.to_bytes() != b".." {
+            let is_dir = match kind {
+                libc::DT_UNKNOWN => None,
+                kind => Some(kind == libc::DT_DIR),
+            };
+            out.push((name.to_owned(), is_dir));
+        }
+    };
+    // SAFETY: `dir` is open and closed once, with its descriptor.
+    unsafe { libc::closedir(dir) };
+    result.map(|()| out)
 }

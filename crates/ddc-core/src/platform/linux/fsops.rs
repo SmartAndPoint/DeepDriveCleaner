@@ -127,6 +127,13 @@ impl DirFd {
         }
     }
 
+    /// Removes the folder `name` of this directory and everything in it,
+    /// through descriptors, never crossing a mount ([`super::bulk::remove_tree`]).
+    /// `path` names it in an error alone. Only `exec::delete` calls it.
+    pub fn remove_tree(&self, name: &OsStr, _path: &Path) -> io::Result<()> {
+        super::bulk::remove_tree(&self.0, name)
+    }
+
     /// Unlinks the child `name` of this directory (`unlinkat` without
     /// `AT_REMOVEDIR`, so never a folder). The only removal outside the
     /// executor: `ddc keep remove` calls it once, for `.ddc-keep`, after

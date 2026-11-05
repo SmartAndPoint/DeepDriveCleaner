@@ -218,6 +218,20 @@ impl DirFd {
         }
     }
 
+    /// Removes the folder `name` of this directory and everything in it, by
+    /// `path`: std's removal opens each entry relative to its folder's
+    /// handle and never follows a link (safety ADR §5, amendment of
+    /// 2026-11-04: Windows keeps it). Where it fails, the read-only
+    /// attributes FAT and exFAT honour are cleared and it is tried again.
+    /// Only `exec::delete` calls it.
+    #[allow(clippy::disallowed_methods)] // the one place that deletes directory trees on Windows
+    pub fn remove_tree(&self, _name: &OsStr, path: &Path) -> io::Result<()> {
+        std::fs::remove_dir_all(path).or_else(|_| {
+            clear_read_only(path)?;
+            std::fs::remove_dir_all(path)
+        })
+    }
+
     /// Deletes the child `name` of this folder, which must not be a folder
     /// (`FILE_NON_DIRECTORY_FILE`). The only removal outside the executor:
     /// `ddc keep remove` calls it once, for `.ddc-keep`, after
