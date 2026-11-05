@@ -746,6 +746,69 @@ struct ContractTests {
         #expect((volume["properties"] as? [String: Any])?["read_at"] != nil)
     }
 
+    /// The keys `ChangesReport` reads of each object of the schema.
+    private static let changesKeysRead: [String: [String]] = [
+        "": ["schema_version", "status", "reason", "baseline", "current", "compared_roots", "disk", "home", "rest", "cleaned_since", "groups", "items", "grew"],
+        "Side": ["written_at", "written_by", "generated_at"],
+        "Disk": ["mount_point", "delta"],
+        "Home": ["compared", "reasons", "delta", "elsewhere"],
+        "Rest": ["delta", "not_read"],
+        "NotRead": ["path", "kind"],
+        "Cleaned": ["deleted", "trashed"],
+        "Group": ["group", "delta", "new", "grew", "moved", "by_harness"],
+        "HarnessDelta": ["harness", "delta", "count"],
+        "Item": ["path", "rule", "kind", "before", "now", "delta", "cleaned", "ignored", "approximate"],
+    ]
+
+    @Test("ddc changes: the version, the enums and the keys the app reads are the CLI's, and the fixtures are valid")
+    func changesContracts() throws {
+        let source = try rustSource("crates/ddc-core/src/changes/mod.rs")
+        let version = try #require(source.firstMatch(of: /pub const CHANGES_SCHEMA_VERSION: u32 = (\d+);/))
+        #expect(Int(version.1) == ChangesReport.schemaVersion)
+        let changes = try schema("changes")
+        #expect(Set(try values(changes, "Status")) == Set(ChangesReport.Status.allCases.map(\.rawValue)))
+        #expect(Set(try values(changes, "Reason")) == Set(ChangesReport.Reason.allCases.map(\.rawValue)))
+        #expect(Set(try values(changes, "ItemKind")) == Set(ChangesReport.ItemKind.allCases.map(\.rawValue)))
+        #expect(Set(try values(changes, "HomeReason")) == Set(ChangesReport.HomeReason.allCases.map(\.rawValue)))
+        #expect(Set(try values(changes, "NotReadKind")) == Set(ChangesReport.NotReadKind.allCases.map(\.rawValue)))
+        #expect(Set(try values(changes, "OriginHarness")) == Set(ChangesReport.Harness.allCases.map(\.rawValue)))
+        // Every key the app reads is in the schema's object of that name.
+        let defs = try #require(changes["$defs"] as? [String: Any])
+        for (name, keys) in Self.changesKeysRead {
+            let object = name.isEmpty ? changes : try #require(defs[name] as? [String: Any], "\(name)")
+            let properties = try #require(object["properties"] as? [String: Any], "\(name)")
+            for key in keys { #expect(properties[key] != nil, "\(name).\(key)") }
+        }
+        for name in ["changes-compared", "changes-not-compared"] {
+            let data = try Fixture.data(name)
+            #expect(try validate(JSONSerialization.jsonObject(with: data), against: changes) == [], "\(name)")
+            _ = try ChangesReport.read(data)
+        }
+        // A clean's baseline is named by these writers.
+        let writers = Set(try values(changes, "WrittenBy"))
+        #expect(writers.isSuperset(of: ["clean", "clean-items"]))
+        // The report gives the written_at a result is matched with.
+        let scan = try schema("scan")
+        #expect((scan["properties"] as? [String: Any])?["written_at"] != nil)
+    }
+
+    @Test("only the popover model runs ddc changes, from loadReport, and the band's link goes through it")
+    func changesCallers() throws {
+        let sources = try appSources()
+        func files(_ pattern: Regex<Substring>) -> Set<String> {
+            Set(sources.filter { $0.value.contains(pattern) }.map(\.key))
+        }
+        #expect(files(/run\(\s*\.changes\b/) == ["PopoverModel.swift"])
+        #expect(files(/"changes"/) == ["PopoverModel.swift"])
+        let model = try #require(sources["PopoverModel.swift"])
+        #expect(model.matches(of: /\.run\(\.changes\b/).count == 1, "one run of changes")
+        let load = try #require(model.firstMatch(of: /private func loadReport\(\) async \{[\s\S]*?\n    }\n/))
+        #expect(load.output.contains("await checkChanges()"))
+        let scan = try #require(model.firstMatch(of: /private func runScan\(_ runner: any CLIRunning\) async \{[\s\S]*?\n    }\n/))
+        #expect(scan.output.contains("await checkChanges()"), "the app's own scan asks too")
+        #expect(files(/\.seeWhatGrew\(/) == ["PopoverView.swift"])
+    }
+
     @Test("only the popover model runs ddc space; the app checks it on open and on wake, and the band's Scan Now follows canScan")
     func spaceCallers() throws {
         let sources = try appSources()

@@ -146,7 +146,13 @@ pub fn compare(
     let ignored_delta: i64 = items.iter().filter(|i| i.ignored && counts(i)).map(net).sum();
     let compared_delta: i64 = items.iter().filter(|i| counts(i)).map(|i| i.delta).sum();
     let home = home(baseline, current, &not_read_before, &not_read_now, ignored_delta, compared_delta);
-    let disk = disk(baseline, current, &roots);
+    let (disk, total) = disk(baseline, current, &roots).unzip();
+    // The rule of `ddc space` (ADR §6 item 13), on the two reports' in-use
+    // space: the app compares no threshold.
+    let grew = disk
+        .as_ref()
+        .zip(total)
+        .is_some_and(|(d, total)| i128::from(d.delta) >= i128::from(crate::space::grew_threshold(total)));
     let rest =
         Rest { delta: disk.as_ref().map(|d| d.delta - home.delta.unwrap_or(compared_delta)), not_read: not_read_now };
     ChangesReport {
@@ -162,6 +168,7 @@ pub fn compare(
         cleaned_since: Some(cleaned_since),
         groups,
         items,
+        grew,
     }
 }
 
@@ -467,8 +474,8 @@ fn cut(report: &ScanReport) -> bool {
 }
 
 /// The home folder's volume in both reports: the one whose roots hold the
-/// home, else the one of the compared roots.
-fn disk(baseline: &ScanReport, current: &ScanReport, roots: &[PathBuf]) -> Option<Disk> {
+/// home, else the one of the compared roots; with its current total.
+fn disk(baseline: &ScanReport, current: &ScanReport, roots: &[PathBuf]) -> Option<(Disk, u64)> {
     let home = &current.home;
     let now = current
         .volumes
@@ -477,12 +484,13 @@ fn disk(baseline: &ScanReport, current: &ScanReport, roots: &[PathBuf]) -> Optio
         .or_else(|| current.volumes.iter().find(|v| v.roots.iter().any(|r| roots.contains(r))))?;
     let before = baseline.volumes.iter().find(|v| v.mount_point == now.mount_point)?;
     let in_use = |v: &crate::model::Volume| v.total_bytes.saturating_sub(v.free_bytes);
-    Some(Disk {
+    let disk = Disk {
         mount_point: now.mount_point.clone(),
         before_in_use: in_use(before),
         now_in_use: in_use(now),
         delta: in_use(now) as i64 - in_use(before) as i64,
         before_at: before.read_at.clone().unwrap_or_else(|| baseline.generated_at.clone()),
         now_at: now.read_at.clone().unwrap_or_else(|| current.generated_at.clone()),
-    })
+    };
+    Some((disk, now.total_bytes))
 }

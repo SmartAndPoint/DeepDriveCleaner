@@ -92,6 +92,10 @@ public final class PopoverModel {
     /// The last `space --json` result; nil before the first, and dropped as
     /// soon as a reloaded report gives the volume another baseline.
     public private(set) var space: SpaceReport?
+    /// The last `changes --json` result (story "Popover and Review: what grew
+    /// since the earlier scan"); used only while it belongs to the loaded
+    /// report (`attributedChanges`).
+    public private(set) var changes: ChangesReport?
     public private(set) var showSize = true
     public private(set) var showBadge = true
     /// The prompting areas the app's last own scan could not read (`NotReadable`).
@@ -121,6 +125,9 @@ public final class PopoverModel {
     @ObservationIgnored private var spaceTask: Task<Void, Never>?
     /// When the last growth check ran, by the injected clock.
     @ObservationIgnored private var lastSpaceCheck: Date?
+    /// The loaded report's `written_at` that `changes` last ran for: once
+    /// per report, and not again after a failure for it.
+    @ObservationIgnored private var changesAskedFor: String?
     /// The popover is on screen: a result whose band it shows needs no badge.
     @ObservationIgnored private var popoverShown = false
     /// A notice's button: the app runs it (Allow Notifications, Replace It).
@@ -250,7 +257,18 @@ public final class PopoverModel {
     /// result compared with the report the popover shows: its baseline is the
     /// loaded report's for that volume, or null with no report that lists it.
     /// None while a scan runs, before the first result, and for `quiet`.
+    ///
+    /// When it has nothing to say, the attributed band of the story "Popover
+    /// and Review: what grew since the earlier scan" may: where the growth
+    /// between the last two scans went. Low disk and the signal win over it.
     public var growthBand: GrowthBand? {
+        if let spaceBand { return spaceBand }
+        guard scan == nil, let changes = attributedChanges, let report = loadedReport else { return nil }
+        return GrowthBand.attributed(changes, roots: report.scanRoots, home: report.home, now: now)
+    }
+
+    /// The `space` result's band alone: what the growth badge looks at.
+    private var spaceBand: GrowthBand? {
         guard scan == nil, let space else { return nil }
         switch report {
         case .loaded, .none: break
@@ -258,6 +276,15 @@ public final class PopoverModel {
         }
         guard GrowthBadge.Key(report: loadedReport, mountPoint: space.volume.mountPoint) == GrowthBadge.Key(space) else { return nil }
         return GrowthBand.make(space, now: now, paused: paused, canScan: canScan)
+    }
+
+    /// The `changes` result while it compared the loaded report: its
+    /// `current.written_at` is the report's own. A report without one (before
+    /// 0.31) has none.
+    public var attributedChanges: ChangesReport? {
+        guard let changes, changes.status == .compared, let written = loadedReport?.writtenAt,
+              changes.current?.writtenAt == written else { return nil }
+        return changes
     }
 
     public var nextScanText: String { Wording.nextScan(nextScan(), now: now) }
@@ -420,6 +447,8 @@ public final class PopoverModel {
         let decoded = await Task.detached { Result { try ScanReport.read(Data(contentsOf: url)) } }.value
         reportModified = modified
         apply(decoded)
+        // Whatever loaded it: the launch, a refresh, a scan, a clean's reload.
+        await checkChanges()
     }
 
     private func loadRules() async {
@@ -579,6 +608,9 @@ public final class PopoverModel {
         reportModified = DataDirectory.modified(data.lastScan)
         if DataDirectory.modified(data.settings) != settingsModified { loadSettings() }
         apply(decoded)
+        // What grew since the report before it, so Scan Now and Scan Again
+        // show it at once (`loadReport()` does the same for any other load).
+        await checkChanges()
         // Only now: until the new report is shown, the scanning state stays,
         // never the state of the report before it.
         scan = nil
@@ -693,7 +725,7 @@ public final class PopoverModel {
         if let key = GrowthBadge.next(read, badgedFor: preferences.growthBadgedFor) {
             // Set whatever "Show a badge" says: `IconState` decides whether it shows.
             preferences.setGrowthBadge(for: key)
-            if popoverShown && growthBand != nil {
+            if popoverShown && spaceBand != nil {
                 // Seen in the open popover: recorded, not badged.
                 clearGrowthBadge()
             } else {
@@ -701,6 +733,35 @@ public final class PopoverModel {
                 log("growth badge set: \(read.state.rawValue)")
             }
         }
+    }
+
+    // MARK: - What grew ("Popover and Review: what grew since the earlier scan")
+
+    /// `changes --json`, once per loaded report (its `written_at`), from
+    /// `loadReport()`: the band and the Review entry read it. Not while an
+    /// update waits to install: the relaunch waits for the runner.
+    func checkChanges() async {
+        guard let runner, !updateWaiting, let written = loadedReport?.writtenAt, written != changesAskedFor else { return }
+        changesAskedFor = written
+        let result = await runner.run(.changes, ["changes", "--json"], stderrLine: nil)
+        guard result.outcome == .done else {
+            log("changes --json failed: \(result.outcome); \(result.stderrTail.suffix(3).joined(separator: " | "))")
+            return
+        }
+        let stdout = result.stdout
+        // A few MB on a full home: decoded off the main actor.
+        switch await Task.detached(operation: { Result { try ChangesReport.read(stdout) } }).value {
+        case .success(let read):
+            changes = read
+        case .failure(let error):
+            log("changes --json did not read: \(error)")
+        }
+    }
+
+    /// The band's See What Grew or Where Did It Go?: the Review window's
+    /// "Grew since …" entry, an open window keeping the person's ticks.
+    public func seeWhatGrew(_ section: GrewSection) {
+        route(ReviewRequest(group: nil, classes: included, confirm: false, keepsSelection: true, grew: section))
     }
 
     private func clearGrowthBadge() {

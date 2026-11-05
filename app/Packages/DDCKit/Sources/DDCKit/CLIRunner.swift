@@ -24,7 +24,7 @@ extension CLIRunner: CLIRunning {}
 ///
 /// Every run but the lane kinds (`.disk`, `.diskAgents`, `.brewPackages`) goes through one queue and never overlaps another:
 /// two that take the ddc lock would make one fail as busy, and `rules`,
-/// `notify`, `schedule` and `space` are queued too. A scan requested while a scan is queued
+/// `notify`, `schedule`, `space` and `changes` are queued too. A scan requested while a scan is queued
 /// or running joins it and gets the same result (its own arguments and
 /// `stderrLine` are not used); anything else waits its turn, so a clean
 /// requested during a scan starts when the scan ends.
@@ -74,6 +74,11 @@ public actor CLIRunner {
         /// 2026-11-03): a millisecond read that takes no lock, queued like
         /// `rules`, with no lane.
         case space
+
+        /// `changes --json`, what grew between the last two scans (menu bar
+        /// ADR §6 item 15): it reads two reports and the journal, takes no
+        /// lock and writes nothing; queued like `space`, with no lane.
+        case changes
 
         /// Runs in a lane of its own, beside the queue.
         public var hasLane: Bool { self == .disk || self == .diskAgents || self == .brewPackages }

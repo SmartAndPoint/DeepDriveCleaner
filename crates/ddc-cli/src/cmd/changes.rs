@@ -386,6 +386,7 @@ mod tests {
                 },
             ],
             items,
+            grew: true,
         }
     }
 

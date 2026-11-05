@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "status": "compared",
+  "reason": null,
+  "baseline": {
+    "written_at": "2026-10-18T09:30:00Z",
+    "written_by": null,
+    "generated_at": "2026-10-18T09:29:40Z"
+  },
+  "current": {
+    "written_at": "2026-10-19T08:05:00Z",
+    "written_by": null,
+    "generated_at": "2026-10-19T08:04:55Z"
+  },
+  "compared_roots": [
+    "/Users/example"
+  ],
+  "disk": {
+    "mount_point": "/System/Volumes/Data",
+    "before_in_use": 955630223360,
+    "now_in_use": 1020054732800,
+    "delta": 64424509440,
+    "before_at": "2026-10-18T09:29:40Z",
+    "now_at": "2026-10-19T08:04:55Z"
+  },
+  "home": {
+    "compared": true,
+    "reasons": [],
+    "delta": 552256,
+    "ignored_delta": 0,
+    "elsewhere": 0
+  },
+  "rest": {
+    "delta": 64423957184,
+    "not_read": []
+  },
+  "cleaned_since": {
+    "deleted": 0,
+    "trashed": 0
+  },
+  "groups": [
+    {
+      "group": "Build outputs",
+      "delta": 352256,
+      "new": 1,
+      "grew": 0,
+      "shrank": 0,
+      "gone": 0,
+      "cleaned": 0,
+      "moved": 0,
+      "by_harness": []
+    },
+    {
+      "group": "node_modules",
+      "delta": 200000,
+      "new": 0,
+      "grew": 1,
+      "shrank": 0,
+      "gone": 0,
+      "cleaned": 0,
+      "moved": 0,
+      "by_harness": []
+    }
+  ],
+  "items": [
+    {
+      "path": "/Users/example/r1/target",
+      "rule": "rust.target",
+      "kind": "new",
+      "before": null,
+      "now": 352256,
+      "delta": 352256,
+      "cleaned": 0,
+      "ignored": false
+    },
+    {
+      "path": "/Users/example/p1/node_modules",
+      "rule": "node.node_modules",
+      "kind": "grew",
+      "before": 402112,
+      "now": 602112,
+      "delta": 200000,
+      "cleaned": 0,
+      "ignored": false
+    }
+  ],
+  "grew": true
+}

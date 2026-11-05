@@ -23,6 +23,9 @@ public struct ScanReport: Decodable, Sendable, Equatable {
     public let capabilities: [Capability]
     /// When the scan started (RFC 3339).
     public let generatedAt: String
+    /// When the CLI saved this report (0.31 and later); a clean's edit gives
+    /// it a new one. What a `changes --json` result names as its `current`.
+    public let writtenAt: String?
     public let durationMs: UInt64
     public let home: String
     public let scanRoots: [String]
@@ -47,7 +50,7 @@ public struct ScanReport: Decodable, Sendable, Equatable {
     public let notScanned: [String]
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, ddcVersion, platform, capabilities, generatedAt, durationMs, home, scanRoots, fullDiskAccess, volumes
+        case schemaVersion, ddcVersion, platform, capabilities, generatedAt, writtenAt, durationMs, home, scanRoots, fullDiskAccess, volumes
         case minAgeDays, totals, findings, inaccessible, errorsTotal, skipped, cancelled, notScanned
     }
 
@@ -58,6 +61,7 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         platform = try c.decode(Platform.self, forKey: .platform)
         capabilities = try c.decode([Capability].self, forKey: .capabilities)
         generatedAt = try c.decode(String.self, forKey: .generatedAt)
+        writtenAt = try c.decodeIfPresent(String.self, forKey: .writtenAt)
         durationMs = try c.decode(UInt64.self, forKey: .durationMs)
         home = try c.decode(String.self, forKey: .home)
         scanRoots = try c.decode([String].self, forKey: .scanRoots)
