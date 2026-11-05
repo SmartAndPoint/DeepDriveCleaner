@@ -524,6 +524,73 @@ fn a_keep_marker_in_another_case_keeps_the_item_in_the_dry_run_and_the_clean() {
     assert!(deep.exists() && above.exists());
 }
 
+/// A reader that reports an immutable or append-only flag on each entry
+/// named in `flagged`, as a kernel or `st_flags` would.
+struct Flagged {
+    flagged: &'static [(&'static str, u32)],
+}
+
+impl DirReader for Flagged {
+    fn read(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: Times,
+    ) -> Result<DirListing, ReadError> {
+        let mut listing = StdReader.read(dir, expect, want_private, times)?;
+        for e in &mut listing.entries {
+            if let Some((_, flag)) = self.flagged.iter().find(|(name, _)| e.name == *name) {
+                e.flags |= flag;
+            }
+        }
+        Ok(listing)
+    }
+}
+
+/// A file with an immutable flag, or a folder with an append-only one, set
+/// in a listed item after the review: the dry run's walk of the item reads
+/// the flag and predicts `immutable`, before any marker inside (safety ADR,
+/// amendment of 2026-11-04, "Linux file kinds").
+#[test]
+fn a_flag_set_inside_an_item_after_the_review_is_refused_by_the_dry_run() {
+    if common::unsupported("a_flag_set_inside_an_item_after_the_review_is_refused_by_the_dry_run") {
+        return;
+    }
+    use ddc_core::scan::reader::{UF_APPEND, UF_IMMUTABLE};
+    let fx = Fx::new();
+    let file = fx.pycache("a");
+    fx.t.file("a/__pycache__/sub/locked.pyc", 100);
+    let folder = fx.pycache("b");
+    fx.t.file("b/__pycache__/log/x.pyc", 100);
+    let plain = fx.pycache("c");
+    let reviewed = fx.scan();
+    fx.t.write("b/__pycache__/log/.ddc-keep", "");
+    let items: Vec<ListedItem> = [&file, &folder, &plain].iter().map(|p| listed(&reviewed, p)).collect();
+    let reader = Flagged { flagged: &[("locked.pyc", UF_IMMUTABLE), ("log", UF_APPEND)] };
+    let commands = FakeCommands::default();
+    let ports = PreflightPorts {
+        commands: &commands,
+        procs: &FakeProcs::new(vec![]),
+        reader: &reader,
+        trash: &common::fakes::AnyTrash,
+    };
+
+    let mut predicted = Vec::new();
+    preflight::preflight(&fx.env(), &fx.catalog(), &[], &[], &items, &ports, &mut |line| {
+        if let PreflightLine::Item(i) = line {
+            predicted.push(i.prediction.clone());
+        }
+        Ok(())
+    })
+    .unwrap();
+
+    let refused = Prediction::WouldSkip(SkipReason::Immutable);
+    assert_eq!(predicted[..2], [refused.clone(), refused]);
+    assert!(!matches!(predicted[2], Prediction::WouldSkip(_)), "an item without a flag: {:?}", predicted[2]);
+    assert!(file.exists() && folder.exists() && plain.exists());
+}
+
 /// Records every directory the walk opens, interleaved with the dry run's lines.
 struct Counting {
     events: Arc<Mutex<Vec<String>>>,

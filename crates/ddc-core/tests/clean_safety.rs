@@ -161,7 +161,7 @@ fn deletes_selected_items_and_journals_each() {
     assert_eq!(journal.0.len(), 2, "one journal line per action");
     let e = journal.0.iter().find(|e| e.path == nm).unwrap();
     // The journal's own version, not the scan report's (safety ADR, amendment of 2026-10-28).
-    assert_eq!((e.rule.as_str(), e.method, e.schema_version), ("node.node_modules", "delete", 11));
+    assert_eq!((e.rule.as_str(), e.method, e.schema_version), ("node.node_modules", "delete", 12));
     let line = serde_json::to_value(e).unwrap();
     assert_eq!(line["kind"], "item");
     for key in ["ts", "path", "dev", "ino", "rule", "class", "method", "bytes", "outcome"] {
@@ -591,33 +591,143 @@ fn read_only_trees_are_deleted() {
     assert!(!modcache.exists() && !nm.exists());
 }
 
+/// What an interrupted clean leaves, a tombstone beside the folder it
+/// was, is found again as `safe` (the name `exec::delete` gives it).
 #[test]
 fn interrupted_deletion_leaves_a_tombstone_found_as_safe() {
     if common::unsupported("interrupted_deletion_leaves_a_tombstone_found_as_safe") {
         return;
     }
     let fx = Fx::new();
-    let nm = fx.node_project("p");
+    fx.node_project("p");
+    fx.t.file("p/node_modules.ddc-deleting-1700000000000-42/dep/stuck.js", 100);
+    let tomb = fx.t.path("p/node_modules.ddc-deleting-1700000000000-42");
+
+    let rescan = fx.scan();
+
+    let f = rescan.findings.iter().find(|f| f.path == tomb).expect("tombstone is a finding");
+    assert_eq!((f.rule.as_str(), f.class), ("ddc.tombstone", RiskClass::Safe));
+}
+
+/// Clears what [`common::user_immutable`] set, however the test ends.
+struct Unlock(PathBuf);
+
+impl Drop for Unlock {
+    fn drop(&mut self) {
+        common::clear_user_immutable(&self.0);
+    }
+}
+
+/// A file its owner locked (`chflags uchg`) inside a finding, and a
+/// finding locked itself, after the plan was made: the scan lists each as
+/// `immutable` and never selects it, and the stale plan is refused before
+/// any rename, with nothing moved and no tombstone (safety ADR, amendment
+/// of 2026-11-04, "Linux file kinds"). macOS alone lets a user set a flag;
+/// Linux's are root's, in the CI mounts job.
+#[test]
+fn a_locked_file_or_folder_keeps_its_finding_out_of_a_plan_and_a_clean() {
+    if common::unsupported("a_locked_file_or_folder_keeps_its_finding_out_of_a_plan_and_a_clean") {
+        return;
+    }
+    let fx = Fx::new();
+    let inside = fx.node_project("p");
+    let itself = fx.node_project("q");
+    let plain = fx.node_project("r");
     let stuck = fx.t.file("p/node_modules/dep/stuck.js", 100);
-    if common::skipped_without("interrupted_deletion_leaves_a_tombstone_found_as_safe", common::user_immutable(&stuck))
-        .is_none()
+    let plan = fx.plan();
+    let _unlock = Unlock(fx.t.root().to_path_buf());
+    if common::skipped_without(
+        "a_locked_file_or_folder_keeps_its_finding_out_of_a_plan_and_a_clean",
+        common::user_immutable(&stuck),
+    )
+    .is_none()
     {
         return;
     }
-    let plan = fx.plan();
+    common::user_immutable(&itself).unwrap();
 
+    let scan = fx.scan();
+    for path in [&inside, &itself] {
+        let f = scan.findings.iter().find(|f| &f.path == path).expect("still a finding");
+        assert_eq!(f.not_selected, Some(ddc_core::model::NotSelected::Immutable), "{path:?}");
+        assert!(!f.selected);
+    }
     let (r, _) = fx.run_yes(&plan);
 
-    assert!(matches!(outcome(&r, &nm), Outcome::Failed { .. }));
-    let tomb = fs::read_dir(fx.t.path("p"))
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .find(|p| p.file_name().unwrap().to_string_lossy().contains(".ddc-deleting-"))
-        .expect("tombstone left behind");
-    let rescan = fx.scan();
-    let f = rescan.findings.iter().find(|f| f.path == tomb).expect("tombstone is a finding");
-    assert_eq!((f.rule.as_str(), f.class), ("ddc.tombstone", RiskClass::Safe));
-    common::clear_user_immutable(&tomb);
+    assert_eq!(outcome(&r, &inside), &Outcome::Skipped(SkipReason::Immutable), "found by the walk before the clean");
+    assert_eq!(outcome(&r, &itself), &Outcome::Skipped(SkipReason::Immutable), "the guard's own stat");
+    assert_eq!(outcome(&r, &plain), &Outcome::Deleted);
+    assert!(stuck.exists() && itself.join("dep/index.js").exists());
+    for project in ["p", "q"] {
+        let names: Vec<_> = fs::read_dir(fx.t.path(project)).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert!(!names.iter().any(|n| n.to_string_lossy().contains(".ddc-deleting-")), "{project}: {names:?}");
+    }
+}
+
+/// A reader that reports an immutable or append-only flag on each entry
+/// named in `flagged`, as a kernel or `st_flags` would.
+struct Flagged(&'static [(&'static str, u32)]);
+
+impl ddc_core::scan::DirReader for Flagged {
+    fn read(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: ddc_core::scan::Times,
+    ) -> Result<ddc_core::scan::DirListing, ddc_core::scan::ReadError> {
+        let mut listing = ddc_core::scan::StdReader.read(dir, expect, want_private, times)?;
+        for e in &mut listing.entries {
+            if let Some((_, flag)) = self.0.iter().find(|(name, _)| e.name == *name) {
+                e.flags |= flag;
+            }
+        }
+        Ok(listing)
+    }
+}
+
+/// An immutable file, an append-only folder, or a finding flagged itself,
+/// as any platform's reader reports it: listed `immutable`, never selected,
+/// and a plan that names it anyway is refused before any rename (safety
+/// ADR, amendment of 2026-11-04, "Linux file kinds").
+#[test]
+fn a_flagged_entry_keeps_a_finding_unselected_and_unremoved() {
+    if common::unsupported("a_flagged_entry_keeps_a_finding_unselected_and_unremoved") {
+        return;
+    }
+    use ddc_core::scan::reader::{SF_IMMUTABLE, UF_APPEND, UF_IMMUTABLE};
+    let fx = Fx::new();
+    let file = fx.node_project("a");
+    fx.t.file("a/node_modules/dep/locked.js", 100);
+    let folder = fx.node_project("b");
+    fx.t.file("b/node_modules/logs/out.log", 100);
+    let itself = fx.node_project("c");
+    let plain = fx.node_project("d");
+    let reader = Flagged(&[("locked.js", UF_IMMUTABLE), ("logs", UF_APPEND)]);
+    let opts = ScanOptions { walk: WalkOptions { threads: Some(2), ..Default::default() }, ..Default::default() };
+    let scan =
+        report::scan_with_reader(&fx.env(), &opts, &Progress::default(), &report::volumes::SystemStatFs, &reader)
+            .unwrap();
+    let not_selected = |path: &Path| scan.findings.iter().find(|f| f.path == path).unwrap().not_selected;
+    assert_eq!(not_selected(&file), Some(ddc_core::model::NotSelected::Immutable));
+    assert_eq!(not_selected(&folder), Some(ddc_core::model::NotSelected::Immutable));
+    assert_eq!(not_selected(&plain), None);
+    // The finding's own folder, as its parent lists it.
+    let own = Flagged(&[("node_modules", SF_IMMUTABLE)]);
+    let scan_own =
+        report::scan_with_reader(&fx.env(), &opts, &Progress::default(), &report::volumes::SystemStatFs, &own).unwrap();
+    let f = scan_own.findings.iter().find(|f| f.path == itself).unwrap();
+    assert_eq!(f.not_selected, Some(ddc_core::model::NotSelected::Immutable));
+
+    // A plan that names them anyway, confirmed by a person: refused, untouched.
+    let mut plan = fx.plan();
+    for item in plan.items.iter_mut().filter(|i| [&file, &folder].contains(&&i.finding.path)) {
+        item.finding.not_selected = Some(ddc_core::model::NotSelected::Immutable);
+    }
+    let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs::new(vec![]));
+    assert_eq!(outcome(&r, &file), &Outcome::Skipped(SkipReason::Immutable));
+    assert_eq!(outcome(&r, &folder), &Outcome::Skipped(SkipReason::Immutable));
+    assert!(file.join("dep/locked.js").exists() && folder.join("logs/out.log").exists());
 }
 
 struct Spawned(Child);

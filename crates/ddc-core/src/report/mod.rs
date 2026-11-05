@@ -408,6 +408,9 @@ fn finding(
     };
     // Another user's entries cannot be removed by this one: never planned.
     let not_selected = if c.owner.foreign > 0 { Some(NotSelected::ForeignOwner) } else { not_selected };
+    // Nor can an entry with an immutable or append-only flag, and a folder
+    // holding one would move to the Trash and never empty.
+    let not_selected = if c.owner.locked > 0 { Some(NotSelected::Immutable) } else { not_selected };
     let ignored = hidden(c.rule.id, c.owner.bytes, opts);
     Finding {
         path: c.owner.path.clone(),

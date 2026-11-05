@@ -243,6 +243,10 @@ pub enum Prepared {
     /// A folder of the user's on the user's own tmpfs holding a character
     /// device of theirs (`cache/null`), for a move into that tmpfs's Trash.
     DeviceTrash,
+    /// A home with five idle Node projects: `p1`'s `node_modules` holds a
+    /// `chattr +i` file, `p2`'s a `chattr +a` file, `p3`'s a `chattr +i`
+    /// folder, `p4`'s is `chattr +i` itself, and `p5`'s holds none.
+    ImmutableTree,
 }
 
 impl Prepared {
@@ -253,6 +257,7 @@ impl Prepared {
             Prepared::AppendOnly => "DDC_FIXTURE_APPEND_ONLY",
             Prepared::DeviceTree => "DDC_FIXTURE_DEVICE_TREE",
             Prepared::DeviceTrash => "DDC_FIXTURE_DEVICE_TRASH",
+            Prepared::ImmutableTree => "DDC_FIXTURE_IMMUTABLE_TREE",
         }
     }
 
@@ -263,6 +268,7 @@ impl Prepared {
             Prepared::AppendOnly => "append-only",
             Prepared::DeviceTree => "device tree",
             Prepared::DeviceTrash => "device trash",
+            Prepared::ImmutableTree => "immutable tree",
         }
     }
 }

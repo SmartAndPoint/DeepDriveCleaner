@@ -21,9 +21,9 @@ struct PopoverModelTests {
         let runner = FakeRunner(scan: report, blocks: true)
         await runner.reply(scanLines: [
             "ddc: warning: a folder could not be read",
-            #"{"schema_version":9,"event":"walk","step":"scan","files":45600,"dirs":900,"bytes":8192}"#,
-            #"{"schema_version":9,"event":"walk","step":"scan","files":1200,"dirs":80,"bytes":4096}"#,
-            #"{"schema_version":9,"event":"walk","step":"scan","files":99999,"dirs":1,"bytes":1}"#,
+            #"{"schema_version":10,"event":"walk","step":"scan","files":45600,"dirs":900,"bytes":8192}"#,
+            #"{"schema_version":10,"event":"walk","step":"scan","files":1200,"dirs":80,"bytes":4096}"#,
+            #"{"schema_version":10,"event":"walk","step":"scan","files":99999,"dirs":1,"bytes":1}"#,
         ])
         let model = try makeModel(runner: runner, data: data, defaults: defaults)
         await model.start()
@@ -372,7 +372,7 @@ struct PopoverModelTests {
         await model.scanNow()
         #expect(model.attention.isEmpty && model.iconState.mark == .none)
 
-        try data.write(lastScan: Data(#"{"schema_version": 9}"#.utf8))
+        try data.write(lastScan: Data(#"{"schema_version": 10}"#.utf8))
         try data.write(settings: #"{"schema_version": 1, "show_badge": true}"#)
         let unreadable = try makeModel(runner: FakeRunner(scan: FakeRunner.done(Data())), data: data, defaults: defaults)
         await unreadable.start()

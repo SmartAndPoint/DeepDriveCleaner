@@ -11,8 +11,8 @@ use std::time::Instant;
 use super::inodes::{Holder, InodeTable};
 use super::reader::EntryMeta;
 use super::reader::{
-    Anchor, Boundary, DirListing, DirReader, EntryKind, ReadError, ReadErrorKind, SF_DATALESS, StdReader, SystemReader,
-    Times,
+    Anchor, Boundary, DirListing, DirReader, EntryKind, LOCKED, ReadError, ReadErrorKind, SF_DATALESS, StdReader,
+    SystemReader, Times,
 };
 use super::{
     DirCtx, EntryResult, OwnerEntries, OwnerKind, OwnerResult, Post, Pre, Progress, ReaderKind, RootResult, SkipReason,
@@ -68,6 +68,10 @@ struct OwnerAcc {
     /// Entries inside, its own directory included, owned by another user
     /// (safety ADR, amendment of 2026-10-31).
     foreign: AtomicU64,
+    /// Entries inside, its own directory included, with an immutable or
+    /// append-only flag (safety ADR, amendment of 2026-11-04, "Linux file
+    /// kinds").
+    locked: AtomicU64,
 }
 
 /// A direct child of an owner that lists entries; deeper tasks inherit it,
@@ -80,6 +84,8 @@ struct EntryAcc {
     errors: AtomicU64,
     skipped: AtomicU64,
     other_fs: AtomicU64,
+    /// Entries inside it, itself included, with an immutable or append-only flag.
+    locked: AtomicU64,
 }
 
 struct RootAcc {
@@ -113,6 +119,8 @@ struct Shared<'a> {
     log: Mutex<Log>,
     unowned: AtomicU64,
     pruned: AtomicU64,
+    /// Entries below the roots with an immutable or append-only flag.
+    locked: AtomicU64,
     /// The scanning user, whose entries are not foreign.
     me: u32,
 }
@@ -131,6 +139,9 @@ struct Task {
     /// The directory's owner as its parent's listing reported it; `None`
     /// for a root and where the reader does not tell.
     uid: Option<u32>,
+    /// The directory's own flags as its parent's listing reported them
+    /// ([`LOCKED`] counts); 0 for a root, which is never cleaned.
+    flags: u32,
     /// The directory's own blocks as its parent's listing reported them (a
     /// root's from its stat): counted only when the directory cannot be
     /// read, as `du` still counts an unreadable folder itself. Once read,
@@ -197,6 +208,7 @@ pub fn walk_with_reader(
         log: Mutex::new(Log::default()),
         unowned: AtomicU64::new(0),
         pruned: AtomicU64::new(0),
+        locked: AtomicU64::new(0),
         me: crate::platform::procs::uid(),
     };
 
@@ -214,6 +226,7 @@ pub fn walk_with_reader(
                         owner: None,
                         entry: None,
                         uid: None,
+                        flags: 0,
                         hooks: true,
                         blocks: st.alloc,
                         subvol: false,
@@ -275,8 +288,10 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         sh.pruned.fetch_add(1, Relaxed);
         return;
     }
-    let Task { dir, expect, parent, depth, root, mut owner, entry, mut hooks, uid, blocks, subvol, anchor } = task;
+    let Task { dir, expect, parent, depth, root, mut owner, entry, mut hooks, uid, flags, blocks, subvol, anchor } =
+        task;
     let foreign_dir = uid.is_some_and(|u| u != sh.me);
+    let locked_dir = flags & LOCKED != 0;
     let name = dir.file_name().unwrap_or(dir.as_os_str());
     let mut lists = false;
     // A `Pre::Region` made this folder one: a `Post::Region` keeps it.
@@ -295,6 +310,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
                 lists = sh.visitor.lists_entries(&ctx, tag);
                 let claim = sh.new_owner(tag, OwnerKind::Claim, &dir, expect, parent, wants).on_subvolume(subvol);
                 claim.foreign.fetch_add(u64::from(foreign_dir), Relaxed);
+                claim.locked.fetch_add(u64::from(locked_dir), Relaxed);
                 owner = Some(claim);
                 hooks = false;
             }
@@ -350,6 +366,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
                 }
             }
             claim.foreign.fetch_add(u64::from(foreign_dir), Relaxed);
+            claim.locked.fetch_add(u64::from(locked_dir), Relaxed);
             owner = Some(claim);
             hooks = false;
             // The region's own directory became another finding: no entries.
@@ -375,6 +392,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
     // The folder's own blocks, as `du` counts them (none on APFS).
     let (mut files, mut bytes, mut private, mut errors) = (0u64, listing.alloc, 0u64, 0u64);
     let (mut linked_bytes, mut skipped, mut private_missing, mut foreign) = (0u64, 0u64, 0u64, 0u64);
+    let mut locked = 0u64;
     // The directory's own time, then each entry's, which the listing has only
     // when it asked for times.
     let mut newest = listing.modified;
@@ -417,6 +435,14 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         // when it last changed.
         newest = newest.max(meta.modified);
         foreign += u64::from(meta.uid.is_some_and(|u| u != sh.me));
+        // A folder too: one with the flag cannot be emptied (safety ADR,
+        // amendment of 2026-11-04, "Linux file kinds").
+        if meta.flags & LOCKED != 0 {
+            locked += 1;
+            if let Some(e) = within {
+                e.locked.fetch_add(1, Relaxed);
+            }
+        }
         match meta.kind {
             EntryKind::Dir => {
                 let child = dir.join(&meta.name);
@@ -477,6 +503,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
                         entry: within.cloned(),
                         hooks,
                         uid: meta.uid,
+                        flags: meta.flags,
                         blocks: meta.alloc,
                         subvol: enters,
                         anchor: inside.or_else(|| anchor.clone()),
@@ -520,6 +547,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             o.skipped.fetch_add(skipped, Relaxed);
             o.private_missing.fetch_add(private_missing, Relaxed);
             o.foreign.fetch_add(foreign, Relaxed);
+            o.locked.fetch_add(locked, Relaxed);
             if o.want_times
                 && let Some(t) = newest
             {
@@ -530,6 +558,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             sh.unowned.fetch_add(bytes, Relaxed);
         }
     }
+    sh.locked.fetch_add(locked, Relaxed);
     if let Some(e) = &entry {
         e.bytes.fetch_add(bytes, Relaxed);
         e.errors.fetch_add(errors, Relaxed);
@@ -601,6 +630,7 @@ impl Shared<'_> {
             skipped: AtomicU64::new(0),
             private_missing: AtomicU64::new(0),
             foreign: AtomicU64::new(0),
+            locked: AtomicU64::new(0),
         });
         owners.push(Arc::clone(&acc));
         acc
@@ -619,6 +649,7 @@ impl Shared<'_> {
                     errors: AtomicU64::new(0),
                     skipped: AtomicU64::new(0),
                     other_fs: AtomicU64::new(0),
+                    locked: AtomicU64::new(0),
                 });
                 entries.push(Arc::clone(&acc));
                 acc
@@ -766,6 +797,7 @@ impl Shared<'_> {
                 errors: o.errors.load(Relaxed),
                 skipped: o.skipped.load(Relaxed),
                 foreign: o.foreign.load(Relaxed),
+                locked: o.locked.load(Relaxed),
                 modified: Some(o.modified.load(Relaxed)).filter(|&t| t != NO_TIME),
             })
             .collect();
@@ -787,6 +819,7 @@ impl Shared<'_> {
                 errors: e.errors.load(Relaxed),
                 skipped: e.skipped.load(Relaxed),
                 other_fs: e.other_fs.load(Relaxed),
+                locked: e.locked.load(Relaxed),
             };
             match listed.iter_mut().find(|l| &l.owner == owner) {
                 Some(l) => l.entries.push(result),
@@ -827,6 +860,7 @@ impl Shared<'_> {
             skipped_total: log.skipped_total,
             vanished: log.vanished,
             pruned: self.pruned.into_inner(),
+            locked: self.locked.into_inner(),
             cancelled: self.progress.is_cancelled(),
             elapsed: started.elapsed(),
         }

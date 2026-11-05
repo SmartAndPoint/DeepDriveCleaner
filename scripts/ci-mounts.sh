@@ -295,6 +295,26 @@ say DDC_FIXTURE_DEVICE_TRASH "$base/tmpfs/device-trash"
 say DDC_FIXTURE_IMMUTABLE "$base/fixtures/immutable/file"
 say DDC_FIXTURE_APPEND_ONLY "$base/fixtures/append-only/file"
 
+# Findings that hold a flag only root can set or clear (same story, PR 3): a home with five
+# idle Node projects, whose node_modules hold an immutable file (p1), an append-only file
+# (p2), an immutable folder (p3), or is immutable itself (p4); p5 holds none. Only the
+# test of this tree reads it, and its clean removes p5 alone.
+d="$base/fixtures/immutable-tree"
+for p in p1 p2 p3 p4 p5; do
+    mkdir -p "$d/$p/node_modules/dep"
+    echo '{}' >"$d/$p/package.json"
+    echo '{}' >"$d/$p/package-lock.json"
+    touch -d '60 days ago' "$d/$p/package.json" "$d/$p/package-lock.json"
+    head -c 20000 /dev/zero >"$d/$p/node_modules/dep/index.js"
+done
+echo data >"$d/p1/node_modules/dep/locked.js"
+echo data >"$d/p2/node_modules/dep/log.txt"
+sudo -n chattr +i "$d/p1/node_modules/dep/locked.js"
+sudo -n chattr +a "$d/p2/node_modules/dep/log.txt"
+sudo -n chattr +i "$d/p3/node_modules/dep"
+sudo -n chattr +i "$d/p4/node_modules"
+say DDC_FIXTURE_IMMUTABLE_TREE "$d"
+
 # What a delete frees where the filesystem compresses (story "btrfs and ZFS on Linux:
 # subvolumes, datasets, snapshots and stable identities", DDC-010). 16 MiB is written
 # twice, as text that compresses well and as random bytes that do not, in a btrfs folder

@@ -26,6 +26,7 @@ public enum CleanWording {
         case .actionNotAllowed: "Its rule does not allow this action"
         case .incomplete: "Partly unreadable, or another disk is mounted inside"
         case .foreignOwner: "Holds another user's files"
+        case .immutable: lockedFlag
         case .nativeUnavailable(let program): "\(program) is not installed"
         case .toolNotReady(_, let detail): detail.prefix(1).uppercased() + detail.dropFirst()
         case .notAnEntry: "No longer a file or folder you can pick in its folder"
@@ -57,6 +58,7 @@ public enum CleanWording {
         case .kept: "Protected by .ddc-keep or an exclusion"
         case .protected: "Holds a protected folder"
         case .otherVolume: "Another disk is mounted inside"
+        case .immutable: lockedFlag
         case .recent: "Added or changed in the last 10 minutes"
         case .partialDownload: "Still downloading"
         case .unfinishedBackup: "This backup did not finish"
@@ -183,8 +185,14 @@ public enum CleanWording {
         case .activeProject(let days): "\(days == 0 ? "Active today" : "Active \(days) \(days == 1 ? "day" : "days") ago") · not selected"
         case .unknownActivity: "Activity unknown · not selected"
         case .foreignOwner: "Another user's files · not selected"
+        case .immutable: "Locked or append-only files · not selected"
         }
     }
+
+    /// An immutable or append-only flag on the item or inside it, and what
+    /// clears it: ddc never does (as `prompt.rs` says it on macOS).
+    static let lockedFlag =
+        "It, or a file in it, is locked or append-only · chflags nouchg or nouappnd clears it, sudo chflags noschg a system flag"
 }
 
 extension CleanWording {
@@ -363,7 +371,7 @@ extension CleanWording {
         }
         if row.lock == nil || row.lock == .protected, let reason = finding.notSelected {
             switch reason {
-            case .activeProject, .unknownActivity, .foreignOwner: parts.append(notSelected(reason))
+            case .activeProject, .unknownActivity, .foreignOwner, .immutable: parts.append(notSelected(reason))
             case .review, .userData: break
             }
         }

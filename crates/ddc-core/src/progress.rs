@@ -24,8 +24,9 @@ use crate::scan::ProgressSnapshot;
 /// reason `held-open` (safety ADR §5, amendment of 2026-11-02). 9: the skip
 /// reason `recycle-bin-refuses` with its `cause`, and the outcome
 /// `removed-not-recycled` (safety ADR §5, the Recycle Bin on Windows,
-/// planned 2026-11-04).
-pub const PROGRESS_SCHEMA_VERSION: u32 = 9;
+/// planned 2026-11-04). 10: the skip reason `immutable` and the entry lock
+/// `immutable` (safety ADR, amendment of 2026-11-04, "Linux file kinds").
+pub const PROGRESS_SCHEMA_VERSION: u32 = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ProgressLine {

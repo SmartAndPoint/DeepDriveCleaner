@@ -454,6 +454,19 @@
           ]
         },
         {
+          "description": "It, or something inside it, has an immutable or append-only flag: its\nowner cannot remove it (safety ADR, amendment of 2026-11-04, \"Linux\nfile kinds\").",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "immutable"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
           "description": "Added or changed within [`RECENT`] of the scan's start: in use or still arriving.",
           "type": "object",
           "properties": {
@@ -1067,6 +1080,19 @@
             "reason": {
               "type": "string",
               "const": "foreign-owner"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "Something inside, or the folder itself, has an immutable or\nappend-only flag: its owner cannot remove it, and a folder holding\none can never be emptied. Never selected, never removed (safety ADR,\namendment of 2026-11-04, \"Linux file kinds\").",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "immutable"
             }
           },
           "required": [

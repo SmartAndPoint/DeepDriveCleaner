@@ -27,8 +27,9 @@ use crate::platform::{Capability, Platform};
 /// (safety ADR §5, amendment of 2026-11-02). 11: the skip reason
 /// `recycle-bin-refuses` with its `cause`, and the outcome
 /// `removed-not-recycled` (safety ADR §5, the Recycle Bin on Windows,
-/// planned 2026-11-04).
-pub const CLEAN_SCHEMA_VERSION: u32 = 11;
+/// planned 2026-11-04). 12: the skip reason `immutable` and the entry lock
+/// `immutable` (safety ADR, amendment of 2026-11-04, "Linux file kinds").
+pub const CLEAN_SCHEMA_VERSION: u32 = 12;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CleanReport {

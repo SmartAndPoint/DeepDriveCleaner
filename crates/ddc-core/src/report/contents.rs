@@ -35,7 +35,7 @@ use crate::rules::entries::{
     session_part,
 };
 use crate::rules::{KEPT, protected_in_home};
-use crate::scan::reader::SF_DATALESS;
+use crate::scan::reader::{LOCKED, SF_DATALESS};
 use crate::scan::{EntryKind, EntryResult, OwnerEntries};
 use crate::stats::{self, Counter};
 
@@ -155,12 +155,14 @@ enum Pending {
         kept: bool,
         protected: bool,
         other_volume: bool,
+        immutable: bool,
     },
     /// A build's lock reasons, waiting for its folder's builds to be decided.
     Build {
         kept: bool,
         protected: bool,
         other_volume: bool,
+        immutable: bool,
     },
 }
 
@@ -247,7 +249,7 @@ pub(crate) fn attach(findings: &mut [Finding], walked: &[OwnerEntries], cx: &Con
         for unit in folder.units {
             let state = match unit.state {
                 Pending::Done(state) => state,
-                Pending::Session { ref session, kept, protected, other_volume } => {
+                Pending::Session { ref session, kept, protected, other_volume, immutable } => {
                     let facts = EntryFacts {
                         home: cx.home,
                         rule: &rule,
@@ -258,6 +260,7 @@ pub(crate) fn attach(findings: &mut [Finding], walked: &[OwnerEntries], cx: &Con
                         kept,
                         protected,
                         other_volume,
+                        immutable,
                         finished: false,
                         session: Some(
                             live.get(session)
@@ -268,7 +271,7 @@ pub(crate) fn attach(findings: &mut [Finding], walked: &[OwnerEntries], cx: &Con
                     };
                     lock_of(&facts).map_or(EntryState::Pickable, EntryState::Locked)
                 }
-                Pending::Build { kept, protected, other_volume } => {
+                Pending::Build { kept, protected, other_volume, immutable } => {
                     let build = match &in_use {
                         Some(Ok(map)) => Some(Ok(map.get(&unit.key.name).copied().flatten())),
                         Some(Err(cause)) => Some(Err(*cause)),
@@ -284,6 +287,7 @@ pub(crate) fn attach(findings: &mut [Finding], walked: &[OwnerEntries], cx: &Con
                         kept,
                         protected,
                         other_volume,
+                        immutable,
                         finished: false,
                         session: None,
                         build,
@@ -399,6 +403,7 @@ impl Reading<'_> {
                                 kept: false,
                                 protected: false,
                                 other_volume: false,
+                                immutable: false,
                             },
                             bytes: 0,
                             incomplete: false,
@@ -439,6 +444,7 @@ impl Reading<'_> {
                     .iter()
                     .any(|(_, p)| self.protected.iter().any(|x| x.starts_with(crate::platform::paths::key(p)))),
                 other_volume: files.iter().any(|(c, _)| c.other_fs > 0),
+                immutable: files.iter().any(|(c, _)| c.flags & LOCKED != 0 || c.locked > 0),
                 session,
             };
         }
@@ -471,6 +477,7 @@ impl Reading<'_> {
                 kept: self.kept(&path),
                 protected: self.protected.iter().any(|p| p.starts_with(crate::platform::paths::key(&path))),
                 other_volume: child.other_fs > 0,
+                immutable: child.flags & LOCKED != 0 || child.locked > 0,
             };
             units.push(Unit {
                 path,
@@ -604,6 +611,7 @@ fn state_of(
         kept,
         protected: protected.iter().any(|p| p.starts_with(crate::platform::paths::key(path))),
         other_volume: child.other_fs > 0,
+        immutable: child.flags & LOCKED != 0 || child.locked > 0,
         finished: rule == BACKUP_RULE && child.kind == EntryKind::Dir && backups::finished(path),
         session: None,
         build: None,
@@ -668,6 +676,7 @@ mod tests {
             errors: 0,
             skipped: 0,
             other_fs: 0,
+            locked: 0,
         }
     }
 
@@ -707,5 +716,11 @@ mod tests {
         let mut partly = child("d", EntryKind::Dir);
         partly.errors = 2;
         assert_eq!(state(&partly), EntryState::Pickable, "partly unreadable stays pickable");
+        let mut locked = child("i", EntryKind::File);
+        locked.flags = crate::scan::reader::UF_IMMUTABLE;
+        assert_eq!(state(&locked), EntryState::Locked(EntryLock::Immutable));
+        let mut holds = child("h", EntryKind::Dir);
+        holds.locked = 1;
+        assert_eq!(state(&holds), EntryState::Locked(EntryLock::Immutable), "a flag inside it");
     }
 }

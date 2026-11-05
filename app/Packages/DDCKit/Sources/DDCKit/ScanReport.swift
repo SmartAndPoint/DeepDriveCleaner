@@ -9,7 +9,7 @@ import Foundation
 /// their defaults, so a report of this version without them still reads.
 public struct ScanReport: Decodable, Sendable, Equatable {
     /// `SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 8
+    public static let schemaVersion = 9
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)
@@ -386,6 +386,9 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         case unknownActivity
         /// Something inside, or the folder itself, belongs to another user.
         case foreignOwner
+        /// Something inside, or the folder itself, has an immutable or
+        /// append-only flag: it cannot be removed until that flag is cleared.
+        case immutable
 
         private enum CodingKeys: String, CodingKey {
             case reason, idleDays
@@ -399,6 +402,7 @@ public struct ScanReport: Decodable, Sendable, Equatable {
             case "active-project": self = .activeProject(idleDays: try c.decode(UInt64.self, forKey: .idleDays))
             case "unknown-activity": self = .unknownActivity
             case "foreign-owner": self = .foreignOwner
+            case "immutable": self = .immutable
             case let other:
                 throw DecodingError.dataCorruptedError(forKey: .reason, in: c, debugDescription: "unknown reason \(other)")
             }
@@ -427,6 +431,8 @@ public enum EntryLock: Decodable, Sendable, Equatable, Hashable {
     case kept
     case protected
     case otherVolume
+    /// It, or something inside it, has an immutable or append-only flag.
+    case immutable
     case recent
     case partialDownload
     case unfinishedBackup
@@ -489,8 +495,8 @@ public enum EntryLock: Decodable, Sendable, Equatable, Hashable {
 
     /// Every `reason` value, as the schemas list them.
     public static let tags = [
-        "app-managed", "kept", "protected", "other-volume", "recent", "partial-download", "unfinished-backup", "live-session",
-        "liveness-unknown", "build-in-use", "builds-unknown",
+        "app-managed", "kept", "protected", "other-volume", "immutable", "recent", "partial-download", "unfinished-backup",
+        "live-session", "liveness-unknown", "build-in-use", "builds-unknown",
     ]
 
     private enum CodingKeys: String, CodingKey {
@@ -504,6 +510,7 @@ public enum EntryLock: Decodable, Sendable, Equatable, Hashable {
         case "kept": self = .kept
         case "protected": self = .protected
         case "other-volume": self = .otherVolume
+        case "immutable": self = .immutable
         case "recent": self = .recent
         case "partial-download": self = .partialDownload
         case "unfinished-backup": self = .unfinishedBackup

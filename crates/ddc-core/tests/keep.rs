@@ -100,7 +100,7 @@ fn a_marker_in_another_case_is_named_and_stays() {
 #[test]
 fn the_keep_report_and_the_journal_have_their_own_versions() {
     assert_eq!(KEEP_SCHEMA_VERSION, 1);
-    assert_eq!(JOURNAL_SCHEMA_VERSION, 11);
+    assert_eq!(JOURNAL_SCHEMA_VERSION, 12);
 }
 
 #[test]

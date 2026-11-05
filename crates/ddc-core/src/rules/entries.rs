@@ -220,6 +220,10 @@ pub enum EntryLock {
     Protected,
     /// Another volume is mounted inside it.
     OtherVolume,
+    /// It, or something inside it, has an immutable or append-only flag: its
+    /// owner cannot remove it (safety ADR, amendment of 2026-11-04, "Linux
+    /// file kinds").
+    Immutable,
     /// Added or changed within [`RECENT`] of the scan's start: in use or still arriving.
     Recent,
     /// A download still arriving.
@@ -257,6 +261,8 @@ pub struct EntryFacts<'a> {
     pub kept: bool,
     pub protected: bool,
     pub other_volume: bool,
+    /// It, or an entry inside it, has an immutable or append-only flag.
+    pub immutable: bool,
     /// For a backup: whether its `Status.plist` says it finished.
     pub finished: bool,
     /// For an entry of a session folder ([`EntryLiveness::ClaudeSession`]):
@@ -285,6 +291,9 @@ pub fn lock_of(f: &EntryFacts<'_>) -> Option<EntryLock> {
     }
     if f.other_volume {
         return Some(EntryLock::OtherVolume);
+    }
+    if f.immutable {
+        return Some(EntryLock::Immutable);
     }
     match policy(f.rule).map(|p| p.liveness) {
         Some(EntryLiveness::ClaudeSession) => return session_lock(name, f.session),
@@ -373,6 +382,7 @@ mod tests {
             kept: false,
             protected: false,
             other_volume: false,
+            immutable: false,
             finished: false,
             session: None,
             build: None,
@@ -460,6 +470,15 @@ mod tests {
             Some(EntryLock::AppManaged { app: "Photos".to_owned() })
         );
         assert_eq!(lock("user.downloads", "Downloads/x", |f| f.other_volume = true), Some(EntryLock::OtherVolume));
+        assert_eq!(lock("user.downloads", "Downloads/x", |f| f.immutable = true), Some(EntryLock::Immutable));
+        assert_eq!(
+            lock("user.downloads", "Downloads/x", |f| {
+                f.immutable = true;
+                f.kept = true;
+            }),
+            Some(EntryLock::Kept),
+            "the person's own lock first"
+        );
         assert_eq!(lock("user.downloads", "Downloads/x", |f| f.protected = true), Some(EntryLock::Protected));
     }
 
@@ -468,6 +487,7 @@ mod tests {
         let json = serde_json::to_string(&EntryLock::AppManaged { app: "Photos".to_owned() }).unwrap();
         assert_eq!(json, r#"{"reason":"app-managed","app":"Photos"}"#);
         assert_eq!(serde_json::to_string(&EntryLock::OtherVolume).unwrap(), r#"{"reason":"other-volume"}"#);
+        assert_eq!(serde_json::to_string(&EntryLock::Immutable).unwrap(), r#"{"reason":"immutable"}"#);
         let live = EntryLock::LiveSession { session: S.to_owned(), by: LiveBy::OpenFile };
         assert_eq!(
             serde_json::to_string(&live).unwrap(),

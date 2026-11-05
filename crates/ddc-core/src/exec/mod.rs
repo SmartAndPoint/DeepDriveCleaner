@@ -92,6 +92,10 @@ pub enum SkipReason {
     /// Something inside, or the folder itself, belongs to another user
     /// (safety ADR, amendment of 2026-10-31): refused before any rename.
     ForeignOwner,
+    /// Something inside, or the item itself, has an immutable or
+    /// append-only flag (safety ADR, amendment of 2026-11-04, "Linux file
+    /// kinds"): refused before any rename. ddc never clears the flag.
+    Immutable,
     NativeUnavailable {
         program: String,
     },
@@ -432,8 +436,11 @@ pub fn execute(
     let volumes = volumes_of(&chosen, env);
     let snapshots = opts.local_snapshots.unwrap_or_else(|| local_snapshots(ports.commands));
     let mut report = ExecReport { local_snapshots: snapshots, ..ExecReport::default() };
-    let markers = keep_markers(chosen.iter().map(|i| i.finding.path.clone()).collect(), opts, progress.walk());
-    let guard = guard::Guard::new(env, catalog, &plan.roots, markers, ports.procs).with_skips(opts.skips.to_vec());
+    let (markers, locked) =
+        keep_markers(chosen.iter().map(|i| i.finding.path.clone()).collect(), opts, progress.walk());
+    let guard = guard::Guard::new(env, catalog, &plan.roots, markers, ports.procs)
+        .with_skips(opts.skips.to_vec())
+        .with_locked(locked);
     report.withheld_processes = guard.withheld();
     // Each conda install is asked for its folders once per clean.
     let installs = crate::conda::Installs::new(ports.commands, crate::conda::candidates(env.home(), env.system_root()));
@@ -919,11 +926,14 @@ pub fn count_local_snapshots(commands: &dyn CommandRunner, exe: &Path) -> Option
 }
 
 /// Walks everything about to be cleaned, collecting directories that hold a
-/// keep marker at any depth. Fails closed: a target whose walk fails or is
-/// cancelled midway is reported as kept itself (one no longer a real
-/// directory is the guard's to skip). `walked`
-/// counts across the targets, for the caller's progress display.
-fn keep_markers(targets: Vec<PathBuf>, opts: &ExecOptions<'_>, walked: &Progress) -> Vec<PathBuf> {
+/// keep marker at any depth, and the targets that hold an entry with an
+/// immutable or append-only flag below them (safety ADR, amendment of
+/// 2026-11-04, "Linux file kinds"; a target's own flag is the guard's).
+/// Fails closed: a target whose walk fails or is cancelled midway is
+/// reported as kept itself (one no longer a real directory is the guard's
+/// to skip). `walked` counts across the targets, for the caller's progress
+/// display.
+fn keep_markers(targets: Vec<PathBuf>, opts: &ExecOptions<'_>, walked: &Progress) -> (Vec<PathBuf>, Vec<PathBuf>) {
     struct Markers(Mutex<Vec<PathBuf>>);
     impl Visitor for Markers {
         fn wants_private(&self, _: &scan::DirCtx<'_>, _: Tag) -> bool {
@@ -936,6 +946,7 @@ fn keep_markers(targets: Vec<PathBuf>, opts: &ExecOptions<'_>, walked: &Progress
         }
     }
     let markers = Markers(Mutex::new(Vec::new()));
+    let mut locked = Vec::new();
     for target in targets {
         if opts.cancelled() {
             break; // every item is then `NotRun`
@@ -943,12 +954,16 @@ fn keep_markers(targets: Vec<PathBuf>, opts: &ExecOptions<'_>, walked: &Progress
         if !std::fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir()) {
             continue; // missing or swapped: the guard skips it anyway
         }
-        let result = scan::walk(std::slice::from_ref(&target), &markers, &WalkOptions::default(), walked);
-        if !result.is_ok_and(|out| !out.cancelled) {
-            markers.0.lock().unwrap_or_else(|p| p.into_inner()).push(target);
+        match scan::walk(std::slice::from_ref(&target), &markers, &WalkOptions::default(), walked) {
+            Ok(out) if !out.cancelled => {
+                if out.locked > 0 {
+                    locked.push(target);
+                }
+            }
+            _ => markers.0.lock().unwrap_or_else(|p| p.into_inner()).push(target),
         }
     }
-    markers.0.into_inner().unwrap_or_else(|p| p.into_inner())
+    (markers.0.into_inner().unwrap_or_else(|p| p.into_inner()), locked)
 }
 
 #[cfg(test)]
