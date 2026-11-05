@@ -591,6 +591,29 @@ fn a_symlink_inside_a_deleted_finding_is_unlinked_never_followed() {
     assert!(!nm.exists() && keep.exists());
 }
 
+/// A tombstone that is no longer the folder the guard checked (another
+/// one put in its place under its name) is left whole: the removal opens
+/// it, finds another `(dev, ino)`, and touches nothing in it.
+#[cfg(unix)]
+#[test]
+fn a_tombstone_swapped_after_the_check_is_left_whole() {
+    if common::unsupported("a_tombstone_swapped_after_the_check_is_left_whole") {
+        return;
+    }
+    use ddc_core::platform::fsops::DirFd;
+    let t = TreeBuilder::new();
+    t.file("p/checked/a.js", 100);
+    let parent = DirFd::open(&t.path("p")).unwrap();
+    let st = parent.stat_child("checked".as_ref()).unwrap();
+    fs::rename(t.path("p/checked"), t.path("p/elsewhere")).unwrap();
+    t.file("p/checked/b.js", 100);
+
+    let err = parent.remove_tree("checked".as_ref(), &t.path("p/checked"), (st.dev, st.ino)).unwrap_err();
+
+    assert!(err.to_string().contains("changed since the check"), "{err}");
+    assert!(t.path("p/checked/b.js").exists() && t.path("p/elsewhere/a.js").exists());
+}
+
 /// A folder inside a finding that cannot be opened, closed after the plan:
 /// the removal stops there, and the item is `failed`, naming the tombstone,
 /// which stays as the next scan's `ddc.tombstone`.

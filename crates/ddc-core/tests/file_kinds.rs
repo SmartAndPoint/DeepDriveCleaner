@@ -409,7 +409,9 @@ fn a_removal_never_crosses_a_mount_made_inside_a_tombstone() {
         (&btrfs, "subvolume.ddc-deleting-1-1", "sub/keep"),
     ] {
         let tomb = parent.join(name);
-        let err = DirFd::open(parent).unwrap().remove_tree(name.as_ref(), &tomb).unwrap_err();
+        let dir = DirFd::open(parent).unwrap();
+        let st = dir.stat_child(name.as_ref()).unwrap();
+        let err = dir.remove_tree(name.as_ref(), &tomb, (st.dev, st.ino)).unwrap_err();
         assert!(err.to_string().contains("another filesystem"), "{name}: {err}");
         assert!(tomb.join(keep).exists(), "{name}: what lies beyond was removed");
     }

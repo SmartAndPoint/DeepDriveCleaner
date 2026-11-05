@@ -517,7 +517,7 @@ fn only_the_tombstone_removal_removes_a_tree() {
             }
         }
     }
-    assert_eq!(calls, [("ddc-core/src/exec/delete.rs".to_owned(), "&tomb, &tomb_path".to_owned())]);
+    assert_eq!(calls, [("ddc-core/src/exec/delete.rs".to_owned(), "&tomb, &tomb_path, v.id".to_owned())]);
 }
 
 /// No source enables a privilege (story "Windows scanner and rule catalog",
