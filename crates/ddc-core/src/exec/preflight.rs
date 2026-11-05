@@ -42,7 +42,7 @@ use crate::report::backups;
 use crate::rules::entries::{self, BACKUP_RULE, EntryFacts, EntryShape, lock_of};
 use crate::rules::{Catalog, LockFiles, Rule, effective_class, holds_keep_marker, protected_in_home, worktree};
 use crate::scan::DirReader;
-use crate::scan::reader::SF_DATALESS;
+use crate::scan::reader::{LOCKED, SF_DATALESS};
 
 /// One line of the dry run's output (JSON Lines, one per item, then the summary).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -275,6 +275,10 @@ fn check(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
     let action = action_for(rule, class, item.permanent).unwrap_or(Action::Trash);
     let verified = guard.check(&planned(item, rule, class, action)).map_err(|reason| (None, reason))?;
     let walked = walk_item(path, ports.reader).ok_or((None, SkipReason::Incomplete))?;
+    // As the clean's guard refuses it, ahead of a marker inside.
+    if walked.locked {
+        return Err((Some(walked.bytes), SkipReason::Immutable));
+    }
     if walked.kept {
         return Err((Some(walked.bytes), SkipReason::Kept));
     }
@@ -429,13 +433,20 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
     if (st.dev, st.ino) != (item.dev, item.ino) {
         return skip(SkipReason::ChangedSinceScan);
     }
+    if st.flags & LOCKED != 0 {
+        return skip(SkipReason::Immutable);
+    }
     // A coding agent's build: the guard's own check decides its use again,
     // as the clean does; a folder build's bytes are walked.
     if matches!(policy.shape, EntryShape::Build(_)) {
         let verified = guard
             .check(&planned(item, rule, RiskClass::UserData, Action::TrashEntry))
             .map_err(|reason| (None, reason))?;
-        let bytes = if st.is_dir { walk_item(path, ports.reader).map_or(st.alloc, |w| w.bytes) } else { st.alloc };
+        let walked = if st.is_dir { walk_item(path, ports.reader) } else { None };
+        if walked.as_ref().is_some_and(|w| w.locked) {
+            return Err((walked.map(|w| w.bytes), SkipReason::Immutable));
+        }
+        let bytes = walked.map_or(st.alloc, |w| w.bytes);
         admit(ports.trash, &verified, path, bytes).map_err(|reason| (None, reason))?;
         return Ok((bytes, Prediction::WouldTrash));
     }
@@ -464,17 +475,21 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
     // A volume mounted at the entry itself: locked, and never walked.
     let mounted = st.mount_root || parent_fd.identity().is_ok_and(|(dev, _)| dev != st.dev);
     let walked = if mounted {
-        Walked { bytes: 0, kept: false, incomplete: true, other_fs: true }
+        Walked { bytes: 0, kept: false, incomplete: true, other_fs: true, locked: false }
     } else if st.is_dir {
         walk_item(path, ports.reader).unwrap_or(Walked {
             bytes: st.alloc,
             kept: false,
             incomplete: true,
             other_fs: false,
+            locked: false,
         })
     } else {
-        Walked { bytes: st.alloc, kept: false, incomplete: false, other_fs: false }
+        Walked { bytes: st.alloc, kept: false, incomplete: false, other_fs: false, locked: false }
     };
+    if walked.locked {
+        return Err((Some(walked.bytes), SkipReason::Immutable));
+    }
     let (modified, added) = parent_fd.child_times(name).unwrap_or((None, None));
     let home = env.home();
     let facts = EntryFacts {
@@ -489,6 +504,8 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
             .iter()
             .any(|rel| crate::platform::paths::key(&home.join(rel)).starts_with(crate::platform::paths::key(path))),
         other_volume: walked.other_fs,
+        // Refused above, as the clean's guard refuses it.
+        immutable: false,
         // A session's entry and a build took the guard's check above.
         session: None,
         build: None,

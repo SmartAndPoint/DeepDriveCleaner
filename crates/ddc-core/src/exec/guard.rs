@@ -33,7 +33,7 @@ use crate::rules::{
     Catalog, KEEP_MARKER, holds_keep_marker, is_keep_marker, lists_keep_marker, owns, protected_in_home,
     protected_system, worktree,
 };
-use crate::scan::reader::SF_DATALESS;
+use crate::scan::reader::{LOCKED, SF_DATALESS};
 use crate::scan::{self, DirCtx, DirReader, EntryMeta, OwnerKind, Progress, SystemReader, Tag, Visitor, WalkOptions};
 use crate::stats;
 
@@ -134,6 +134,10 @@ pub struct Guard<'a> {
     /// ASCII case, listed once per run: every item shares its ancestors.
     /// `.ddc-keep` itself is looked up afresh for each item.
     listed: Mutex<HashMap<PathBuf, bool>>,
+    /// Items whose walk before the clean found an entry with an immutable or
+    /// append-only flag below them (safety ADR, amendment of 2026-11-04,
+    /// "Linux file kinds").
+    locked: Vec<PathBuf>,
 }
 
 struct Uses {
@@ -223,12 +227,20 @@ impl<'a> Guard<'a> {
             skips: Vec::new(),
             reader: &SystemReader,
             listed: Mutex::default(),
+            locked: Vec::new(),
         }
     }
 
     /// The scan's skips (`ScanOptions::skip` and `user_skips`).
     pub fn with_skips(mut self, skips: Vec<PathBuf>) -> Self {
         self.skips = skips;
+        self
+    }
+
+    /// Items holding an entry with an immutable or append-only flag, from
+    /// the walk before the clean.
+    pub fn with_locked(mut self, locked: Vec<PathBuf>) -> Self {
+        self.locked = locked;
         self
     }
 
@@ -331,6 +343,10 @@ impl<'a> Guard<'a> {
             // Another user's entries: the rename would succeed and the removal fail halfway.
             return Err(SkipReason::ForeignOwner);
         }
+        if f.not_selected == Some(NotSelected::Immutable) {
+            // An immutable or append-only entry: the folder would move and never empty.
+            return Err(SkipReason::Immutable);
+        }
         if self.protected_paths.contains(&fold(path)) {
             return Err(SkipReason::Protected);
         }
@@ -384,6 +400,9 @@ impl<'a> Guard<'a> {
         }
         if self.protected_ids.contains(&(st.dev, st.ino)) {
             return Err(SkipReason::Protected);
+        }
+        if self.immutable(path, &st) {
+            return Err(SkipReason::Immutable);
         }
         match self.catalog.by_id(&f.rule) {
             Some(rule) if self.catalog.verify(rule, path) => {}
@@ -474,6 +493,9 @@ impl<'a> Guard<'a> {
         if self.protected_ids.contains(&(st.dev, st.ino)) {
             return Err(SkipReason::Protected);
         }
+        if self.immutable(path, &st) {
+            return Err(SkipReason::Immutable);
+        }
         // A session's entry is keyed by its transcript or its folder; its
         // companions are found again here, under the same descriptor.
         let session = match policy.shape {
@@ -512,6 +534,8 @@ impl<'a> Guard<'a> {
             protected: protected_in_home(PLATFORM).iter().any(|rel| self.home.join(rel).starts_with(path))
                 || session.as_ref().is_some_and(|s| s.protected),
             other_volume: st.dev != parent_id.0 || st.mount_root || session.as_ref().is_some_and(|s| s.other_volume),
+            // Refused above, with the skip reason `immutable`.
+            immutable: false,
             session: session.as_ref().map(|s| s.liveness),
             finished: rule == BACKUP_RULE && st.is_dir && backups::finished(path),
             build,
@@ -617,6 +641,9 @@ impl<'a> Guard<'a> {
                 return Err(SkipReason::Incomplete);
             }
             let at = parent.join(&name);
+            if self.immutable(&at, &st) {
+                return Err(SkipReason::Immutable);
+            }
             let (bytes, walked) = self.measure(&at, &st)?;
             let modified = parent_fd.child_times(&name).ok().and_then(|(modified, _)| modified);
             check.kept |=
@@ -639,10 +666,21 @@ impl<'a> Guard<'a> {
             return Ok((st.alloc, Walked::default()));
         }
         let walked = walk_item(path, self.reader).ok_or(SkipReason::Incomplete)?;
+        if walked.locked {
+            return Err(SkipReason::Immutable);
+        }
         if walked.incomplete && !walked.other_fs {
             return Err(SkipReason::Incomplete);
         }
         Ok((walked.bytes, walked))
+    }
+
+    /// The item itself has an immutable or append-only flag, or the walk
+    /// before the clean found one below it (safety ADR, amendment of
+    /// 2026-11-04, "Linux file kinds"). A flag the platform does not tell
+    /// is not set.
+    fn immutable(&self, path: &Path, st: &EntryStat) -> bool {
+        st.flags & LOCKED != 0 || self.locked.iter().any(|l| l == path)
     }
 
     /// Claude Code's check for one session, read now: its records (none
@@ -731,9 +769,13 @@ pub(super) struct Walked {
     pub(super) incomplete: bool,
     /// Another filesystem is mounted inside.
     pub(super) other_fs: bool,
+    /// An entry below it has an immutable or append-only flag; its own flag
+    /// is the caller's to read.
+    pub(super) locked: bool,
 }
 
-/// Walks one folder alone: its size, a `.ddc-keep` inside, unreadable parts.
+/// Walks one folder alone: its size, a `.ddc-keep` inside, unreadable
+/// parts, an entry with an immutable or append-only flag.
 pub(super) fn walk_item(path: &Path, reader: &dyn DirReader) -> Option<Walked> {
     struct Markers(Mutex<bool>);
     impl Visitor for Markers {
@@ -770,6 +812,7 @@ pub(super) fn walk_item(path: &Path, reader: &dyn DirReader) -> Option<Walked> {
                     | scan::SkipReason::HoldsSubvolume
             )
         }),
+        locked: out.locked > 0,
     })
 }
 

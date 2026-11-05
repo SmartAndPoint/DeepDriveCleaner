@@ -212,6 +212,11 @@ pub struct OwnerResult {
     /// a finding with any is never selected and never removed (safety ADR,
     /// amendment of 2026-10-31). 0 where the reader does not tell owners.
     pub foreign: u64,
+    /// Entries inside, its own directory included, with an immutable or
+    /// append-only flag ([`reader::LOCKED`]): a finding with any is never
+    /// selected and never removed (safety ADR, amendment of 2026-11-04,
+    /// "Linux file kinds"). 0 where the reader does not tell the flags.
+    pub locked: u64,
     /// The newest modification time inside, Unix seconds: of every entry
     /// listed without an error, each directory itself included. Only for a
     /// claim that [wants times](Visitor::wants_times); `None` when its root
@@ -250,6 +255,9 @@ pub struct EntryResult {
     pub skipped: u64,
     /// Directories inside that belong to another filesystem.
     pub other_fs: u64,
+    /// Entries inside it, itself included, with an immutable or append-only
+    /// flag ([`reader::LOCKED`]).
+    pub locked: u64,
 }
 
 /// The entries of one owner, sorted by name bytes.
@@ -303,6 +311,9 @@ pub struct WalkOutput {
     pub vanished: u64,
     /// Directories left unread by [`Visitor::prunes`].
     pub pruned: u64,
+    /// Entries below the roots, the roots themselves not counted, with an
+    /// immutable or append-only flag ([`reader::LOCKED`]).
+    pub locked: u64,
     pub cancelled: bool,
     pub elapsed: Duration,
 }

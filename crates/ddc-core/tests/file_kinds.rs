@@ -305,3 +305,86 @@ fn a_keep_marker_in_another_case_keeps_its_folder_on_casefold() {
     assert_eq!(item.outcome, Outcome::Skipped(SkipReason::Kept));
     assert!(later.join("dep/index.js").exists());
 }
+
+/// Findings whose `node_modules` hold a flag only root sets or clears (a
+/// `chattr +i` file, a `chattr +a` file, a `chattr +i` folder) or carry
+/// one itself: a plan made blind to the flags, as one made before they
+/// were set, is refused by the clean's own walk and stat; the fresh scan
+/// lists each `immutable`; and `--items` refuses each again before any
+/// rename, while the project without a flag goes (safety ADR, amendment of
+/// 2026-11-04, "Linux file kinds").
+#[test]
+fn findings_holding_a_flag_only_root_sets_are_listed_and_refused_through_items() {
+    use ddc_core::model::{NotSelected, RemovalKind};
+    use ddc_core::plan::{ActionKind, ListedItem, plan_listed};
+    use ddc_core::report::recheck;
+    use ddc_core::report::volumes::SystemStatFs;
+    use ddc_core::scan::ReaderKind;
+    let test = "findings_holding_a_flag_only_root_sets_are_listed_and_refused_through_items";
+    let Some(home) = common::prepared(test, Prepared::ImmutableTree) else {
+        return;
+    };
+    let data = tempfile::tempdir().unwrap();
+    let env = Env::with_paths(&home, data.path(), &data.path().join("logs"), SystemTime::now()).unwrap();
+    let catalog = Catalog::builtin(&home);
+    let locked = ["p1", "p2", "p3", "p4"].map(|p| home.join(p).join("node_modules"));
+    let plain = home.join("p5/node_modules");
+    let refused = Outcome::Skipped(SkipReason::Immutable);
+
+    // The reference reader tells no flag on Linux: a scan blind to them.
+    let walk = WalkOptions { threads: Some(2), reader: ReaderKind::Std, ..Default::default() };
+    let stale = report::scan(&env, &ScanOptions { walk, ..Default::default() }, &Progress::default()).unwrap();
+    let mut plan = build_plan(&stale, &catalog, &PlanOptions::default());
+    plan.items.retain(|i| locked.contains(&i.finding.path));
+    assert_eq!(plan.items.iter().filter(|i| i.selected).count(), 4, "planned blind: {:#?}", plan.items);
+    let r = clean_in(&home, data.path(), &plan);
+    for path in &locked {
+        let item = r.items.iter().find(|i| &i.path == path).expect("planned");
+        assert_eq!(item.outcome, refused, "{path:?}");
+    }
+
+    let scan = scan_in(&home, data.path());
+    let listed: Vec<ListedItem> = locked
+        .iter()
+        .chain([&plain])
+        .map(|path| {
+            let f = scan.findings.iter().find(|f| &f.path == path).expect("a finding");
+            assert_eq!(f.not_selected == Some(NotSelected::Immutable), path != &plain, "{path:?}");
+            ListedItem {
+                path: f.path.clone(),
+                dev: f.dev,
+                ino: f.ino,
+                rule: f.rule.clone(),
+                class: f.class,
+                action: if f.removal == RemovalKind::Trash { ActionKind::Trash } else { ActionKind::Delete },
+                permanent: false,
+            }
+        })
+        .collect();
+    let opts = ScanOptions { walk: WalkOptions { threads: Some(2), ..Default::default() }, ..Default::default() };
+    let (rechecked, entries) =
+        recheck::pruned(&env, &opts, &catalog, &listed, &Progress::default(), &SystemStatFs, None).unwrap();
+    let items = plan_listed(&rechecked, &entries, &catalog, &listed);
+    let mut journal = MemoryJournal::default();
+    let ports = Ports {
+        commands: &FakeCommands::default(),
+        trash: &CrossingTrash,
+        procs: &FakeProcs::new(vec![]),
+        journal: &mut journal,
+    };
+    let r = exec::execute(&env, &catalog, &items.plan, &Consent::Listed, ports, &ExecOptions::default()).unwrap();
+
+    for path in &locked {
+        let item = r.items.iter().find(|i| &i.path == path).expect("listed");
+        assert_eq!(item.outcome, refused, "{path:?}");
+        let tombstones: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .filter(|n| n.to_string_lossy().contains(".ddc-deleting-"))
+            .collect();
+        assert!(tombstones.is_empty(), "{path:?}: {tombstones:?}");
+        assert!(path.join("dep/index.js").exists());
+    }
+    let item = r.items.iter().find(|i| i.path == plain).expect("listed");
+    assert_eq!(item.outcome, Outcome::Deleted);
+}

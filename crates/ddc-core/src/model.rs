@@ -28,8 +28,9 @@ use crate::scan::SkipReason;
 /// 2026-11-02, "btrfs and ZFS on Linux"). 8: `dev` on Linux btrfs and ZFS
 /// is the filesystem's folded `f_fsid`, so a report saved before reads as
 /// another version and is scanned again (same amendment, "Stable
-/// identities").
-pub const SCHEMA_VERSION: u32 = 8;
+/// identities"). 9: the reason `immutable` in `not_selected` and as an
+/// entry lock (same ADR, amendment of 2026-11-04, "Linux file kinds").
+pub const SCHEMA_VERSION: u32 = 9;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ScanReport {
@@ -570,6 +571,11 @@ pub enum NotSelected {
     /// container's root, say): never selected, never removed (safety ADR,
     /// amendment of 2026-10-31).
     ForeignOwner,
+    /// Something inside, or the folder itself, has an immutable or
+    /// append-only flag: its owner cannot remove it, and a folder holding
+    /// one can never be emptied. Never selected, never removed (safety ADR,
+    /// amendment of 2026-11-04, "Linux file kinds").
+    Immutable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

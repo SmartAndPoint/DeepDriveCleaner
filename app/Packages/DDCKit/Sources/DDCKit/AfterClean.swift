@@ -28,10 +28,11 @@ extension SkipReason {
              .incomplete, .worktreeKept:
             .rescan
         // `foreignOwner`: only that user, or root, can remove it.
+        // `immutable`: only clearing the flag lets it go, which ddc never does.
         // `trashCrossesFilesystem`, and the Recycle Bin's other refusals:
         // only `--permanent` removes it.
         case .kept, .protected, .projectRoot, .scanRoot, .outsideScanRoots, .actionNotAllowed, .needsConfirmation,
-             .insideAnotherItem, .nativeUnavailable, .foreignOwner, .trashCrossesFilesystem, .recycleBinRefuses:
+             .insideAnotherItem, .nativeUnavailable, .foreignOwner, .immutable, .trashCrossesFilesystem, .recycleBinRefuses:
             .never
         }
     }

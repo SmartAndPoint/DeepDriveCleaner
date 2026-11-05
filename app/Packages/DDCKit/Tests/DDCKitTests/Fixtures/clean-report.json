@@ -1,5 +1,5 @@
 {
-  "schema_version": 11,
+  "schema_version": 12,
   "ddc_version": "0.1.0",
   "platform": "macos",
   "capabilities": [

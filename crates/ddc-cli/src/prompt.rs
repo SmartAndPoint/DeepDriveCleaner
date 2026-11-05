@@ -272,6 +272,7 @@ pub fn reason(r: &SkipReason) -> String {
         SkipReason::ActionNotAllowed => "the rule does not allow this action".to_owned(),
         SkipReason::Incomplete => "partly unreadable or has another filesystem mounted inside".to_owned(),
         SkipReason::ForeignOwner => "it holds another user's files".to_owned(),
+        SkipReason::Immutable => immutable_text(),
         SkipReason::NotAnEntry => "no longer a file or folder you can pick in its folder".to_owned(),
         SkipReason::EntryLocked { lock } => format!("locked: {}", lock_text(lock)),
         SkipReason::InsideAnotherItem => "removed with the folder it is in".to_owned(),
@@ -303,6 +304,23 @@ fn recycle_bin_text(cause: ddc_core::exec::RecycleBinCause) -> String {
     }
 }
 
+/// An immutable or append-only flag, and what a person would run to clear
+/// it: ddc never does (safety ADR, amendment of 2026-11-04, "Linux file
+/// kinds").
+fn immutable_text() -> String {
+    match ddc_core::platform::PLATFORM {
+        ddc_core::platform::Platform::Linux => {
+            "it, or a file in it, is immutable or append-only; ddc never clears that \
+             (as root: chattr -i, or chattr -a)"
+                .to_owned()
+        }
+        _ => "it, or a file in it, is locked or append-only; ddc never clears that \
+              (chflags nouchg or nouappnd; sudo chflags noschg for a system flag; \
+              System Integrity Protection holds a restricted one)"
+            .to_owned(),
+    }
+}
+
 fn harness_name(h: HarnessId) -> &'static str {
     match h {
         HarnessId::ClaudeCode => "Claude Code",
@@ -318,6 +336,7 @@ fn lock_text(lock: &EntryLock) -> String {
         EntryLock::Kept => "protected by .ddc-keep or an exclude".to_owned(),
         EntryLock::Protected => "holds a protected folder".to_owned(),
         EntryLock::OtherVolume => "another volume is mounted inside".to_owned(),
+        EntryLock::Immutable => immutable_text(),
         EntryLock::Recent => "added or changed in the last 10 minutes".to_owned(),
         EntryLock::PartialDownload => "a download still arriving".to_owned(),
         EntryLock::UnfinishedBackup => "the backup did not finish".to_owned(),

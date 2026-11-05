@@ -34,8 +34,10 @@ use crate::plan::PlanItem;
 /// 2026-11-02). 11: in an `item` line, the skip reason `recycle-bin-refuses`
 /// with its `cause`, and the outcome `removed-not-recycled`, a session's
 /// companion's line included (safety ADR §5, the Recycle Bin on Windows,
-/// planned 2026-11-04).
-pub const JOURNAL_SCHEMA_VERSION: u32 = 11;
+/// planned 2026-11-04). 12: in an `item` line, the skip reason `immutable`
+/// and the entry lock `immutable` (safety ADR, amendment of 2026-11-04,
+/// "Linux file kinds").
+pub const JOURNAL_SCHEMA_VERSION: u32 = 12;
 
 /// Where an item went in the Trash: the trash folder and the name in its
 /// `files/`. Absent where the Trash does not tell (macOS): a trash on

@@ -11,6 +11,22 @@ pub use crate::platform::types::{Boundary, DirListing, EntryKind, EntryMeta, Rea
 /// Windows reports it for a placeholder's recall attributes.
 pub const SF_DATALESS: u32 = 0x4000_0000;
 
+/// `UF_IMMUTABLE` and `UF_APPEND` from `<sys/stat.h>`: set by the owner
+/// (`chflags uchg`, `uappnd`). Linux reports `STATX_ATTR_IMMUTABLE` and
+/// `STATX_ATTR_APPEND` as these two.
+pub const UF_IMMUTABLE: u32 = 0x0000_0002;
+pub const UF_APPEND: u32 = 0x0000_0004;
+/// `SF_IMMUTABLE`, `SF_APPEND` and `SF_RESTRICTED`: set by root, the last
+/// by System Integrity Protection.
+pub const SF_IMMUTABLE: u32 = 0x0002_0000;
+pub const SF_APPEND: u32 = 0x0004_0000;
+pub const SF_RESTRICTED: u32 = 0x0008_0000;
+/// An entry its owner cannot remove, and a folder holding one can never be
+/// emptied: never planned, refused before any rename (safety ADR, amendment
+/// of 2026-11-04, "Linux file kinds"). A flag the reader does not tell is
+/// not set.
+pub const LOCKED: u32 = UF_IMMUTABLE | UF_APPEND | SF_IMMUTABLE | SF_APPEND | SF_RESTRICTED;
+
 pub trait DirReader: Sync {
     /// Lists `dir` without following symlinks. `expect` is the `(dev, ino)` the
     /// parent listing reported; if the opened directory differs, nothing is read.

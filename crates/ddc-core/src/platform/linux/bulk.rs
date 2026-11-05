@@ -28,6 +28,7 @@ use rustix::io::Errno;
 use super::fsid::ZFS_SUPER_MAGIC;
 use super::statfs::Mount;
 use crate::platform::types::{Boundary, DirListing, EntryKind, EntryMeta, EntryStat, ReadError, ReadErrorKind, Times};
+use crate::scan::reader::{UF_APPEND, UF_IMMUTABLE};
 
 const BUF_LEN: usize = 64 * 1024;
 
@@ -60,6 +61,11 @@ struct Stat {
     /// the kernel does not tell (`stx_attributes_mask`, or `fstatat`).
     automount: Option<bool>,
     mount_root: Option<bool>,
+    /// `STATX_ATTR_IMMUTABLE` and `STATX_ATTR_APPEND` as `UF_IMMUTABLE` and
+    /// `UF_APPEND`; 0 where the kernel does not tell, as the `fstatat`
+    /// fallback never does (safety ADR, amendment of 2026-11-04, "Linux
+    /// file kinds").
+    flags: u32,
 }
 
 /// A scan root's open descriptor, which [`list_in`] opens folders beneath.
@@ -331,7 +337,7 @@ pub(super) fn stat_child(dir: &OwnedFd, name: &OsStr) -> Result<EntryStat, Errno
         is_dir: st.kind == EntryKind::Dir,
         is_file: st.kind == EntryKind::File,
         is_symlink: st.kind == EntryKind::Symlink,
-        flags: 0,
+        flags: st.flags,
         alloc: st.blocks * 512,
         mount_root: boundary(st.automount, st.mount_root, st.mnt_id, dir_mnt).is_some(),
     })
@@ -478,7 +484,7 @@ fn entry_meta(dir: &OwnedFd, name: &CStr, times: Times, dir_mnt: Option<u64>) ->
                 ino: st.ino,
                 nlink: st.nlink,
                 uid: Some(st.uid),
-                flags: 0,
+                flags: st.flags,
                 alloc: st.blocks * 512,
                 private: None,
                 error: None,
@@ -835,6 +841,9 @@ fn stat<P: rustix::path::Arg + Copy>(dir: &impl AsFd, name: P, flags: AtFlags, b
                 attribute(&st, StatxAttributes::AUTOMOUNT)
             },
             mount_root: attribute(&st, StatxAttributes::MOUNT_ROOT),
+            // A set bit is never wrong; a mask without it reads as not set.
+            flags: if st.stx_attributes.contains(StatxAttributes::IMMUTABLE) { UF_IMMUTABLE } else { 0 }
+                | if st.stx_attributes.contains(StatxAttributes::APPEND) { UF_APPEND } else { 0 },
         }),
         Err(Errno::NOSYS | Errno::PERM) => {
             let st = retry(|| rustix::fs::statat(dir, name, flags & !AtFlags::STATX_DONT_SYNC))?;
@@ -852,6 +861,7 @@ fn stat<P: rustix::path::Arg + Copy>(dir: &impl AsFd, name: P, flags: AtFlags, b
                 mnt_id: None,
                 automount: None,
                 mount_root: None,
+                flags: 0,
             })
         }
         Err(e) => Err(e),
