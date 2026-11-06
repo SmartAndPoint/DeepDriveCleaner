@@ -31,6 +31,12 @@ public final class AppPreferences {
     /// The bundle path and build the scheduler agent was last registered
     /// from (story "Scheduled scans: register the agent again after an update").
     public static let schedulerRegistrationKey = "SchedulerRegistration"
+    /// When the scheduler agent's last tick ran, by the clock and by the
+    /// uptime (`LastAgentTickAt`).
+    public static let lastAgentTickKey = "LastAgentTickAt"
+    /// Since when the agent's ticks are watched: written once with no tick
+    /// yet, and again at a re-registration and at Fix.
+    public static let agentWatchedSinceKey = "AgentWatchedSince"
     public static let pendingNotificationKey = "PendingNotification"
     public static let permissionPendingKey = "NotificationPermissionPending"
     public static let permissionAskedKey = "NotificationPermissionAsked"
@@ -133,6 +139,22 @@ public final class AppPreferences {
 
     public func setRegisteredBundle(_ bundle: RegisteredBundle) {
         if let data = try? JSONEncoder().encode(bundle) { defaults.set(data, forKey: Self.schedulerRegistrationKey) }
+    }
+
+    public var lastAgentTick: AgentTickMark? { mark(Self.lastAgentTickKey) }
+
+    public func setLastAgentTick(_ mark: AgentTickMark) { setMark(mark, Self.lastAgentTickKey) }
+
+    public var agentWatchedSince: AgentTickMark? { mark(Self.agentWatchedSinceKey) }
+
+    public func setAgentWatchedSince(_ mark: AgentTickMark) { setMark(mark, Self.agentWatchedSinceKey) }
+
+    private func mark(_ key: String) -> AgentTickMark? {
+        defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(AgentTickMark.self, from: $0) }
+    }
+
+    private func setMark(_ mark: AgentTickMark, _ key: String) {
+        if let data = try? JSONEncoder().encode(mark) { defaults.set(data, forKey: key) }
     }
 
     /// `UpdateScanDue`: a scan after the update is due until a readable
@@ -282,5 +304,21 @@ public struct RegisteredBundle: Codable, Sendable, Equatable {
     public init(path: String, build: String) {
         self.path = path
         self.build = build
+    }
+}
+
+/// A moment by the wall clock and by `ProcessInfo.systemUptime`, which does
+/// not advance while the Mac sleeps (story "Scheduled scans: register the
+/// agent again after an update").
+public struct AgentTickMark: Codable, Sendable, Equatable {
+    public let at: Date
+    public let uptime: TimeInterval
+    /// Written by Fix: the line after it offers Login Items instead.
+    public let byFix: Bool
+
+    public init(at: Date, uptime: TimeInterval, byFix: Bool = false) {
+        self.at = at
+        self.uptime = uptime
+        self.byFix = byFix
     }
 }

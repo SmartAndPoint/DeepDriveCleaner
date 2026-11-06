@@ -9,6 +9,18 @@ public enum NextScan: Sendable, Equatable {
     case replaceOldScanFirst
     /// At or before now: due at the next hourly tick.
     case at(Date)
+    /// The agent's ticks do not arrive (story "Scheduled scans: register the
+    /// agent again after an update").
+    case notRunning(NotRunning)
+}
+
+public enum NotRunning: Sendable, Equatable {
+    /// No tick for two hours of awake time: Fix registers the agent again.
+    case stalled
+    /// Still none after Fix: Login Items, or `ddc schedule install`.
+    case stalledAfterFix
+    /// macOS waits for the person in Login Items.
+    case waitsForApproval
 }
 
 /// Where the popover's Next scan line leads (story "Popover: the Next scan
@@ -18,11 +30,14 @@ public enum SettingsDestination: Sendable, Equatable {
     case schedule
     /// Where Replace It is, for the 0.1.0 agent.
     case permissions
+    /// The Permissions pane's Scheduled scan row, while macOS waits for approval.
+    case approval
 
     public var help: String {
         switch self {
         case .schedule: "Change the schedule in Settings"
         case .permissions: "Replace the old background scan in Settings"
+        case .approval: "Allow the scheduled scan in Login Items, from Settings"
         }
     }
 
@@ -30,7 +45,7 @@ public enum SettingsDestination: Sendable, Equatable {
     public var hint: String {
         switch self {
         case .schedule: "Opens Settings, Schedule"
-        case .permissions: "Opens Settings, Permissions"
+        case .permissions, .approval: "Opens Settings, Permissions"
         }
     }
 }
@@ -38,8 +53,9 @@ public enum SettingsDestination: Sendable, Equatable {
 extension NextScan {
     public var settingsDestination: SettingsDestination {
         switch self {
-        case .off, .at: .schedule
+        case .off, .at, .notRunning(.stalled), .notRunning(.stalledAfterFix): .schedule
         case .replaceOldScanFirst: .permissions
+        case .notRunning(.waitsForApproval): .approval
         }
     }
 }

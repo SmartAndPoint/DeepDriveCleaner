@@ -37,11 +37,14 @@ public final class PopoverModel {
             case allowNotifications
             /// The 0.1.0 agent still runs; dismissing the notice declines.
             case replaceOldScan
+            /// "Scheduled scans are not running": register the agent again.
+            case fixScheduler
 
             public var title: String {
                 switch self {
                 case .allowNotifications: "Allow Notifications"
                 case .replaceOldScan: "Replace It"
+                case .fixScheduler: "Fix"
                 }
             }
         }
@@ -868,7 +871,7 @@ public final class PopoverModel {
         switch notice.action {
         case .replaceOldScan: preferences.setOldScanOfferDismissed()
         case .allowNotifications: preferences.setNotificationPermissionPending(false)
-        case nil: break
+        case .fixScheduler, nil: break
         }
     }
 

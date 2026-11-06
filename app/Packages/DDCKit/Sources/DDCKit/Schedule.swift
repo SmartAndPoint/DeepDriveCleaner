@@ -74,6 +74,7 @@ public struct Schedule: Sendable, Equatable {
         switch scan {
         case .off: return nil
         case .replaceOldScanFirst: return Wording.replaceOldScanFirst
+        case .notRunning(let why): return Wording.notRunning(why)
         case .at(let date): next = date
         }
         // A missed slot, or a Resume: the next hourly check runs it.
@@ -118,6 +119,8 @@ public protocol SchedulerControl: AnyObject {
     func replaceLegacyAgent() async
     /// Why the last Replace It changed nothing; nil when it did not fail.
     var replaceFailure: String? { get }
+    /// "Scheduled scans are not running": register the agent again.
+    func fix() async
 }
 
 /// What the "Scheduled scan" row says.
@@ -137,4 +140,5 @@ public final class NoSchedulerControl: SchedulerControl {
     public var legacyAgentFound: Bool { false }
     public func replaceLegacyAgent() async {}
     public var replaceFailure: String? { nil }
+    public func fix() async {}
 }

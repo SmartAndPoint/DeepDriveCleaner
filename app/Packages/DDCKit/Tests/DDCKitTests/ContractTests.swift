@@ -801,8 +801,12 @@ struct ContractTests {
         #expect(waits.lowerBound < ticks.lowerBound)
         let launch = try #require(app.firstMatch(of: /case \.launchTick:[\s\S]*?case \.scanIfDue:/))
         let guarded = try #require(launch.output.range(of: "guard await updateCheck?.value == true else { return }"))
-        let tick = try #require(launch.output.range(of: "await work?.tick()"))
+        let tick = try #require(launch.output.range(of: "await work?.tick(.launch)"))
         #expect(guarded.lowerBound < tick.lowerBound)
+        // The agent's ticks (a --scheduled launch, a reopen) count for its watch; the launch tick does not.
+        let reopen = try #require(app.firstMatch(of: /case \.scanIfDue:[\s\S]*?case \.frontWindows:/))
+        #expect(reopen.output.contains("await work?.tick()"))
+        #expect(scheduled.output.contains("await work?.tick()"))
     }
 
     @Test("the Grew since entry reaches no sheet: no clean starts from it, its rows tick as the window's do")

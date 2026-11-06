@@ -207,6 +207,14 @@ public enum Wording {
         }
     }
 
+    /// The footer's and Settings' line while the agent's ticks do not arrive.
+    public static func notRunning(_ why: NotRunning) -> String {
+        switch why {
+        case .stalled, .stalledAfterFix: "Scheduled scans are not running"
+        case .waitsForApproval: "Scheduled scans wait for approval in Login Items"
+        }
+    }
+
     /// When an earlier scan was saved, for "since …": "today 10:04",
     /// "yesterday 10:04", a weekday within the last week ("Monday 10:04"),
     /// else the date ("Oct 28, 10:04"). The time follows the user's clock.
@@ -234,6 +242,7 @@ public enum Wording {
         switch scan {
         case .off: return "Scheduled scans off"
         case .replaceOldScanFirst: return replaceOldScanFirst
+        case .notRunning(let why): return notRunning(why)
         case .at(let date): next = date
         }
         if next <= now { return "Next scan within the hour" }

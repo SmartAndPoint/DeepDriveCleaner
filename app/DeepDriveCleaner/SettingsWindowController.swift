@@ -16,7 +16,7 @@ final class SettingsWindowController {
         init(_ destination: SettingsDestination) {
             switch destination {
             case .schedule: self = .schedule
-            case .permissions: self = .permissions
+            case .permissions, .approval: self = .permissions
             }
         }
 

@@ -369,11 +369,42 @@ struct SettingsTests {
         #expect(at(0) == "Within the hour" && at(-1) == "Within the hour")
     }
 
+    @Test("the Next scan row offers Fix while the agent's ticks stopped, not while paused; after Fix it names the routes left")
+    func notRunningRow() async throws {
+        final class Fixer: SchedulerControl {
+            var fixes = 0
+            func scheduleChanged(_ schedule: Schedule) {}
+            func fix() async { fixes += 1 }
+            var registration: SchedulerRegistration? { .allowed }
+            var legacyAgentFound: Bool { false }
+            func replaceLegacyAgent() async {}
+            var replaceFailure: String? { nil }
+        }
+        let fixer = Fixer()
+        let next = Box<NextScan>(.notRunning(.stalled))
+        let popover = try makeModel(runner: nil, data: data, defaults: defaults, nextScan: { next.value })
+        let model = SettingsModel(
+            store: SettingsStore(url: data.directory.settings), popover: popover,
+            preferences: AppPreferences(defaults: defaults.defaults), scheduler: fixer, home: "/Users/example"
+        )
+        #expect(model.offersFix && model.notRunningHelp == nil)
+        #expect(model.nextScan == "Scheduled scans are not running")
+        next.value = .notRunning(.stalledAfterFix)
+        let revision = model.revision
+        await model.fixScheduler()
+        #expect(fixer.fixes == 1 && model.revision > revision, "Fix reached the seam and the row redraws")
+        #expect(!model.offersFix && model.notRunningHelp == SchedulerAgent.refused)
+        popover.setPaused(true)
+        #expect(!model.offersFix && model.notRunningHelp == nil, "paused: the row says Paused only")
+    }
+
     @Test("a schedule change goes to the scheduler seam")
     func schedulerSeam() throws {
         final class Recorder: SchedulerControl {
             var changes: [Schedule] = []
             func scheduleChanged(_ schedule: Schedule) { changes.append(schedule) }
+            var fixes = 0
+            func fix() async { fixes += 1 }
             var registration: SchedulerRegistration? { .requiresApproval }
             var legacyAgentFound: Bool { true }
             func replaceLegacyAgent() async {}
