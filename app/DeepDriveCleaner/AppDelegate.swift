@@ -138,6 +138,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 log: { AppLog.write($0) }
             )
             settingsStore = store
+            // A Debug build shares the defaults and the build number with the
+            // release: it never moves the agent onto its own bundle.
+            #if DEBUG
+            let reregisters = false
+            #else
+            let reregisters = true
+            #endif
             let agent = SchedulerAgent(
                 service: SystemAgentService(),
                 store: store,
@@ -145,6 +152,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 runner: runner,
                 legacyPlist: LegacyAgent.plist(home: FileManager.default.homeDirectoryForCurrentUser),
                 bundlePath: Bundle.main.bundlePath,
+                bundleVersion: build,
+                reregisters: reregisters,
                 notice: { [weak model] in model?.setNotice(id: PopoverModel.schedulerNotice, text: $0) },
                 // The migration flow also asks for notification permission.
                 askPermission: { [weak self] in await self?.work?.allowNotifications() },
@@ -193,7 +202,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             settings = SettingsWindowController(presence: presence, model: settingsModel, updates: updates, privacy: Self.privacy)
             // At every launch with scheduled scans on: register (idempotent), which
             // recovers an agent approved later or dropped when brew replaced the bundle.
-            healing = Task { await agent.heal() }
+            // An update in place unregisters and registers again (`registrationStep`).
+            healing = agent.healAtLaunch()
         }
         NSApp.mainMenu = MainMenu.make(
             about: { [weak self] in self?.presence.showAbout() },

@@ -651,7 +651,11 @@ struct ScheduledScanTests {
 
     // MARK: - The scheduler agent
 
-    private func agent(_ service: FakeAgents, home: URL? = nil, runner: FakeRunner? = nil, notices: Box<[String?]> = Box([]), asked: Box<Int> = Box(0)) -> (SchedulerAgent, SettingsStore) {
+    private func agent(
+        _ service: FakeAgents, home: URL? = nil, runner: FakeRunner? = nil, notices: Box<[String?]> = Box([]), asked: Box<Int> = Box(0),
+        bundlePath: String = "/Applications/DeepDriveCleaner.app", build: String = "0", reregisters: Bool = true, logged: Box<[String]> = Box([]),
+        bundleExists: @escaping @MainActor (String) -> Bool = { _ in true }
+    ) -> (SchedulerAgent, SettingsStore) {
         let store = SettingsStore(url: data.directory.settings)
         let agent = SchedulerAgent(
             service: service,
@@ -659,11 +663,177 @@ struct ScheduledScanTests {
             preferences: AppPreferences(defaults: defaults.defaults),
             runner: runner,
             legacyPlist: LegacyAgent.plist(home: home ?? data.url.appending(path: "home")),
-            bundlePath: "/Applications/DeepDriveCleaner.app",
+            bundlePath: bundlePath,
+            bundleVersion: build,
+            reregisters: reregisters,
+            bundleExists: bundleExists,
             notice: { notices.value.append($0) },
-            askPermission: { asked.value += 1 }
+            askPermission: { asked.value += 1 },
+            log: { logged.value.append($0) }
         )
         return (agent, store)
+    }
+
+    // MARK: - Registering again after an update ("Scheduled scans: register the agent again after an update")
+
+    static let app = "/Applications/DeepDriveCleaner.app"
+    static let debug = "/Users/example/Library/Developer/Xcode/DerivedData/DeepDriveCleaner-abc/Build/Products/Debug/DeepDriveCleaner.app"
+
+    @Test("the step: the same path with another build registers again, the same build only registers, another path leaves it; with no record, settings.json's app stands for the path")
+    func registrationStep() {
+        let step = { (record: RegisteredBundle?, settingsApp: String?, path: String) in
+            SchedulerAgent.registrationStep(record: record, settingsApp: settingsApp, bundlePath: path, build: "97")
+        }
+        #expect(step(RegisteredBundle(path: Self.app, build: "96"), nil, Self.app) == .reregister)
+        #expect(step(RegisteredBundle(path: Self.app, build: "97"), Self.app, Self.app) == .record)
+        #expect(step(RegisteredBundle(path: Self.app, build: "96"), Self.app, Self.debug) == .leave)
+        #expect(step(nil, Self.app, Self.app) == .reregister, "the first launch of the build that ships this")
+        #expect(step(nil, Self.debug, Self.app) == .leave)
+        #expect(step(nil, nil, Self.app) == .record, "a first registration is this build's")
+        // A record of a bundle that is gone (moved from a disk image): settings.json decides.
+        let moved = RegisteredBundle(path: "/Volumes/DeepDriveCleaner/DeepDriveCleaner.app", build: "96")
+        #expect(SchedulerAgent.registrationStep(record: moved, recordExists: false, settingsApp: Self.app, bundlePath: Self.app, build: "97") == .reregister)
+        #expect(SchedulerAgent.registrationStep(record: moved, recordExists: true, settingsApp: Self.app, bundlePath: Self.app, build: "97") == .leave)
+    }
+
+    @Test("a record of a bundle that is gone (moved to /Applications) lets settings.json decide")
+    func movedApp() async throws {
+        let service = FakeAgents()
+        let preferences = AppPreferences(defaults: defaults.defaults)
+        preferences.setRegisteredBundle(RegisteredBundle(path: "/Volumes/DeepDriveCleaner/DeepDriveCleaner.app", build: "96"))
+        try service.register(SchedulerAgent.primaryPlist)
+        try data.write(settings: #"{"schema_version": 1, "scheduler": {"by": "app", "app": "/Applications/DeepDriveCleaner.app"}}"#)
+        let (agent, _) = agent(service, build: "97", bundleExists: { $0 == Self.app })
+        await agent.heal()
+        #expect(service.unregistered == [SchedulerAgent.primaryPlist])
+        #expect(preferences.registeredBundle == RegisteredBundle(path: Self.app, build: "97"))
+    }
+
+    @Test("the fallback plist in use is unregistered and the primary tried again")
+    func reregistersTheFallback() async throws {
+        let service = FakeAgents()
+        let preferences = AppPreferences(defaults: defaults.defaults)
+        service.after[SchedulerAgent.primaryPlist] = .notFound
+        let (old, _) = agent(service, build: "96")
+        await old.heal()
+        #expect(service.status(SchedulerAgent.fallbackPlist) == .enabled)
+        let (new, _) = agent(service, build: "97")
+        await new.heal()
+        #expect(service.unregistered.contains(SchedulerAgent.fallbackPlist))
+        #expect(new.registration == .allowed)
+        #expect(preferences.registeredBundle == RegisteredBundle(path: Self.app, build: "97"))
+    }
+
+    @Test("the launch's heal and Settings' changes run one after the other")
+    func launchHealQueues() async throws {
+        let service = FakeAgents()
+        let preferences = AppPreferences(defaults: defaults.defaults)
+        preferences.setRegisteredBundle(RegisteredBundle(path: Self.app, build: "96"))
+        try service.register(SchedulerAgent.primaryPlist)
+        let (agent, store) = agent(service, build: "97")
+        let launch = agent.healAtLaunch()
+        var off = Schedule()
+        off.enabled = false
+        preferences.setSchedule(off)
+        agent.scheduleChanged(off)
+        await launch.value
+        await agent.change?.value
+        #expect(agent.registration == .off, "the switch to off ran after the launch's heal")
+        #expect(store.file.scheduler == nil)
+    }
+
+    @Test("an update in place unregisters, then registers, and records the path and build; the next launch of that build only registers")
+    func reregistersAfterAnUpdate() async throws {
+        let service = FakeAgents()
+        let preferences = AppPreferences(defaults: defaults.defaults)
+        let (first, _) = agent(service, build: "96")
+        await first.heal()
+        #expect(service.registered == [SchedulerAgent.primaryPlist] && service.unregistered.isEmpty)
+        #expect(preferences.registeredBundle == RegisteredBundle(path: Self.app, build: "96"))
+        let logged = Box<[String]>([])
+        let (updated, store) = agent(service, build: "97", logged: logged)
+        await updated.heal()
+        #expect(service.unregistered == [SchedulerAgent.primaryPlist])
+        #expect(service.registered == [SchedulerAgent.primaryPlist, SchedulerAgent.primaryPlist])
+        #expect(preferences.registeredBundle == RegisteredBundle(path: Self.app, build: "97"))
+        #expect(updated.registration == .allowed && store.file.scheduler?.app == Self.app)
+        #expect(logged.value.contains { $0.contains("registering the agent again") })
+        await updated.heal()
+        #expect(service.unregistered.count == 1, "the same build: registered, not again")
+        #expect(service.registered.count == 3)
+    }
+
+    @Test("with no record yet, the bundle settings.json names registers again; another records nothing and only registers")
+    func noRecordYet() async throws {
+        let service = FakeAgents()
+        let preferences = AppPreferences(defaults: defaults.defaults)
+        // The owner's case: 0.34 registered long ago; scheduler.app is this bundle.
+        try service.register(SchedulerAgent.primaryPlist)
+        try data.write(settings: #"{"schema_version": 1, "scheduler": {"by": "app", "app": "/Applications/DeepDriveCleaner.app"}}"#)
+        let (agent, _) = agent(service, build: "98")
+        await agent.heal()
+        #expect(service.unregistered == [SchedulerAgent.primaryPlist])
+        #expect(preferences.registeredBundle == RegisteredBundle(path: Self.app, build: "98"))
+
+        defaults.defaults.removeObject(forKey: AppPreferences.schedulerRegistrationKey)
+        let logged = Box<[String]>([])
+        let (other, _) = self.agent(service, bundlePath: Self.debug, build: "98", logged: logged)
+        await other.heal()
+        #expect(service.unregistered.count == 1, "another path: no unregister")
+        #expect(preferences.registeredBundle == nil)
+        #expect(logged.value.contains { $0.contains("not registering again") })
+    }
+
+    @Test("a launch from another path, or a Debug build, never moves the agent; scheduled scans off unregister as today and keep the record")
+    func otherPathAndOff() async throws {
+        let service = FakeAgents()
+        let preferences = AppPreferences(defaults: defaults.defaults)
+        preferences.setRegisteredBundle(RegisteredBundle(path: Self.app, build: "96"))
+        try service.register(SchedulerAgent.primaryPlist)
+        let logged = Box<[String]>([])
+        let (debug, _) = agent(service, bundlePath: Self.debug, build: "97", logged: logged)
+        await debug.heal()
+        #expect(service.unregistered.isEmpty)
+        #expect(logged.value.contains { $0.contains("not registering again") })
+        #expect(preferences.registeredBundle == RegisteredBundle(path: Self.app, build: "96"))
+        let (release, _) = agent(service, build: "97", reregisters: false)
+        await release.heal()
+        #expect(service.unregistered.isEmpty, "a Debug build passes reregisters: false")
+        #expect(preferences.registeredBundle == RegisteredBundle(path: Self.app, build: "96"))
+
+        var off = Schedule()
+        off.enabled = false
+        preferences.setSchedule(off)
+        let (agent, _) = agent(service, build: "97")
+        await agent.heal()
+        #expect(service.unregistered == [SchedulerAgent.primaryPlist], "off unregisters, as today")
+        #expect(preferences.registeredBundle == RegisteredBundle(path: Self.app, build: "96"), "and records nothing")
+        // On again with a newer build: nothing registered to unregister, so only a register.
+        preferences.setSchedule(Schedule())
+        await agent.heal()
+        #expect(service.unregistered.count == 1)
+        #expect(preferences.registeredBundle == RegisteredBundle(path: Self.app, build: "97"))
+    }
+
+    @Test("a re-registration that ends in approval pending, or whose unregister throws, still records: the next launch of that build does not try again")
+    func recordsWhateverTheStatus() async throws {
+        for approval in [true, false] {
+            let service = FakeAgents()
+            let preferences = AppPreferences(defaults: defaults.defaults)
+            preferences.setRegisteredBundle(RegisteredBundle(path: Self.app, build: "96"))
+            try service.register(SchedulerAgent.primaryPlist)
+            if approval {
+                service.after[SchedulerAgent.primaryPlist] = .requiresApproval
+            } else {
+                service.throwingUnregister = [SchedulerAgent.primaryPlist]
+            }
+            let (agent, _) = agent(service, build: "97")
+            await agent.heal()
+            #expect(service.unregistered == [SchedulerAgent.primaryPlist])
+            #expect(preferences.registeredBundle == RegisteredBundle(path: Self.app, build: "97"), "approval \(approval)")
+            await agent.heal()
+            #expect(service.unregistered.count == 1, "approval \(approval): not again")
+        }
     }
 
     @Test("every launch with scheduled scans on registers; approval pending leaves the record; enabled writes it; a failing register clears it; off unregisters and clears it")
@@ -912,6 +1082,7 @@ final class FakeAgents: AgentService {
     struct Refused: Error {}
     var after: [String: AgentStatus] = [:]
     var throwing: Set<String> = []
+    var throwingUnregister: Set<String> = []
     private(set) var registered: [String] = []
     private(set) var unregistered: [String] = []
     private var statuses: [String: AgentStatus] = [:]
@@ -926,6 +1097,7 @@ final class FakeAgents: AgentService {
 
     func unregister(_ plist: String) async throws {
         unregistered.append(plist)
+        if throwingUnregister.contains(plist) { throw Refused() }
         statuses[plist] = .notRegistered
     }
 }
