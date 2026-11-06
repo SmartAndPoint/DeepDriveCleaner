@@ -28,6 +28,9 @@ public final class AppPreferences {
     /// The scheduled scan made due at the first launch of a new build whose
     /// saved report is of an older schema (menu bar ADR §5, amended 2026-11-05).
     public static let updateScanDueKey = "UpdateScanDue"
+    /// The bundle path and build the scheduler agent was last registered
+    /// from (story "Scheduled scans: register the agent again after an update").
+    public static let schedulerRegistrationKey = "SchedulerRegistration"
     public static let pendingNotificationKey = "PendingNotification"
     public static let permissionPendingKey = "NotificationPermissionPending"
     public static let permissionAskedKey = "NotificationPermissionAsked"
@@ -120,6 +123,16 @@ public final class AppPreferences {
 
     public func setLastLaunchedBuild(_ build: String) {
         defaults.set(build, forKey: Self.lastLaunchedBuildKey)
+    }
+
+    /// `SchedulerRegistration`: where the agent was registered from; nil
+    /// before the first launch that records it.
+    public var registeredBundle: RegisteredBundle? {
+        defaults.data(forKey: Self.schedulerRegistrationKey).flatMap { try? JSONDecoder().decode(RegisteredBundle.self, from: $0) }
+    }
+
+    public func setRegisteredBundle(_ bundle: RegisteredBundle) {
+        if let data = try? JSONEncoder().encode(bundle) { defaults.set(data, forKey: Self.schedulerRegistrationKey) }
     }
 
     /// `UpdateScanDue`: a scan after the update is due until a readable
@@ -255,5 +268,19 @@ public final class AppPreferences {
     /// The flag only: the record stays, so the same baseline never sets it again.
     public func clearGrowthBadge() {
         defaults.removeObject(forKey: Self.growthBadgePendingKey)
+    }
+}
+
+/// The bundle the scheduler agent was registered from: launchd keeps the
+/// registration of the build that made it (story "Scheduled scans: register
+/// the agent again after an update"). Not `LastLaunchedBuild`, which every
+/// launch writes: this one only while scheduled scans are on.
+public struct RegisteredBundle: Codable, Sendable, Equatable {
+    public let path: String
+    public let build: String
+
+    public init(path: String, build: String) {
+        self.path = path
+        self.build = build
     }
 }
