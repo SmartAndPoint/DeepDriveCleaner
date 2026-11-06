@@ -158,6 +158,12 @@ struct PopoverView: View {
                         .pointerStyle(.link)
                         .help(destination.help)
                         .accessibilityHint(destination.hint)
+                    if model.nextScanValue == .notRunning(.stalled) {
+                        // Registers the scheduler agent again; it scans nothing.
+                        Button("Fix") { model.perform(.fixScheduler) }
+                            .buttonStyle(.link)
+                            .help("Register the scheduled scan with macOS again")
+                    }
                 }
             }
             .font(.system(size: 12))

@@ -166,11 +166,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 notifications: SystemNotifications(),
                 legacyAgentFound: { [weak agent] in agent?.legacyAgentFound ?? false },
                 updateWaiting: { [weak model] in model?.updateWaiting ?? false },
+                agentState: { [weak agent] in agent?.registration },
                 openNotificationSettings: Self.openNotificationSettings,
                 log: { AppLog.write($0) }
             )
             self.agent = agent
             self.work = work
+            work.watchAgent()
             // At every launch: the build, and whether the saved report needs the scan after an update.
             updateCheck = Task { await work.launched(build: build, lastScan: data.lastScan) }
             // While a relaunch waits or runs, no scan, clean or free starts.
@@ -185,6 +187,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 case .replaceOldScan:
                     Task {
                         await agent.replaceLegacy()
+                        await model?.refresh()
+                    }
+                case .fixScheduler:
+                    Task {
+                        await agent.fix()
                         await model?.refresh()
                     }
                 }
@@ -317,7 +324,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     guard await updateCheck?.value == true else { return }
                     AppLog.write("launch: the scan after the update is due")
                     await model.start()
-                    await work?.tick()
+                    // Not one of the agent's ticks: its watch is not reset.
+                    await work?.tick(.launch)
                 }
             case .scanIfDue:
                 AppLog.write("reopen of the running app: scan if due")

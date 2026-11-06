@@ -44,6 +44,7 @@ struct ScheduledScanTests {
         let clock: Clock
         var legacy = false
         var updateWaiting = false
+        var agentState: SchedulerRegistration? = nil
         var work: ScheduledWork!
 
         init(_ test: ScheduledScanTests, now: Date) throws {
@@ -57,7 +58,7 @@ struct ScheduledScanTests {
             self.work = ScheduledWork(
                 popover: popover, preferences: preferences, runner: runner, notifications: notifications,
                 legacyAgentFound: { [unowned self] in self.legacy }, updateWaiting: { [unowned self] in self.updateWaiting },
-                clock: { clock.now }, calendar: test.calendar
+                clock: { clock.now }, uptime: { clock.uptime }, agentState: { [unowned self] in self.agentState }, calendar: test.calendar
             )
             work = self.work
         }
@@ -709,6 +710,166 @@ struct ScheduledScanTests {
         #expect(preferences.registeredBundle == RegisteredBundle(path: Self.app, build: "97"))
     }
 
+    // MARK: - Saying when the agent's ticks do not arrive
+
+    @Test("the watch: more than two hours of awake time since the later of the last tick and the start; a restart counts from boot")
+    func agentTicksStopped() {
+        let mark = { (uptime: TimeInterval) in AgentTickMark(at: .distantPast, uptime: uptime) }
+        let h: TimeInterval = 3600
+        #expect(!AgentTicks.stopped(lastTick: nil, since: nil, uptime: 10 * h), "the watch has not started")
+        #expect(!AgentTicks.stopped(lastTick: mark(5 * h), since: nil, uptime: 7 * h))
+        #expect(AgentTicks.stopped(lastTick: mark(5 * h), since: nil, uptime: 7 * h + 1))
+        #expect(!AgentTicks.stopped(lastTick: mark(1 * h), since: mark(6 * h), uptime: 7 * h), "the later one counts")
+        #expect(!AgentTicks.stopped(lastTick: mark(9 * h), since: nil, uptime: 1 * h), "restarted an hour ago")
+        #expect(AgentTicks.stopped(lastTick: mark(9 * h), since: nil, uptime: 3 * h), "restarted three hours ago, no tick since")
+    }
+
+    @Test("not running: no agent tick for two hours of uptime; an agent tick resets it and the launch tick does not; a long sleep does not count; the start is set once")
+    func notRunning() async throws {
+        let rig = try Rig(self, now: at(20, 9))
+        rig.preferences.setLastScheduledScan(at(20, 8))
+        rig.agentState = .allowed
+        rig.clock.uptime = 50_000
+        rig.work.watchAgent()
+        rig.clock.uptime += 7_100
+        rig.work.watchAgent()
+        #expect(rig.preferences.agentWatchedSince?.uptime == 50_000, "a later launch without a tick does not move it")
+        #expect(rig.work.next() == .at(at(20, 10)), "under two hours")
+        rig.clock.uptime += 200
+        #expect(rig.work.next() == .notRunning(.stalled))
+        #expect(rig.work.next().settingsDestination == .schedule)
+        // The launch tick of the scan after an update is not the agent's.
+        await rig.work.tick(.launch)
+        #expect(rig.work.next() == .notRunning(.stalled))
+        await rig.work.tick()
+        #expect(rig.work.next() == .at(at(20, 10)), "an agent tick resets it")
+        // Asleep all night: the wall clock moves, the uptime barely.
+        rig.clock.now = at(21, 8)
+        rig.clock.uptime += 600
+        rig.preferences.setLastScheduledScan(at(21, 8))
+        #expect(rig.work.next() == .at(at(21, 10)))
+        // Off, paused and the 0.1.0 agent say what they say today.
+        rig.clock.uptime += 9_000
+        rig.preferences.setScansPaused(true)
+        #expect(rig.work.next() == .notRunning(.stalled), "paused: the footer shows Paused before this; Resume finds it")
+        rig.preferences.setScansPaused(false)
+        rig.legacy = true
+        #expect(rig.work.next() == .replaceOldScanFirst)
+        rig.legacy = false
+        rig.agentState = .off
+        #expect(rig.work.next() == .at(at(21, 10)), "no agent registered: nothing to watch")
+    }
+
+    @Test("scheduled scans turned on again, or Replace It, start the watch afresh: no \"not running\" right after")
+    func onAgainStartsTheWatch() async throws {
+        let service = FakeAgents()
+        let preferences = AppPreferences(defaults: defaults.defaults)
+        let clock = Clock(at(20, 9))
+        clock.uptime = 90_000
+        preferences.setLastAgentTick(AgentTickMark(at: at(18, 9), uptime: 20_000))
+        preferences.setRegisteredBundle(RegisteredBundle(path: Self.app, build: "97"))
+        let agent = SchedulerAgent(
+            service: service, store: SettingsStore(url: data.directory.settings), preferences: preferences, runner: nil,
+            legacyPlist: LegacyAgent.plist(home: data.url.appending(path: "home")),
+            bundlePath: Self.app, bundleVersion: "97", bundleExists: { _ in true }, clock: { clock.now }, uptime: { clock.uptime }
+        )
+        // Off for two days; now on: the same build, so no re-registration, but it was not allowed.
+        await agent.heal()
+        #expect(service.unregistered.isEmpty)
+        #expect(preferences.agentWatchedSince == AgentTickMark(at: at(20, 9), uptime: 90_000))
+        let before = preferences.agentWatchedSince
+        await agent.heal()
+        #expect(preferences.agentWatchedSince == before, "already allowed: the watch goes on")
+    }
+
+    @Test("a tick that joins a running one counts as the agent's; a launch after a long logout waits two hours of its own")
+    func joiningAndLogout() async throws {
+        let rig = try Rig(self, now: at(20, 10))
+        rig.agentState = .allowed
+        rig.preferences.setAgentWatchedSince(AgentTickMark(at: at(19, 10), uptime: 1_000))
+        rig.clock.uptime = 10_000 + 600
+        // The process started at uptime 10_000 (the rig's clock): ten minutes ago.
+        #expect(rig.work.next() != .notRunning(.stalled), "logged out for hours: not yet")
+        rig.clock.uptime += 7_200
+        #expect(rig.work.next() == .notRunning(.stalled))
+        await rig.reply(decision(notify: false))
+        async let first = rig.work.tick(.launch)
+        async let second = rig.work.tick()
+        _ = await [first, second]
+        #expect(rig.preferences.lastAgentTick?.uptime == rig.clock.uptime, "the agent's tick joined the launch's and still counts")
+        #expect(rig.work.next() != .notRunning(.stalled))
+    }
+
+    @Test("an agent waiting for approval says so at once and leads to Permissions")
+    func waitsForApproval() throws {
+        let rig = try Rig(self, now: at(20, 9))
+        rig.preferences.setLastScheduledScan(at(20, 8))
+        rig.agentState = .requiresApproval
+        #expect(rig.work.next() == .notRunning(.waitsForApproval))
+        #expect(rig.work.next().settingsDestination == .approval)
+        #expect(rig.work.next().settingsDestination.help == "Allow the scheduled scan in Login Items, from Settings")
+        #expect(Wording.nextScan(rig.work.next(), now: at(20, 9)) == "Scheduled scans wait for approval in Login Items")
+        // Approved in System Settings, outside the app: the watch counts from about then.
+        rig.preferences.setLastAgentTick(AgentTickMark(at: at(19, 9), uptime: 1_000))
+        rig.clock.uptime = 40_000
+        _ = rig.work.next()
+        rig.agentState = .allowed
+        rig.clock.uptime += 600
+        #expect(rig.work.next() == .at(at(20, 10)), "not \"not running\" right after the approval")
+    }
+
+    @Test("Fix registers the agent again and starts the watch; still no tick after it offers Login Items")
+    func fix() async throws {
+        let service = FakeAgents()
+        let preferences = AppPreferences(defaults: defaults.defaults)
+        try service.register(SchedulerAgent.primaryPlist)
+        preferences.setRegisteredBundle(RegisteredBundle(path: Self.app, build: "97"))
+        let clock = Clock(at(20, 9))
+        clock.uptime = 30_000
+        let store = SettingsStore(url: data.directory.settings)
+        let agent = SchedulerAgent(
+            service: service, store: store, preferences: preferences, runner: nil,
+            legacyPlist: LegacyAgent.plist(home: data.url.appending(path: "home")),
+            bundlePath: Self.app, bundleVersion: "97", bundleExists: { _ in true }, clock: { clock.now }, uptime: { clock.uptime }
+        )
+        await agent.fix()
+        #expect(service.unregistered == [SchedulerAgent.primaryPlist] && service.registered.count == 2, "whatever the record says")
+        #expect(preferences.agentWatchedSince == AgentTickMark(at: at(20, 9), uptime: 30_000, byFix: true))
+        let rig = try Rig(self, now: at(20, 9))
+        rig.preferences.setLastScheduledScan(at(20, 8))
+        rig.agentState = .allowed
+        rig.clock.uptime = 30_000 + 7_300
+        #expect(rig.work.next() == .notRunning(.stalledAfterFix))
+        #expect(rig.work.next().settingsDestination == .schedule, "where Settings says what is left")
+        #expect(Wording.nextScan(rig.work.next(), now: at(20, 9)) == "Scheduled scans are not running")
+        await rig.work.tick()
+        #expect(rig.work.next() == .at(at(20, 10)), "a tick after Fix: running again")
+
+        // A Debug build's Fix moves nothing.
+        let debugService = FakeAgents()
+        try debugService.register(SchedulerAgent.primaryPlist)
+        let (debug, _) = self.agent(debugService, bundlePath: Self.debug, build: "97", reregisters: false)
+        await debug.fix()
+        #expect(debugService.unregistered.isEmpty)
+        #expect(preferences.registeredBundle == RegisteredBundle(path: Self.app, build: "97"))
+    }
+
+    @Test("a scheduler.app whose bundle is gone does not hold the registration back")
+    func goneSettingsApp() async throws {
+        let service = FakeAgents()
+        let preferences = AppPreferences(defaults: defaults.defaults)
+        try service.register(SchedulerAgent.primaryPlist)
+        // Both point at a disk image that is gone; the app now lives in /Applications.
+        let gone = "/Volumes/DeepDriveCleaner/DeepDriveCleaner.app"
+        preferences.setRegisteredBundle(RegisteredBundle(path: gone, build: "96"))
+        try data.write(settings: #"{"schema_version": 1, "scheduler": {"by": "app", "app": "/Volumes/DeepDriveCleaner/DeepDriveCleaner.app"}}"#)
+        let (agent, _) = agent(service, build: "97", bundleExists: { $0 == Self.app })
+        await agent.heal()
+        #expect(service.unregistered == [SchedulerAgent.primaryPlist], "the first launch from the new place")
+        #expect(preferences.registeredBundle == RegisteredBundle(path: Self.app, build: "97"))
+        #expect(SchedulerAgent.registrationStep(record: nil, settingsApp: gone, settingsAppExists: true, bundlePath: Self.app, build: "97") == .leave, "a copy that still exists")
+    }
+
     @Test("the fallback plist in use is unregistered and the primary tried again")
     func reregistersTheFallback() async throws {
         let service = FakeAgents()
@@ -1106,6 +1267,8 @@ final class FakeAgents: AgentService {
 @MainActor
 final class Clock {
     var now: Date
+    /// Awake time, for the scheduler agent's watch.
+    var uptime: TimeInterval = 10_000
     init(_ now: Date) { self.now = now }
 }
 

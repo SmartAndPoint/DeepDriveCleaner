@@ -28,6 +28,10 @@ public final class ScheduledWork {
     /// `UpdateModel.jobsHeld`: no scheduled scan starts while an install waits.
     private let updateWaiting: @MainActor () -> Bool
     private let clock: @MainActor () -> Date
+    /// `ProcessInfo.systemUptime`: awake time, for the agent's watch.
+    private let uptime: @MainActor () -> TimeInterval
+    /// The agent's registration (`SchedulerAgent.registration`); nil without one.
+    private let agentState: @MainActor () -> SchedulerRegistration?
     private let calendar: Calendar
     private let log: @MainActor (String) -> Void
     /// Opens System Settings → Notifications: macOS asks only once, so a
@@ -36,6 +40,8 @@ public final class ScheduledWork {
     /// The tick in flight: a reopen during a scheduled scan joins it, so
     /// it never scans twice nor posts twice.
     private var running: Task<TickResult, Never>?
+    /// When this process started: its own ticks count from here at the earliest.
+    private var started: AgentTickMark?
 
     public init(
         popover: PopoverModel,
@@ -45,6 +51,8 @@ public final class ScheduledWork {
         legacyAgentFound: @escaping @MainActor () -> Bool,
         updateWaiting: @escaping @MainActor () -> Bool = { false },
         clock: @escaping @MainActor () -> Date = { .now },
+        uptime: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        agentState: @escaping @MainActor () -> SchedulerRegistration? = { nil },
         calendar: Calendar = .current,
         openNotificationSettings: @escaping @MainActor () -> Void = {},
         log: @escaping @MainActor (String) -> Void = { _ in }
@@ -57,6 +65,9 @@ public final class ScheduledWork {
         self.legacyAgentFound = legacyAgentFound
         self.updateWaiting = updateWaiting
         self.clock = clock
+        self.uptime = uptime
+        self.agentState = agentState
+        started = AgentTickMark(at: clock(), uptime: uptime())
         self.calendar = calendar
         self.log = log
     }
@@ -78,9 +89,39 @@ public final class ScheduledWork {
         ScanDue.due(inputs, now: clock(), calendar: calendar)
     }
 
-    /// The popover footer's and the Schedule pane's seam.
+    /// The popover footer's and the Schedule pane's seam. While scheduled
+    /// scans are on and the agent is registered, a scan the agent should
+    /// have run but did not says so (story "Scheduled scans: register the
+    /// agent again after an update").
     public func next() -> NextScan {
-        ScanDue.next(inputs, now: clock(), calendar: calendar)
+        let next = ScanDue.next(inputs, now: clock(), calendar: calendar)
+        guard case .at = next else { return next }
+        switch agentState() {
+        case .requiresApproval?:
+            // An approval given outside the app starts the watch from about
+            // now: kept fresh to the minute, keeping whether Fix wrote it.
+            let saved = preferences.agentWatchedSince
+            if saved.map({ uptime() - $0.uptime > 60 || $0.uptime > uptime() }) ?? true {
+                preferences.setAgentWatchedSince(AgentTickMark(at: clock(), uptime: uptime(), byFix: saved?.byFix ?? false))
+            }
+            return .notRunning(.waitsForApproval)
+        case .allowed?:
+            let since = preferences.agentWatchedSince
+            guard AgentTicks.stopped(lastTick: preferences.lastAgentTick, since: since, running: started, uptime: uptime()) else { return next }
+            // Fix's own start decides: no tick since Fix either.
+            let byFix = since.map { $0.byFix && $0.at >= (preferences.lastAgentTick?.at ?? .distantPast) } ?? false
+            return .notRunning(byFix ? .stalledAfterFix : .stalled)
+        case .off?, nil:
+            return next
+        }
+    }
+
+    /// Starts the agent's watch once, at a launch with neither a tick nor a
+    /// start recorded, so a Mac up for hours does not read "not running" at
+    /// the first launch of the build that ships it.
+    public func watchAgent() {
+        guard preferences.lastAgentTick == nil, preferences.agentWatchedSince == nil else { return }
+        preferences.setAgentWatchedSince(AgentTickMark(at: clock(), uptime: uptime()))
     }
 
     // MARK: - The launch ("Scan after an update when the saved report cannot be read")
@@ -116,12 +157,20 @@ public final class ScheduledWork {
 
     // MARK: - A tick
 
+    /// Who asked for a tick: the scheduler agent (a `--scheduled` launch, a
+    /// reopen of the running app), or the launch tick of the scan after an
+    /// update, which does not count as one of the agent's.
+    public enum TickSource: Sendable, Equatable {
+        case agent, launch
+    }
+
     /// A scan if one is due, then the pending notification. Returns after
     /// the post and its `notify ack`, so a `--scheduled` instance quits only
     /// after both. A tick while one runs gets that one's result: the due
     /// function cannot see a scheduled scan until it has ended.
     @discardableResult
-    public func tick() async -> TickResult {
+    public func tick(_ source: TickSource = .agent) async -> TickResult {
+        if source == .agent { preferences.setLastAgentTick(AgentTickMark(at: clock(), uptime: uptime())) }
         if let running { return await running.value }
         let task = Task { await runTick() }
         running = task

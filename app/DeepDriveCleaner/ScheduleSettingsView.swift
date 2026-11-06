@@ -43,6 +43,16 @@ struct ScheduleSettingsView: View {
                 }
                 if let next = model.nextScan {
                     LabeledContent("Next scan", value: next)
+                    if model.offersFix {
+                        HStack {
+                            Text("macOS did not start the last scheduled scans. Fix registers the scheduled scan again.").settingsHelp()
+                            Spacer()
+                            Button("Fix") { Task { await model.fixScheduler() } }
+                        }
+                    }
+                    if let help = model.notRunningHelp {
+                        Text(help).settingsHelp()
+                    }
                     if schedule.enabled && !model.paused {
                         Text("If the Mac is asleep at \(Schedule.hourText(schedule.hour)), the scan runs soon after it wakes. Scan now in the menu and ddc scan in Terminal don't move the schedule.")
                             .settingsHelp()

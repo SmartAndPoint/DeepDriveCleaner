@@ -74,6 +74,7 @@ public final class SettingsModel {
         registration = scheduler.registration
         legacyAgentFound = scheduler.legacyAgentFound
         replaceFailure = scheduler.replaceFailure
+        revision += 1
     }
 
     /// Why `settings.json` cannot be changed here; every pane that writes it says so.
@@ -151,10 +152,38 @@ public final class SettingsModel {
     public var paused: Bool { popover.paused }
     public func setPaused(_ on: Bool) { popover.setPaused(on) }
 
+    /// Bumped by `refresh()`: the Next scan row reads the popover and the
+    /// scheduler, which are not observed, so a Fix or a change elsewhere redraws it.
+    public private(set) var revision = 0
+
+    /// The Next scan row's Fix: shown while the agent's ticks stopped, not while paused.
+    public var offersFix: Bool {
+        _ = revision
+        return !popover.paused && popover.nextScanValue == .notRunning(.stalled)
+    }
+
+    /// Still no tick after Fix, or macOS waits for approval: the routes
+    /// that are left (`SchedulerAgent.refused`).
+    public var notRunningHelp: String? {
+        _ = revision
+        guard !popover.paused else { return nil }
+        switch popover.nextScanValue {
+        case .notRunning(.stalledAfterFix), .notRunning(.waitsForApproval): return SchedulerAgent.refused
+        default: return nil
+        }
+    }
+
+    /// Fix: registers the agent again.
+    public func fixScheduler() async {
+        await scheduler.fix()
+        refresh()
+    }
+
     /// "Off…", "Paused…", or the date the popover footer's seam gives; nil
     /// hides the line.
     public var nextScan: String? {
-        schedule.nextScanLine(paused: popover.paused, next: popover.nextScanValue, now: clock())
+        _ = revision
+        return schedule.nextScanLine(paused: popover.paused, next: popover.nextScanValue, now: clock())
     }
 
     // MARK: - Automation

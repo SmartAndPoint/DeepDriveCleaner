@@ -40,6 +40,8 @@ public final class SchedulerAgent: SchedulerControl {
     private let reregisters: Bool
     /// Whether a bundle is at a path; tests give their own answer.
     private let bundleExists: @MainActor (String) -> Bool
+    private let clock: @MainActor () -> Date
+    private let uptime: @MainActor () -> TimeInterval
     private let notice: @MainActor (String?) -> Void
     private let askPermission: @MainActor () async -> Void
     private let log: @MainActor (String) -> Void
@@ -59,6 +61,8 @@ public final class SchedulerAgent: SchedulerControl {
         bundleVersion: String = "0",
         reregisters: Bool = true,
         bundleExists: @escaping @MainActor (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
+        clock: @escaping @MainActor () -> Date = { .now },
+        uptime: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         notice: @escaping @MainActor (String?) -> Void = { _ in },
         askPermission: @escaping @MainActor () async -> Void = {},
         log: @escaping @MainActor (String) -> Void = { _ in }
@@ -72,6 +76,8 @@ public final class SchedulerAgent: SchedulerControl {
         self.bundleVersion = bundleVersion
         self.reregisters = reregisters
         self.bundleExists = bundleExists
+        self.clock = clock
+        self.uptime = uptime
         self.notice = notice
         self.askPermission = askPermission
         self.log = log
@@ -102,6 +108,23 @@ public final class SchedulerAgent: SchedulerControl {
     /// agent exists (B1). The record follows the status after the call,
     /// not whether the call threw.
     public func heal() async {
+        await heal(force: false)
+    }
+
+    /// Fix, from the footer's or the Schedule pane's "not running" line:
+    /// registers the agent again whatever the record says, and starts the
+    /// watch again; still no tick after it offers Login Items.
+    public func fix() async {
+        let previous = change
+        let task = Task {
+            await previous?.value
+            await heal(force: true)
+        }
+        change = task
+        await task.value
+    }
+
+    private func heal(force: Bool) async {
         guard !legacyAgentFound else {
             log("scheduler: the 0.1.0 agent exists; the app's agent is not registered")
             return
@@ -117,24 +140,27 @@ public final class SchedulerAgent: SchedulerControl {
         }
         let record = preferences.registeredBundle
         let settingsApp = self.settingsApp
-        let decision = reregisters
-            ? Self.registrationStep(
-                record: record, recordExists: record.map { bundleExists($0.path) } ?? false,
-                settingsApp: settingsApp, bundlePath: bundlePath, build: bundleVersion
-            )
-            : .leave
+        let wasAllowed = registration == .allowed
+        // A Debug build never moves the agent, Fix included.
+        let decision: RegistrationStep = !reregisters ? .leave : force ? .reregister : Self.registrationStep(
+            record: record, recordExists: record.map { bundleExists($0.path) } ?? false,
+            settingsApp: settingsApp, settingsAppExists: settingsApp.map(bundleExists) ?? false,
+            bundlePath: bundlePath, build: bundleVersion
+        )
         switch decision {
         case .reregister:
-            // launchd keeps the registration of the build that made it, and
-            // cannot start another build's program (EX_CONFIG) while
-            // `SMAppService` still says enabled: unregister, then register.
-            log("scheduler: \(bundlePath) is build \(bundleVersion) now; registering the agent again")
+            // The registration launchd holds may no longer start this bundle
+            // (spawn failed, EX_CONFIG) while `SMAppService` still says
+            // enabled; the cause is unknown. A fresh one is expected to repair it.
+            log(force ? "scheduler: Fix; registering the agent again" : "scheduler: \(bundlePath) is build \(bundleVersion) now; registering the agent again")
             for plist in [Self.primaryPlist, Self.fallbackPlist] where service.status(plist) != .notRegistered {
                 do { try await service.unregister(plist) } catch { log("scheduler: unregister \(plist) failed: \(error)") }
             }
         case .record:
             break
         case .leave:
+            // Fix in a Debug build: the watch starts again, so its line goes until the next miss.
+            if force { preferences.setAgentWatchedSince(AgentTickMark(at: clock(), uptime: uptime(), byFix: true)) }
             log(reregisters
                 ? "scheduler: launched from \(bundlePath), registered from \(record?.path ?? settingsApp ?? "?"); not registering again"
                 : "scheduler: a Debug build; not registering again")
@@ -153,6 +179,11 @@ public final class SchedulerAgent: SchedulerControl {
         // Whatever the status: a re-registration that ends in approval pending
         // or a throw is not tried again at every launch of this build.
         if decision != .leave { preferences.setRegisteredBundle(RegisteredBundle(path: bundlePath, build: bundleVersion)) }
+        // The agent's watch starts again from a fresh registration, and from
+        // one that just became allowed (turned on, Replace It, an approval).
+        if decision == .reregister || (!wasAllowed && status == .enabled) {
+            preferences.setAgentWatchedSince(AgentTickMark(at: clock(), uptime: uptime(), byFix: force))
+        }
         switch status {
         case .enabled:
             setRecord(true)
@@ -183,7 +214,10 @@ public final class SchedulerAgent: SchedulerControl {
     /// `scheduler.app` (written while the agent is enabled) stands for the
     /// path: the same path re-registers, none yet (a first registration)
     /// records. Another path leaves the registration where it is.
-    public static func registrationStep(record: RegisteredBundle?, recordExists: Bool = true, settingsApp: String?, bundlePath: String, build: String) -> RegistrationStep {
+    public static func registrationStep(
+        record: RegisteredBundle?, recordExists: Bool = true, settingsApp: String?, settingsAppExists: Bool = true,
+        bundlePath: String, build: String
+    ) -> RegistrationStep {
         if let record, recordExists || record.path == bundlePath {
             guard record.path == bundlePath else { return .leave }
             return record.build == build ? .record : .reregister
@@ -191,6 +225,8 @@ public final class SchedulerAgent: SchedulerControl {
         switch settingsApp {
         case bundlePath?: return .reregister
         case nil: return .record
+        // The app moved: the registration points at a bundle that is gone.
+        case _? where !settingsAppExists: return .reregister
         default: return .leave
         }
     }
