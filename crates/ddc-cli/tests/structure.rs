@@ -103,6 +103,20 @@ fn lock_status_never_probes_the_lock_or_sweeps() {
     }
 }
 
+/// `ddc lock stop` sends one SIGINT to one process (story "Busy: name the
+/// scan or clean that holds the lock, and offer to stop it"; safety ADR
+/// §5, amended 2026-11-08): never SIGKILL, never a process group.
+#[test]
+fn lock_stop_never_kills_or_signals_a_group() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    for file in [root.join("ddc-cli/src/cmd/lock.rs"), root.join("ddc-core/src/holders.rs")] {
+        let code = code(&file);
+        for forbidden in ["SIGKILL", "kill_group", "signal_group", "libc::kill", "Command::new"] {
+            assert!(!code.contains(forbidden), "{} mentions {forbidden}", file.display());
+        }
+    }
+}
+
 /// `ddc space` reads one `statfs` and the saved report's head (story
 /// "Popover: say when used space grew since the last scan"): it reaches no
 /// cleanup, starts no program, takes no lock and never writes a report.

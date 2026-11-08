@@ -186,6 +186,7 @@ const COMMANDS: &[&str] = &[
     "agent status",
     "keep remove",
     "lock status",
+    "lock stop",
     "schedule install",
     "schedule uninstall",
     "schedule status",
@@ -495,12 +496,12 @@ mod allow {
                     return Err(format!("clean {f}"));
                 }
             }
-            "keep remove" | "notify ack" | "notify snooze" | "space" | "changes" | "lock status"
+            "keep remove" | "notify ack" | "notify snooze" | "space" | "changes" | "lock status" | "lock stop"
                 if !inside(value("--data-dir")) =>
             {
                 return Err(format!("{path} without --data-dir inside the temporary root"));
             }
-            "keep remove" | "notify ack" | "notify snooze" | "space" | "changes" | "lock status" => {}
+            "keep remove" | "notify ack" | "notify snooze" | "space" | "changes" | "lock status" | "lock stop" => {}
             "disk" | "disk agents" | "agent status" | "disk brew-packages" if !inside(value("--system-root")) => {
                 return Err(format!("{path} without --system-root inside the temporary root"));
             }
@@ -638,7 +639,7 @@ fn refusal(path: &str) -> Option<String> {
         "disk" => Capability::WholeDisk,
         "disk agents" | "agent status" => Capability::CodingAgents,
         "disk brew-packages" => Capability::Homebrew,
-        "lock status" => Capability::InUseCheck,
+        "lock status" | "lock stop" => Capability::InUseCheck,
         "disk free" if !declared.contains(&Capability::WholeDisk) && !declared.contains(&Capability::Homebrew) => {
             Capability::WholeDisk
         }
@@ -910,6 +911,7 @@ fn the_allowlist_refuses_each_forbidden_call() {
         (&["space", "--json"], "without --data-dir"),
         (&["changes", "--json"], "without --data-dir"),
         (&["lock", "status", "--json"], "without --data-dir"),
+        (&["lock", "stop", "--pid", "2", "--started", "1"], "without --data-dir"),
         (&["scan", "/"], "/ is outside"),
         (&["scan", "--skip", "/", &home], "/ is outside"),
         (&["clean", "--dry-run", "--exclude=/etc", &home], "/etc is outside"),

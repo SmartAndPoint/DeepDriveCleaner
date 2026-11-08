@@ -82,6 +82,7 @@ const REFUSED: &[(&[&str], bool)] = &[
     (&["keep", "remove", "/p"], false),
     (&["lock", "status", "--json"], true),
     (&["lock", "status"], false),
+    (&["lock", "stop", "--pid", "2", "--started", "1"], false),
     (&["schedule", "status"], false),
     (&["notify", "ack", "--bytes", "1"], false),
     (&["diag"], false),

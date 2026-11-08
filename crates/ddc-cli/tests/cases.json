@@ -24,7 +24,7 @@
       {"path": "home/esc\u001b[2J/__pycache__/a.cpython-312.pyc", "bytes": 5000, "unix": true}
     ]
   },
-  "data_dir_commands": ["scan", "clean", "disk", "disk agents", "agent status", "disk free", "disk brew-packages", "keep remove", "notify ack", "notify snooze", "space", "changes", "lock status"],
+  "data_dir_commands": ["scan", "clean", "disk", "disk agents", "agent status", "disk free", "disk brew-packages", "keep remove", "notify ack", "notify snooze", "space", "changes", "lock status", "lock stop"],
   "cases": [
     {
       "name": "the owner's call: scan . in ~/Projects suggests the clean of ~/Projects",
@@ -282,6 +282,12 @@
       "group": "commands",
       "args": ["lock", "status", "--json"],
       "expect": {"exit": 0, "schema": "lock", "stdout": {"contains": ["\"holders\": []"]}}
+    },
+    {
+      "name": "lock stop of a pid that holds no lock sends nothing",
+      "group": "commands",
+      "args": ["lock", "stop", "--pid", "4242", "--started", "1"],
+      "expect": {"exit": 2, "stderr": {"contains": ["nothing was sent"]}}
     },
     {
       "name": "changes --json in a fresh home has nothing to compare",

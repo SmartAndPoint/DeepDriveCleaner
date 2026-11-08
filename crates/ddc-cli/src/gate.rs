@@ -156,6 +156,7 @@ mod tests {
         &["schedule", "status"],
         &["lock", "status"],
         &["lock", "status", "--json"],
+        &["lock", "stop", "--pid", "2", "--started", "1"],
         &["notify", "ack", "--bytes", "1"],
         &["diag"],
     ];
@@ -201,7 +202,9 @@ mod tests {
             absent(Capability::Schedule)
         );
         // Windows declares none: `lock` is refused there.
-        for args in [&["lock", "status"][..], &["lock", "status", "--json"]] {
+        for args in
+            [&["lock", "status"][..], &["lock", "status", "--json"], &["lock", "stop", "--pid", "2", "--started", "1"]]
+        {
             assert_eq!(refusal_for(&command(args), Ok(()), &[]), absent(Capability::InUseCheck), "{args:?}");
             assert_eq!(refusal_for(&command(args), Ok(()), &[Capability::InUseCheck]), None, "{args:?}");
         }
