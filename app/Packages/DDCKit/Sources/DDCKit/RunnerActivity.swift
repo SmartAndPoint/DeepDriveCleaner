@@ -45,7 +45,7 @@ public final class RunnerActivity: CLIRunning {
 
     /// The kinds the line calls "the scan". The clean's kinds are not named
     /// here: only their own files run them (`ContractTests`).
-    private static let scans: Set<CLIRunner.Kind> = [.scan, .backgroundScan, .rules, .notify, .schedule, .disk, .diskAgents, .brewPackages, .space, .changes]
+    private static let scans: Set<CLIRunner.Kind> = [.scan, .backgroundScan, .rules, .notify, .schedule, .disk, .diskAgents, .brewPackages, .space, .changes, .lockStatus, .lockStop]
 
     public func run(_ kind: CLIRunner.Kind, _ arguments: [String], options: CLIRunner.Options) async -> CLIRunner.Result {
         inFlight[kind, default: 0] += 1

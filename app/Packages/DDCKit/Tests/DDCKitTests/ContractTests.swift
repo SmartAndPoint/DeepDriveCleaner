@@ -792,6 +792,36 @@ struct ContractTests {
         #expect((scan["properties"] as? [String: Any])?["written_at"] != nil)
     }
 
+    @Test("lock status and the busy envelope: the versions and enums the app decodes are the CLI's")
+    func lockContracts() throws {
+        let holders = try rustSource("crates/ddc-core/src/holders.rs")
+        let lock = try #require(holders.firstMatch(of: /pub const LOCK_SCHEMA_VERSION: u32 = (\d+);/))
+        #expect(Int(lock.1) == LockStatus.schemaVersion)
+        let refusal = try rustSource("crates/ddc-core/src/refusal.rs")
+        let error = try #require(refusal.firstMatch(of: /pub const ERROR_SCHEMA_VERSION: u32 = (\d+);/))
+        #expect(Int(error.1) == BusyReport.errorSchemaVersion)
+        for name in ["lock", "error"] {
+            let schema = try schema(name)
+            #expect(Set(try values(schema, "HolderCommand")) == Set(LockHolder.Command.allCases.map(\.rawValue)), "\(name)")
+            #expect(Set(try values(schema, "LockMode")) == Set(LockHolder.Mode.allCases.map(\.rawValue)), "\(name)")
+            #expect(Set(try values(schema, "Origin")) == Set(LockHolder.Origin.allCases.map(\.rawValue)), "\(name)")
+            #expect(Set(try values(schema, "HolderPhase")) == Set(LockHolder.Phase.allCases.map(\.rawValue)), "\(name)")
+        }
+        #expect(try values(schema("error"), "ErrorCode").contains("busy"))
+        // The fields the app requires are the ones the CLI always writes.
+        for name in ["lock", "error"] {
+            let defs = try #require(try schema(name)["$defs"] as? [String: Any])
+            let holder = try #require(defs["Holder"] as? [String: Any])
+            #expect(Set(holder["required"] as? [String] ?? []) == ["pid", "start_us", "started", "command", "mode", "origin"], "\(name)")
+        }
+        let status = try Fixture.data("lock-status")
+        #expect(try validate(JSONSerialization.jsonObject(with: status), against: schema("lock")) == [])
+        _ = try LockStatus.read(status)
+        let busy = try Fixture.data("error-busy")
+        #expect(try validate(JSONSerialization.jsonObject(with: busy), against: schema("error")) == [])
+        _ = try BusyReport.read(busy)
+    }
+
     @Test("both launch modes await the update decision before their tick; a normal launch ticks only when it is due")
     func launchTickWaits() throws {
         let app = try #require(try appSources()["AppDelegate.swift"])

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "holders": [
+    {
+      "pid": 4101,
+      "start_us": 1792404000000000,
+      "started": "2026-10-19T10:00:00Z",
+      "command": "scan",
+      "mode": "shared",
+      "origin": "app"
+    },
+    {
+      "pid": 4202,
+      "start_us": 1792404120000000,
+      "started": "2026-10-19T10:02:00Z",
+      "command": "clean-items",
+      "mode": "exclusive",
+      "origin": "terminal",
+      "phase": "cleaning",
+      "progress": {
+        "done": 3,
+        "total": 8
+      }
+    }
+  ]
+}
