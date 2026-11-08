@@ -499,7 +499,7 @@ fn build_tree(parts: &[Part]) -> Tree {
     let now = SystemTime::now() + LATER;
     let env =
         Env::with_paths(&home, &layout.data, &layout.data.join("logs"), now).unwrap().with_system_root(&layout.data);
-    let catalog = Catalog::builtin(env.home());
+    let catalog = Catalog::for_home(env.home());
     Tree { desc, layout, home, outside, env, catalog, _scratch: scratch }
 }
 

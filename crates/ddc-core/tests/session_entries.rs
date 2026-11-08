@@ -64,7 +64,7 @@ impl Home {
     }
 
     fn catalog(&self) -> Catalog {
-        Catalog::builtin(self.t.root())
+        Catalog::for_home(self.t.root())
     }
 
     fn path(&self, rel: &str) -> PathBuf {

@@ -344,7 +344,7 @@ pub fn edit_last_scan(env: &Env, opts: &ScanOptions, reports: &[ActionReport]) -
     let Some(mut scan) = store::read_last_scan(env).ok().flatten().filter(|r| recheck::same_roots(r, env, opts)) else {
         return ReportEdit::Skipped;
     };
-    let catalog = Catalog::builtin(env.home());
+    let catalog = Catalog::builtin(env);
     let remeasured: HashMap<PathBuf, Remeasured> = scan
         .findings
         .iter()

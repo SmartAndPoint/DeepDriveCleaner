@@ -55,7 +55,7 @@ fn opened(watch: &OwnedFd) -> bool {
 fn scan_and_clean(home: &Path) -> (ddc_core::model::ScanReport, exec::ExecReport) {
     let data = tempfile::tempdir().unwrap();
     let scan = scan_in(home, data.path());
-    let plan = build_plan(&scan, &Catalog::builtin(home), &PlanOptions::default());
+    let plan = build_plan(&scan, &Catalog::for_home(home), &PlanOptions::default());
     let r = clean_in(home, data.path(), &plan);
     (scan, r)
 }
@@ -70,7 +70,7 @@ fn scan_in(home: &Path, data: &Path) -> ddc_core::model::ScanReport {
 /// A clean of `plan` for `home` with `--yes`, deleting (no Trash).
 fn clean_in(home: &Path, data: &Path, plan: &Plan) -> exec::ExecReport {
     let env = Env::with_paths(home, data, &data.join("logs"), SystemTime::now()).unwrap();
-    let catalog = Catalog::builtin(home);
+    let catalog = Catalog::for_home(home);
     let mut journal = MemoryJournal::default();
     let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
     let ports = Ports {
@@ -213,7 +213,7 @@ fn a_protected_folder_in_another_case_is_refused_in(t: &TreeBuilder) {
     let data = tempfile::tempdir().unwrap();
     let cv = t.file("home/Documents/cv.pdf", 100);
     let nm = idle_node_project(t, "home/p");
-    let mut plan = build_plan(&scan_in(&home, data.path()), &Catalog::builtin(&home), &PlanOptions::default());
+    let mut plan = build_plan(&scan_in(&home, data.path()), &Catalog::for_home(&home), &PlanOptions::default());
     let mut forged = plan.items.iter().find(|i| i.finding.path == nm).expect("the node_modules item").clone();
     let upper = home.join("DOCUMENTS");
     forged.finding.path = upper.clone();
@@ -297,7 +297,7 @@ fn a_keep_marker_in_another_case_keeps_its_folder_on_casefold() {
     let scan = scan_in(&home, data.path());
     let finding = scan.findings.iter().find(|f| f.path == kept).expect("the kept finding");
     assert_eq!(finding.rule, "user.kept");
-    let plan = build_plan(&scan, &Catalog::builtin(&home), &PlanOptions::default());
+    let plan = build_plan(&scan, &Catalog::for_home(&home), &PlanOptions::default());
     t.write("home/b/node_modules/.Ddc-Keep", "");
     let r = clean_in(&home, data.path(), &plan);
 
@@ -326,7 +326,7 @@ fn findings_holding_a_flag_only_root_sets_are_listed_and_refused_through_items()
     };
     let data = tempfile::tempdir().unwrap();
     let env = Env::with_paths(&home, data.path(), &data.path().join("logs"), SystemTime::now()).unwrap();
-    let catalog = Catalog::builtin(&home);
+    let catalog = Catalog::for_home(&home);
     let locked = ["p1", "p2", "p3", "p4"].map(|p| home.join(p).join("node_modules"));
     let plain = home.join("p5/node_modules");
     let refused = Outcome::Skipped(SkipReason::Immutable);

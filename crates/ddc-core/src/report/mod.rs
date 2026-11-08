@@ -236,7 +236,7 @@ pub(crate) fn scan_inner(
         .iter()
         .map(|p| p.canonical().map_err(|source| ScanError::Exclude { path: p.clone(), source }))
         .collect::<Result<Vec<_>, _>>()?;
-    let catalog = Catalog::builtin(env.home());
+    let catalog = Catalog::builtin(env);
     let visitor = RuleVisitor::new(&catalog, excludes)
         .with_large_file_threshold(opts.large_file_bytes)
         .with_skips(opts.skip.clone())
@@ -290,6 +290,7 @@ pub(crate) fn scan_inner(
         limits: opts.contents,
         skips: &skips,
         processes: opts.processes.table(),
+        protected: catalog.protected(),
     };
     let index = contents::attach(&mut findings, &out.entries, &cx);
 
@@ -345,7 +346,7 @@ pub(crate) fn scan_inner(
 /// unaccounted: fail closed.
 pub fn removable_inside(env: &Env, path: &Path, skips: &[PathBuf]) -> Vec<PathBuf> {
     let Some(parent) = path.parent() else { return Vec::new() };
-    let catalog = Catalog::builtin(env.home());
+    let catalog = Catalog::builtin(env);
     let visitor = RuleVisitor::new(&catalog, Vec::new()).with_skips(skips.to_vec());
     let reach = recheck::Reach::subtree(path);
     let pruned = recheck::Pruned { inner: &visitor, reach: &reach };

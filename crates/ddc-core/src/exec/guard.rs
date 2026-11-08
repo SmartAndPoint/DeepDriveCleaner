@@ -30,8 +30,8 @@ use crate::report::backups;
 use crate::report::contents::CLAUDE_RECORDS;
 use crate::rules::entries::{self, BACKUP_RULE, EntryFacts, EntryShape, SessionPart, lock_of, session_part};
 use crate::rules::{
-    Catalog, KEEP_MARKER, holds_keep_marker, is_keep_marker, lists_keep_marker, owns, protected_in_home,
-    protected_system, worktree,
+    Catalog, KEEP_MARKER, Protected, holds_keep_marker, is_keep_marker, lists_keep_marker, owns, protected_system,
+    worktree,
 };
 use crate::scan::reader::{LOCKED, SF_DATALESS};
 use crate::scan::{self, DirCtx, DirReader, EntryMeta, OwnerKind, Progress, SystemReader, Tag, Visitor, WalkOptions};
@@ -107,6 +107,9 @@ pub struct Guard<'a> {
     /// A root whose anchor could not be opened has none, and every item
     /// under it is `parent-changed`.
     anchors: Vec<(PathBuf, Option<Anchor>)>,
+    /// The protected folders, closed under ancestors, the redirected ones
+    /// included: the entry checks ask it what lies at or below an entry.
+    protected: Protected,
     protected_paths: HashSet<String>,
     protected_ids: HashSet<(u64, u64)>,
     /// Directories containing a keep marker inside planned findings.
@@ -201,17 +204,20 @@ impl<'a> Guard<'a> {
         procs: &'a dyn ProcessTable,
     ) -> Self {
         let table = procs.processes();
-        let mut paths: Vec<PathBuf> = protected_in_home(PLATFORM).iter().map(|rel| env.home().join(rel)).collect();
+        let protected = Protected::of(env);
+        let mut paths: Vec<PathBuf> = protected.paths().map(Path::to_path_buf).collect();
         paths.extend(protected_system(PLATFORM).iter().map(PathBuf::from));
         paths.extend(roots.iter().cloned());
-        let protected_ids =
-            paths.iter().filter_map(|p| crate::platform::meta::lstat(p).ok()).map(|st| st.id()).collect();
+        let protected_ids = local_ids(&paths, crate::platform::paths::is_local, |p| {
+            crate::platform::meta::lstat(p).ok().map(|st| st.id())
+        });
         Self {
             catalog,
             home: env.home().to_path_buf(),
             now: env.now(),
             roots: roots.to_vec(),
             anchors: roots.iter().map(|r| (r.clone(), bulk::anchor(r).ok())).collect(),
+            protected,
             protected_paths: paths.iter().map(|p| fold(p)).collect(),
             protected_ids,
             markers,
@@ -229,6 +235,11 @@ impl<'a> Guard<'a> {
             listed: Mutex::default(),
             locked: Vec::new(),
         }
+    }
+
+    /// The protected folders this guard refuses, closed under ancestors.
+    pub(crate) fn protected(&self) -> &Protected {
+        &self.protected
     }
 
     /// The scan's skips (`ScanOptions::skip` and `user_skips`).
@@ -531,8 +542,7 @@ impl<'a> Guard<'a> {
             kept: self.markers.iter().any(|m| m.starts_with(path))
                 || (st.is_dir && holds_keep_marker(path))
                 || session.as_ref().is_some_and(|s| s.kept),
-            protected: protected_in_home(PLATFORM).iter().any(|rel| self.home.join(rel).starts_with(path))
-                || session.as_ref().is_some_and(|s| s.protected),
+            protected: self.protected.at_or_below(path) || session.as_ref().is_some_and(|s| s.protected),
             other_volume: st.dev != parent_id.0 || st.mount_root || session.as_ref().is_some_and(|s| s.other_volume),
             // Refused above, with the skip reason `immutable`.
             immutable: false,
@@ -648,8 +658,7 @@ impl<'a> Guard<'a> {
             let modified = parent_fd.child_times(&name).ok().and_then(|(modified, _)| modified);
             check.kept |=
                 walked.kept || self.markers.iter().any(|m| m.starts_with(&at)) || (st.is_dir && holds_keep_marker(&at));
-            check.protected |= self.protected_ids.contains(&(st.dev, st.ino))
-                || protected_in_home(PLATFORM).iter().any(|rel| self.home.join(rel).starts_with(&at));
+            check.protected |= self.protected_ids.contains(&(st.dev, st.ino)) || self.protected.at_or_below(&at);
             check.other_volume |= walked.other_fs || st.dev != parent_dev || st.mount_root;
             check.modified = check.modified.max(modified);
             files.push(FileFact { id: (st.dev, st.ino), modified });
@@ -816,6 +825,17 @@ pub(super) fn walk_item(path: &Path, reader: &dyn DirReader) -> Option<Walked> {
     })
 }
 
+/// The ids of the protected folders on a local volume, read by `lstat`. A
+/// folder on a share is protected by its path only, never read: a clean
+/// never waits on the network (safety ADR §6, Windows, redirected folders).
+fn local_ids(
+    paths: &[PathBuf],
+    is_local: impl Fn(&Path) -> bool,
+    lstat: impl Fn(&Path) -> Option<(u64, u64)>,
+) -> HashSet<(u64, u64)> {
+    paths.iter().filter(|p| is_local(p.as_path())).filter_map(|p| lstat(p.as_path())).collect()
+}
+
 /// APFS and NTFS are case-insensitive by default: compare protected paths
 /// folded, after the platform's key (on Windows it also makes `/` and `\\`
 /// one separator).
@@ -935,4 +955,32 @@ fn canonical_parent(p: &Path) -> Option<PathBuf> {
         return None;
     }
     Some(p.parent()?.canonical().ok()?.join(p.file_name()?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The guard reads no protected folder on a share, nor its ancestors:
+    /// a share here is what `is_local` refuses (on Windows, a UNC path).
+    #[test]
+    fn a_protected_folder_on_a_share_is_never_read() {
+        let share = PathBuf::from("/share/u/Roaming");
+        let protected = Protected::new(Path::new("/home/u"), std::slice::from_ref(&share));
+        let paths: Vec<PathBuf> = protected.paths().map(Path::to_path_buf).collect();
+        let remote = |p: &Path| p.starts_with("/share");
+        assert!(paths.iter().filter(|p| remote(p)).count() >= 3, "{paths:?}");
+        let read = Mutex::new(Vec::new());
+        local_ids(
+            &paths,
+            |p| !remote(p),
+            |p| {
+                read.lock().unwrap().push(p.to_path_buf());
+                None
+            },
+        );
+        let read = read.into_inner().unwrap();
+        assert!(!read.iter().any(|p| remote(p)), "{read:?}");
+        assert!(read.iter().any(|p| p.starts_with("/home/u")), "the local ones are read: {read:?}");
+    }
 }

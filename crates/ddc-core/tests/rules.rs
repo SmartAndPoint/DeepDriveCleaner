@@ -16,7 +16,7 @@ struct Scan {
 
 /// Scans `roots` (relative to the fake home = tree root).
 fn scan_with(t: &TreeBuilder, roots: &[&str], excludes: &[&str]) -> Scan {
-    let catalog = Catalog::builtin(t.root());
+    let catalog = Catalog::for_home(t.root());
     let excludes = excludes.iter().map(|e| t.path(e).canonical().unwrap()).collect();
     let visitor = RuleVisitor::new(&catalog, excludes);
     let roots: Vec<PathBuf> = roots.iter().map(|r| t.path(r)).collect();
@@ -932,7 +932,7 @@ fn a_finding_holds_the_newest_change_inside_it() {
     }
     let locked = t.lock(pip);
     let enforced = std::fs::read_dir(&locked).is_err();
-    let catalog = Catalog::builtin(t.root());
+    let catalog = Catalog::for_home(t.root());
     let visitor = RuleVisitor::new(&catalog, Vec::new());
 
     for reader in [ReaderKind::Bulk, ReaderKind::Std] {

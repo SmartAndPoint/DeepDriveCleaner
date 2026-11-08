@@ -98,7 +98,7 @@ fn a_vanished_or_replaced_entry_makes_its_finding_incomplete() {
     let dir = target::Scratch::new().unwrap();
     let g = generate(Profile::Hostile, S, 1, dir.path(), None).unwrap();
     let tree = &g.layout.tree;
-    let catalog = Catalog::builtin(&g.home);
+    let catalog = Catalog::for_home(&g.home);
     let visitor = RuleVisitor::new(&catalog, Vec::new());
     let reader = Vanishing {
         gone: tree.join("hostile/gone/node_modules/a"),

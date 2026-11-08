@@ -227,7 +227,7 @@ fn a_finding_inside_a_dataset_is_deleted() {
     let env = Env::with_paths(&home, data.path(), &data.path().join("logs"), now).unwrap();
     let scanned = report::scan(&env, &ScanOptions::default(), &Progress::default()).unwrap();
     let opts = PlanOptions { permanent: true, ..PlanOptions::default() };
-    let plan = build_plan(&scanned, &Catalog::builtin(&home), &opts);
+    let plan = build_plan(&scanned, &Catalog::for_home(&home), &opts);
     assert!(plan.items.iter().any(|i| i.finding.path == nm), "{plan:#?}\n{}", trace(&home, "work"));
 
     let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
@@ -240,7 +240,7 @@ fn a_finding_inside_a_dataset_is_deleted() {
         journal: &mut journal,
     };
     let report =
-        exec::execute(&env, &Catalog::builtin(&home), &plan, &consent, ports, &ExecOptions::default()).unwrap();
+        exec::execute(&env, &Catalog::for_home(&home), &plan, &consent, ports, &ExecOptions::default()).unwrap();
     let item = report.items.iter().find(|i| i.path == nm).expect("planned");
     assert_eq!(item.outcome, Outcome::Deleted, "{report:#?}\n{}", trace(&home, "work"));
     assert!(!nm.exists());
@@ -288,7 +288,7 @@ fn the_guard_refuses_a_finding_that_is_a_dataset_whatever_the_plan_says() {
     assert!(finding.incomplete, "the scan marks it\n{}", trace(&home, "p/node_modules"));
     finding.incomplete = false;
     let opts = PlanOptions { permanent: true, ..PlanOptions::default() };
-    let plan = build_plan(&scanned, &Catalog::builtin(&home), &opts);
+    let plan = build_plan(&scanned, &Catalog::for_home(&home), &opts);
     assert!(plan.items.iter().any(|i| i.finding.path == nm), "{plan:#?}");
 
     let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
@@ -301,7 +301,7 @@ fn the_guard_refuses_a_finding_that_is_a_dataset_whatever_the_plan_says() {
         journal: &mut journal,
     };
     let report =
-        exec::execute(&env, &Catalog::builtin(&home), &plan, &consent, ports, &ExecOptions::default()).unwrap();
+        exec::execute(&env, &Catalog::for_home(&home), &plan, &consent, ports, &ExecOptions::default()).unwrap();
     let item = report.items.iter().find(|i| i.path == nm).expect("planned");
     assert_eq!(item.outcome, Outcome::Skipped(Skip::Incomplete), "{report:#?}");
     assert!(nm.join("dep/index.js").exists(), "nothing removed");

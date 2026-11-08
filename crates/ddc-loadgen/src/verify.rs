@@ -32,7 +32,7 @@ pub fn scan_and_plan(layout: &Layout, home: &Path) -> anyhow::Result<(ScanReport
     let env = env(layout, home)?;
     let opts = ScanOptions { roots: vec![layout.tree.clone()], ..ScanOptions::default() };
     let report = report::scan(&env, &opts, &Progress::default())?;
-    let plan = build_plan(&report, &Catalog::builtin(env.home()), &PlanOptions::default());
+    let plan = build_plan(&report, &Catalog::builtin(&env), &PlanOptions::default());
     Ok((report, plan))
 }
 
@@ -101,7 +101,7 @@ pub fn preflight_items(m: &Manifest, layout: &Layout, home: &Path) -> anyhow::Re
     let env = env(layout, home)?;
     let ports = PreflightPorts { commands: &NoTools, procs: &NoProcesses, reader: &StdReader, trash: &NoTrash };
     let roots = [layout.tree.clone()];
-    let summary = preflight(&env, &Catalog::builtin(env.home()), &roots, &[], &list.items, &ports, &mut |_| Ok(()))?;
+    let summary = preflight(&env, &Catalog::builtin(&env), &roots, &[], &list.items, &ports, &mut |_| Ok(()))?;
     Ok(Some(summary))
 }
 

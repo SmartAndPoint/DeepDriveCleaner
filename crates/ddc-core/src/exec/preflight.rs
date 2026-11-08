@@ -37,10 +37,9 @@ use crate::conda;
 use crate::env::Env;
 use crate::model::{Finding, RemovalKind};
 use crate::plan::{Action, ActionKind, ListedItem, PlanItem, action_for};
-use crate::platform::PLATFORM;
 use crate::report::backups;
 use crate::rules::entries::{self, BACKUP_RULE, EntryFacts, EntryShape, lock_of};
-use crate::rules::{Catalog, LockFiles, Rule, effective_class, holds_keep_marker, protected_in_home, worktree};
+use crate::rules::{Catalog, LockFiles, Rule, effective_class, holds_keep_marker, worktree};
 use crate::scan::DirReader;
 use crate::scan::reader::{LOCKED, SF_DATALESS};
 
@@ -500,9 +499,7 @@ fn check_entry(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
         added,
         now: env.now(),
         kept: walked.kept || excludes.iter().any(|e| e.starts_with(path)) || (st.is_dir && holds_keep_marker(path)),
-        protected: protected_in_home(PLATFORM)
-            .iter()
-            .any(|rel| crate::platform::paths::key(&home.join(rel)).starts_with(crate::platform::paths::key(path))),
+        protected: guard.protected().at_or_below(path),
         other_volume: walked.other_fs,
         // Refused above, as the clean's guard refuses it.
         immutable: false,

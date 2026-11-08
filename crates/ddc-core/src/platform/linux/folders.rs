@@ -29,6 +29,12 @@ fn data_and_log(home: &Path, state: Option<&Path>) -> (PathBuf, PathBuf) {
     (data, logs)
 }
 
+/// The folders the environment redirects that are protected wherever they
+/// point: none here (safety ADR §6, Windows, redirected folders).
+pub fn redirected() -> Vec<PathBuf> {
+    Vec::new()
+}
+
 /// The program of a git probe (story "Worktree findings and provenance",
 /// decision 10).
 pub const GIT_PROGRAM: &str = "git";

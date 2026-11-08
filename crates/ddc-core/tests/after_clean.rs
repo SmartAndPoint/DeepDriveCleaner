@@ -628,7 +628,7 @@ fn a_tool_cleaned_item_is_measured_as_the_scan_measures_it() {
     let before = home.scan();
     let path = home.t.path(".cache/uv");
     let f = finding(&before, &path);
-    let catalog = Catalog::builtin(home.t.root());
+    let catalog = Catalog::for_home(home.t.root());
     let walk = home.opts().walk;
 
     let expected = Measure {

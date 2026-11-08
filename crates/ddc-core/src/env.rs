@@ -1,5 +1,5 @@
-//! Process environment. This is the only place that reads `$HOME` (through
-//! `platform::folders`), `DDC_DATA_DIR`, `DOCKER_CONFIG`, `CLAUDE_CODE_TMPDIR`
+//! Process environment. This is the only place that reads `$HOME` and, on
+//! Windows, `APPDATA` and `LOCALAPPDATA` (through `platform::folders`), `DDC_DATA_DIR`, `DOCKER_CONFIG`, `CLAUDE_CODE_TMPDIR`
 //! and `TMPDIR`; everything else receives paths through [`Env`], so tests
 //! can point the whole tool at temporary directories.
 
@@ -44,6 +44,12 @@ pub struct Env {
     /// Neither `--data-dir` nor `DDC_DATA_DIR` was given: the data directory
     /// is the app's, so a scan saved here is the one the app shows.
     default_data_dir: bool,
+    /// The folders the environment redirects (`APPDATA` and `LOCALAPPDATA`
+    /// on Windows), each as written and, on a local volume, as it resolves:
+    /// protected wherever they point, with their ancestors (safety ADR §6,
+    /// Windows, redirected folders). Empty off Windows and from
+    /// [`Self::with_paths`].
+    redirected: Vec<PathBuf>,
 }
 
 impl Env {
@@ -68,6 +74,7 @@ impl Env {
         let docker_config = std::env::var_os("DOCKER_CONFIG").filter(|v| !v.is_empty()).map(PathBuf::from);
         let claude_tmpdir = std::env::var_os("CLAUDE_CODE_TMPDIR").filter(|v| !v.is_empty()).map(PathBuf::from);
         let tmpdir = std::env::var_os("TMPDIR").filter(|v| !v.is_empty()).map(PathBuf::from);
+        let redirected = spellings(crate::platform::folders::redirected());
         Ok(Self {
             home,
             data_dir,
@@ -79,6 +86,7 @@ impl Env {
             claude_tmpdir,
             tmpdir,
             default_data_dir,
+            redirected,
         })
     }
 
@@ -95,6 +103,7 @@ impl Env {
             claude_tmpdir: None,
             tmpdir: None,
             default_data_dir: false,
+            redirected: Vec::new(),
         })
     }
 
@@ -112,6 +121,20 @@ impl Env {
     pub fn with_search_path(mut self, path: Vec<PathBuf>) -> Self {
         self.path = path;
         self
+    }
+
+    /// Replaces the redirected folders (tests protect folders as `APPDATA`
+    /// would make them), each in its spellings as [`Self::from_process`]
+    /// finds them.
+    pub fn with_redirected(mut self, folders: Vec<PathBuf>) -> Self {
+        self.redirected = spellings(folders);
+        self
+    }
+
+    /// The folders protected wherever they point, besides the home's list:
+    /// `APPDATA` and `LOCALAPPDATA` on Windows, in every spelling found.
+    pub fn redirected(&self) -> &[PathBuf] {
+        &self.redirected
     }
 
     /// `PATH` plus the usual tool locations that GUI and launchd processes
@@ -198,6 +221,20 @@ impl Env {
     }
 }
 
+/// Each folder as written and, on a local volume where it exists, as it
+/// resolves (an 8.3 name or a junction is another key). A folder on a share
+/// is never resolved: a clean never waits on the network.
+fn spellings(folders: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut all = Vec::new();
+    for folder in folders {
+        let canonical = crate::platform::paths::is_local(&folder).then(|| folder.canonical().ok()).flatten();
+        let canonical = canonical.filter(|c| *c != folder);
+        all.push(folder);
+        all.extend(canonical);
+    }
+    all
+}
+
 /// Where Claude Code keeps its temporary folder: `claude-<uid>` under
 /// `CLAUDE_CODE_TMPDIR` when it is set, else under `/private/tmp` on macOS
 /// (Claude Code uses `/tmp`, not the per-user `TMPDIR`, there), else under
@@ -256,6 +293,7 @@ mod tests {
             claude_tmpdir: Some(PathBuf::from("/scratch")),
             tmpdir: Some(PathBuf::from("/var/tmp/me")),
             default_data_dir: false,
+            redirected: Vec::new(),
         }
         .with_system_root(Path::new("/fixture"));
         let base = env.claude_temp_base();
@@ -277,6 +315,7 @@ mod tests {
             claude_tmpdir: None,
             tmpdir: Some(PathBuf::from("/var/tmp/me")),
             default_data_dir: true,
+            redirected: Vec::new(),
         };
         assert_eq!(env.pinned_vars(), vec![("DOCKER_CONFIG", PathBuf::from("/cfg/docker"))]);
     }

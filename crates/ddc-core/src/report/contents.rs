@@ -27,14 +27,13 @@ use crate::agents::builds::{self, BuildHarness, BuildsUse, Host};
 use crate::agents::liveness::{self, FileFact, SessionFacts, SessionLiveness, UnknownCause};
 use crate::exec::ProcessTable;
 use crate::model::{Backup, Contents, Finding, FolderEntry, FolderEntryKind};
-use crate::platform::PLATFORM;
 use crate::platform::procs::ProcInfo;
 use crate::rules::AtOrAbove;
 use crate::rules::entries::{
     BACKUP_RULE, EntryFacts, EntryLiveness, EntryLock, EntryPolicy, EntryShape, SessionPart, lock_of, policy,
     session_part,
 };
-use crate::rules::{KEPT, protected_in_home};
+use crate::rules::{KEPT, Protected};
 use crate::scan::reader::{LOCKED, SF_DATALESS};
 use crate::scan::{EntryKind, EntryResult, OwnerEntries};
 use crate::stats::{self, Counter};
@@ -131,6 +130,9 @@ pub(crate) struct Context<'a> {
     pub skips: &'a [PathBuf],
     /// Asked only when a session was found.
     pub processes: &'a dyn ProcessTable,
+    /// The protected folders, closed under ancestors: an entry holding one
+    /// is locked.
+    pub protected: &'a Protected,
 }
 
 /// One entry of a folder before its lock is known: a child, or a session's
@@ -177,12 +179,7 @@ struct Folder<'w> {
 
 /// Fills `contents` of each folder finding and returns the full index.
 pub(crate) fn attach(findings: &mut [Finding], walked: &[OwnerEntries], cx: &Context<'_>) -> EntryIndex {
-    // Compared by the platform's key: on Windows a catalog spelling and the
-    // disk's may differ in case and separator.
-    let protected: Vec<PathBuf> = protected_in_home(PLATFORM)
-        .iter()
-        .map(|rel| crate::platform::paths::key(&cx.home.join(rel)).into_owned())
-        .collect();
+    let protected = cx.protected;
     let others: Vec<(PathBuf, bool)> = findings.iter().map(|f| (f.path.clone(), f.rule == KEPT)).collect();
     let known = Known {
         found: others.iter().map(|(p, _)| p.as_path()).collect(),
@@ -198,7 +195,7 @@ pub(crate) fn attach(findings: &mut [Finding], walked: &[OwnerEntries], cx: &Con
     for (i, folder) in findings.iter().enumerate() {
         let Some(policy) = policy(&folder.rule) else { continue };
         let Some(children) = walked.iter().find(|w| w.owner == folder.path) else { continue };
-        let read = Reading { folder: &folder.path, rule: &folder.rule, known: &known, protected: &protected, cx };
+        let read = Reading { folder: &folder.path, rule: &folder.rule, known: &known, protected, cx };
         folders.push(match policy.shape {
             EntryShape::Child => read.children(i, policy, &children.entries),
             EntryShape::Transcript | EntryShape::SessionDir => read.sessions(i, policy, &children.entries),
@@ -346,7 +343,7 @@ struct Reading<'a> {
     folder: &'a Path,
     rule: &'a str,
     known: &'a Known<'a>,
-    protected: &'a [PathBuf],
+    protected: &'a Protected,
     cx: &'a Context<'a>,
 }
 
@@ -440,9 +437,7 @@ impl Reading<'_> {
                 files.iter().any(|(c, _)| c.errors > 0 || c.skipped > 0) || broken.contains(&session.as_str());
             unit.state = Pending::Session {
                 kept: files.iter().any(|(_, p)| self.kept(p)),
-                protected: files
-                    .iter()
-                    .any(|(_, p)| self.protected.iter().any(|x| x.starts_with(crate::platform::paths::key(p)))),
+                protected: files.iter().any(|(_, p)| self.protected.at_or_below(p)),
                 other_volume: files.iter().any(|(c, _)| c.other_fs > 0),
                 immutable: files.iter().any(|(c, _)| c.flags & LOCKED != 0 || c.locked > 0),
                 session,
@@ -475,7 +470,7 @@ impl Reading<'_> {
             }
             let state = Pending::Build {
                 kept: self.kept(&path),
-                protected: self.protected.iter().any(|p| p.starts_with(crate::platform::paths::key(&path))),
+                protected: self.protected.at_or_below(&path),
                 other_volume: child.other_fs > 0,
                 immutable: child.flags & LOCKED != 0 || child.locked > 0,
             };
@@ -593,7 +588,7 @@ fn state_of(
     path: &Path,
     rule: &str,
     known: &Known<'_>,
-    protected: &[PathBuf],
+    protected: &Protected,
     cx: &Context<'_>,
 ) -> EntryState {
     if let Some(why) = not_an_entry(child, path, known) {
@@ -609,7 +604,7 @@ fn state_of(
         added: child.added,
         now: cx.now,
         kept,
-        protected: protected.iter().any(|p| p.starts_with(crate::platform::paths::key(path))),
+        protected: protected.at_or_below(path),
         other_volume: child.other_fs > 0,
         immutable: child.flags & LOCKED != 0 || child.locked > 0,
         finished: rule == BACKUP_RULE && child.kind == EntryKind::Dir && backups::finished(path),
@@ -690,10 +685,11 @@ mod tests {
             limits: ContentsLimits::default(),
             skips: &[],
             processes: &crate::exec::SystemProcesses,
+            protected: &Protected::default(),
         };
         let path = home.join("Downloads").join(&child.name);
         let known = Known { found: HashSet::new(), kept: AtOrAbove::new([]) };
-        state_of(child, &path, "user.downloads", &known, &[], &cx)
+        state_of(child, &path, "user.downloads", &known, &Protected::default(), &cx)
     }
 
     #[test]

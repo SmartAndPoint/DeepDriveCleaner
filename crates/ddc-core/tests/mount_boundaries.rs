@@ -144,7 +144,7 @@ fn a_stale_plan_into_a_bind_mount_is_refused_and_nothing_moves() {
 
     // Planned at the source, then pointed through the bind mount.
     let scanned = report::scan(&env(&source), &ScanOptions::default(), &Progress::default()).unwrap();
-    let mut plan = build_plan(&scanned, &Catalog::builtin(&source), &PlanOptions::default());
+    let mut plan = build_plan(&scanned, &Catalog::for_home(&source), &PlanOptions::default());
     assert!(!plan.items.is_empty(), "the project's node_modules is planned");
     plan.roots = vec![root.clone()];
     for item in &mut plan.items {
@@ -172,7 +172,7 @@ fn a_stale_plan_into_a_bind_mount_is_refused_and_nothing_moves() {
         journal: &mut journal,
     };
     let report =
-        exec::execute(&env(&root), &Catalog::builtin(&root), &plan, &consent, ports, &ExecOptions::default()).unwrap();
+        exec::execute(&env(&root), &Catalog::for_home(&root), &plan, &consent, ports, &ExecOptions::default()).unwrap();
     let nm = report.items.iter().find(|i| i.path == tree.path("p/node_modules")).expect("planned");
     assert_eq!(nm.outcome, Outcome::Skipped(Skip::ParentChanged));
     let at_mount = report.items.iter().find(|i| i.path == root.join("inner")).expect("planned");

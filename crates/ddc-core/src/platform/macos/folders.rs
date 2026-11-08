@@ -16,6 +16,12 @@ pub fn default_data_and_log(home: &Path) -> (PathBuf, PathBuf) {
     (home.join("Library/Application Support/DeepDriveCleaner"), home.join("Library/Logs/DeepDriveCleaner"))
 }
 
+/// The folders the environment redirects that are protected wherever they
+/// point: none here (safety ADR §6, Windows, redirected folders).
+pub fn redirected() -> Vec<PathBuf> {
+    Vec::new()
+}
+
 /// The program of a git probe (story "Worktree findings and provenance",
 /// decision 10).
 pub const GIT_PROGRAM: &str = "git";

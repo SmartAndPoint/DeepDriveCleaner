@@ -8,6 +8,7 @@ mod classify;
 pub mod entries;
 pub mod listing;
 mod matcher;
+mod protected;
 pub(crate) mod toolchain;
 mod visitor;
 pub mod worktree;
@@ -18,6 +19,7 @@ use std::path::{Path, PathBuf};
 pub use catalog::{DOCKER_DOWN, RULES, SHARED_IDS, never_walked, protected_in_home, protected_system, rules_of};
 pub(crate) use classify::AtOrAbove;
 pub use classify::{Classified, LockFiles, Note, classify, classify_probed, effective_class};
+pub use protected::Protected;
 pub use visitor::{
     KEEP_MARKER, KeptClaim, LARGE_FILE_BYTES, Pins, RuleVisitor, holds_keep_marker, is_keep_marker, lists_keep_marker,
 };
@@ -180,6 +182,8 @@ pub struct Catalog {
     ancestors: Keyed<()>,
     /// Protected directories: never claimed by specialized or generic rules.
     protected: Keyed<()>,
+    /// The same set, for the checks after the walk ([`Self::protected`]).
+    protected_set: Protected,
     specialized: Vec<Tag>,
     cachedir: Tag,
     kept: Tag,
@@ -233,11 +237,23 @@ impl FromIterator<PathBuf> for Keyed<()> {
 }
 
 impl Catalog {
-    pub fn builtin(home: &Path) -> Self {
+    /// The catalog of `env`: its home, and the folders it protects there and
+    /// wherever the environment redirects them.
+    pub fn builtin(env: &crate::env::Env) -> Self {
+        Self::resolved(RULES, env.home(), Protected::of(env))
+    }
+
+    /// The catalog of `home` alone, without the redirected folders an `Env`
+    /// adds: for tests and fixtures, never a command's (a structure test).
+    pub fn for_home(home: &Path) -> Self {
         Self::from_rules(RULES, home)
     }
 
     pub fn from_rules(rules: &'static [Rule], home: &Path) -> Self {
+        Self::resolved(rules, home, Protected::new(home, &[]))
+    }
+
+    fn resolved(rules: &'static [Rule], home: &Path, protected: Protected) -> Self {
         let mut c = Self {
             home: home.to_path_buf(),
             rules,
@@ -246,7 +262,8 @@ impl Catalog {
             children_of: Keyed::default(),
             no_traverse: Keyed::default(),
             ancestors: Keyed::default(),
-            protected: protected_in_home(PLATFORM).iter().map(|rel| home.join(rel)).collect(),
+            protected: protected.paths().map(Path::to_path_buf).collect(),
+            protected_set: protected,
             specialized: Vec::new(),
             cachedir: Tag::MAX,
             kept: Tag::MAX,
@@ -292,6 +309,11 @@ impl Catalog {
 
     pub fn home(&self) -> &Path {
         &self.home
+    }
+
+    /// The protected folders, closed under ancestors.
+    pub fn protected(&self) -> &Protected {
+        &self.protected_set
     }
 
     /// Folders the walk never opens, sorted: the cloud folders.

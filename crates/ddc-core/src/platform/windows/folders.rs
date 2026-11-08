@@ -7,7 +7,9 @@
 //!   idea of the home, and never the known-folder API, which ignores the
 //!   environment: a test that points these variables at a temporary home must
 //!   never reach the user's real profile;
-//! - ddc's data from `LOCALAPPDATA`.
+//! - ddc's data from `LOCALAPPDATA`;
+//! - `APPDATA` and `LOCALAPPDATA` as folders to protect wherever they point
+//!   (safety ADR §6, Windows, redirected folders, planned 2026-11-08).
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -48,6 +50,19 @@ fn data_and_log(home: &Path, local: Option<&Path>) -> (PathBuf, PathBuf) {
     (data, logs)
 }
 
+/// `APPDATA` and `LOCALAPPDATA`, when set to an absolute path, with a
+/// `\\?\` prefix dropped (the spelling a scan reports): the folders `Env`
+/// protects wherever they point, with their ancestors. `Env` adds their
+/// canonical spellings on a local volume.
+#[allow(clippy::disallowed_methods)] // APPDATA and LOCALAPPDATA, read only here
+pub fn redirected() -> Vec<PathBuf> {
+    redirected_from([std::env::var_os("APPDATA"), std::env::var_os("LOCALAPPDATA")])
+}
+
+fn redirected_from(values: [Option<OsString>; 2]) -> Vec<PathBuf> {
+    values.into_iter().flatten().map(PathBuf::from).filter(|p| p.is_absolute()).map(super::paths::simplified).collect()
+}
+
 /// The program of a git probe (story "Worktree findings and provenance",
 /// decision 10).
 pub const GIT_PROGRAM: &str = "git.exe";
@@ -78,6 +93,23 @@ mod tests {
                 PathBuf::from(r"D:\Profiles\u\Local\DeepDriveCleaner"),
                 PathBuf::from(r"D:\Profiles\u\Local\DeepDriveCleaner\logs")
             )
+        );
+    }
+
+    #[test]
+    fn the_redirected_folders_are_the_absolute_values_simplified() {
+        let s = |v: &str| Some(OsString::from(v));
+        let at = |v: &[&str]| v.iter().map(PathBuf::from).collect::<Vec<_>>();
+        assert_eq!(redirected_from([None, None]), at(&[]));
+        assert_eq!(redirected_from([s(""), s("Local")]), at(&[]), "empty and relative");
+        assert_eq!(
+            redirected_from([s(r"D:\Profiles\u\Roaming"), s(r"C:\Users\u\AppData\Local")]),
+            at(&[r"D:\Profiles\u\Roaming", r"C:\Users\u\AppData\Local"])
+        );
+        assert_eq!(redirected_from([s(r"\\srv\share\u\Roaming"), None]), at(&[r"\\srv\share\u\Roaming"]));
+        assert_eq!(
+            redirected_from([s(r"\\?\D:\Roaming"), s(r"\\?\UNC\srv\share\Local")]),
+            at(&[r"D:\Roaming", r"\\srv\share\Local"])
         );
     }
 

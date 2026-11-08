@@ -433,7 +433,18 @@ fn the_platform_switches_are_literals() {
             assert!(name.chars().all(char::is_alphanumeric), "{file}: {item}");
         }
     }
-    let allowed = ["HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA"];
+    // The seam ADR's §8 list, exactly (amendment of 2026-11-02).
+    let allowed = [
+        "HOME",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "OneDrive",
+        "OneDriveConsumer",
+        "OneDriveCommercial",
+    ];
     let files = rust_files(&dir);
     assert!(files.len() > 4, "{files:?}");
     for path in files {
@@ -518,6 +529,27 @@ fn only_the_tombstone_removal_removes_a_tree() {
         }
     }
     assert_eq!(calls, [("ddc-core/src/exec/delete.rs".to_owned(), "&tomb, &tomb_path, v.id".to_owned())]);
+}
+
+/// A command's catalog is built from its `Env`, so the folders the
+/// environment redirects are protected (safety ADR §6, Windows, redirected
+/// folders, planned 2026-11-08): no shipped code of the CLI or the core
+/// builds one from a home alone, outside the tests.
+#[test]
+fn every_command_builds_its_catalog_from_its_env() {
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut checked = 0;
+    for name in ["ddc-cli", "ddc-core"] {
+        for path in rust_files(&crates.join(name).join("src")) {
+            let text = code(&path);
+            let shipped = text.split("#[cfg(test)]\nmod tests {").next().unwrap();
+            for forbidden in ["Catalog::for_home(", "Catalog::from_rules("] {
+                assert!(!shipped.contains(forbidden), "{} calls {forbidden}", path.display());
+            }
+            checked += usize::from(shipped.contains("Catalog::builtin("));
+        }
+    }
+    assert!(checked >= 7, "only {checked} files build the catalog");
 }
 
 /// No source enables a privilege (story "Windows scanner and rule catalog",

@@ -82,7 +82,7 @@ fn clean(home: &Path) {
         action: ActionKind::Trash,
         permanent: false,
     };
-    let catalog = Catalog::builtin(home);
+    let catalog = Catalog::for_home(home);
     let none = FakeProcs::new(Vec::new());
     let plan = plan_listed_with(&r, &index, &catalog, &[item], &none, &[]);
     assert!(plan.refused.is_empty(), "{:?}", plan.refused);

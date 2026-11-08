@@ -157,7 +157,7 @@ fn a_clean_is_refused_before_it_moves_anything() {
     let mut journal = MemoryJournal::default();
     let err = exec::execute(
         &fx.env(),
-        &Catalog::builtin(fx.t.root()),
+        &Catalog::for_home(fx.t.root()),
         &fx.plan(),
         &Consent::AssumeYes { classes: vec![RiskClass::Rebuildable] },
         Ports { commands: &commands, trash: &trash, procs: &FakeProcs::new(vec![]), journal: &mut journal },
@@ -184,7 +184,7 @@ fn a_dry_run_is_refused_before_it_checks_an_item() {
     };
     let mut lines = 0;
     let err =
-        preflight::preflight(&fx.env(), &Catalog::builtin(fx.t.root()), &[], &[], &[fx.listed()], &ports, &mut |_| {
+        preflight::preflight(&fx.env(), &Catalog::for_home(fx.t.root()), &[], &[], &[fx.listed()], &ports, &mut |_| {
             lines += 1;
             Ok(())
         })
