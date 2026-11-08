@@ -344,6 +344,23 @@ fn a_submodule_is_its_own_project_and_an_orphan_with_nothing_above_is_none() {
     assert_eq!(footprint::resolve_main(&lone, &home), Err(Refused::NotARepository { root: lone.clone() }));
 }
 
+#[test]
+fn a_worktree_git_cannot_probe_is_held_back_unknown() {
+    let Some(h) = Home::ready("a_worktree_git_cannot_probe_is_held_back_unknown") else { return };
+    let main = project(&h);
+    let wt = harness_worktree(&main, "x");
+    let env = h.env();
+    // The listing asks the real git; the walk's probes find none.
+    let listing = SharedCommands::system(&env);
+    let scope = Scope::resolve(&main, env.home(), &listing, &env.tool_dirs(), PROBE_TIMEOUT).unwrap();
+    let no_git = Arc::new(SharedCommands::answering(&[], &[]));
+    let opts = footprint::scan_options(&scope, h.opts(&no_git, FakeProcs::new(vec![])));
+    let scoped = footprint::scoped(&env, scope, &opts, &Progress::default(), None).unwrap();
+    let r = footprint::report(&env, scoped, &opts);
+    let e = entry(&r, &wt);
+    assert_eq!((e.bucket, e.reason), (Some(Bucket::HeldBack), Some(HeldReason::ProbeUnknown)));
+}
+
 /// Records every folder the walk opens.
 #[derive(Default)]
 struct Counting {
