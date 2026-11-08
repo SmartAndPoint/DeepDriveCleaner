@@ -809,6 +809,17 @@ struct ContractTests {
         #expect((scan["properties"] as? [String: Any])?["written_at"] != nil)
     }
 
+    @Test("without Full Disk Access the other-version block keeps the grant as its main action, as a first scan does")
+    func otherVersionKeepsTheGrant() throws {
+        let view = try #require(try appSources()["PopoverView.swift"])
+        let block = try #require(view.firstMatch(of: /private struct OtherVersionView[\s\S]*?\n}\n/))
+        let text = String(block.output)
+        let privacy = try #require(text.firstMatch(of: /Button\("Open Privacy Settings", action: openPrivacy\)\s*\.buttonStyle\(\.borderedProminent\)/))
+        let anyway = try #require(text.firstMatch(of: /Button\("Scan Anyway"\)[^\n]*\n\s*\.buttonStyle\(\.link\)/))
+        #expect(privacy.range.lowerBound < anyway.range.lowerBound)
+        #expect(text.contains("Wording.otherVersionWithoutAccess"))
+    }
+
     @Test("lock status and the busy envelope: the versions and enums the app decodes are the CLI's")
     func lockContracts() throws {
         let holders = try rustSource("crates/ddc-core/src/holders.rs")

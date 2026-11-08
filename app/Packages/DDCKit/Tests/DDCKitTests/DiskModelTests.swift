@@ -16,8 +16,8 @@ struct DiskModelTests {
         try fake.put("disk-report.json", Fixture.data("disk-report"))
     }
 
-    private func model(runner: Bool = true) -> DiskModel {
-        DiskModel(runner: runner ? CLIRunner(executable: fake.executable) : nil, data: data.directory)
+    private func model(runner: Bool = true, appVersion: String? = nil) -> DiskModel {
+        DiskModel(runner: runner ? CLIRunner(executable: fake.executable) : nil, data: data.directory, appVersion: appVersion)
     }
 
     private func write(_ fixture: String, modified: Date) throws {
@@ -51,7 +51,7 @@ struct DiskModelTests {
 
         try write("disk-report", schema: 1, modified: Date(timeIntervalSince1970: 1))
         await m.load()
-        #expect(m.report == .outdated)
+        #expect(m.report == .outdated(OtherVersion(schema: 1, appSchema: DiskReport.schemaVersion, ddcVersion: "0.3.0", appVersion: nil)))
 
         try write("disk-report", schema: DiskReport.schemaVersion + 1, modified: Date(timeIntervalSince1970: 2))
         await m.load()
@@ -190,5 +190,19 @@ struct DiskModelTests {
         #expect(!m.canScan)
         await m.scanDisk()
         #expect(m.message?.contains("embedded CLI is missing") == true)
+    }
+
+    @Test("an older whole-disk report names who made it and the update, in the popover's words")
+    func outdatedNamesTheUpdate() async throws {
+        let m = model(appVersion: "0.36.0")
+        try write("disk-report", schema: 1, modified: Date(timeIntervalSince1970: 1))
+        await m.load()
+        guard case .outdated(let other) = m.report else { Issue.record("not outdated: \(m.report)"); return }
+        let text = Wording.otherVersionDiskText(other)
+        #expect(text == "The last whole-disk report was made by ddc 0.3.0. After the update, this version reads it differently, so it needs a new scan. A new scan takes a few minutes.")
+        #expect(Wording.otherVersionText(other).contains("ddc 0.3.0. After the update, this version reads"), "the popover's sentence")
+        #expect(Wording.otherVersionDiskTitle(other) == "Scan Whole Disk Again")
+        let newer = OtherVersion(schema: 1, appSchema: DiskReport.schemaVersion, ddcVersion: "0.40.0", appVersion: "0.36.0")
+        #expect(Wording.otherVersionDiskTitle(newer) == "Update DeepDriveCleaner, or Scan Again")
     }
 }

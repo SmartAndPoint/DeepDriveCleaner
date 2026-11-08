@@ -12,7 +12,9 @@ public struct ScanReport: Decodable, Sendable, Equatable {
     public static let schemaVersion = 9
 
     public enum ReadError: Error, Equatable {
-        case otherSchema(Int)
+        /// Another schema; `ddcVersion` is the report's maker when its
+        /// header names one (only `ScanReport` and `DiskReport` fill it).
+        case otherSchema(Int, ddcVersion: String? = nil)
     }
 
     public let schemaVersion: Int
@@ -420,8 +422,10 @@ public struct ScanReport: Decodable, Sendable, Equatable {
 
     public static func read(_ data: Data) throws -> ScanReport {
         let decoder = JSONDecoder.snakeCase
-        let version = try decoder.decode(VersionHeader.self, from: data).schemaVersion
-        guard version == schemaVersion else { throw ReadError.otherSchema(version) }
+        let header = try decoder.decode(VersionHeader.self, from: data)
+        guard header.schemaVersion == schemaVersion else {
+            throw ReadError.otherSchema(header.schemaVersion, ddcVersion: header.ddcVersion)
+        }
         return try decoder.decode(ScanReport.self, from: data)
     }
 }
@@ -532,6 +536,21 @@ public enum EntryLock: Decodable, Sendable, Equatable, Hashable {
 /// The first thing read from every versioned JSON the CLI writes.
 struct VersionHeader: Decodable {
     let schemaVersion: Int
+    /// The maker's version, read softly: a header without it, or with
+    /// something else in its place, is still read (every versioned file the
+    /// CLI writes shares this header).
+    let ddcVersion: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, ddcVersion
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        // An empty version names nobody.
+        ddcVersion = (try? c.decodeIfPresent(String.self, forKey: .ddcVersion)).flatMap { $0 }.flatMap { $0.isEmpty ? nil : $0 }
+    }
 }
 
 extension JSONDecoder {

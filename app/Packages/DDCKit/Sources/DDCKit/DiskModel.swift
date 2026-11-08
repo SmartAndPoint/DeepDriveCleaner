@@ -16,7 +16,9 @@ public final class DiskModel {
         case loading
         case none
         /// Written by an older ddc, before an update: a new scan replaces it.
-        case outdated
+        /// It names who made it (story "Popover: after an update, say why a
+        /// new scan is needed").
+        case outdated(OtherVersion)
         case unreadable(String)
         case loaded(DiskReport)
     }
@@ -98,6 +100,8 @@ public final class DiskModel {
     @ObservationIgnored private var reportModified: Date?
     @ObservationIgnored private var scanTask: Task<Void, Never>?
     @ObservationIgnored private var ticket: CLIRunner.Ticket?
+    /// The app's own version, for the outdated report's words.
+    @ObservationIgnored private let appVersion: String?
 
     /// `runner` nil: the embedded CLI is missing.
     public init(
@@ -105,8 +109,10 @@ public final class DiskModel {
         data: DataDirectory,
         clock: @escaping @MainActor () -> Date = { .now },
         log: @escaping @MainActor (String) -> Void = { _ in },
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        appVersion: String? = nil
     ) {
+        self.appVersion = appVersion
         self.runner = runner
         self.data = data
         self.clock = clock
@@ -212,9 +218,9 @@ public final class DiskModel {
         switch decoded {
         case .success(let read):
             report = .loaded(read)
-        case .failure(ScanReport.ReadError.otherSchema(let version)) where version < DiskReport.schemaVersion:
-            report = .outdated
-        case .failure(ScanReport.ReadError.otherSchema(let version)):
+        case .failure(ScanReport.ReadError.otherSchema(let version, let maker)) where version < DiskReport.schemaVersion:
+            report = .outdated(OtherVersion(schema: version, appSchema: DiskReport.schemaVersion, ddcVersion: maker, appVersion: appVersion))
+        case .failure(ScanReport.ReadError.otherSchema(let version, _)):
             report = .unreadable("It was written by a newer version of ddc (schema \(version)). Update DeepDriveCleaner to read it.")
         case .failure(let error):
             report = .unreadable("It is not a whole-disk report this app can read.")

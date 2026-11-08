@@ -37,8 +37,10 @@ public struct DiskReport: Decodable, Sendable, Equatable {
 
     public static func read(_ data: Data) throws -> DiskReport {
         let decoder = JSONDecoder.snakeCase
-        let version = try decoder.decode(VersionHeader.self, from: data).schemaVersion
-        guard version == schemaVersion else { throw ScanReport.ReadError.otherSchema(version) }
+        let header = try decoder.decode(VersionHeader.self, from: data)
+        guard header.schemaVersion == schemaVersion else {
+            throw ScanReport.ReadError.otherSchema(header.schemaVersion, ddcVersion: header.ddcVersion)
+        }
         return try decoder.decode(DiskReport.self, from: data)
     }
 
