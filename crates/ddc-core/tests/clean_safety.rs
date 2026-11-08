@@ -251,7 +251,7 @@ fn a_redirected_folder_and_its_ancestors_are_never_claimed_or_removed() {
     let fx = Fx::new();
     let nm = fx.node_project("p");
     fx.t.write("Profiles/CACHEDIR.TAG", common::fixtures::TAG);
-    fx.t.file("Profiles/Roaming/app/settings.json", 100);
+    fx.t.file("Profiles/Roaming/tool/settings.json", 100);
     let (profiles, roaming) = (fx.t.path("Profiles"), fx.t.path("Profiles/Roaming"));
     let plain = fx.scan();
     assert!(plain.findings.iter().any(|f| f.path == profiles), "without the redirect the tag claims it");
@@ -278,7 +278,7 @@ fn a_redirected_folder_and_its_ancestors_are_never_claimed_or_removed() {
 
     assert_eq!(outcome(&r, &roaming), &Outcome::Skipped(SkipReason::Protected));
     assert_eq!(outcome(&r, &profiles), &Outcome::Skipped(SkipReason::Protected), "its ancestor");
-    assert!(fx.t.path("Profiles/Roaming/app/settings.json").exists());
+    assert!(fx.t.path("Profiles/Roaming/tool/settings.json").exists());
 }
 
 /// A redirected folder reached through a junction is protected at the
@@ -293,7 +293,7 @@ fn a_redirected_folder_is_protected_in_every_spelling_and_a_share_is_never_resol
     }
     let fx = Fx::new();
     let nm = fx.node_project("p");
-    fx.t.file("Data/Profile/Roaming/app/settings.json", 100);
+    fx.t.file("Data/Profile/Roaming/tool/settings.json", 100);
     let target = fx.t.path("Data/Profile/Roaming");
     // cmd takes only `\` as a separator; the tree builder joins with `/`.
     let backslashed = |p: PathBuf| p.to_string_lossy().replace('/', "\\");
@@ -326,7 +326,7 @@ fn a_redirected_folder_is_protected_in_every_spelling_and_a_share_is_never_resol
     let r = exec::execute(&env, &catalog, &plan, &consent, ports, &ExecOptions::default()).unwrap();
     assert_eq!(outcome(&r, &target), &Outcome::Skipped(SkipReason::Protected), "the folder it resolves to");
     assert_eq!(outcome(&r, &profile), &Outcome::Skipped(SkipReason::Protected), "an ancestor of that spelling");
-    assert!(target.join("app/settings.json").exists());
+    assert!(target.join("tool/settings.json").exists());
 
     let share = PathBuf::from(r"\\ddc-test.invalid\share\Roaming");
     let env = fx.env().with_redirected(vec![share.clone()]);
