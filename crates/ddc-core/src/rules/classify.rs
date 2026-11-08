@@ -55,6 +55,10 @@ pub struct Classified {
     pub worktree_of: Option<PathBuf>,
     /// The finding's own hint, where it differs from the rule's.
     pub hint: Option<String>,
+    /// A `git.worktree` finding: why it is not selected, in the conditions'
+    /// order (`worktree::assess`); empty for one that is, and for every
+    /// other finding.
+    pub held: Vec<super::worktree::Held>,
 }
 
 pub fn classify(out: &WalkOutput, visitor: &RuleVisitor<'_>) -> Vec<Classified> {
@@ -155,6 +159,7 @@ fn classify_in(
             worktree: None,
             worktree_of: None,
             hint: None,
+            held: Vec::new(),
         };
         match worktrees.get(&owner.path).filter(|_| worktree::is_worktree_rule(rule)) {
             Some(wt) => worktree_finding(&mut c, wt),

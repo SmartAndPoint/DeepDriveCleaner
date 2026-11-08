@@ -12,6 +12,9 @@ use ddc_core::brew::{BrewPackages, NotOffered, Service, ServicesState};
 use ddc_core::class::{Category, RiskClass};
 use ddc_core::disk::{ActionId, DiskReport, HeldKind, HomeSource, SimulatorStatus};
 use ddc_core::docker::{DockerContents, DockerResult, Group};
+use ddc_core::footprint::{
+    Bucket, CheckoutEntry, CheckoutKind as FootprintKind, FootprintReport, HeldReason, Lock, NotScannedReason,
+};
 use ddc_core::free::{ActionReport, ActionResult, FreeReport, Refusal, ReportEdit};
 use ddc_core::model::{Finding, NotSelected, OriginHarness, ScanReport};
 use ddc_core::rules::Note;
@@ -931,6 +934,155 @@ pub fn brew_packages(w: &mut impl Write, r: &BrewPackages, home: &Path, style: &
         writeln!(w, "{}", style.dim(&missing))?;
     }
     Ok(())
+}
+
+/// `ddc agent footprint`: the main checkout, then each worktree with its
+/// state and where it counts, the artifacts inside each, and the totals.
+pub fn footprint(w: &mut impl Write, r: &FootprintReport, home: &Path, style: &Style) -> io::Result<()> {
+    let class_word = |c: RiskClass| match c {
+        RiskClass::Safe => "safe",
+        RiskClass::Rebuildable => "rebuildable",
+        RiskClass::Review => "review",
+        RiskClass::UserData => "user data",
+    };
+    if let Some(why) = &r.listing_error {
+        writeln!(
+            w,
+            "{}",
+            style.dim(&format!("git could not list the worktrees ({}); the main checkout only.", escaped(why)))
+        )?;
+    }
+    for c in &r.checkouts {
+        let state = footprint_state(c);
+        let label = match c.kind {
+            FootprintKind::Main => "main checkout (its findings)".to_owned(),
+            FootprintKind::Linked | FootprintKind::Orphan => state,
+        };
+        writeln!(w, "{:<56} {:>14}  {}", style.bold(&tilde(&c.path, home)), human(c.bytes), style.dim(&label))?;
+        for f in &c.findings {
+            let shown =
+                f.path.strip_prefix(&c.path).map_or_else(|_| tilde(&f.path, home), |rel| rel.display().to_string());
+            let mark = if f.selected { "selected" } else { "" };
+            writeln!(
+                w,
+                "  {:<54} {:>14}  {} {}",
+                escaped(&shown),
+                human(f.bytes),
+                style.class(f.class, class_word(f.class)),
+                style.dim(mark)
+            )?;
+        }
+    }
+    for n in &r.not_scanned {
+        let why = match n.reason {
+            NotScannedReason::Skipped => "under a skip",
+            NotScannedReason::Missing => "git lists it, but the folder is gone",
+            NotScannedReason::OtherFilesystem => "on another filesystem",
+            NotScannedReason::NotRecognized => "not read as a worktree",
+        };
+        writeln!(w, "{:<56} {:>14}  {}", tilde(&n.path, home), "not scanned", style.dim(why))?;
+    }
+    let t = &r.totals;
+    writeln!(
+        w,
+        "\nSelected now: {} (safe {}, rebuildable {}). After the sessions end: about {}. Held back: {}.",
+        human(t.reclaimable_now.bytes),
+        human(t.reclaimable_now.safe),
+        human(t.reclaimable_now.rebuildable),
+        human(t.reclaimable_after_sessions),
+        human(t.held_back)
+    )?;
+    // Only for what lies under the main checkout: `ddc clean <main>` reaches nothing else.
+    let under_main = r.checkouts.iter().any(|c| {
+        c.path.starts_with(&r.main)
+            && (c.bucket == Some(Bucket::Now) || c.findings.iter().any(|f| f.selected && !f.ignored))
+    });
+    if under_main && let Some(command) = clean_command(&r.clean_roots, home) {
+        writeln!(w, "Run `{command}` to review and remove what is selected.")?;
+    }
+    if !r.outside_main.is_empty() {
+        let paths: Vec<String> = r.outside_main.iter().map(|p| tilde(p, home)).collect();
+        writeln!(w, "Outside the main checkout, review in the app's Review window: {}.", paths.join(", "))?;
+    }
+    match (&r.harness, r.harness_reason) {
+        (Some(h), _) if !h.findings.is_empty() => {
+            let bytes: u64 = h.findings.iter().map(|f| f.bytes).sum();
+            writeln!(w, "{}", style.dim(&format!("Coding agents' own data at the last scan: {}.", human(bytes))))?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// A worktree's state words and where it counts: `clean · unlocked · idle
+/// 3d · selected`, `dirty · held back`.
+fn footprint_state(c: &CheckoutEntry) -> String {
+    let mut words = Vec::new();
+    if c.kind == FootprintKind::Orphan {
+        words.push("orphan".to_owned());
+    }
+    if let Some(s) = &c.worktree {
+        match s.clean {
+            Some(true) => words.push("clean".to_owned()),
+            Some(false) => words.push("dirty".to_owned()),
+            None => {}
+        }
+        if let Some(ignored) = &s.ignored_content
+            && let Some(first) = ignored.paths.first()
+        {
+            let first = first.strip_prefix(&c.path).unwrap_or(first).display().to_string();
+            let more = if ignored.count > 1 { format!(" +{}", ignored.count - 1) } else { String::new() };
+            words.push(format!("ignored: {}{more}", escaped(&first)));
+        }
+        if s.submodules == Some(true) {
+            words.push("submodules".to_owned());
+        }
+        if let Some(n) = s.own_commits.filter(|n| *n > 0) {
+            words.push(format!("own commits: {n}"));
+        }
+        match (s.locked, c.lock) {
+            (Some(true), Some(Lock { pid: Some(pid), live: Some(true) })) => {
+                words.push(format!("locked by a live session (pid {pid})"))
+            }
+            (Some(true), _) => words.push("locked".to_owned()),
+            (Some(false), _) => words.push("unlocked".to_owned()),
+            (None, _) => {}
+        }
+        if s.in_use == Some(true) {
+            words.push("in use".to_owned());
+        }
+        if let Some(days) = s.idle_days {
+            words.push(format!("idle {days}d"));
+        }
+    }
+    words.push(match (c.bucket, c.reason) {
+        (Some(Bucket::Now), _) => "selected".to_owned(),
+        (Some(Bucket::AfterSessions), _) => "after its session ends".to_owned(),
+        (_, Some(reason)) => format!("held back: {}", held_reason(reason)),
+        _ => "held back".to_owned(),
+    });
+    words.join(" · ")
+}
+
+fn held_reason(reason: HeldReason) -> &'static str {
+    match reason {
+        HeldReason::Submodules => "a submodule is initialized",
+        HeldReason::Dirty => "uncommitted changes",
+        HeldReason::IgnoredContent => "ignored content of its own",
+        HeldReason::OwnCommits => "commits of its own",
+        HeldReason::StaleLock => "a lock no session holds (git worktree unlock)",
+        HeldReason::ProbeUnknown => "git could not tell its state",
+        HeldReason::NotLinked => "copied or moved by hand",
+        HeldReason::NotAHarness => "made by a tool ddc does not select from",
+        HeldReason::Orphan => "its repository entry is gone",
+        HeldReason::Yours => "your own worktree",
+        HeldReason::Immutable => "a file in it is immutable",
+        HeldReason::ForeignOwner => "another account owns it",
+        HeldReason::Kept => "protected by an exclude or .ddc-keep",
+        HeldReason::HiddenBySettings => "under min_size",
+        HeldReason::ActivityUnknown => "nothing tells when it was last used",
+        HeldReason::RuleDisabled => "git.worktree is switched off",
+    }
 }
 
 /// `ddc disk docker`: each kind of record with its count and size, what a

@@ -61,12 +61,12 @@ struct LockHoldersTests {
         #expect(throws: (any Error).self) { try LockStatus.read(Data(#"{"schema_version":2,"holders":[]}"#.utf8)) }
         #expect(throws: (any Error).self) { try LockStatus.read(Self.status([Self.holder(pid: 1, mode: "shared", command: "nap")])) }
         #expect(throws: BusyReport.ReadError.notBusy("capability-absent")) {
-            try BusyReport.read(Data(#"{"error_schema_version":3,"error":{"code":"capability-absent","message":"m","simulated":false}}"#.utf8))
+            try BusyReport.read(Data(#"{"error_schema_version":4,"error":{"code":"capability-absent","message":"m","simulated":false}}"#.utf8))
         }
         #expect(throws: BusyReport.ReadError.otherSchema(2)) {
             try BusyReport.read(Data(#"{"error_schema_version":2,"error":{"code":"busy","message":"m","simulated":false}}"#.utf8))
         }
-        let none = try BusyReport.read(Data(#"{"error_schema_version":3,"error":{"code":"busy","message":"m","simulated":false}}"#.utf8))
+        let none = try BusyReport.read(Data(#"{"error_schema_version":4,"error":{"code":"busy","message":"m","simulated":false}}"#.utf8))
         #expect(none.holders.isEmpty, "no holder named: no record, or no in-use-check")
     }
 

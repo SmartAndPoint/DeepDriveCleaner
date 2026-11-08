@@ -90,6 +90,7 @@ impl Command {
             Command::Space(args) => args.json,
             Command::Changes(args) => args.json,
             Command::Agent { action: AgentAction::Status(a) } => a.json,
+            Command::Agent { action: AgentAction::Footprint(a) } => a.json,
             Command::Keep { action: KeepAction::Remove(a) } => a.json,
             Command::Lock { action: LockAction::Status(a) } => a.json,
             Command::Lock { action: LockAction::Stop(_) } => false,
@@ -506,6 +507,29 @@ pub struct FreeArgs {
 pub enum AgentAction {
     /// What coding-agent harnesses keep under your home folder, and their live sessions (read-only).
     Status(AgentsArgs),
+    /// One project's checkouts and worktrees, what each holds, and what can go (read-only).
+    Footprint(FootprintArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct FootprintArgs {
+    /// A folder inside the project: its main checkout or any of its worktrees (default: the current folder).
+    #[arg(value_name = "ROOT")]
+    pub root: Option<PathBuf>,
+    /// Print the report as JSON (schema: docs/footprint.schema.json).
+    #[arg(long)]
+    pub json: bool,
+    /// Projects untouched for at least this many days are selected (default:
+    /// settings.json, else 14).
+    #[arg(long, value_name = "DAYS", value_parser = clap::value_parser!(u64).range(0..=3650))]
+    pub min_age: Option<u64>,
+    /// A coding agent's worktree idle for at least this many days is selected
+    /// when it is clean and holds nothing of its own (default 2).
+    #[arg(long, value_name = "DAYS", value_parser = clap::value_parser!(u64).range(0..=3650))]
+    pub worktree_min_age: Option<u64>,
+    /// Where settings.json and the last scan live (default: ~/Library/Application Support/DeepDriveCleaner).
+    #[arg(long, value_name = "DIR")]
+    pub data_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

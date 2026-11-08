@@ -76,6 +76,38 @@ fn the_disk_report_never_reaches_cleanup() {
     }
 }
 
+/// `ddc agent footprint` only reads (story "ddc footprint: a scoped project
+/// report"): it plans, trashes, locks, saves and asks the Full Disk Access
+/// database nothing, and starts no program itself.
+#[test]
+fn the_footprint_only_reads() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut files = vec![root.join("ddc-cli/src/cmd/agent_footprint.rs")];
+    for entry in std::fs::read_dir(root.join("ddc-core/src/footprint")).unwrap() {
+        files.push(entry.unwrap().path());
+    }
+    for file in files {
+        let text = std::fs::read_to_string(&file).unwrap();
+        let code: String = text.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+        for forbidden in [
+            "Executor",
+            "plan::",
+            "build_plan",
+            "trash",
+            "remove_",
+            "try_lock",
+            "write_last_scan",
+            "write_atomic",
+            "Command::new",
+            "TCC.db",
+            "full_disk_access",
+            "Consent",
+        ] {
+            assert!(!code.contains(forbidden), "{} mentions {forbidden}", file.display());
+        }
+    }
+}
+
 /// `ddc disk docker` runs the clean's probe and `system df -v`, and no
 /// other docker command: nothing in it prunes or removes.
 #[test]

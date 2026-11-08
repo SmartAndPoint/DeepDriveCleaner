@@ -919,6 +919,13 @@ impl Users {
         Self(procs.processes().iter().map(uses).collect())
     }
 
+    /// The table without the process `pid`: `ddc agent footprint` is not a
+    /// user of the worktree it was given or runs in.
+    pub(crate) fn without(mut self, pid: i32) -> Self {
+        self.0.retain(|u| u.pid != pid);
+        self
+    }
+
     /// [`user_of`] against the table as it was read.
     pub(crate) fn of(&self, targets: &[&Path]) -> Option<SkipReason> {
         targets.iter().find_map(|target| {
@@ -974,6 +981,24 @@ fn canonical_parent(p: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `ddc agent footprint` leaves its own process out; the scan's table keeps it.
+    #[test]
+    fn without_drops_one_process_only() {
+        let at = |pid: i32| Uses {
+            pid,
+            name: format!("p{pid}"),
+            paths: vec![PathBuf::from("/w/x/src")],
+            unresolved: Vec::new(),
+            open: Vec::new(),
+        };
+        let target = [Path::new("/w/x")];
+        let all = Users(vec![at(1), at(2)]);
+        assert!(matches!(all.of(&target), Some(SkipReason::InUse { pid: 1, .. })));
+        let others = Users(vec![at(1), at(2)]).without(1);
+        assert!(matches!(others.of(&target), Some(SkipReason::InUse { pid: 2, .. })));
+        assert_eq!(Users(vec![at(1)]).without(1).of(&target), None);
+    }
 
     /// The guard reads no folder that only a redirected value on a share
     /// adds, and still reads the home's list there: a share here is what

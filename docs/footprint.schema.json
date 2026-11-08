@@ -1,0 +1,1651 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FootprintReport",
+  "description": "One project's checkouts, what each holds, and what can go (ADR \"Agent\nfootprint\", §4).",
+  "type": "object",
+  "properties": {
+    "bare": {
+      "description": "`main` is a bare repository: it has no checkout of its own and is not walked.",
+      "type": "boolean"
+    },
+    "checkouts": {
+      "description": "The main checkout first (unless bare), then each worktree, largest first.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CheckoutEntry"
+      }
+    },
+    "clean_roots": {
+      "description": "The folders `ddc clean` would review to remove what is selected: the\nmain checkout only, never a parent of a worktree outside it.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ddc_version": {
+      "type": "string"
+    },
+    "duration_ms": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "generated_at": {
+      "description": "RFC 3339, UTC.",
+      "type": "string"
+    },
+    "harness": {
+      "description": "The coding agents' data of the last home scan; absent with `harness_reason`.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HarnessPart"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "harness_reason": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HarnessReason"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "listing_error": {
+      "description": "Why `git worktree list` gave no answer; absent when it did. Without\nit only the main checkout and what lies inside it are reported.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "main": {
+      "description": "The main checkout, or the bare repository.",
+      "type": "string"
+    },
+    "min_age_days": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "not_scanned": {
+      "description": "Worktrees git lists that the walk did not read.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/NotScanned"
+      }
+    },
+    "outside_main": {
+      "description": "Selected findings outside the main checkout, which `ddc clean <main>`\ndoes not reach: the app's Review window lists them.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "root": {
+      "description": "The folder asked about, canonical.",
+      "type": "string"
+    },
+    "schema_version": {
+      "description": "[`FOOTPRINT_SCHEMA_VERSION`].",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "totals": {
+      "$ref": "#/$defs/FootprintTotals"
+    },
+    "worktree_min_age_days": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "schema_version",
+    "ddc_version",
+    "generated_at",
+    "duration_ms",
+    "root",
+    "main",
+    "bare",
+    "checkouts",
+    "not_scanned",
+    "totals",
+    "clean_roots",
+    "outside_main",
+    "min_age_days",
+    "worktree_min_age_days"
+  ],
+  "$defs": {
+    "Amount": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "count": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "count",
+        "bytes"
+      ]
+    },
+    "Backup": {
+      "type": "object",
+      "properties": {
+        "device_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_backup": {
+          "description": "RFC 3339.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "Bucket": {
+      "oneOf": [
+        {
+          "description": "Selected now under the six conditions.",
+          "type": "string",
+          "const": "now"
+        },
+        {
+          "description": "It fails only condition 2 (a live lock, or in use) or 3 (used within\nthe window), and its probes found it otherwise removable: an estimate\nthat assumes it stays as it is.",
+          "type": "string",
+          "const": "after-sessions"
+        },
+        {
+          "description": "Anything else, with its reason.",
+          "type": "string",
+          "const": "held-back"
+        }
+      ]
+    },
+    "BuildBy": {
+      "description": "Why a build is in use.",
+      "oneOf": [
+        {
+          "description": "A launcher points to it.",
+          "type": "string",
+          "const": "launcher"
+        },
+        {
+          "description": "A process of the user runs it.",
+          "type": "string",
+          "const": "process"
+        },
+        {
+          "description": "Claude Code's installer lock names a live process for it.",
+          "type": "string",
+          "const": "lock"
+        },
+        {
+          "description": "The newest build.",
+          "type": "string",
+          "const": "newest"
+        }
+      ]
+    },
+    "BuildsCause": {
+      "description": "Why no build of a harness can be told free: each locks them all.",
+      "oneOf": [
+        {
+          "description": "No launcher: the build in use cannot be told.",
+          "type": "string",
+          "const": "no-launcher"
+        },
+        {
+          "description": "The launcher does not resolve inside the folder (a custom one, or\nbuilds moved by `XDG_DATA_HOME`).",
+          "type": "string",
+          "const": "custom-launcher"
+        },
+        {
+          "description": "A process of the user named as the harness could not be inspected.",
+          "type": "string",
+          "const": "process-withheld"
+        },
+        {
+          "description": "A readable process of another user carries the harness's name.",
+          "type": "string",
+          "const": "other-user-process"
+        },
+        {
+          "description": "`/proc` hides other users' processes (Linux `hidepid`).",
+          "type": "string",
+          "const": "hidden-process-table"
+        },
+        {
+          "description": "The home is on a network filesystem, which other machines may run builds from.",
+          "type": "string",
+          "const": "network-home"
+        }
+      ]
+    },
+    "Category": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "project-artifact",
+            "package-cache",
+            "xcode",
+            "vm-container",
+            "toolchain",
+            "ml-model",
+            "ide",
+            "app-cache",
+            "trash",
+            "generic-cache"
+          ]
+        },
+        {
+          "description": "Photos, backups, downloads, messengers.",
+          "type": "string",
+          "const": "personal"
+        }
+      ]
+    },
+    "CheckoutEntry": {
+      "description": "One checkout: its state and the findings inside it.",
+      "type": "object",
+      "properties": {
+        "bucket": {
+          "description": "Where it counts; absent for the main checkout, which counts in no bucket.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Bucket"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "bytes": {
+          "description": "The checkout's own bytes and every finding inside it; for the main\ncheckout, its findings only (not the size of its files).",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "findings": {
+          "description": "The findings inside it, not in a nested checkout; the checkout's own\n`git.worktree` finding is not among them.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Finding"
+          }
+        },
+        "hint": {
+          "description": "Why, in words, as `ddc scan` says it.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/CheckoutKind"
+        },
+        "lock": {
+          "description": "Its `git worktree lock`, when it has one.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Lock"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "origin": {
+          "description": "Who made it; absent for the main checkout and for a worktree kept by\nan exclude or a `.ddc-keep` marker (a claim, not a worktree region).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Origin"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why it is held back; with `bucket: held-back` only.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HeldReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "worktree": {
+          "description": "The six conditions' facts, as `ddc scan` reports them.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorktreeState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "bytes",
+        "findings"
+      ]
+    },
+    "CheckoutKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "main"
+          ]
+        },
+        {
+          "description": "A linked worktree.",
+          "type": "string",
+          "const": "linked"
+        },
+        {
+          "description": "A `.git` file into a gitdir that is gone (`git.worktree-orphan`).",
+          "type": "string",
+          "const": "orphan"
+        }
+      ]
+    },
+    "Contents": {
+      "description": "The direct children of a folder with entries: the largest listed, the\nrest summed. A session folder's entry is a session: its transcript (or\nits folder in `file-history`) with the siblings named after it.",
+      "type": "object",
+      "properties": {
+        "entries": {
+          "description": "Largest first (ties by path bytes); at most 100. A user-data folder's\nare each at least 10 MiB; a session folder's have no floor.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FolderEntry"
+          }
+        },
+        "rest_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "rest_count": {
+          "description": "The other children, findings of their own left out.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "entries",
+        "rest_count",
+        "rest_bytes"
+      ]
+    },
+    "EntryLock": {
+      "description": "Why an entry cannot be picked. One type in the scan report and the clean report.",
+      "oneOf": [
+        {
+          "description": "An app manages it; clean it in that app.",
+          "type": "object",
+          "properties": {
+            "app": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "const": "app-managed"
+            }
+          },
+          "required": [
+            "reason",
+            "app"
+          ]
+        },
+        {
+          "description": "A `.ddc-keep` in it, or an exclude at or in it.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "kept"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A protected folder (safety ADR §6) at or inside it.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "protected"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "Another volume is mounted inside it.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "other-volume"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "It, or something inside it, has an immutable or append-only flag: its\nowner cannot remove it (safety ADR, amendment of 2026-11-04, \"Linux\nfile kinds\").",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "immutable"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "Added or changed within [`RECENT`] of the scan's start: in use or still arriving.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "recent"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A download still arriving.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "partial-download"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A backup whose `Status.plist` does not say it finished.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "unfinished-backup"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "A coding agent's session that is live: a live record names it, a\nfile of it changed within [`RECENT`], or a process holds one open.\nIn place of `recent` for the session folders.",
+          "type": "object",
+          "properties": {
+            "by": {
+              "$ref": "#/$defs/LiveBy"
+            },
+            "reason": {
+              "type": "string",
+              "const": "live-session"
+            },
+            "session": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "session",
+            "by"
+          ]
+        },
+        {
+          "description": "Whether the session is live could not be told: the harness's live\nrecords could not be read or decided.",
+          "type": "object",
+          "properties": {
+            "cause": {
+              "$ref": "#/$defs/UnknownCause"
+            },
+            "reason": {
+              "type": "string",
+              "const": "liveness-unknown"
+            }
+          },
+          "required": [
+            "reason",
+            "cause"
+          ]
+        },
+        {
+          "description": "A coding agent's build still needed: a launcher points to it, a\nprocess of the user runs it, its installer lock names a live process,\nor it is the newest.",
+          "type": "object",
+          "properties": {
+            "by": {
+              "$ref": "#/$defs/BuildBy"
+            },
+            "reason": {
+              "type": "string",
+              "const": "build-in-use"
+            }
+          },
+          "required": [
+            "reason",
+            "by"
+          ]
+        },
+        {
+          "description": "Whether any build of the harness is still needed could not be told:\nevery build is locked.",
+          "type": "object",
+          "properties": {
+            "cause": {
+              "$ref": "#/$defs/BuildsCause"
+            },
+            "reason": {
+              "type": "string",
+              "const": "builds-unknown"
+            }
+          },
+          "required": [
+            "reason",
+            "cause"
+          ]
+        }
+      ]
+    },
+    "Exclusion": {
+      "description": "An exclusion or a skip that protects a finding, canonical.",
+      "type": "object",
+      "properties": {
+        "inside": {
+          "description": "The path lies inside the finding; otherwise it is the finding's own\nfolder or above it.",
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/ExclusionKind"
+        },
+        "origin": {
+          "$ref": "#/$defs/ExclusionOrigin"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "origin",
+        "inside"
+      ]
+    },
+    "ExclusionKind": {
+      "oneOf": [
+        {
+          "description": "Never touched (`excludes`, `--exclude`).",
+          "type": "string",
+          "const": "exclude"
+        },
+        {
+          "description": "Never read (`skips`, `--skip`).",
+          "type": "string",
+          "const": "skip"
+        }
+      ]
+    },
+    "ExclusionOrigin": {
+      "oneOf": [
+        {
+          "description": "`settings.json`.",
+          "type": "string",
+          "const": "settings"
+        },
+        {
+          "description": "A command-line flag.",
+          "type": "string",
+          "const": "flag"
+        }
+      ]
+    },
+    "Finding": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Allocated bytes belonging to this finding alone. On Linux btrfs with\ncompression it is the uncompressed size, which can be far more than a\ndelete frees; on ZFS it is the size on disk after compression. A\ndelete frees nothing of the blocks a snapshot still holds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "category": {
+          "$ref": "#/$defs/Category"
+        },
+        "class": {
+          "description": "Effective class (may be lower than `rule_class`, see `notes`).",
+          "$ref": "#/$defs/RiskClass"
+        },
+        "contents": {
+          "description": "What one of the user's own folders holds, to pick from (story \"User\ndata: pick your own files for the Trash\"), or the sessions of a\ncoding agent's session folder (story \"Harness data rules\"). Only on\nfindings of a rule with an entry policy (`rules::entries::policy`)\nthe scan could read.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Contents"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dev": {
+          "description": "The device, with `ino` the identity at scan time: `st_dev`, except\non Linux btrfs and ZFS, where it is the filesystem's `f_fsid` folded\ninto 64 bits, which a remount keeps and the anonymous `st_dev` does\nnot.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "dirs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "hint": {
+          "description": "How to get it back.",
+          "type": "string"
+        },
+        "ignored": {
+          "description": "Hidden by `settings.json`: its rule is switched off, or it is under\n`min_size`. Never selected and in no total; `not_selected` is unchanged.",
+          "type": "boolean"
+        },
+        "incomplete": {
+          "description": "Some content could not be read or was skipped; sizes are lower bounds.",
+          "type": "boolean"
+        },
+        "ino": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "modified": {
+          "description": "The newest modification time inside it, its own directory included,\nRFC 3339 in UTC to the second (story \"Review window: sort a group's\nrows by name, size or last change\"). A lower bound when `incomplete`.\nOnly inside a claim the walk read times for: none on a region, a\nuser-data finding, a protected one, an unlisted rule's, or one whose\nroot could not be opened.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "not_selected": {
+          "description": "Why it is not selected by default. An ignored finding keeps the reason\nit would have had, so a type switched back on applies at once.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NotSelected"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Note"
+          }
+        },
+        "origin": {
+          "description": "The harness whose own structure the rule recognizes (ADR \"Agent\nfootprint: worktrees, harness data and bounded consent for agents\",\n§1). Only on findings of such rules, and on every git worktree's,\nwhose harness the worktree itself tells (§2).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Origin"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "parent_dev": {
+          "description": "Identity of the parent directory at scan time (re-checked before cleaning).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "parent_ino": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "path": {
+          "type": "string"
+        },
+        "private_bytes": {
+          "description": "Lower bound of what deleting it frees (APFS private size). Present\nwhere clones are expected (uv, pnpm) and measurable.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Project"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "protection": {
+          "description": "What keeps a `user.kept` finding (story \"Protected by you: say what it\nis, and Remove Protection\"). Only on those findings.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Protection"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "removal": {
+          "$ref": "#/$defs/RemovalKind"
+        },
+        "rule": {
+          "description": "Stable rule id (`python.venv`, `cache.uv`, …).",
+          "type": "string"
+        },
+        "rule_class": {
+          "$ref": "#/$defs/RiskClass"
+        },
+        "selected": {
+          "description": "Selected by default in a cleanup plan.",
+          "type": "boolean"
+        },
+        "shared_bytes": {
+          "description": "Allocated bytes of hard-linked files also linked elsewhere.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "worktree": {
+          "description": "What the scan read of a linked git worktree (ADR \"Agent footprint:\nworktrees, harness data and bounded consent for agents\", §2). Only on\n`git.worktree` findings.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorktreeState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "rule",
+        "category",
+        "class",
+        "rule_class",
+        "removal",
+        "bytes",
+        "shared_bytes",
+        "files",
+        "dirs",
+        "incomplete",
+        "selected",
+        "notes",
+        "hint",
+        "dev",
+        "ino"
+      ]
+    },
+    "FolderEntry": {
+      "description": "One direct child of a folder with entries: a regular file or a\ndirectory. A session's entry is its key (`<session>.jsonl`, or\n`<session>/` in `file-history`), with its companions' bytes.",
+      "type": "object",
+      "properties": {
+        "backup": {
+          "description": "A device backup's `Info.plist`, where it could be read.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Backup"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "bytes": {
+          "description": "Allocated bytes, findings inside it included; a session's, its\ncompanions' too. Counted as a finding's `bytes` is, with the same\ncompression and snapshot caveats.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "dev": {
+          "description": "The device, with `ino` the identity at scan time: `st_dev`, except\non Linux btrfs and ZFS, where it is the filesystem's `f_fsid` folded\ninto 64 bits, which a remount keeps and the anonymous `st_dev` does\nnot.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "findings": {
+          "description": "Findings of other rules inside it (a folder in Downloads).",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "git": {
+          "description": "A folder with `.git`: a project.",
+          "type": "boolean"
+        },
+        "incomplete": {
+          "description": "Parts of it could not be read; `bytes` is a lower bound. It can still\nbe picked: the Trash keeps it.",
+          "type": "boolean"
+        },
+        "ino": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "kind": {
+          "$ref": "#/$defs/FolderEntryKind"
+        },
+        "lock": {
+          "description": "Why it cannot be picked.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EntryLock"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "modified": {
+          "description": "Last modification, RFC 3339; a session's, the newest of its files'\nown.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "bytes",
+        "dev",
+        "ino"
+      ]
+    },
+    "FolderEntryKind": {
+      "type": "string",
+      "enum": [
+        "file",
+        "folder"
+      ]
+    },
+    "FootprintTotals": {
+      "description": "Bytes by class, and what can go.",
+      "type": "object",
+      "properties": {
+        "held_back": {
+          "description": "The worktrees of `bucket: held-back`, without what inside them is\nselected now. No byte is in two of these sums.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "rebuildable": {
+          "$ref": "#/$defs/Amount"
+        },
+        "reclaimable_after_sessions": {
+          "description": "The worktrees of `bucket: after-sessions`, without what inside them\nis selected now (counted in `reclaimable_now`): an estimate.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "reclaimable_now": {
+          "description": "Selected now: `safe` items (an agent may clean them once the person's\nopt-in is on) apart from `rebuildable` ones (the person's), a selected\nworktree with everything inside it.",
+          "$ref": "#/$defs/Reclaimable"
+        },
+        "review": {
+          "$ref": "#/$defs/Amount"
+        },
+        "safe": {
+          "description": "Every finding inside the checkouts, by class; each byte once.",
+          "$ref": "#/$defs/Amount"
+        },
+        "user_data": {
+          "$ref": "#/$defs/Amount"
+        }
+      },
+      "required": [
+        "safe",
+        "rebuildable",
+        "review",
+        "user_data",
+        "reclaimable_now",
+        "reclaimable_after_sessions",
+        "held_back"
+      ]
+    },
+    "HarnessPart": {
+      "description": "What the last home scan found of the coding agents' own data.",
+      "type": "object",
+      "properties": {
+        "findings": {
+          "description": "Its `agent.*` findings.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Finding"
+          }
+        },
+        "report_age": {
+          "description": "Seconds since that scan was written.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "report_age",
+        "findings"
+      ]
+    },
+    "HarnessReason": {
+      "oneOf": [
+        {
+          "description": "No `last-scan.json` in the data directory.",
+          "type": "string",
+          "const": "no-report"
+        },
+        {
+          "description": "It was written by another report schema.",
+          "type": "string",
+          "const": "schema-mismatch"
+        },
+        {
+          "description": "It could not be read or decoded.",
+          "type": "string",
+          "const": "unreadable"
+        }
+      ]
+    },
+    "HeldReason": {
+      "description": "Why a checkout is held back: the first condition that fails, or why it\nis not judged at all.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "submodules",
+            "dirty",
+            "ignored-content",
+            "own-commits",
+            "probe-unknown"
+          ]
+        },
+        {
+          "description": "Locked, and its lock names no pid or one that does not run.",
+          "type": "string",
+          "const": "stale-lock"
+        },
+        {
+          "description": "Copied or moved by hand: git does not know it there.",
+          "type": "string",
+          "const": "not-linked"
+        },
+        {
+          "description": "Made by a harness whose worktrees ddc does not select.",
+          "type": "string",
+          "const": "not-a-harness"
+        },
+        {
+          "description": "Its gitdir is gone.",
+          "type": "string",
+          "const": "orphan"
+        },
+        {
+          "description": "The person's own worktree.",
+          "type": "string",
+          "const": "yours"
+        },
+        {
+          "description": "A file inside it is immutable.",
+          "type": "string",
+          "const": "immutable"
+        },
+        {
+          "description": "Not the current user's.",
+          "type": "string",
+          "const": "foreign-owner"
+        },
+        {
+          "description": "Under an exclude, or holding `.ddc-keep`.",
+          "type": "string",
+          "const": "kept"
+        },
+        {
+          "description": "Under `min_size` in `settings.json`.",
+          "type": "string",
+          "const": "hidden-by-settings"
+        },
+        {
+          "description": "Nothing tells when it was last used.",
+          "type": "string",
+          "const": "activity-unknown"
+        },
+        {
+          "description": "`git.worktree` is switched off in `settings.json`.",
+          "type": "string",
+          "const": "rule-disabled"
+        }
+      ]
+    },
+    "IgnoredContent": {
+      "description": "The ignored paths that hold a worktree back: the first ones, and how\nmany there are in all.",
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "paths": {
+          "description": "At most 20.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "paths",
+        "count"
+      ]
+    },
+    "LiveBy": {
+      "description": "What shows a session live. The scan report's `live-session` lock\ncarries it as `by`.",
+      "oneOf": [
+        {
+          "description": "A live record names it.",
+          "type": "string",
+          "const": "record"
+        },
+        {
+          "description": "Its transcript or a companion changed within [`entries::RECENT`]\nbefore the check, or later than it.",
+          "type": "string",
+          "const": "recent"
+        },
+        {
+          "description": "A process of the user holds one of its files open.",
+          "type": "string",
+          "const": "open-file"
+        }
+      ]
+    },
+    "Lock": {
+      "description": "A `git worktree lock` and whether its holder runs.",
+      "type": "object",
+      "properties": {
+        "live": {
+          "description": "Whether that pid runs as the current user: an estimate, since the\npid may have been reused. Absent without a pid, or without a process\ntable on this platform; then a lock with a pid is taken as live.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "pid": {
+          "description": "The pid its reason names (`(pid N`); absent when it names none.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        }
+      }
+    },
+    "MarkerFolder": {
+      "description": "A folder holding a `.ddc-keep`, with its identity at scan time.",
+      "type": "object",
+      "properties": {
+        "dev": {
+          "description": "The device, with `ino` the identity at scan time: `st_dev`, except\non Linux btrfs and ZFS, where it is the filesystem's `f_fsid` folded\ninto 64 bits, which a remount keeps and the anonymous `st_dev` does\nnot.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "folder": {
+          "type": "string"
+        },
+        "ino": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "folder",
+        "dev",
+        "ino"
+      ]
+    },
+    "NotScanned": {
+      "description": "A worktree git lists that the walk did not read.",
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/NotScannedReason"
+        }
+      },
+      "required": [
+        "path",
+        "reason"
+      ]
+    },
+    "NotScannedReason": {
+      "oneOf": [
+        {
+          "description": "Under a skip of `settings.json` or the command line.",
+          "type": "string",
+          "const": "skipped"
+        },
+        {
+          "description": "git lists it and the folder is gone, or does not resolve.",
+          "type": "string",
+          "const": "missing"
+        },
+        {
+          "description": "On another filesystem than its parent.",
+          "type": "string",
+          "const": "other-filesystem"
+        },
+        {
+          "description": "Read, but not recognised as a worktree.",
+          "type": "string",
+          "const": "not-recognized"
+        }
+      ]
+    },
+    "NotSelected": {
+      "oneOf": [
+        {
+          "description": "Expensive to restore or restorability uncertain: always a manual choice.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "review"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "The user's data: never planned.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "user-data"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "The project changed recently.",
+          "type": "object",
+          "properties": {
+            "idle_days": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "reason": {
+              "type": "string",
+              "const": "active-project"
+            }
+          },
+          "required": [
+            "reason",
+            "idle_days"
+          ]
+        },
+        {
+          "description": "No activity signal: treated as active.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "unknown-activity"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "Something inside, or the folder itself, belongs to another user (a\ncontainer's root, say): never selected, never removed (safety ADR,\namendment of 2026-10-31).",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "foreign-owner"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "Something inside, or the folder itself, has an immutable or\nappend-only flag: its owner cannot remove it, and a folder holding\none can never be emptied. Never selected, never removed (safety ADR,\namendment of 2026-11-04, \"Linux file kinds\").",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "immutable"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        }
+      ]
+    },
+    "Note": {
+      "oneOf": [
+        {
+          "description": "Environment without a lock file: restoring may give a different environment.",
+          "type": "string",
+          "const": "no-lockfile"
+        },
+        {
+          "description": "Inside a hidden top-level folder of $HOME or ~/Library: owned by an app or tool.",
+          "type": "string",
+          "const": "app-owned"
+        },
+        {
+          "description": "A `.ddc-keep` marker in it or above it.",
+          "type": "string",
+          "const": "kept-by-marker"
+        },
+        {
+          "description": "Matched `--exclude`.",
+          "type": "string",
+          "const": "excluded"
+        }
+      ]
+    },
+    "Origin": {
+      "description": "Where a finding comes from: a coding agent's harness and what of it the\nfinding is. A provenance, not a class: the class and the method decide\nwhat happens to it.",
+      "type": "object",
+      "properties": {
+        "harness": {
+          "$ref": "#/$defs/OriginHarness"
+        },
+        "kind": {
+          "$ref": "#/$defs/OriginKind"
+        }
+      },
+      "required": [
+        "harness",
+        "kind"
+      ]
+    },
+    "OriginHarness": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "opencode",
+            "cursor"
+          ]
+        },
+        {
+          "description": "A git worktree, whoever made it.",
+          "type": "string",
+          "const": "git"
+        }
+      ]
+    },
+    "OriginKind": {
+      "oneOf": [
+        {
+          "description": "A worktree an agent works in.",
+          "type": "string",
+          "const": "worktree"
+        },
+        {
+          "description": "What the harness keeps of its sessions: transcripts, history, logs.",
+          "type": "string",
+          "const": "session-data"
+        },
+        {
+          "description": "What the harness downloads or writes for itself and can make again.",
+          "type": "string",
+          "const": "runtime-cache"
+        },
+        {
+          "description": "What the harness installs for itself and fetches again only by hand:\nits old builds (safety ADR, amendment of 2026-11-02).",
+          "type": "string",
+          "const": "builds"
+        }
+      ]
+    },
+    "Project": {
+      "description": "The project an artifact belongs to, and how recently it changed. On a\n`git.worktree` finding `root` is the worktree's main checkout, while\n`last_activity` and `idle_days` are the worktree's own (its gitdir's\nindex and `HEAD`, its manifests and lock files), never the main\ncheckout's.",
+      "type": "object",
+      "properties": {
+        "has_lockfile": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "idle_days": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "last_activity": {
+          "description": "Latest activity (RFC 3339): git index/HEAD, manifests, lock files.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "root": {
+          "type": "string"
+        },
+        "worktree_of": {
+          "description": "The main checkout, when `root` is a linked git worktree of it: the\nreport groups the worktree's artifacts under the main project.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "root"
+      ]
+    },
+    "Protection": {
+      "description": "What protects a `user.kept` finding: its keep markers, the exclusions and\nskips at or above it or inside it, and the rule it displaced.",
+      "type": "object",
+      "properties": {
+        "exclusions": {
+          "description": "Sorted by path, each once.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Exclusion"
+          }
+        },
+        "markers": {
+          "description": "Each folder holding a `.ddc-keep`, the finding's own or one inside it,\nsorted by folder.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MarkerFolder"
+          }
+        },
+        "rule": {
+          "description": "The rule that would have claimed the folder, when the walk knows it.\nUnder an exclusion at or above the folder nothing is listed, so only a\nknown path, a region or a child of a known path is known there.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "markers",
+        "exclusions"
+      ]
+    },
+    "Reclaimable": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "rebuildable": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "safe": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "safe",
+        "rebuildable",
+        "bytes"
+      ]
+    },
+    "RemovalKind": {
+      "type": "string",
+      "enum": [
+        "delete",
+        "trash",
+        "native",
+        "native-only",
+        "none"
+      ]
+    },
+    "RiskClass": {
+      "oneOf": [
+        {
+          "description": "Cache that refills itself.",
+          "type": "string",
+          "const": "safe"
+        },
+        {
+          "description": "Project artifact restored by install (from a lock file) or by a build.",
+          "type": "string",
+          "const": "rebuildable"
+        },
+        {
+          "description": "Expensive to restore, or restorability is uncertain.",
+          "type": "string",
+          "const": "review"
+        },
+        {
+          "description": "The user's data: reported, never planned.",
+          "type": "string",
+          "const": "user-data"
+        }
+      ]
+    },
+    "UnknownCause": {
+      "description": "Why a session's liveness could not be told. Declared from the widest\nto the narrowest: when several apply, the first is reported. The scan\nreport's `liveness-unknown` lock carries it as `cause`.",
+      "oneOf": [
+        {
+          "description": "The records folder does not exist: an older Claude Code, or a\nchanged layout.",
+          "type": "string",
+          "const": "records-missing"
+        },
+        {
+          "description": "The records folder, or an entry of it, could not be read.",
+          "type": "string",
+          "const": "records-unreadable"
+        },
+        {
+          "description": "The records folder lies at or under one of the user's skips, so it\nis never opened.",
+          "type": "string",
+          "const": "records-skipped"
+        },
+        {
+          "description": "A record could not be parsed.",
+          "type": "string",
+          "const": "unparsable-record"
+        },
+        {
+          "description": "A record could not be decided and names no session.",
+          "type": "string",
+          "const": "undecidable-record"
+        },
+        {
+          "description": "A live record names no session.",
+          "type": "string",
+          "const": "live-record-without-session"
+        },
+        {
+          "description": "A record that could not be decided names this session.",
+          "type": "string",
+          "const": "undecidable-session-record"
+        },
+        {
+          "description": "The session was given with no file, so nothing could be checked.",
+          "type": "string",
+          "const": "session-without-files"
+        }
+      ]
+    },
+    "WorktreeProbe": {
+      "description": "Whether a worktree's git probes ran and were understood. `unknown` fails\nclosed: the worktree stays `review`.",
+      "type": "string",
+      "enum": [
+        "known",
+        "unknown"
+      ]
+    },
+    "WorktreeState": {
+      "description": "A linked git worktree's state. The fields a git probe fills are absent\nuntil one ran; `probe` says whether it did.",
+      "type": "object",
+      "properties": {
+        "branch": {
+          "description": "The branch checked out, without `refs/heads/`; absent when `HEAD` is\ndetached or could not be read.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clean": {
+          "description": "No tracked change and no untracked file.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "detached": {
+          "description": "`HEAD` names a commit, not a branch; absent when it could not be read.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "idle_days": {
+          "description": "Days since its own last activity.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "ignored_content": {
+          "description": "Ignored paths nothing accounts for: neither inside an artifact ddc\nremoves on its own nor a copy of the main checkout's file.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IgnoredContent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "in_use": {
+          "description": "A process of the current user works inside it.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "linked": {
+          "description": "Its administrative folder's back-pointer (`<gitdir>/gitdir`) names\nthis folder's `.git`, by file identity. False for a worktree copied\nor moved by hand: `git worktree repair` relinks it, and ddc never\nremoves it through git.",
+          "type": "boolean"
+        },
+        "locked": {
+          "description": "`<gitdir>/locked` exists: `git worktree lock`, or a live session's lock.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "own_commits": {
+          "description": "Commits reachable from its `HEAD` and from no reference that\nsurvives its removal.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "probe": {
+          "description": "Whether the git probes ran and were understood.",
+          "$ref": "#/$defs/WorktreeProbe"
+        },
+        "submodules": {
+          "description": "A submodule is initialized in it.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "linked",
+        "probe"
+      ]
+    }
+  }
+}
