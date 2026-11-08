@@ -31,6 +31,14 @@ struct PopoverView: View {
                 NoticeRow(text: notice.text, action: notice.action.map { action in (action.title, { model.perform(action) }) }) {
                     model.dismiss(notice)
                 }
+                if notice.id == "busy", let busy = model.lockBusy {
+                    LockBusyPanel(
+                        busy: busy,
+                        stop: { model.stopLockHolder($0) },
+                        wait: { model.waitForLockThenScan() },
+                        stopWaiting: { model.stopWaitingForLock() }
+                    )
+                }
             }
             if let update {
                 UpdateLineView(model: update, activity: activity)

@@ -125,6 +125,11 @@ public final class PopoverModel {
     /// `settings.json` did not read; the warning lasts until it does, whatever its notice.
     private var settingsUnreadable = false
     @ObservationIgnored private var scanTask: Task<Void, Never>?
+    /// Scan now met the lock held (exit 75): who holds it, with Stop and Wait.
+    public private(set) var lockBusy: LockBusy?
+    @ObservationIgnored private var lockWait: Task<Void, Never>?
+    /// Wait's pause; tests pass one that returns at once.
+    @ObservationIgnored var lockSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     @ObservationIgnored private var scheduledTask: Task<ScheduledScan, Never>?
     /// The growth check in flight: a second call waits for it and runs none.
     @ObservationIgnored private var spaceTask: Task<Void, Never>?
@@ -545,7 +550,7 @@ public final class PopoverModel {
         await scan(whilePaused: true)
     }
 
-    private func scan(whilePaused: Bool) async {
+    private func scan(whilePaused: Bool, byWait: Bool = false) async {
         // A scheduled scan runs first; this one never joins it.
         if let scheduledTask { _ = await scheduledTask.value }
         if let scanTask {
@@ -565,7 +570,7 @@ public final class PopoverModel {
             setNotice("cli", "The app's embedded CLI is missing, so it cannot scan. Reinstall DeepDriveCleaner.")
             return
         }
-        let task = Task { await runScan(runner) }
+        let task = Task { await runScan(runner, byWait: byWait) }
         scanTask = task
         await task.value
         scanTask = nil
@@ -573,9 +578,12 @@ public final class PopoverModel {
         await checkSpace(force: true)
     }
 
-    private func runScan(_ runner: any CLIRunning) async {
+    private func runScan(_ runner: any CLIRunning, byWait: Bool) async {
         clearNotice("scan")
         clearNotice("busy")
+        // Any scan ends a Wait: its panel sits under the busy notice.
+        stopWaitingForLock()
+        lockBusy = nil
         scan = ScanProgress(started: clock(), files: nil)
         log("scan started")
         let (lines, sink) = AsyncStream<ProgressEvent.Line>.makeStream()
@@ -605,8 +613,13 @@ public final class PopoverModel {
         if let message = CLIFailure.message(result.outcome, stderrTail: result.stderrTail) {
             // The last report stays on screen: the CLI replaces the file only on success.
             scan = nil
-            // A clean holding the lock is no failure: its notice, without the warning.
+            // A clean holding the lock is no failure: its notice, without the
+            // warning, and who holds it, with Stop and Wait.
             setNotice(result.outcome == .busy ? "busy" : "scan", message)
+            if result.outcome == .busy {
+                lockBusy = LockBusy(purpose: .scanning, holders: BusyReport.holders(in: result.stdout))
+                if byWait { waitForLockThenScan(again: true) }
+            }
             log("scan ended \(result.outcome): \(result.stderrTail.suffix(3).joined(separator: " | "))")
             return
         }
@@ -662,6 +675,8 @@ public final class PopoverModel {
         // As a user's scan: a failure's warning lasts until the next scan starts.
         clearNotice("scan")
         clearNotice("busy")
+        stopWaitingForLock()
+        lockBusy = nil
         // Read now: the report it saves clears the flag before the scan ends.
         scan = ScanProgress(started: clock(), files: nil, afterUpdate: preferences.updateScanDue)
         defer { scan = nil }
@@ -862,12 +877,73 @@ public final class PopoverModel {
         badgePending = false
     }
 
+    // MARK: - The lock's holders
+
+    /// Wait on the busy notice: Scan now runs again once no exclusive holder
+    /// is left. Dismissing the notice ends it.
+    public func waitForLockThenScan(again: Bool = false) {
+        guard let busy = lockBusy, let runner else { return }
+        lockWait?.cancel()
+        lockBusy?.waiting = true
+        let holders = LockHolders(runner: runner, sleep: lockSleep)
+        lockWait = Task { [weak self] in
+            let free = await holders.waitUntilFree(for: .scanning, named: !busy.holders.isEmpty, again: again) { [weak self] list in
+                await self?.updateLockHolders(list)
+            }
+            guard free, !Task.isCancelled, let self, self.lockBusy?.waiting == true else { return }
+            self.lockWait = nil
+            self.lockBusy = nil
+            self.clearNotice("busy")
+            await self.scan(whilePaused: false, byWait: true)
+        }
+    }
+
+    public func stopWaitingForLock() {
+        lockWait?.cancel()
+        lockWait = nil
+        if lockBusy?.waiting == true { lockBusy?.waiting = false }
+    }
+
+    /// Stop on one holder: `lock stop`, then the holders read again.
+    public func stopLockHolder(_ id: LockHolder.ID) {
+        guard let busy = lockBusy, !busy.stopping.contains(id), let holder = busy.holders.first(where: { $0.id == id }), let runner else {
+            return
+        }
+        lockBusy?.stopping.insert(id)
+        let holders = LockHolders(runner: runner, sleep: lockSleep)
+        let sleep = lockSleep
+        Task { [weak self] in
+            let sent = await holders.stop(holder)
+            if !sent { self?.lockBusy?.stopping.remove(id) }
+            // Until the stopped holder is gone; then, with nothing blocking
+            // and no Wait on, the panel and its notice go.
+            repeat {
+                guard let now = await holders.status(), let self, let busy = self.lockBusy else { return }
+                self.lockBusy?.update(now)
+                if !busy.purpose.blocked(by: now), !busy.waiting {
+                    self.lockBusy = nil
+                    self.clearNotice("busy")
+                    return
+                }
+                guard self.lockBusy?.stopping.isEmpty == false else { return }
+            } while (try? await sleep(LockHolders.pollInterval)) != nil
+        }
+    }
+
+    private func updateLockHolders(_ list: [LockHolder]) {
+        lockBusy?.update(list)
+    }
+
     // MARK: - Notices
 
     /// Dismissing the replace offer declines it: the popover stops offering,
     /// Settings keeps it. Dismissing Allow Notifications drops the flag.
     public func dismiss(_ notice: Notice) {
         notices.removeAll { $0.id == notice.id }
+        if notice.id == "busy" {
+            stopWaitingForLock()
+            lockBusy = nil
+        }
         switch notice.action {
         case .replaceOldScan: preferences.setOldScanOfferDismissed()
         case .allowNotifications: preferences.setNotificationPermissionPending(false)

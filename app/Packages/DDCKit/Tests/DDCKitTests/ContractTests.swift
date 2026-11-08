@@ -178,8 +178,25 @@ struct ContractTests {
         #expect(files(/"--items"/) == ["CleanRun.swift"])
         #expect(files(/cleanConfirmedItems\(/) == ["CleanRun.swift", "ConfirmSheet.swift"])
         #expect(count(/func cleanConfirmedItems\(/, in: "CleanRun.swift") == 1)
-        #expect(count(/cleanConfirmedItems\(/, in: "CleanRun.swift") == 1, "its definition only")
+        #expect(count(/cleanConfirmedItems\(/, in: "CleanRun.swift") == 2, "its definition and Wait's one call")
         #expect(count(/cleanConfirmedItems\(/, in: "ConfirmSheet.swift") == 1, "the sheet's Clean action")
+        // Wait is consent given in advance on the sheet (menu bar ADR §7,
+        // amended 2026-11-08): only the sheet calls it, and it reaches the
+        // clean through the same entry point.
+        #expect(files(/waitForLockThenClean\(/) == ["CleanRun.swift", "ConfirmSheet.swift"])
+        #expect(count(/waitForLockThenClean\(/, in: "ConfirmSheet.swift") == 1)
+        let waitSource = try #require(sources["CleanRun.swift"])
+        let wait = try #require(waitSource.firstMatch(of: /public func waitForLockThenClean\([\s\S]*?\n    }\n/))
+        #expect(wait.output.matches(of: /cleanConfirmedItems\(\)/).count == 1, "Wait's call")
+        // Wait's definition and its re-arm after a clean that met the lock again.
+        #expect(count(/waitForLockThenClean\(/, in: "CleanRun.swift") == 2)
+        // `lock stop` has one caller, reached only from a person's Stop.
+        #expect(files(/"lock", "stop"/) == ["LockHolders.swift"])
+        #expect(files(/holders\.stop\(/) == ["CleanRun.swift", "PopoverModel.swift"])
+        #expect(count(/holders\.stop\(/, in: "CleanRun.swift") == 1)
+        #expect(count(/holders\.stop\(/, in: "PopoverModel.swift") == 1)
+        #expect(files(/stopLockHolder\(/) == ["CleanRun.swift", "ConfirmSheet.swift", "PopoverModel.swift", "PopoverView.swift"])
+        for view in ["ConfirmSheet.swift", "PopoverView.swift"] { #expect(count(/stopLockHolder\(/, in: view) == 1, "\(view)") }
         // Story "Review window: Clean is not offered when every item would be
         // skipped": the button is off, and the action itself runs nothing,
         // while the check runs or when every item would be skipped.
@@ -863,7 +880,7 @@ struct ContractTests {
         #expect(model.matches(of: /\.run\(\.changes\b/).count == 1, "one run of changes")
         let load = try #require(model.firstMatch(of: /private func loadReport\(\) async \{[\s\S]*?\n    }\n/))
         #expect(load.output.contains("await checkChanges()"))
-        let scan = try #require(model.firstMatch(of: /private func runScan\(_ runner: any CLIRunning\) async \{[\s\S]*?\n    }\n/))
+        let scan = try #require(model.firstMatch(of: /private func runScan\(_ runner: any CLIRunning, byWait: Bool\) async \{[\s\S]*?\n    }\n/))
         #expect(scan.output.contains("await checkChanges()"), "the app's own scan asks too")
         #expect(files(/\.seeWhatGrew\(/) == ["PopoverView.swift"])
     }

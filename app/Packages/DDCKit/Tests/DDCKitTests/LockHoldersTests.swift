@@ -94,6 +94,10 @@ struct LockHoldersTests {
         #expect(Wording.lockHolder(busy, now: now).hasSuffix(", re-checking its items"))
         #expect(Wording.lockStopEffect(busy) == "Stop ends it at once, before it removes anything.")
         #expect(Wording.lockStopEffect(holders[0]) == "Stop ends it at once.")
+        #expect(Wording.lockStopping(holders[1]) == "Stopping: finishing the current item…")
+        #expect(Wording.lockStopping(holders[0]) == "Stopping…", "a scan ends at once")
+        #expect(Wording.lockWaitHint(.cleaning).contains("while this sheet stays open"))
+        #expect(Wording.lockWaiting(.scanning) == "Waiting to scan…")
     }
 
     @Test("Stop runs lock stop with the shown pid and start; a refusal is false")
