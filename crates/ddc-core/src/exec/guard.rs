@@ -205,10 +205,12 @@ impl<'a> Guard<'a> {
     ) -> Self {
         let table = procs.processes();
         let protected = Protected::of(env);
-        let mut paths: Vec<PathBuf> = protected.paths().map(Path::to_path_buf).collect();
-        paths.extend(protected_system(PLATFORM).iter().map(PathBuf::from));
-        paths.extend(roots.iter().cloned());
-        let protected_ids = local_ids(&paths, crate::platform::paths::is_local, |p| {
+        let mut own: Vec<PathBuf> = Protected::new(env.home(), &[]).paths().map(Path::to_path_buf).collect();
+        own.extend(protected_system(PLATFORM).iter().map(PathBuf::from));
+        own.extend(roots.iter().cloned());
+        let mut paths = own.clone();
+        paths.extend(protected.paths().map(Path::to_path_buf));
+        let protected_ids = protected_ids(&paths, &own, crate::platform::paths::is_local, |p| {
             crate::platform::meta::lstat(p).ok().map(|st| st.id())
         });
         Self {
@@ -825,15 +827,24 @@ pub(super) fn walk_item(path: &Path, reader: &dyn DirReader) -> Option<Walked> {
     })
 }
 
-/// The ids of the protected folders on a local volume, read by `lstat`. A
-/// folder on a share is protected by its path only, never read: a clean
-/// never waits on the network (safety ADR §6, Windows, redirected folders).
-fn local_ids(
+/// The ids of the protected folders `paths`, read by `lstat`. `own` (the
+/// home's list, the system folders and the scan roots) are read wherever
+/// they lie, so a home on a network drive keeps its protection by id. A
+/// folder only a redirected value adds is read on a local volume only: on a
+/// share it is protected by its path, and building the guard never waits on
+/// the network for it (safety ADR §6, Windows, redirected folders).
+fn protected_ids(
     paths: &[PathBuf],
+    own: &[PathBuf],
     is_local: impl Fn(&Path) -> bool,
     lstat: impl Fn(&Path) -> Option<(u64, u64)>,
 ) -> HashSet<(u64, u64)> {
-    paths.iter().filter(|p| is_local(p.as_path())).filter_map(|p| lstat(p.as_path())).collect()
+    let own: HashSet<String> = own.iter().map(|p| fold(p)).collect();
+    paths
+        .iter()
+        .filter(|p| own.contains(&fold(p)) || is_local(p.as_path()))
+        .filter_map(|p| lstat(p.as_path()))
+        .collect()
 }
 
 /// APFS and NTFS are case-insensitive by default: compare protected paths
@@ -961,26 +972,30 @@ fn canonical_parent(p: &Path) -> Option<PathBuf> {
 mod tests {
     use super::*;
 
-    /// The guard reads no protected folder on a share, nor its ancestors:
-    /// a share here is what `is_local` refuses (on Windows, a UNC path).
+    /// The guard reads no folder that only a redirected value on a share
+    /// adds, and still reads the home's list there: a share here is what
+    /// `is_local` refuses (on Windows, a UNC path or a network drive).
     #[test]
-    fn a_protected_folder_on_a_share_is_never_read() {
-        let share = PathBuf::from("/share/u/Roaming");
-        let protected = Protected::new(Path::new("/home/u"), std::slice::from_ref(&share));
-        let paths: Vec<PathBuf> = protected.paths().map(Path::to_path_buf).collect();
-        let remote = |p: &Path| p.starts_with("/share");
-        assert!(paths.iter().filter(|p| remote(p)).count() >= 3, "{paths:?}");
+    fn a_redirected_folder_on_a_share_is_never_read_and_a_home_there_still_is() {
+        let home = Path::new("/share/home");
+        let redirected = PathBuf::from("/share/redirected/Roaming");
+        let own: Vec<PathBuf> = Protected::new(home, &[]).paths().map(Path::to_path_buf).collect();
+        let paths: Vec<PathBuf> =
+            Protected::new(home, std::slice::from_ref(&redirected)).paths().map(Path::to_path_buf).collect();
         let read = Mutex::new(Vec::new());
-        local_ids(
+        protected_ids(
             &paths,
-            |p| !remote(p),
+            &own,
+            |p| !p.starts_with("/share"),
             |p| {
                 read.lock().unwrap().push(p.to_path_buf());
                 None
             },
         );
         let read = read.into_inner().unwrap();
-        assert!(!read.iter().any(|p| remote(p)), "{read:?}");
-        assert!(read.iter().any(|p| p.starts_with("/home/u")), "the local ones are read: {read:?}");
+        assert!(!read.iter().any(|p| p.starts_with("/share/redirected")), "{read:?}");
+        assert!(!read.contains(&PathBuf::from("/share")), "{read:?}");
+        assert!(own.iter().all(|p| read.contains(p)), "the home's list is read: {read:?}");
+        assert!(read.contains(&PathBuf::from("/")), "a local ancestor is read: {read:?}");
     }
 }
