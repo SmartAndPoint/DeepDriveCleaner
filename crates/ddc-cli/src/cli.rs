@@ -85,6 +85,7 @@ impl Command {
                 Some(DiskAction::Agents(a)) => a.json,
                 Some(DiskAction::Free(a)) => a.json,
                 Some(DiskAction::BrewPackages(a)) => a.json,
+                Some(DiskAction::Docker(a)) => a.json,
             },
             Command::Space(args) => args.json,
             Command::Changes(args) => args.json,
@@ -451,6 +452,18 @@ pub enum DiskAction {
     Free(FreeArgs),
     /// The Homebrew formulae you installed, their sizes and what they need (read-only).
     BrewPackages(BrewPackagesArgs),
+    /// What Docker Desktop keeps in its disk image, and what a clean would free (read-only; runs docker).
+    Docker(DockerArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct DockerArgs {
+    /// Print the result as JSON (schema: docs/docker.schema.json).
+    #[arg(long)]
+    pub json: bool,
+    /// Where settings.json lives (default: ~/Library/Application Support/DeepDriveCleaner).
+    #[arg(long, value_name = "DIR")]
+    pub data_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

@@ -12,6 +12,7 @@ pub mod changes;
 pub mod class;
 pub mod conda;
 pub mod disk;
+pub mod docker;
 pub mod env;
 pub mod exec;
 pub mod free;

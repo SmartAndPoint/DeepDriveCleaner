@@ -17,7 +17,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub use catalog::{
-    DOCKER_DOWN, RULES, SHARED_IDS, never_walked, protected_in_home, protected_system, redirectable, rules_of,
+    DOCKER_DOWN, DOCKER_READY, RULES, SHARED_IDS, never_walked, protected_in_home, protected_system, redirectable,
+    rules_of,
 };
 pub(crate) use classify::AtOrAbove;
 pub use classify::{Classified, LockFiles, Note, classify, classify_probed, effective_class};

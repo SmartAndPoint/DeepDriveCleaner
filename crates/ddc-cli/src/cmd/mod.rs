@@ -8,6 +8,7 @@ mod clean_items;
 mod diag;
 mod disk;
 mod disk_brew_packages;
+mod disk_docker;
 mod disk_free;
 mod du;
 mod keep;
@@ -37,6 +38,7 @@ pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Disk(DiskArgs { action: Some(DiskAction::Agents(args)), .. }) => agent_status::run(&args),
         Command::Disk(DiskArgs { action: Some(DiskAction::Free(args)), .. }) => disk_free::run(&args),
         Command::Disk(DiskArgs { action: Some(DiskAction::BrewPackages(args)), .. }) => disk_brew_packages::run(&args),
+        Command::Disk(DiskArgs { action: Some(DiskAction::Docker(args)), .. }) => disk_docker::run(&args),
         Command::Disk(args) => disk::run(args),
         Command::Space(args) => space::run(&args),
         Command::Changes(args) => changes::run(&args),

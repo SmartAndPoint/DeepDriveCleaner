@@ -298,6 +298,12 @@ ddc disk --json | jq '.areas[] | {id, bytes}'      # area sizes
 ddc disk brew-packages [--json] [--data-dir DIR]
 ```
 
+`ddc disk docker` says what Docker Desktop keeps in its disk image: how many images, containers, volumes and build-cache records, and their sizes as docker counts them (an image's size is the part unique to it, and the build cache leaves out what is shared with images). It also says what a clean of the Docker Desktop item would free, about: the unused build cache that `docker builder prune -f` removes and the dangling images that `docker image prune -f` removes. What a clean leaves is listed with the command to run yourself: unused tagged images (`docker image prune -a`), stopped containers (`docker container prune`), volumes with their data (`docker volume prune`) and the rest of the build cache (`docker builder prune` with its option for all records); ddc never runs these. On Docker Desktop's own context, `desktop-linux`, it runs the clean's own check, `docker version`, then one `docker system df -v`, with a 60-second limit; no scan runs docker. When Docker Desktop does not answer, it says why and exits 0. Its counts and sizes name no image, container or volume; when docker fails, its own last line is shown. `--json` follows [`docs/docker.schema.json`](docs/docker.schema.json). It takes no lock, saves nothing and removes nothing.
+
+```
+ddc disk docker [--json] [--data-dir DIR]
+```
+
 `ddc disk free` frees three areas with their owning tool, and only what you confirm. It deletes a simulator runtime with `simctl runtime delete <identifier>`, runs `brew cleanup` with `HOMEBREW_NO_AUTOREMOVE=1`, which removes old versions in the Cellar and old downloads, uninstalls a Homebrew formula the app's list of packages confirmed with `brew uninstall`, formulae only, and runs an `/opt` conda install's own `bin/conda`: `conda env remove -p <path>` for one environment, and `conda clean` of the unused packages, the downloads, the index cache and the logs, with `CONDA_PKGS_DIRS` set to the install's `pkgs` alone. At a terminal it lists the actions available now with each tool's own dry run, then asks for each one, default No. Without a terminal it needs `--actions`, the exact list the app's sheet confirmed ([`docs/disk-free.schema.json`](docs/disk-free.schema.json)); no option skips the question.
 
 - A runtime is offered only when it lies under `/System/Library/AssetsV2/`, macOS says it can be deleted, and no simulator on it is booted. Xcode downloads its SDK's runtime again at the next build for it.

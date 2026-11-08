@@ -28,7 +28,7 @@ pub use journal::{
     KeepRemoveEntry, MemoryAreaJournal, MemoryJournal, MemoryKeepJournal, TrashedTo,
 };
 pub use native::CommandResult;
-pub(crate) use native::tail;
+pub(crate) use native::{Readiness, readiness, said, tail};
 pub use progress::{CurrentItem, ExecPhase, ExecProgress, ExecSnapshot};
 pub use system::{SystemCommands, SystemProcesses, SystemTrash};
 

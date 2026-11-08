@@ -46,9 +46,12 @@ fn the_disk_report_never_reaches_cleanup() {
         root.join("ddc-cli/src/cmd/disk.rs"),
         root.join("ddc-cli/src/cmd/agent_status.rs"),
         root.join("ddc-cli/src/cmd/disk_brew_packages.rs"),
+        root.join("ddc-cli/src/cmd/disk_docker.rs"),
     ];
-    // `ddc agent status` too (story "Coding agents in the Whole disk view").
-    for dir in ["ddc-core/src/disk", "ddc-core/src/agents"] {
+    // `ddc agent status` too (story "Coding agents in the Whole disk view"),
+    // and `ddc disk docker` (story "Docker Desktop: what is inside its disk
+    // image, and what a clean frees").
+    for dir in ["ddc-core/src/disk", "ddc-core/src/agents", "ddc-core/src/docker"] {
         for entry in std::fs::read_dir(root.join(dir)).unwrap() {
             files.push(entry.unwrap().path());
         }
@@ -71,6 +74,32 @@ fn the_disk_report_never_reaches_cleanup() {
             assert!(!code.contains(forbidden), "{} mentions {forbidden}", file.display());
         }
     }
+}
+
+/// `ddc disk docker` runs the clean's probe and `system df -v`, and no
+/// other docker command: nothing in it prunes or removes.
+#[test]
+fn the_docker_query_runs_only_its_two_commands() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut files = vec![root.join("ddc-cli/src/cmd/disk_docker.rs")];
+    for entry in std::fs::read_dir(root.join("ddc-core/src/docker")).unwrap() {
+        files.push(entry.unwrap().path());
+    }
+    for file in files {
+        let text = std::fs::read_to_string(&file).unwrap();
+        let code: String = text.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+        for forbidden in ["prune", "\"rm\"", "\"rmi\"", "--all", "Command::new", "\"-a\"", "\"-f\""] {
+            assert!(!code.contains(forbidden), "{} mentions {forbidden}", file.display());
+        }
+    }
+    assert_eq!(
+        ddc_core::docker::SYSTEM_DF,
+        ["--context", "desktop-linux", "system", "df", "-v", "--format", "{{json .}}"]
+    );
+    assert_eq!(
+        ddc_core::rules::DOCKER_READY.args,
+        ["--context", "desktop-linux", "version", "--format", "{{.Server.Version}}"]
+    );
 }
 
 /// A process ends by a signal only through `holders::end_by_signal`, which
