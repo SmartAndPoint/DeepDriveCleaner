@@ -1,3 +1,5 @@
+import Foundation
+
 /// What the result screen shows of a clean report (artboard 6): what was
 /// done, the free space before and after, and what was left alone grouped by
 /// cause, in plain language.
@@ -55,6 +57,11 @@ public struct CleanResult: Sendable, Equatable {
     public let staysSelected: Int
     /// The skips only a new scan clears (`AfterClean.rescan`): the result offers Scan Again.
     public let needsRescan: Int
+    /// What docker said its prunes reclaimed, in its own figures, so a
+    /// clean can be compared with the sheet's estimate: "Docker reclaimed
+    /// 512MB of build cache and 123.4MB of images." Nil when docker ran
+    /// no prune that said.
+    public let dockerReclaimed: String?
     /// The skips that can clear (`AfterClean.keep`), in the report's order:
     /// the result says what clears them.
     public let canClear: [SkipReason]
@@ -150,8 +157,28 @@ public struct CleanResult: Sendable, Equatable {
             journal: report.journal,
             staysSelected: report.items.filter(\.outcome.staysSelected).count,
             needsRescan: needsRescan,
+            dockerReclaimed: dockerReclaimed(report),
             canClear: canClear
         )
+    }
+
+    /// `docker builder prune` ends with "Total:\t<size>", `docker image
+    /// prune` with "Total reclaimed space: <size>".
+    static func dockerReclaimed(_ report: CleanReport) -> String? {
+        var parts: [String] = []
+        for item in report.items {
+            guard case .native(let commands) = item.outcome else { continue }
+            for command in commands where command.success && URL(filePath: command.program).lastPathComponent == "docker" {
+                let lines = command.output.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+                let total = lines.last { $0.hasPrefix("Total reclaimed space:") || $0.hasPrefix("Total:") }
+                guard let total, let colon = total.firstIndex(of: ":") else { continue }
+                let size = total[total.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                guard !size.isEmpty else { continue }
+                let what = command.args.contains("builder") ? "build cache" : command.args.contains("image") ? "images" : nil
+                parts.append(what.map { "\(size) of \($0)" } ?? size)
+            }
+        }
+        return parts.isEmpty ? nil : "Docker reclaimed \(Wording.list(parts))."
     }
 
     /// "docker image prune failed: <its last line>", or "(exit 1)" when it printed nothing.

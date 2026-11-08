@@ -426,6 +426,9 @@ struct ItemRow: View {
                 if let note = model.toolNote(for: row.id) {
                     Text(note).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
+                if row.finding.rule == DockerContentsModel.rule, row.action == .nativeOnly {
+                    DockerContentsView(model: model.docker)
+                }
             }
             Spacer(minLength: 8)
             if RemoveProtectionButton.offered(row), model.removingProtection?.id != row.id {
@@ -486,6 +489,42 @@ struct ItemRow: View {
 }
 
 // MARK: - Parts
+
+/// What Docker Desktop's disk image holds, under its item (story "Docker
+/// Desktop: what is inside its disk image, and what a clean frees"): asked
+/// when the row shows, with Stop while docker is asked and Try Again after.
+struct DockerContentsView: View {
+    let model: DockerContentsModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            switch model.state {
+            case .unknown:
+                EmptyView()
+            case .reading:
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini)
+                    Text("Asking Docker what is inside…").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Button("Stop") { model.stop() }.controlSize(.mini).buttonStyle(.link)
+                }
+            case .listed(let listed):
+                ForEach(CleanWording.dockerLines(listed), id: \.self) { line in
+                    Text(line).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            case .unavailable(let reason, let advice):
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text([reason, advice].compactMap { $0 }.joined(separator: " "))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Try Again") { Task { await model.again() } }.controlSize(.mini).buttonStyle(.link)
+                }
+            }
+        }
+        .padding(.top, 2)
+        .task(id: model.generation) { await model.show() }
+    }
+}
 
 /// A checkbox with a mixed state, drawn from SF Symbols so it reads the same
 /// in a list row and a section header.

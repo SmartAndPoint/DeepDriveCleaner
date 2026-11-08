@@ -254,6 +254,12 @@ extension ReviewModel {
         } else {
             stage = .stopped(Self.failure(result, doing: "The clean") + " Nothing was touched.", journal: nil)
         }
+        // A prune may have run, report or not: what docker said before is
+        // out of date, and the item asks again when shown.
+        if report != nil || touched || result.outcome == .done,
+           confirmation.items.contains(where: { $0.finding.rule == DockerContentsModel.rule }) {
+            docker.forget()
+        }
         // The lock was held: nothing was touched. The sheet goes back to
         // its confirm stage and names the holders; a clean Wait started that
         // met the lock again waits again.

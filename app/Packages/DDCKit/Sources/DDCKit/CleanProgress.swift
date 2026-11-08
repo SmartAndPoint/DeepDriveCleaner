@@ -164,7 +164,7 @@ extension CleanWording {
         var parts: [String] = []
         let tool = progress.current?.tool.map(toolName)
         if let tool {
-            let image = progress.current?.action == .nativeOnly ? ", and what it frees inside its disk image is not counted here" : ""
+            let image = progress.current?.action == .nativeOnly ? ", and what it frees inside its disk image is not in this bar" : ""
             parts.append("\(tool) reports no progress\(image).")
         } else if progress.inFlight > 0 {
             parts.append("The striped part is the item being cleaned.")

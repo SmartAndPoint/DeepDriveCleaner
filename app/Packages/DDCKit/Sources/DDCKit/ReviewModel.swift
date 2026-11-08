@@ -63,6 +63,8 @@ public final class ReviewModel: ReviewRouting {
         public internal(set) var lockBusy: LockBusy? = nil
     }
 
+    /// The Docker Desktop item's contents, asked when the item is shown.
+    public let docker: DockerContentsModel
     /// Nil without a report: the window says to scan first.
     public internal(set) var items: ReviewItems?
     public var selection: Set<Int> = []
@@ -223,7 +225,9 @@ public final class ReviewModel: ReviewRouting {
         self.temporaryDirectory = temporaryDirectory
         self.clock = clock
         self.log = log
+        docker = DockerContentsModel(runner: runner, log: log)
         sort = preferences.reviewSort
+        docker.onChange = { [weak self] in self?.countDockerEstimate() }
     }
 
     // MARK: - The router
@@ -537,6 +541,8 @@ public final class ReviewModel: ReviewRouting {
     /// as the popover's Review… does.
     public func windowClosed() {
         stopWaitingForLock()
+        // Hours may pass before it opens again: docker is asked afresh then.
+        docker.forget()
         collapsed = []
         windowOpen = false
     }
@@ -578,9 +584,21 @@ public final class ReviewModel: ReviewRouting {
         return Wording.picked(count: rows.count, bytes: rows.reduce(0) { $0 + $1.finding.bytes }, what: what)
     }
 
-    /// "frees about": `native-only` items left out, as `Confirmation.reclaimable` does.
+    /// "frees about", as `Confirmation.reclaimable` counts it: a
+    /// `native-only` item only with its runtime's estimate.
     public var selectedReclaimable: UInt64 {
-        selectedRows.filter { $0.action != .nativeOnly }.reduce(0) { $0 + $1.finding.reclaimableBytes }
+        let rows = selectedRows
+        let trashed = rows.filter { $0.action != .nativeOnly }.reduce(0) { $0 + $1.finding.reclaimableBytes }
+        // Docker frees its estimate once, however many of its folders are picked.
+        let docker = rows.contains { $0.action == .nativeOnly && $0.finding.rule == DockerContentsModel.rule }
+        return trashed + (docker ? self.docker.estimate ?? 0 : 0)
+    }
+
+    /// The sheet counts Docker's estimate while it confirms: at its opening,
+    /// and when a query ends while it shows; a forgotten one is taken away.
+    func countDockerEstimate() {
+        guard sheet?.stage == .confirm else { return }
+        sheet?.confirmation.setEstimate(docker.estimate, rule: DockerContentsModel.rule)
     }
 
     /// "Protect this folder", after its confirmation: the marker, then the row
@@ -624,6 +642,7 @@ public final class ReviewModel: ReviewRouting {
         let confirmation = Confirmation(items, selection: picked, deletePermanently: preferences.deleteReviewPermanently)
         guard !confirmation.items.isEmpty else { return }
         sheet = Sheet(confirmation: confirmation, warnings: .waiting, predictions: [:], stage: .confirm, progress: nil)
+        countDockerEstimate()
         checkWarnings()
     }
 

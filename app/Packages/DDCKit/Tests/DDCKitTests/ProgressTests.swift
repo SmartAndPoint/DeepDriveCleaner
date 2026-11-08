@@ -176,7 +176,7 @@ struct ProgressTests {
         let current = try #require(progress.current)
         #expect(CleanWording.now(current, home: "/Users/example") == "Docker")
         #expect(CleanWording.cleaningNote(progress)
-            == "Docker reports no progress, and what it frees inside its disk image is not counted here. Stop interrupts Docker; what it already removed stays removed.")
+            == "Docker reports no progress, and what it frees inside its disk image is not in this bar. Stop interrupts Docker; what it already removed stays removed.")
 
         let path = try Self.fold([
             Self.items(done: 0, n: 2, bytesDone: 0, bytesTotal: 1000, current: Self.current(1, "/Users/example/p1/node_modules", "delete", 400)),
