@@ -481,9 +481,9 @@ struct CleanRunTests {
         #expect(events.rescans == 0)
     }
 
-    @Test("a clean refused before it touched anything (busy, refused) says so and does not rescan")
+    @Test("a clean refused before it touched anything says so and does not rescan; one that met the lock stays on its sheet")
     func refusedBeforeTouching() async throws {
-        for (status, text) in [("75", "Another scan or clean holds the lock"), ("2", "refused by the CLI (exit 2)")] {
+        for (status, text) in [("2", "refused by the CLI (exit 2)")] {
             try fake.put("clean.exit", Data(status.utf8))
             try fake.open("clean-start")
             try fake.open("clean-go")
@@ -497,5 +497,177 @@ struct CleanRunTests {
             review.closeSheet()
         }
         #expect(events.rescans == 0)
+        // Exit 75: nothing was touched either, and the sheet names who holds the lock.
+        try await busyClean(named: false)
+        #expect(review.sheet?.stage == .confirm)
+        #expect(events.rescans == 0)
+    }
+
+    // MARK: - The lock's holders (story "Busy: name the scan or clean that holds the lock, and offer to stop it")
+
+    private func remove(_ name: String) {
+        try? FileManager.default.removeItem(at: fake.directory.appending(path: name))
+    }
+
+    /// `lock status` lists one exclusive holder when `held`, else none.
+    private func lockStatus(held: Bool = false) throws {
+        let entries = held ? [LockHoldersTests.holder(pid: 4202, mode: "exclusive", command: "clean-items")] : []
+        try fake.put("lock-status.json", LockHoldersTests.status(entries))
+    }
+
+    /// A Clean that met the lock, with the busy fixture's holder when `named`.
+    private func busyClean(named: Bool = true) async throws {
+        try fake.put("clean.exit", Data("75".utf8))
+        if named { try fake.put("clean-busy.json", Fixture.data("error-busy")) }
+        try fake.open("clean-start")
+        try fake.open("clean-go")
+        try await checkedSheet()
+        review.cleanConfirmedItems()
+        try await until("busy") { review.sheet?.lockBusy != nil }
+    }
+
+    @Test("a check that meets the lock names its holders, with Stop and Wait")
+    func checkBusyNamesHolders() async throws {
+        // The CLI takes the lock before its first line: only the envelope.
+        try fake.put("dry-run.jsonl", Data())
+        try fake.put("dry-run.exit", Data("75".utf8))
+        try fake.put("dry-run-busy.json", Fixture.data("error-busy"))
+        review.openSheet()
+        try await until("busy") { review.sheet?.lockBusy != nil }
+        #expect(review.sheet?.warnings == .busy)
+        #expect(review.sheet?.lockBusy?.purpose == .checking)
+        #expect(review.sheet?.lockBusy?.holders.map(\.pid) == [4202])
+        // Wait checks again once no exclusive holder is left.
+        remove("dry-run.exit")
+        remove("dry-run-busy.json")
+        try fake.put("dry-run.jsonl", Data(contentsOf: Fixture.url("clean-dry-run", extension: "jsonl")))
+        try lockStatus()
+        review.lockSleep = { _ in }
+        review.waitForLockThenCheck()
+        try await until("checked") { review.sheet?.warnings == .checked }
+        #expect(review.sheet?.lockBusy == nil)
+    }
+
+    @Test("a Clean that meets the lock stays on its sheet, names the holder, and Wait cleans once the lock is free")
+    func cleanBusyThenWaitCleans() async throws {
+        try await busyClean()
+        #expect(review.sheet?.stage == .confirm, "nothing was touched: the sheet stays")
+        #expect(review.sheet?.lockBusy?.purpose == .cleaning)
+        #expect(review.sheet?.lockBusy?.holders.map(\.pid) == [4202])
+        #expect(review.isCleaning == false)
+        #expect(events.rescans == 0)
+        remove("clean.exit")
+        remove("clean-busy.json")
+        try lockStatus()
+        review.lockSleep = { _ in }
+        review.waitForLockThenClean()
+        #expect(review.sheet?.lockBusy?.waiting == true)
+        try await until("the result") { review.sheet?.stage.result != nil }
+        #expect(review.sheet?.lockBusy == nil)
+    }
+
+    @Test("with no holder named, Wait tries the clean again after the retry interval; one that meets the lock again waits again")
+    func cleanBusyUnnamedRetries() async throws {
+        try await busyClean(named: false)
+        #expect(review.sheet?.lockBusy?.holders == [])
+        let sleeps = Sleeps()
+        review.lockSleep = { try await sleeps.sleep($0) }
+        try lockStatus()
+        review.waitForLockThenClean()
+        // The clean meets the lock again (clean.exit stays): it waits again.
+        try await until("waiting again") { sleeps.taken.count >= 2 && review.sheet?.lockBusy?.waiting == true }
+        #expect(sleeps.taken.prefix(2) == [LockHolders.retryInterval, LockHolders.retryInterval])
+        review.stopWaitingForLock()
+        #expect(review.sheet?.lockBusy?.waiting == false)
+    }
+
+    @Test("Stop runs lock stop with the shown pid and start and shows the holder as stopping while it is listed")
+    func stopHolder() async throws {
+        try await busyClean()
+        let holder = try #require(review.sheet?.lockBusy?.holders.first)
+        // The same holder, still running.
+        try fake.put("lock-status.json", Fixture.data("lock-status"))
+        review.lockSleep = { _ in try await Task.sleep(for: .milliseconds(50)) }
+        review.stopLockHolder(holder.id)
+        #expect(review.sheet?.lockBusy?.stopping == [holder.id])
+        let stops = fake.directory.appending(path: "lock-stops")
+        try await until("lock stop") { FileManager.default.fileExists(atPath: stops.path) }
+        #expect(try String(contentsOf: stops, encoding: .utf8) == "lock stop --pid 4202 --started 1792404120000000\n")
+        try await until("read again") { ((try? runs("lock status")) ?? 0) >= 1 }
+        #expect(review.sheet?.lockBusy?.stopping == [holder.id], "still listed: still stopping")
+        // Once it is gone, nothing blocks and no Wait is on: the panel goes.
+        try lockStatus()
+        try await until("gone") { review.sheet?.lockBusy == nil }
+        #expect(review.sheet?.stage == .confirm)
+    }
+
+    @Test("a Stop the CLI refuses is not shown as stopping")
+    func stopRefused() async throws {
+        try await busyClean()
+        let holder = try #require(review.sheet?.lockBusy?.holders.first)
+        try fake.put("lock-stop.exit", Data("2".utf8))
+        try fake.put("lock-status.json", Fixture.data("lock-status"))
+        review.lockSleep = { _ in try await Task.sleep(for: .milliseconds(50)) }
+        review.stopLockHolder(holder.id)
+        try await until("refused and read again") { review.sheet?.lockBusy?.stopping.isEmpty == true && review.sheet?.lockBusy?.holders.count == 2 }
+        #expect(review.sheet?.lockBusy?.holders.map(\.pid) == [4101, 4202])
+    }
+
+    @Test("Stop Waiting, or a change to the list, ends the Wait: no clean starts")
+    func stopWaitingStartsNothing() async throws {
+        try await busyClean()
+        try lockStatus(held: true)
+        review.lockSleep = { _ in try await Task.sleep(for: .milliseconds(20)) }
+        review.waitForLockThenClean()
+        try await until("polling") { ((try? runs("lock status")) ?? 0) >= 1 }
+        review.stopWaitingForLock()
+        #expect(review.sheet?.lockBusy?.waiting == false)
+        review.waitForLockThenClean()
+        #expect(review.sheet?.lockBusy?.waiting == true)
+        let row = try #require(review.sheet?.confirmation.items.first)
+        review.togglePermanent(row.id)
+        #expect(review.sheet?.lockBusy?.waiting == false, "the list changed: the consent was for the old one")
+        let cleans = try runs("clean --items")
+        try lockStatus()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(try runs("clean --items") == cleans)
+    }
+
+    @Test("a Wait that did not start its clean leaves no flag: the next Clean by hand that meets the lock does not wait")
+    func waitFlagIsSpent() async throws {
+        try await busyClean(named: false)
+        review.cleanStartedByWait = true
+        review.closeSheet()
+        review.cleanConfirmedItems()  // no sheet: it runs nothing, and spends the flag
+        try await busyClean(named: false)
+        #expect(review.sheet?.lockBusy?.waiting == false)
+    }
+
+    @Test("a check Wait started that meets the lock again waits again after the retry interval")
+    func checkWaitsAgain() async throws {
+        try fake.put("dry-run.jsonl", Data())
+        try fake.put("dry-run.exit", Data("75".utf8))
+        review.openSheet()
+        try await until("busy") { review.sheet?.lockBusy != nil }
+        let sleeps = Sleeps()
+        review.lockSleep = { try await sleeps.sleep($0) }
+        review.waitForLockThenCheck()
+        try await until("waiting again") { sleeps.taken.count >= 2 && review.sheet?.lockBusy?.waiting == true }
+        #expect(sleeps.taken.prefix(2) == [LockHolders.retryInterval, LockHolders.retryInterval])
+        review.closeSheet()
+    }
+
+    @Test("closing the sheet ends the Wait: no clean starts")
+    func closingEndsWait() async throws {
+        try await busyClean()
+        try lockStatus(held: true)
+        review.lockSleep = { _ in try await Task.sleep(for: .milliseconds(20)) }
+        review.waitForLockThenClean()
+        try await until("polling") { ((try? runs("lock status")) ?? 0) >= 1 }
+        let cleans = try runs("clean --items")
+        review.closeSheet()
+        try lockStatus()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(try runs("clean --items") == cleans, "the wait ended with the sheet")
     }
 }

@@ -101,6 +101,12 @@ public struct BusyReport: Sendable, Equatable {
         let errorSchemaVersion: Int
     }
 
+    /// The holders the envelope in `stdout` names; none when it names none
+    /// or cannot be read.
+    public static func holders(in stdout: Data) -> [LockHolder] {
+        (try? read(stdout))?.holders ?? []
+    }
+
     public static func read(_ data: Data) throws -> BusyReport {
         let decoder = JSONDecoder.snakeCase
         let version = try decoder.decode(Header.self, from: data).errorSchemaVersion
@@ -160,6 +166,35 @@ extension Wording {
         return line
     }
 
+    /// The busy panel's first line when no holder is named.
+    public static let lockNoHolder = "Another scan or clean holds the lock, but it does not say which."
+
+    /// Shown in place of what Stop does once a Stop was sent.
+    public static func lockStopping(_ h: LockHolder) -> String {
+        h.phase == .cleaning ? "Stopping: finishing the current item…" : "Stopping…"
+    }
+
+    /// The busy panel's line for a Clean that met the lock: it did not start.
+    public static let lockCleanNotStarted = "The clean did not start, and nothing was touched."
+
+    /// Beside Wait: what it will do.
+    public static func lockWaitHint(_ purpose: LockPurpose) -> String {
+        switch purpose {
+        case .cleaning: "Clean these items as soon as the lock is free, while this sheet stays open."
+        case .checking: "Check again as soon as the lock is free."
+        case .scanning: "Scan as soon as the lock is free."
+        }
+    }
+
+    /// While Wait is on.
+    public static func lockWaiting(_ purpose: LockPurpose) -> String {
+        switch purpose {
+        case .cleaning: "Waiting to clean…"
+        case .checking: "Waiting to check…"
+        case .scanning: "Waiting to scan…"
+        }
+    }
+
     /// What Stop does to `h`, said before Stop.
     public static func lockStopEffect(_ h: LockHolder) -> String {
         switch (h.command, h.phase) {
@@ -169,6 +204,27 @@ extension Wording {
         case (.toolDryRun, _): "Stop ends it after its current check."
         default: "Stop ends it at once."
         }
+    }
+}
+
+/// The busy state of a run the app could not start (the sheet's check, its
+/// Clean, the popover's Scan now): who holds the lock, whether Wait is on,
+/// and which holders were sent a Stop.
+public struct LockBusy: Sendable, Equatable {
+    public let purpose: LockPurpose
+    public internal(set) var holders: [LockHolder]
+    public internal(set) var waiting = false
+    public internal(set) var stopping: Set<LockHolder.ID> = []
+
+    public init(purpose: LockPurpose, holders: [LockHolder]) {
+        self.purpose = purpose
+        self.holders = holders
+    }
+
+    /// The holders read again: a Stop stays shown only while its holder is.
+    mutating func update(_ holders: [LockHolder]) {
+        self.holders = holders
+        stopping.formIntersection(holders.map(\.id))
     }
 }
 
@@ -212,7 +268,12 @@ public struct LockHolders: Sendable {
     /// Returns false when the task was cancelled (the sheet closed, Stop
     /// Waiting), also during a `lock status` run; true when the run should
     /// be tried.
-    public func waitUntilFree(for purpose: LockPurpose, named: Bool, again: Bool = false) async -> Bool {
+    public func waitUntilFree(
+        for purpose: LockPurpose,
+        named: Bool,
+        again: Bool = false,
+        onHolders: (@Sendable ([LockHolder]) async -> Void)? = nil
+    ) async -> Bool {
         if again || !named {
             guard (try? await sleep(Self.retryInterval)) != nil, !Task.isCancelled else { return false }
             if !named { return true }
@@ -221,6 +282,7 @@ public struct LockHolders: Sendable {
             guard let holders = await status() else {
                 return (try? await sleep(Self.retryInterval)) != nil && !Task.isCancelled
             }
+            await onHolders?(holders)
             if !purpose.blocked(by: holders) { return !Task.isCancelled }
             guard (try? await sleep(Self.pollInterval)) != nil else { return false }
         }

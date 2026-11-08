@@ -11,6 +11,12 @@ extension ReviewModel {
     public func checkWarnings() {
         guard let sheet, sheet.stage == .confirm, let items else { return }
         stopWarnings()
+        let byWait = checkStartedByWait
+        checkStartedByWait = false
+        // A check ends any Wait: its list may have changed (Delete all
+        // permanently runs one), and a Wait on Clean would clean that.
+        stopWaitingForLock()
+        if sheet.lockBusy?.purpose == .checking { self.sheet?.lockBusy = nil }
         guard let runner else {
             self.sheet?.warnings = .failed("The app's embedded CLI is missing. Reinstall DeepDriveCleaner.")
             return
@@ -70,6 +76,10 @@ extension ReviewModel {
             case .cancelled: .stopped
             default: .failed(Self.failure(result, doing: "Checking for warnings"))
             }
+            if result.outcome == .busy {
+                self.sheet?.lockBusy = LockBusy(purpose: .checking, holders: Self.holders(result))
+                if byWait { self.waitForLockThenCheck(again: true) }
+            }
             if result.outcome != .done, result.outcome != .cancelled {
                 log("dry run ended \(result.outcome): \(result.stderrTail.suffix(3).joined(separator: " | "))")
             }
@@ -101,8 +111,14 @@ extension ReviewModel {
     /// `permanent`. Pressing it twice starts one clean. Nothing runs while
     /// the check runs, nor when it said every item would be skipped.
     public func cleanConfirmedItems() {
+        // Wait's flag is spent here, whatever happens next: a later Clean by
+        // hand never re-arms a Wait.
+        let byWait = cleanStartedByWait
+        cleanStartedByWait = false
         guard let sheet, sheet.cleanAllowed, !isCleaning, !updateWaiting(), let items else { return }
         stopWarnings()
+        stopWaitingForLock()
+        self.sheet?.lockBusy = nil
         guard let runner else {
             self.sheet?.stage = .stopped("The app's embedded CLI is missing, so it cannot clean. Reinstall DeepDriveCleaner.", journal: nil)
             return
@@ -128,7 +144,7 @@ extension ReviewModel {
         setBusy(true)
         log("clean of \(listed.count) items requested")
         cleanTask = Task {
-            await runClean(runner, file: file, ticket: ticket, confirmation: confirmation, volumes: volumes, requested: requested)
+            await runClean(runner, file: file, ticket: ticket, confirmation: confirmation, volumes: volumes, requested: requested, byWait: byWait)
             cleanTask = nil
             cleanTicket = nil
             isCleaning = false
@@ -141,7 +157,8 @@ extension ReviewModel {
         ticket: CLIRunner.Ticket,
         confirmation: Confirmation,
         volumes: [ScanReport.Volume],
-        requested: ContinuousClock.Instant
+        requested: ContinuousClock.Instant,
+        byWait: Bool
     ) async {
         // A clean that ends without a report must not select by an older one's.
         selectAfterClean = false
@@ -237,6 +254,18 @@ extension ReviewModel {
         } else {
             stage = .stopped(Self.failure(result, doing: "The clean") + " Nothing was touched.", journal: nil)
         }
+        // The lock was held: nothing was touched. The sheet goes back to
+        // its confirm stage and names the holders; a clean Wait started that
+        // met the lock again waits again.
+        // A Cancel pressed meanwhile (`.stopping`) wins: no re-armed Wait.
+        if result.outcome == .busy, report == nil, !touched, case .cleaning(let phase)? = sheet?.stage, phase != .stopping {
+            sheet?.stage = .confirm
+            sheet?.lockBusy = LockBusy(purpose: .cleaning, holders: Self.holders(result))
+            if byWait { waitForLockThenClean(again: true) }
+            setBusy(false)
+            return
+        }
+
         // Unless Cancel already closed it for a clean that never started; a
         // report or a clean that may have touched files always shows.
         if case .cleaning? = sheet?.stage {
@@ -338,6 +367,94 @@ extension ReviewModel {
             log("item list not written: \(error)")
             return nil
         }
+    }
+
+    // MARK: - The lock's holders
+
+    /// The holders a busy run's envelope names; none when it names none or
+    /// cannot be read.
+    static func holders(_ result: CLIRunner.Result) -> [LockHolder] {
+        BusyReport.holders(in: result.stdout)
+    }
+
+    /// The sheet's Wait after its Clean met the lock: consent given in
+    /// advance while the sheet stays open (menu bar ADR §7, amended
+    /// 2026-11-08). Once nothing holds the lock, the same entry point as
+    /// Clean runs, so its guards are checked again then.
+    public func waitForLockThenClean(again: Bool = false) {
+        waitForLock(.cleaning, again: again) { [weak self] in
+            self?.cleanStartedByWait = true
+            self?.cleanConfirmedItems()
+        }
+    }
+
+    /// The sheet's Wait after its check met the lock: the check runs again
+    /// once no exclusive holder is left.
+    public func waitForLockThenCheck(again: Bool = false) {
+        waitForLock(.checking, again: again) { [weak self] in
+            self?.checkStartedByWait = true
+            self?.checkWarnings()
+        }
+    }
+
+    /// Stop Waiting, and closing the sheet.
+    public func stopWaitingForLock() {
+        lockWait?.cancel()
+        lockWait = nil
+        if sheet?.lockBusy?.waiting == true { sheet?.lockBusy?.waiting = false }
+    }
+
+    /// Stop on one holder: `lock stop` with its pid and start, then the
+    /// holders read again. A Stop sent is shown as stopping while the holder
+    /// is still listed; a refused one is not.
+    public func stopLockHolder(_ id: LockHolder.ID) {
+        guard let busy = sheet?.lockBusy, !busy.stopping.contains(id), let holder = busy.holders.first(where: { $0.id == id }), let runner else {
+            return
+        }
+        sheet?.lockBusy?.stopping.insert(id)
+        let holders = LockHolders(runner: runner, sleep: lockSleep)
+        let sleep = lockSleep
+        Task { [weak self] in
+            let sent = await holders.stop(holder)
+            if !sent { self?.sheet?.lockBusy?.stopping.remove(id) }
+            // Read the holders again until the stopped one is gone; then,
+            // with nothing blocking and no Wait on, the panel goes.
+            repeat {
+                guard let now = await holders.status(), let self, let busy = self.sheet?.lockBusy else { return }
+                self.sheet?.lockBusy?.update(now)
+                if !busy.purpose.blocked(by: now), !busy.waiting {
+                    self.sheet?.lockBusy = nil
+                    return
+                }
+                guard self.sheet?.lockBusy?.stopping.isEmpty == false else { return }
+            } while (try? await sleep(LockHolders.pollInterval)) != nil
+        }
+    }
+
+    private func waitForLock(_ purpose: LockPurpose, again: Bool, then start: @escaping @MainActor () -> Void) {
+        guard let busy = sheet?.lockBusy, busy.purpose == purpose, let runner else { return }
+        lockWait?.cancel()
+        sheet?.lockBusy?.waiting = true
+        let holders = LockHolders(runner: runner, sleep: lockSleep)
+        lockWait = Task { [weak self] in
+            let free = await holders.waitUntilFree(for: purpose, named: !busy.holders.isEmpty, again: again) { [weak self] list in
+                await self?.updateLockHolders(list)
+            }
+            guard free, !Task.isCancelled, let self, self.sheet?.lockBusy?.waiting == true else { return }
+            self.lockWait = nil
+            // A Clean the sheet would not allow now (a check running) ends
+            // the Wait, said, instead of starting nothing.
+            if purpose == .cleaning, self.sheet?.cleanAllowed != true || self.isCleaning {
+                self.sheet?.lockBusy?.waiting = false
+                return
+            }
+            self.sheet?.lockBusy = nil
+            start()
+        }
+    }
+
+    private func updateLockHolders(_ list: [LockHolder]) {
+        sheet?.lockBusy?.update(list)
     }
 
     /// One sentence for a run that did not end well.

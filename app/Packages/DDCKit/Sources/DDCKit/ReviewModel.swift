@@ -58,6 +58,9 @@ public final class ReviewModel: ReviewRouting {
         /// The clean's events so far; nil until the first one (a CLI that
         /// writes none leaves the bar indeterminate).
         public internal(set) var progress: CleanProgress?
+        /// The check or the Clean met the lock held (exit 75): who holds it,
+        /// with Stop and Wait.
+        public internal(set) var lockBusy: LockBusy? = nil
     }
 
     /// Nil without a report: the window says to scan first.
@@ -129,6 +132,16 @@ public final class ReviewModel: ReviewRouting {
     /// Shown by `open` and not closed since (`windowClosed`): a Review… link
     /// keeps the selection only then.
     @ObservationIgnored var windowOpen = false
+
+    /// The sheet's Wait for the lock; closing the sheet ends it.
+    @ObservationIgnored var lockWait: Task<Void, Never>?
+    /// The clean running now was started by Wait: one that meets the lock
+    /// again waits again, no sooner than the retry interval.
+    @ObservationIgnored var cleanStartedByWait = false
+    /// The check running now was started by Wait.
+    @ObservationIgnored var checkStartedByWait = false
+    /// Wait's pause; tests pass one that returns at once.
+    @ObservationIgnored var lockSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
     @ObservationIgnored let runner: (any CLIRunning)?
     @ObservationIgnored let data: DataDirectory
@@ -523,6 +536,7 @@ public final class ReviewModel: ReviewRouting {
     /// Whole disk view's Review… link opens it with the default selection,
     /// as the popover's Review… does.
     public func windowClosed() {
+        stopWaitingForLock()
         collapsed = []
         windowOpen = false
     }
@@ -615,6 +629,8 @@ public final class ReviewModel: ReviewRouting {
 
     public func togglePermanent(_ id: Int) {
         guard sheet?.stage == .confirm else { return }
+        // Wait consents to the list as it was: a change ends it.
+        stopWaitingForLock()
         sheet?.confirmation.togglePermanent(id)
         // Its prediction was for the other action; Check again gives the new one.
         sheet?.predictions[id] = nil
@@ -624,11 +640,14 @@ public final class ReviewModel: ReviewRouting {
     /// delete is predicted differently from a Trash move, so the check runs again.
     public func setAllPermanent(_ on: Bool) {
         guard sheet?.stage == .confirm, sheet?.confirmation.setAllPermanent(on) == true else { return }
+        stopWaitingForLock()
         checkWarnings()
     }
 
     /// Back to review, or Done on the result.
     public func closeSheet() {
+        guard self.sheet != nil else { return }
+        stopWaitingForLock()
         guard let sheet else { return }
         switch sheet.stage {
         case .cleaning:

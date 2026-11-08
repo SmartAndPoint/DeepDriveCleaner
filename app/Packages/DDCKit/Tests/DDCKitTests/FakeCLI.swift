@@ -25,6 +25,10 @@ import Synchronization
 ///   edited, and exits with `clean.exit` when that exists, else prints
 ///   `clean-report.json`. With `clean.trap`, SIGTERM prints the report and
 ///   then ends the script by the signal, as the CLI's handler does.
+/// - `lock status --json` prints `lock-status.json`; `lock stop …` appends
+///   its arguments to `lock-stops` and exits with `lock-stop.exit` when that
+///   exists. On exit 75, the clean and its dry run print `clean-busy.json`
+///   and `dry-run-busy.json` when those exist, as the CLI prints the envelope.
 /// - `disk --json --progress json`: plays `disk-events.jsonl` to stderr when
 ///   it exists, waits for gate `disk-go`, and exits with `disk.exit` when that
 ///   exists. Else it copies `disk-report.json` over `lastDisk`, as the CLI
@@ -105,6 +109,7 @@ final class FakeCLI: Sendable {
                     printf '%s\\n' "$line"
                     i=$((i + 1))
                   done < "$gates/dry-run.jsonl"
+                  [ -e "$gates/dry-run-busy.json" ] && cat "$gates/dry-run-busy.json"
                   if [ -e "$gates/dry-run.exit" ]; then echo "end $$ $*" >> "$log"; exit "$(cat "$gates/dry-run.exit")"; fi
                 else
                   [ -e "$gates/clean.trap" ] && trap 'cat "$gates/clean-report.json"; echo "end $$ $*" >> "$log"; trap - TERM; kill -TERM $$' TERM
@@ -118,8 +123,16 @@ final class FakeCLI: Sendable {
                   gate clean-go
                   [ -e "$gates/clean.crash" ] && kill -ABRT $$
                   [ -e "$gates/saved-scan.json" ] && cp "$gates/saved-scan.json" "$last"
+                  [ -e "$gates/clean-busy.json" ] && cat "$gates/clean-busy.json"
                   if [ -e "$gates/clean.exit" ]; then echo "end $$ $*" >> "$log"; exit "$(cat "$gates/clean.exit")"; fi
                   cat "$gates/clean-report.json"
+                fi ;;
+              lock)
+                if [ "$2" = stop ]; then
+                  echo "$*" >> "$gates/lock-stops"
+                  if [ -e "$gates/lock-stop.exit" ]; then echo "end $$ $*" >> "$log"; exit "$(cat "$gates/lock-stop.exit")"; fi
+                else
+                  cat "$gates/lock-status.json"
                 fi ;;
               disk)
                 if [ "$2" = free ]; then

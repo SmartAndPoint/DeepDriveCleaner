@@ -109,6 +109,15 @@ private struct ConfirmView: View {
                 Text(note(confirmation)).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
 
+            if let busy = sheet.lockBusy {
+                LockBusyPanel(
+                    busy: busy,
+                    stop: { model.stopLockHolder($0) },
+                    wait: { if busy.purpose == .cleaning { model.waitForLockThenClean() } else { model.waitForLockThenCheck() } },
+                    stopWaiting: { model.stopWaitingForLock() }
+                )
+            }
+
             HStack {
                 Button("Check Again") { model.checkWarnings() }
                     .disabled(sheet.warnings == .waiting || sheet.warnings == .checking)
@@ -146,7 +155,7 @@ private struct ConfirmView: View {
                 Text("\(Wording.items(skips.count)) will be skipped; the rest is cleaned.")
             case .busy:
                 Image(systemName: "hourglass").foregroundStyle(.secondary)
-                Text("A scan or clean started in Terminal holds the lock. Check Again when it ends.")
+                Text("Another scan or clean holds the lock, so the check could not run.")
             case .stopped:
                 Image(systemName: "pause.circle").foregroundStyle(.secondary)
                 Text("The check was stopped.")
