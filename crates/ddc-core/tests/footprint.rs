@@ -20,7 +20,9 @@ use ddc_core::footprint::{
 };
 use ddc_core::git::{PROBE_CONFIG, PROBE_TIMEOUT};
 use ddc_core::report::{self, Commands, Processes, ScanOptions};
-use ddc_core::scan::{Progress, WalkOptions};
+use ddc_core::scan::{DirListing, DirReader, Progress, ReadError, StdReader, Times, WalkOptions};
+use std::collections::HashSet;
+use std::sync::Mutex;
 
 /// How long the fixtures have been idle when the footprint looks at them:
 /// past the worktree window (2 days), within the projects' (14).
@@ -340,6 +342,56 @@ fn a_submodule_is_its_own_project_and_an_orphan_with_nothing_above_is_none() {
     h.t.write("lone/.git", "gitdir: ../gone/.git/worktrees/lone\n");
     let lone = h.t.root().join("lone");
     assert_eq!(footprint::resolve_main(&lone, &home), Err(Refused::NotARepository { root: lone.clone() }));
+}
+
+/// Records every folder the walk opens.
+#[derive(Default)]
+struct Counting {
+    opened: Mutex<HashSet<PathBuf>>,
+}
+
+impl DirReader for Counting {
+    fn read(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: Times,
+    ) -> Result<DirListing, ReadError> {
+        self.opened.lock().unwrap().insert(dir.to_path_buf());
+        StdReader.read(dir, expect, want_private, times)
+    }
+}
+
+#[test]
+fn the_walk_opens_only_the_checkouts_and_their_parents_and_changes_no_index() {
+    let Some(h) = Home::ready("the_walk_opens_only_the_checkouts_and_their_parents_and_changes_no_index") else {
+        return;
+    };
+    let main = project(&h);
+    let a = harness_worktree(&main, "a");
+    h.write(&h.t.root().join("other/src/lib.rs"), "fn x() {}");
+    h.write(&h.t.root().join("other/node_modules/dep/index.js"), "x");
+    let index = git::gitdir(&a).join("index");
+    let before = (fs::read(&index).unwrap(), fs::metadata(&index).unwrap().modified().unwrap());
+
+    let env = h.env();
+    let commands = Arc::new(SharedCommands::system(&env));
+    let scope = Scope::resolve(&a, env.home(), &*commands, &env.tool_dirs(), PROBE_TIMEOUT).unwrap();
+    let opts = footprint::scan_options(&scope, h.opts(&commands, FakeProcs::new(vec![])));
+    let reader = Counting::default();
+    let scoped = footprint::scoped(&env, scope, &opts, &Progress::default(), Some(&reader)).unwrap();
+    let r = footprint::report(&env, scoped, &opts);
+    assert_eq!(r.checkouts.len(), 2);
+    let opened = reader.opened.lock().unwrap().clone();
+    for dir in &opened {
+        let inside = dir.starts_with(&main);
+        let parent = main.ancestors().any(|p| p == dir);
+        assert!(inside || parent, "opened {} outside the checkouts and their parents", dir.display());
+    }
+    assert!(!opened.iter().any(|d| d.starts_with(h.t.root().join("other"))), "a sibling project is never opened");
+    let after = (fs::read(&index).unwrap(), fs::metadata(&index).unwrap().modified().unwrap());
+    assert!(before == after, "the worktree's index bytes and time are unchanged");
 }
 
 #[test]
