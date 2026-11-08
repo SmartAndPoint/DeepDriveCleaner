@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use crate::platform::Platform;
+use crate::platform::types::Redirect;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EnvError {
@@ -49,7 +50,7 @@ pub struct Env {
     /// protected wherever they point, with their ancestors (safety ADR §6,
     /// Windows, redirected folders). Empty off Windows and from
     /// [`Self::with_paths`].
-    redirected: Vec<PathBuf>,
+    redirected: Vec<(Redirect, PathBuf)>,
 }
 
 impl Env {
@@ -126,14 +127,14 @@ impl Env {
     /// Replaces the redirected folders (tests protect folders as `APPDATA`
     /// would make them), each in its spellings as [`Self::from_process`]
     /// finds them.
-    pub fn with_redirected(mut self, folders: Vec<PathBuf>) -> Self {
+    pub fn with_redirected(mut self, folders: Vec<(Redirect, PathBuf)>) -> Self {
         self.redirected = spellings(folders);
         self
     }
 
     /// The folders protected wherever they point, besides the home's list:
     /// `APPDATA` and `LOCALAPPDATA` on Windows, in every spelling found.
-    pub fn redirected(&self) -> &[PathBuf] {
+    pub fn redirected(&self) -> &[(Redirect, PathBuf)] {
         &self.redirected
     }
 
@@ -224,13 +225,13 @@ impl Env {
 /// Each folder as written and, on a local volume where it exists, as it
 /// resolves (an 8.3 name or a junction is another key). A folder on a share
 /// is never resolved: a clean never waits on the network.
-fn spellings(folders: Vec<PathBuf>) -> Vec<PathBuf> {
+fn spellings(folders: Vec<(Redirect, PathBuf)>) -> Vec<(Redirect, PathBuf)> {
     let mut all = Vec::new();
-    for folder in folders {
+    for (var, folder) in folders {
         let canonical = crate::platform::paths::is_local(&folder).then(|| folder.canonical().ok()).flatten();
         let canonical = canonical.filter(|c| *c != folder);
-        all.push(folder);
-        all.extend(canonical);
+        all.push((var, folder));
+        all.extend(canonical.map(|c| (var, c)));
     }
     all
 }

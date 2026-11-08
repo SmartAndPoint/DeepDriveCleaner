@@ -60,6 +60,15 @@ pub const fn protected_system(p: Platform) -> &'static [&'static str] {
     }
 }
 
+/// The default places in the home of the folders a variable redirects on
+/// platform `p`, by variable: Windows' `AppData/Roaming` and `AppData/Local`.
+pub const fn redirectable(p: Platform) -> &'static [(crate::platform::types::Redirect, &'static str)] {
+    match p {
+        Platform::Windows => &win::REDIRECTABLE,
+        Platform::Macos | Platform::Linux => &[],
+    }
+}
+
 /// System folders that are neither removed nor walked on platform `p`
 /// (safety ADR, §6, amendment of 2026-10-31): the root daemons' container
 /// storage on Linux, which only they read and which can hold a database in
@@ -349,8 +358,133 @@ mod tests {
             assert!(own.iter().all(|f| !shared.contains(f)), "{p}: a folder is in its section and the shared one");
             assert_eq!(set(own).len(), own.len(), "{p}: a folder twice in its section");
             assert_eq!(set(protected_in_home(p)), &shared | &set(own), "{p}: the shared section and its own");
-            assert!(protected_in_home(p).iter().all(|f| !std::path::Path::new(f).has_root()), "{p}: relative");
-            assert!(protected_system(p).iter().all(|f| std::path::Path::new(f).has_root()), "{p}: absolute");
+            assert!(protected_in_home(p).iter().all(|f| relative(f)), "{p}: relative, spelled with `/`");
+            assert!(protected_system(p).iter().all(|f| absolute_on(p, f)), "{p}: absolute");
+        }
+    }
+
+    /// Whether `f` is an absolute path on platform `p`, whatever OS the test
+    /// runs on: `X:\…` on Windows, `/…` elsewhere.
+    fn absolute_on(p: Platform, f: &str) -> bool {
+        match p {
+            Platform::Windows => {
+                let b = f.as_bytes();
+                b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'\\'
+            }
+            Platform::Macos | Platform::Linux => f.starts_with('/'),
+        }
+    }
+
+    /// Whether `f` is a filesystem root on platform `p`: `X:\` or `/`.
+    fn root_on(p: Platform, f: &str) -> bool {
+        absolute_on(p, f) && f.len() == if p == Platform::Windows { 3 } else { 1 }
+    }
+
+    /// A home-relative entry: no root, no drive, no `\` (the rules' paths use `/`).
+    fn relative(f: &str) -> bool {
+        !f.starts_with('/') && !f.contains(':') && !f.contains('\\')
+    }
+
+    /// No rule anchored at a known path claims a protected folder whole: the
+    /// walk claims a known path, a known region or a known parent's child
+    /// before it asks whether the folder may be claimed, and the guard
+    /// refuses a folder finding only at a protected path, not one holding it
+    /// (safety ADR §6; story "Windows scanner and rule catalog", step 12's
+    /// review). So on every platform no anchor lies above a protected folder,
+    /// no protected folder is a known parent's child, and an anchor equal to
+    /// one is report-only.
+    #[test]
+    fn no_known_rule_claims_a_protected_folder_whole() {
+        use crate::class::Removal;
+        use std::path::Path;
+        let home = Path::new("/home/example");
+        for p in [Platform::Macos, Platform::Linux, Platform::Windows] {
+            let protected = crate::rules::Protected::for_platform(p, home, &[]);
+            for rule in rules_of(p) {
+                let report_only = matches!(rule.removal, Removal::None);
+                let (anchors, parents): (&[&str], &[&str]) = match rule.matcher {
+                    Matcher::KnownPaths(paths) | Matcher::KnownRegion(paths) => (paths, &[]),
+                    Matcher::KnownChildren(parents) => (&[], parents),
+                    _ => continue,
+                };
+                for rel in anchors {
+                    let anchor = home.join(rel);
+                    for folder in protected.paths() {
+                        assert!(
+                            !(folder.starts_with(&anchor) && folder != anchor),
+                            "{p}: {} anchors at {rel}, above the protected {folder:?}",
+                            rule.id
+                        );
+                    }
+                    assert!(
+                        !protected.contains(&anchor) || report_only,
+                        "{p}: {} removes the protected {rel}",
+                        rule.id
+                    );
+                }
+                for rel in parents {
+                    let parent = home.join(rel);
+                    for folder in protected.paths() {
+                        assert!(
+                            folder.parent() != Some(parent.as_path()) || report_only,
+                            "{p}: {} claims the children of {rel}, the protected {folder:?} among them",
+                            rule.id
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The Windows protected folders are §6's lists of the safety ADR
+    /// "Cleanup safety model" (in the home and the system folders, with the
+    /// additions planned 2026-11-08), and the redirectable places are the
+    /// two variables' defaults.
+    #[test]
+    fn the_windows_protected_folders_are_the_safety_adrs_list() {
+        use std::collections::BTreeSet;
+        let own = [
+            "AppData",
+            "AppData/Roaming",
+            "AppData/Local",
+            "AppData/LocalLow",
+            "AppData/Roaming/Microsoft/Protect",
+            "AppData/Roaming/Microsoft/Crypto",
+            "AppData/Roaming/Microsoft/SystemCertificates",
+            "AppData/Roaming/Microsoft/Credentials",
+            "AppData/Local/Microsoft/Credentials",
+            "AppData/Local/Microsoft/Vault",
+            "AppData/Local/Microsoft/Windows/INetCookies",
+            "AppData/Local/Google/Chrome/User Data",
+            "AppData/Local/Microsoft/Edge/User Data",
+            "AppData/Local/BraveSoftware/Brave-Browser/User Data",
+            "AppData/Roaming/Mozilla/Firefox/Profiles",
+            "AppData/Roaming/Thunderbird/Profiles",
+            "source",
+            "source/repos",
+            "AppData/Roaming/gnupg",
+            "AppData/Local/Packages",
+            "AppData/Local/wsl",
+            "OneDrive",
+            "Videos",
+            "Favorites",
+            "Saved Games",
+        ];
+        let system =
+            [r"C:\", r"C:\Windows", r"C:\Program Files", r"C:\Program Files (x86)", r"C:\ProgramData", r"C:\Users"];
+        let set = |s: &[&'static str]| s.iter().copied().collect::<BTreeSet<_>>();
+        assert_eq!(set(&win::OWN_PROTECTED_IN_HOME), set(&own));
+        assert_eq!(win::OWN_PROTECTED_IN_HOME.len(), own.len(), "no folder twice");
+        assert_eq!(set(protected_system(Platform::Windows)), set(&system));
+        assert_eq!(protected_system(Platform::Windows).len(), system.len(), "no folder twice");
+        use crate::platform::types::Redirect;
+        assert_eq!(
+            redirectable(Platform::Windows),
+            [(Redirect::Roaming, "AppData/Roaming"), (Redirect::Local, "AppData/Local")]
+        );
+        assert!(redirectable(Platform::Macos).is_empty() && redirectable(Platform::Linux).is_empty());
+        for (_, place) in redirectable(Platform::Windows) {
+            assert!(protected_in_home(Platform::Windows).contains(place), "{place} is protected itself");
         }
     }
 
@@ -376,22 +510,20 @@ mod tests {
     /// folders hold the filesystem root and its home folders hold more than
     /// the shared section.
     fn may_be_supported(p: Platform) -> bool {
-        let is_root = |f: &&str| {
-            let path = std::path::Path::new(f);
-            path.has_root() && path.parent().is_none()
-        };
-        protected_system(p).iter().any(is_root) && protected_in_home(p).len() > shared::PROTECTED_IN_HOME.len()
+        protected_system(p).iter().any(|f| root_on(p, f))
+            && protected_in_home(p).len() > shared::PROTECTED_IN_HOME.len()
     }
 
     /// The guard holds on every OS the tests run on, the required macOS job
-    /// included: macOS and Linux have their protected folders, Windows not yet;
+    /// included: every platform has its protected folders (Windows' since
+    /// step 12 of the story "Windows scanner and rule catalog");
     /// and no platform module's `SUPPORTED` literal is `true` while the
     /// guard is false for it, so switching one on fails here first.
     #[test]
     fn a_platform_is_supported_only_with_its_own_protected_folders() {
         assert!(may_be_supported(Platform::Macos));
         assert!(may_be_supported(Platform::Linux));
-        assert!(!may_be_supported(Platform::Windows));
+        assert!(may_be_supported(Platform::Windows));
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/platform");
         for (p, file) in [
             (Platform::Macos, "macos/mod.rs"),

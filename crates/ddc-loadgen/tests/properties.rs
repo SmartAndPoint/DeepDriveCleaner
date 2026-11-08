@@ -81,9 +81,27 @@ fn config() -> ProptestConfig {
     ProptestConfig { max_shrink_time, ..base }
 }
 
-/// The protected folders of this platform: relative to the home, and absolute.
+/// The protected folders of this platform: relative to the home, closed
+/// under ancestors, and absolute.
 fn protected() -> (&'static [&'static str], &'static [&'static str]) {
-    (protected_in_home(PLATFORM), protected_system(PLATFORM))
+    static IN_HOME: std::sync::LazyLock<Vec<&'static str>> =
+        std::sync::LazyLock::new(|| closed(protected_in_home(PLATFORM)));
+    (IN_HOME.as_slice(), protected_system(PLATFORM))
+}
+
+/// `list` with every ancestor of each entry, by its `/`-separated prefixes:
+/// the protected set is closed under ancestors (safety ADR §6, the
+/// redirected-folders bullet, planned 2026-11-08), modelled here on its own.
+fn closed(list: &'static [&'static str]) -> Vec<&'static str> {
+    let mut all = list.to_vec();
+    for p in list {
+        for (i, c) in p.char_indices() {
+            if c == '/' && !all.contains(&&p[..i]) {
+                all.push(&p[..i]);
+            }
+        }
+    }
+    all
 }
 
 /// Protected folders the walk asks `Catalog::claimable` about. The others

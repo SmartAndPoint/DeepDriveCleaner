@@ -309,7 +309,7 @@ fn reference(t: &Tree, rel: &Path) -> Verdict {
     if t.has(rel, KEEP_MARKER) {
         return Verdict::Claim(KEPT);
     }
-    if holds_known_path(rel) || rel.as_os_str().is_empty() || named(protected_in_home(PLATFORM)) || t.has(rel, ".git") {
+    if holds_known_path(rel) || rel.as_os_str().is_empty() || named(&PROTECTED) || t.has(rel, ".git") {
         return not_claimed;
     }
     let manifest = PROJECT_MANIFESTS.iter().any(|m| t.has(rel, m));
@@ -485,7 +485,7 @@ impl Vocab {
         let mut artifact = |names: Vec<String>, beside: Vec<String>, inside: Vec<String>, homes: Vec<String>| {
             artifacts.push(Artifact { names, beside, inside, homes });
         };
-        for p in protected_in_home(PLATFORM) {
+        for p in PROTECTED.iter() {
             base(p, &mut dir_names);
         }
         for rule in RULES {
@@ -568,6 +568,25 @@ impl Vocab {
     }
 }
 
+/// The protected folders of this platform, closed under ancestors.
+static PROTECTED: std::sync::LazyLock<Vec<&'static str>> =
+    std::sync::LazyLock::new(|| closed(protected_in_home(PLATFORM)));
+
+/// `list` with every ancestor of each entry, by its `/`-separated prefixes:
+/// the protected set is closed under ancestors (safety ADR §6, the
+/// redirected-folders bullet, planned 2026-11-08), modelled here on its own.
+fn closed(list: &'static [&'static str]) -> Vec<&'static str> {
+    let mut all = list.to_vec();
+    for p in list {
+        for (i, c) in p.char_indices() {
+            if c == '/' && !all.contains(&&p[..i]) {
+                all.push(&p[..i]);
+            }
+        }
+    }
+    all
+}
+
 /// Small home folders built from the catalog's own names and some noise:
 /// folders the catalog names with names under them; directories shaped like
 /// one specialized rule's match, in a project or a catalog folder; and
@@ -575,8 +594,7 @@ impl Vocab {
 /// makes a finding.
 fn trees() -> impl Strategy<Value = Tree> {
     let v = Vocab::from_catalog();
-    let protected: Vec<String> =
-        protected_in_home(PLATFORM).iter().filter(|p| !p.is_empty()).map(|p| (*p).to_owned()).collect();
+    let protected: Vec<String> = PROTECTED.iter().filter(|p| !p.is_empty()).map(|p| (*p).to_owned()).collect();
     let folder = (
         prop_oneof![select(protected), select(v.bases.clone())],
         prop::collection::vec((select(v.content_files), 0..VARIANTS), 1..=2),
