@@ -9,6 +9,7 @@ use std::time::{Duration, SystemTime};
 use common::{OLD, TreeBuilder};
 use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
+use ddc_core::holders::HolderCommand;
 use ddc_core::model::{NotSelected, ScanReport, WrittenBy};
 use ddc_core::plan::{PlanOptions, build_plan};
 use ddc_core::platform::statfs::VolumeStats;
@@ -450,11 +451,14 @@ fn volumes_list_each_volume_once_with_its_roots() {
 fn exclusive_lock_blocks_a_scan() {
     let fx = Fixture::new();
     let env = fx.env();
-    let clean = store::try_lock(&env, store::LockMode::Exclusive).unwrap();
-    assert!(matches!(store::try_lock(&env, store::LockMode::Shared), Err(store::LockError::Busy(_))));
+    let clean = store::try_lock(&env, store::LockMode::Exclusive, HolderCommand::Clean).unwrap();
+    assert!(matches!(
+        store::try_lock(&env, store::LockMode::Shared, HolderCommand::Scan),
+        Err(store::LockError::Busy { .. })
+    ));
     drop(clean);
-    let _a = store::try_lock(&env, store::LockMode::Shared).unwrap();
-    let _b = store::try_lock(&env, store::LockMode::Shared).expect("scans share the lock");
+    let _a = store::try_lock(&env, store::LockMode::Shared, HolderCommand::Scan).unwrap();
+    let _b = store::try_lock(&env, store::LockMode::Shared, HolderCommand::Scan).expect("scans share the lock");
 }
 
 #[test]

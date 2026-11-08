@@ -73,6 +73,23 @@ fn the_disk_report_never_reaches_cleanup() {
     }
 }
 
+/// A process ends by a signal only through `holders::end_by_signal`, which
+/// forgets its lock-holder record first: `reraise` skips `Drop` (story
+/// "Busy: name the scan or clean that holds the lock, and offer to stop it").
+#[test]
+fn only_the_holder_records_end_a_process_by_a_signal() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    // The OS modules define `reraise`; Windows' cancel event ends by it.
+    let platform = root.join("ddc-core/src/platform");
+    let callers: Vec<String> = ["ddc-cli/src", "ddc-core/src", "ddc-loadgen/src"]
+        .iter()
+        .flat_map(|dir| rust_files(&root.join(dir)))
+        .filter(|path| !path.starts_with(&platform) && code(path).contains("reraise("))
+        .map(|path| path.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/"))
+        .collect();
+    assert_eq!(callers, ["ddc-core/src/holders.rs"]);
+}
+
 /// `ddc space` reads one `statfs` and the saved report's head (story
 /// "Popover: say when used space grew since the last scan"): it reaches no
 /// cleanup, starts no program, takes no lock and never writes a report.

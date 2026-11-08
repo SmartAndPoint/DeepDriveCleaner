@@ -70,9 +70,9 @@ pub fn run_with(
     out: &mut dyn Write,
 ) -> anyhow::Result<ExitCode> {
     let json = args.notify.is_some();
-    let _lock = match store::try_lock(env, LockMode::Shared) {
+    let _lock = match store::try_lock(env, LockMode::Shared, ddc_core::holders::HolderCommand::BackgroundScan) {
         Ok(lock) => lock,
-        Err(LockError::Busy(_)) => {
+        Err(LockError::Busy { .. }) => {
             log(env, "skipped: ddc clean is running");
             if json {
                 print(out, &NotifyStatus::Skipped { reason: SkipCause::Busy })?;

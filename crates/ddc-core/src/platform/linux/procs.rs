@@ -143,6 +143,13 @@ pub fn open_vnodes(pid: i32) -> Vec<OpenVnode> {
         .collect()
 }
 
+/// The executable `pid` runs (`/proc/<pid>/exe`); `None` when it cannot be
+/// read. After an update in place it ends in ` (deleted)`. `ddc lock stop`
+/// checks it is ddc's.
+pub fn executable(pid: i32) -> Option<PathBuf> {
+    fs::read_link(proc(pid).join("exe")).ok()
+}
+
 /// The start of `pid`, of any user; `None` when there is no such process.
 /// Linux counts it in clock ticks since boot, so it is the boot time plus
 /// those ticks.

@@ -8,6 +8,7 @@ use std::process::{Command, Output, Stdio};
 use std::time::{Duration, SystemTime};
 
 use ddc_core::env::Env;
+use ddc_core::holders::HolderCommand;
 use ddc_core::store::{self, LockMode};
 use ddc_loadgen::isolate::ClearEnv as _;
 
@@ -217,7 +218,7 @@ fn clean_does_not_start_while_the_lock_is_held() {
     }
     let fx = Fx::new();
     let env = Env::with_paths(&fx.home, &fx.data, &fx.data.join("logs"), SystemTime::now()).unwrap();
-    let _held = store::try_lock(&env, LockMode::Shared).unwrap();
+    let _held = store::try_lock(&env, LockMode::Shared, HolderCommand::Scan).unwrap();
 
     let out = ddc(&fx.home, &["clean", "--yes", "--data-dir", fx.data_arg()]);
 
@@ -234,7 +235,7 @@ fn scan_does_not_start_while_a_clean_holds_the_lock() {
     let fx = Fx::new();
     let env = Env::with_paths(&fx.home, &fx.data, &fx.data.join("logs"), SystemTime::now()).unwrap();
     // A clean holds the lock exclusively; scans share it with each other.
-    let _held = store::try_lock(&env, LockMode::Exclusive).unwrap();
+    let _held = store::try_lock(&env, LockMode::Exclusive, HolderCommand::Clean).unwrap();
 
     let out = ddc(&fx.home, &["scan", "--json", "--data-dir", fx.data_arg()]);
 

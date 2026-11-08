@@ -10,6 +10,7 @@ use std::process::{Command, Output};
 use std::time::SystemTime;
 
 use ddc_core::env::Env;
+use ddc_core::holders::HolderCommand;
 use ddc_core::model::ScanReport;
 use ddc_core::space::{BaselineSource, SpaceReport, SpaceState};
 use ddc_core::store::{self, LockMode};
@@ -119,7 +120,7 @@ fn space_runs_while_a_clean_holds_the_lock() {
     }
     let (_tmp, home, data) = tree();
     let env = Env::with_paths(&home, &data, &data.join("logs"), SystemTime::now()).unwrap();
-    let _clean = store::try_lock(&env, LockMode::Exclusive).unwrap();
+    let _clean = store::try_lock(&env, LockMode::Exclusive, HolderCommand::Clean).unwrap();
     let out = ddc(&home, &["space", "--json", "--data-dir", data.to_str().unwrap()], None);
     assert_eq!(out.status.code(), Some(0), "never 75: {}", stderr(&out));
     let r: SpaceReport = contract::holds("space", &out.stdout);

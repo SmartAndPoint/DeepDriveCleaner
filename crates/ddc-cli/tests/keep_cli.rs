@@ -10,6 +10,7 @@ use std::process::{Command, Output, Stdio};
 use std::time::SystemTime;
 
 use ddc_core::env::Env;
+use ddc_core::holders::HolderCommand;
 use ddc_core::keep::{KEEP_SCHEMA_VERSION, KeepRefusal, KeepReport, KeepResult};
 use ddc_core::model::ScanReport;
 use ddc_core::store::{self, LockMode};
@@ -266,7 +267,7 @@ fn a_held_lock_or_a_call_refused_before_the_lock_removes_and_journals_nothing() 
     let id = common::id(fx.path("a/node_modules"));
     {
         // A scan or a clean holds it.
-        let _held = store::try_lock(&fx.env(), LockMode::Shared).unwrap();
+        let _held = store::try_lock(&fx.env(), LockMode::Shared, HolderCommand::Scan).unwrap();
         let out = fx.remove("a/node_modules", Some(id), &["--json"]);
         assert_eq!(out.status.code(), Some(75), "{}", String::from_utf8_lossy(&out.stderr));
         assert!(out.stdout.is_empty());

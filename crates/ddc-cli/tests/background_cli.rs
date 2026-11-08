@@ -8,6 +8,7 @@ use std::process::{Command, Output};
 use std::time::SystemTime;
 
 use ddc_core::env::Env;
+use ddc_core::holders::HolderCommand;
 use ddc_core::notify::{Decision, NotifyReason, NotifyReport, NotifyStatus, SkipCause};
 use ddc_core::platform::Capability;
 use ddc_core::store::{self, LockMode};
@@ -164,7 +165,7 @@ fn background_scan_steps_aside_while_the_lock_is_held() {
     }
     let (_tmp, home, data) = tree();
     let env = Env::with_paths(&home, &data, &data.join("logs"), SystemTime::now()).unwrap();
-    let _clean = store::try_lock(&env, LockMode::Exclusive).unwrap();
+    let _clean = store::try_lock(&env, LockMode::Exclusive, HolderCommand::Clean).unwrap();
 
     let out = ddc(&home, &["scan", "--background", "--no-notify", "--data-dir", data.to_str().unwrap()]);
 

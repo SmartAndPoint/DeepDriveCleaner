@@ -71,7 +71,9 @@ fn json_report_and_saved_scan() {
     let mut names: Vec<String> =
         fs::read_dir(&data).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
     names.sort();
-    assert_eq!(names, ["last-scan.json", "lock"], "no temp files, nothing outside --data-dir");
+    assert_eq!(names, ["last-scan.json", "lock", "lock.holders"], "no temp files, nothing outside --data-dir");
+    let records = fs::read_dir(data.join("lock.holders")).unwrap().count();
+    assert_eq!(records, 0, "the scan's holder record is gone with its lock");
     let saved: serde_json::Value = serde_json::from_slice(&fs::read(data.join("last-scan.json")).unwrap()).unwrap();
     assert_eq!(saved["findings"], report["findings"]);
     assert!(!home.join("Library").exists(), "nothing written into HOME");

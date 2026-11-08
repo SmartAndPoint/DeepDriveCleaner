@@ -17,6 +17,7 @@ pub mod exec;
 pub mod free;
 pub mod git;
 pub mod heap;
+pub mod holders;
 pub mod json_path;
 pub mod keep;
 pub mod model;

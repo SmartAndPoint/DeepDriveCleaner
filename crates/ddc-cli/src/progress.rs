@@ -107,10 +107,11 @@ impl Reporter {
         f: impl FnOnce(Option<&dyn ExecEvents>) -> T,
     ) -> T {
         match self.mode {
-            Mode::Off => f(None),
-            Mode::Line => with_clean_line(progress, home, cancel, || f(None)),
+            Mode::Off => f(Some(&HolderEvents { inner: None })),
+            Mode::Line => with_clean_line(progress, home, cancel, || f(Some(&HolderEvents { inner: None }))),
             Mode::Json => {
-                let sink = JsonEvents { emitter: &self.emitter, progress };
+                let json = JsonEvents { emitter: &self.emitter, progress };
+                let sink = HolderEvents { inner: Some(&json) };
                 let result = ticker(TICK, |_| self.clean_tick(progress, cancel), || {}, || f(Some(&sink)));
                 self.emitter.exec_tick(progress, Instant::now(), true);
                 result
@@ -124,6 +125,29 @@ impl Reporter {
             progress.cancel_walk();
         }
         self.emitter.exec_tick(progress, Instant::now(), false);
+    }
+}
+
+/// The executor's hook in every mode: the phase and progress go to this
+/// process's lock-holder record (`ddc_core::holders`), then on to `inner`.
+#[derive(Debug)]
+struct HolderEvents<'a> {
+    inner: Option<&'a dyn ExecEvents>,
+}
+
+impl ExecEvents for HolderEvents<'_> {
+    fn cleaning(&self) {
+        ddc_core::holders::note_cleaning();
+        if let Some(inner) = self.inner {
+            inner.cleaning();
+        }
+    }
+
+    fn item(&self, i: u64, n: u64, item: &PlanItem, outcome: &Outcome) {
+        ddc_core::holders::note_progress(i, n);
+        if let Some(inner) = self.inner {
+            inner.item(i, n, item, outcome);
+        }
     }
 }
 

@@ -8,6 +8,7 @@ use std::time::SystemTime;
 
 use crate::disk::DiskReport;
 use crate::env::Env;
+use crate::holders::{self, Holder, HolderCommand};
 use crate::model::{ScanReport, WrittenBy};
 
 pub const LAST_SCAN: &str = "last-scan.json";
@@ -19,16 +20,30 @@ pub const LAST_DISK: &str = "last-disk.json";
 pub const SPACE: &str = "space.json";
 const LOCK: &str = "lock";
 
-/// A held lock on `<data-dir>/lock`; released on drop.
+/// A held lock on `<data-dir>/lock`; released on drop, after its holder
+/// record is forgotten ([`crate::holders`]).
 #[derive(Debug)]
 pub struct DataLock {
+    /// The records folder this lock's holder record is in; `None` when none
+    /// could be written.
+    holders: Option<PathBuf>,
     _file: File,
+}
+
+impl Drop for DataLock {
+    fn drop(&mut self) {
+        // Before the file closes: a record never outlives its lock.
+        if let Some(dir) = &self.holders {
+            holders::release(dir);
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum LockError {
-    #[error("another ddc scan or clean is running (lock {0})")]
-    Busy(PathBuf),
+    /// The live holders whose records were found; empty when none wrote one.
+    #[error("another ddc scan or clean is running (lock {path})")]
+    Busy { path: PathBuf, holders: Vec<Holder> },
     #[error("cannot lock {path}: {source}")]
     Io {
         path: PathBuf,
@@ -38,14 +53,17 @@ pub enum LockError {
 }
 
 /// Scans share the lock; a cleanup takes it exclusively.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "kebab-case")]
 pub enum LockMode {
     Shared,
     Exclusive,
 }
 
-/// Takes the data-dir lock without waiting.
-pub fn try_lock(env: &Env, mode: LockMode) -> Result<DataLock, LockError> {
+/// Takes the data-dir lock without waiting, as `command`, and writes this
+/// process's holder record. On a held lock, the error names the live
+/// holders: read only, nothing swept.
+pub fn try_lock(env: &Env, mode: LockMode, command: HolderCommand) -> Result<DataLock, LockError> {
     let path = env.data_dir().join(LOCK);
     let io_err = |source| LockError::Io { path: path.clone(), source };
     fs::create_dir_all(env.data_dir()).map_err(io_err)?;
@@ -55,8 +73,8 @@ pub fn try_lock(env: &Env, mode: LockMode) -> Result<DataLock, LockError> {
         LockMode::Exclusive => file.try_lock(),
     };
     match res {
-        Ok(()) => Ok(DataLock { _file: file }),
-        Err(fs::TryLockError::WouldBlock) => Err(LockError::Busy(path)),
+        Ok(()) => Ok(DataLock { holders: holders::claim(env, command, mode), _file: file }),
+        Err(fs::TryLockError::WouldBlock) => Err(LockError::Busy { path, holders: holders::holders(env) }),
         Err(fs::TryLockError::Error(e)) => Err(io_err(e)),
     }
 }
