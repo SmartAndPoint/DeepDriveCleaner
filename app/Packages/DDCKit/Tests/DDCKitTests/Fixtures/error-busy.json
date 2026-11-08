@@ -1,0 +1,20 @@
+{
+  "error_schema_version": 3,
+  "error": {
+    "code": "busy",
+    "message": "another ddc scan or clean is running (lock /Users/example/Library/Application Support/DeepDriveCleaner/lock)",
+    "platform": "macos",
+    "holders": [
+      {
+        "pid": 4202,
+        "start_us": 1792404120000000,
+        "started": "2026-10-19T10:02:00Z",
+        "command": "clean-items",
+        "mode": "exclusive",
+        "origin": "terminal",
+        "phase": "preparing"
+      }
+    ],
+    "simulated": false
+  }
+}

@@ -188,6 +188,19 @@ struct RunnerActivityTests {
         #expect(activity.reason == nil)
     }
 
+    @Test("lock status and lock stop count as scanning, and run in the queue, not a lane", arguments: [CLIRunner.Kind.lockStatus, .lockStop])
+    func lockKindsAreScanning(kind: CLIRunner.Kind) async throws {
+        #expect(!kind.hasLane)
+        let activity = RunnerActivity(inner)
+        let run = Task { await activity.run(kind, ["lock"]) }
+        try await inner.waitFor(1)
+        #expect(activity.reason == .scanning)
+        await inner.releaseOne()
+        _ = await run.value
+        try await waitIdle(activity)
+        #expect(activity.reason == nil)
+    }
+
     @Test("the popover's scan through it is counted, and the popover sees the same result")
     func modelsSeeTheWrappedRunner() async throws {
         let data = try TempDataDirectory()

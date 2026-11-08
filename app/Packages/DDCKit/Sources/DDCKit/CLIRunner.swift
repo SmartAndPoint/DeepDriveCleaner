@@ -80,6 +80,11 @@ public actor CLIRunner {
         /// lock and writes nothing; queued like `space`, with no lane.
         case changes
 
+        /// `lock status --json` and `lock stop --pid --started`, the busy
+        /// state's holders and its Stop (menu bar ADR §6 item 16, amended
+        /// 2026-11-08): no lock, milliseconds; queued like `space`.
+        case lockStatus, lockStop
+
         /// Runs in a lane of its own, beside the queue.
         public var hasLane: Bool { self == .disk || self == .diskAgents || self == .brewPackages }
     }
