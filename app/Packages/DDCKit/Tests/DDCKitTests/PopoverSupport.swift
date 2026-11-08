@@ -144,7 +144,7 @@ actor FakeRunner: CLIRunning {
         case .dryRun, .clean:
             // The review tests that run these use `FakeCLI`; here they only count.
             return CLIRunner.Result(outcome: .done, stdout: Data(), stderrTail: [])
-        case .backgroundScan, .notify, .schedule, .disk, .brewPackages, .keepRemove, .space, .changes:
+        case .backgroundScan, .notify, .schedule, .disk, .brewPackages, .dockerContents, .keepRemove, .space, .changes:
             guard let reply = replies[kind] else { return Self.done(Data()) }
             reply.effect()
             return reply.result

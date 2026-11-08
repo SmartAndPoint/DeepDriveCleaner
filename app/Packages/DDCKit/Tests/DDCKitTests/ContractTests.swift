@@ -543,7 +543,7 @@ struct ContractTests {
         }
         // `WalkStep.disk` exists too: the patterns name a run and its argument.
         #expect(files(/run\(\s*\.disk\b/) == ["DiskModel.swift"])
-        #expect(files(/"disk"/) == ["DiskModel.swift", "AgentsModel.swift", "DiskFreeRun.swift", "BrewPackagesModel.swift"])
+        #expect(files(/"disk"/) == ["DiskModel.swift", "AgentsModel.swift", "DiskFreeRun.swift", "BrewPackagesModel.swift", "DockerContentsModel.swift"])
         #expect(files(/\.scanDisk\(/) == ["DiskView.swift"], "the Scan Whole Disk button is the one caller")
         for file in ["ScheduledWork.swift", "PopoverModel.swift"] {
             #expect(!(try #require(sources[file])).contains(/DiskModel|scanDisk|\.disk\b/), "\(file) never runs a whole-disk scan")
@@ -644,6 +644,58 @@ struct ContractTests {
             let source = try #require(sources[file])
             #expect(!source.contains(/\.diskFree|"free"|freeConfirmedActions|\.trash|removeItem/), "\(file) removes nothing itself")
         }
+    }
+
+    @Test("only the Review window's Docker item asks docker, and nothing scheduled, no scan and no clean does")
+    func dockerContentsCallers() throws {
+        let sources = try appSources()
+        func files(_ pattern: Regex<Substring>) -> Set<String> {
+            Set(sources.filter { $0.value.contains(pattern) }.map(\.key))
+        }
+        #expect(files(/run\(\s*\.dockerContents\b/) == ["DockerContentsModel.swift"])
+        #expect(files(/\["disk", "docker"/) == ["DockerContentsModel.swift"])
+        #expect(files(/\.show\(\)/).isSuperset(of: ["ReviewView.swift"]))
+        #expect(files(/DockerContentsView\(/) == ["ReviewView.swift"], "the Docker item's row is the one place it shows")
+        for file in ["ScheduledWork.swift", "PopoverModel.swift", "AppDelegate.swift", "SchedulerAgent.swift", "ScanDue.swift", "UpdateScan.swift"] {
+            #expect(!(try #require(sources[file])).contains(/dockerContents|DockerContents|docker\.show|docker\.again/), "\(file) never asks docker")
+        }
+        // The clean and its check never ask: only forget what docker said.
+        let run = try #require(sources["CleanRun.swift"])
+        #expect(!run.contains(/docker\.(show|again)\(/))
+        #expect(run.matches(of: /docker\.forget\(\)/).count == 1)
+        #expect(run.contains("if report != nil || touched || result.outcome == .done,"), "a clean that may have pruned forgets, report or not")
+        for file in ["DockerContentsModel.swift", "DockerContents.swift"] {
+            let source = try #require(sources[file])
+            #expect(!source.contains(/\.clean\b|\.dryRun\b|"clean"|\.trash|removeItem|cleanConfirmedItems/), "\(file) removes nothing")
+        }
+    }
+
+    @Test("Docker's contents are the CLI's: version and every status")
+    func dockerContentsContracts() throws {
+        let source = try rustSource("crates/ddc-core/src/docker/mod.rs")
+        let version = try #require(source.firstMatch(of: /pub const DOCKER_SCHEMA_VERSION: u32 = (\d+);/))
+        #expect(Int(version.1) == DockerContents.schemaVersion)
+        let docker = try schema("docker")
+        #expect(Set(try values(docker, "DockerResult", key: "status")) == Set(DockerContents.Result.tags))
+        // The fields the decoder reads, by name: a rename in Rust fails here.
+        func properties(_ object: Any?) -> Set<String> { Set(((object as? [String: Any])?["properties"] as? [String: Any] ?? [:]).keys) }
+        let defs = try #require(docker["$defs"] as? [String: Any])
+        #expect(properties(docker) == ["schema_version", "ddc_version", "result"])
+        #expect(properties(defs["Group"]) == ["count", "bytes"])
+        #expect(properties(defs["Estimate"]) == ["build_cache", "dangling_images", "bytes"])
+        let branches = try #require((defs["DockerResult"] as? [String: Any])?["oneOf"] as? [[String: Any]])
+        let fields = Dictionary(uniqueKeysWithValues: branches.map { branch in
+            let status = (((branch["properties"] as? [String: Any])?["status"]) as? [String: Any])?["const"] as? String ?? ""
+            return (status, properties(branch))
+        })
+        #expect(fields == [
+            "listed": ["status", "images", "containers", "volumes", "build_cache", "estimate"],
+            "not-installed": ["status"],
+            "not-ready": ["status", "detail"],
+            "failed": ["status", "detail"],
+            "timed-out": ["status", "seconds"],
+            "unreadable": ["status", "detail"],
+        ])
     }
 
     @Test("the Homebrew packages listing is the CLI's: version and every enum")

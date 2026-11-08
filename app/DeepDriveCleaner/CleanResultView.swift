@@ -24,6 +24,9 @@ struct CleanResultView: View {
                     OpenTrashButton().controlSize(.small)
                 }
             }
+            if let docker = result.dockerReclaimed {
+                Text(docker).font(.system(size: 12)).foregroundStyle(.secondary)
+            }
             if result.localSnapshots > 0 {
                 Text("Local Time Machine snapshots hold part of the space until macOS thins them.")
                     .font(.system(size: 12))

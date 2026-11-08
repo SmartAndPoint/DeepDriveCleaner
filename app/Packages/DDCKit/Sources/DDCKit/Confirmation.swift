@@ -37,6 +37,11 @@ public struct Confirmation: Sendable, Equatable {
     /// Selected findings inside a picked folder: they go to the Trash with it
     /// and are not sent on their own.
     public let included: Int
+    /// What a `native-only` item frees, about, by row id, when its runtime
+    /// said (story "Docker Desktop: what is inside its disk image, and what
+    /// a clean frees"): such an item counts in "frees about" and leaves
+    /// "not counted".
+    public private(set) var estimates: [Int: UInt64] = [:]
 
     /// The sheet's class order: the user's own files first.
     public static let order: [ScanReport.RiskClass] = [.userData, .safe, .rebuildable, .review]
@@ -62,6 +67,17 @@ public struct Confirmation: Sendable, Equatable {
                 )
             }
         home = snapshot.report.home
+    }
+
+    /// The estimate of the runtime behind `rule`: the runtime frees it
+    /// once, however many of its folders are listed, so its first
+    /// `native-only` item carries it and the others count zero; all of
+    /// them leave "not counted". Nil takes it away.
+    public mutating func setEstimate(_ bytes: UInt64?, rule: String) {
+        let ids = items.filter { $0.finding.rule == rule && $0.effectiveAction == .nativeOnly }.map(\.id)
+        for (index, id) in ids.enumerated() {
+            estimates[id] = bytes.map { index == 0 ? $0 : 0 }
+        }
     }
 
     /// Delete permanently on one item; no other item changes.
@@ -95,20 +111,22 @@ public struct Confirmation: Sendable, Equatable {
     /// "Selected": what the scan measured, as the Review window and the class rows name it.
     public var bytes: UInt64 { items.reduce(0) { $0 + $1.finding.bytes } }
     /// What the clean frees. A `native-only` item frees space inside its
-    /// runtime's disk image, which no total counts (safety ADR §5), as the
-    /// terminal's "frees ~" leaves it out.
+    /// runtime's disk image, which the terminal's "frees ~" leaves out
+    /// (safety ADR §5); here it counts its estimate once its runtime said.
     public var reclaimable: UInt64 { reclaimable(excluding: []) }
     /// `reclaimable` without the items of `ids`: the header leaves out the
     /// items the dry run predicts to be skipped.
     public func reclaimable(excluding ids: Set<Int>) -> UInt64 {
-        counting.reduce(0) { ids.contains($1.id) ? $0 : $0 + $1.finding.reclaimableBytes }
+        let trashed = counting.reduce(0) { ids.contains($1.id) ? $0 : $0 + $1.finding.reclaimableBytes }
+        return estimates.reduce(trashed) { ids.contains($1.key) ? $0 : $0 + $1.value }
     }
     /// `bytes` without `native-only` items: the bar's total until the CLI names its own.
     public var counted: UInt64 { counting.reduce(0) { $0 + $1.finding.bytes } }
-    /// The `native-only` items' bytes by runtime, in the sheet's order.
+    /// The `native-only` items' bytes by runtime, in the sheet's order,
+    /// without those with an estimate.
     public var notCounted: [(runtime: String, bytes: UInt64)] {
         var parts: [(runtime: String, bytes: UInt64)] = []
-        for item in items where item.effectiveAction == .nativeOnly {
+        for item in items where item.effectiveAction == .nativeOnly && estimates[item.id] == nil {
             let runtime = CleanWording.runtime(rule: item.finding.rule)
             if let index = parts.firstIndex(where: { $0.runtime == runtime }) {
                 parts[index].bytes += item.finding.bytes

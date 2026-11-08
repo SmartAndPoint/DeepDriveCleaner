@@ -22,14 +22,14 @@ extension CLIRunner: CLIRunning {}
 
 /// The one way the app runs the embedded CLI (ADR §1).
 ///
-/// Every run but the lane kinds (`.disk`, `.diskAgents`, `.brewPackages`) goes through one queue and never overlaps another:
+/// Every run but the lane kinds (`.disk`, `.diskAgents`, `.brewPackages`, `.dockerContents`) goes through one queue and never overlaps another:
 /// two that take the ddc lock would make one fail as busy, and `rules`,
 /// `notify`, `schedule`, `space` and `changes` are queued too. A scan requested while a scan is queued
 /// or running joins it and gets the same result (its own arguments and
 /// `stderrLine` are not used); anything else waits its turn, so a clean
 /// requested during a scan starts when the scan ends.
 ///
-/// `.disk`, `.diskAgents` and `.brewPackages` take no lock, and the app keeps
+/// `.disk`, `.diskAgents`, `.brewPackages` and `.dockerContents` take no lock, and the app keeps
 /// what they write apart from any reader, so each runs in a lane of its own, beside the
 /// queue: it never waits for a run of the queue or of another lane, and
 /// nothing waits for it. A lane holds one run. A second request with the
@@ -65,6 +65,12 @@ public actor CLIRunner {
         /// item 10, amended 2026-10-29).
         case brewPackages
 
+        /// `disk docker --json`, the Review window's Docker Desktop item:
+        /// the readiness probe and one `docker system df -v`, read-only and
+        /// lock-free, in a lane of its own (menu bar ADR §6 item 10, amended
+        /// 2026-11-08).
+        case dockerContents
+
         /// `keep remove <folder> --folder-dev N --folder-ino N --json`,
         /// Remove Protection… (menu bar ADR §6 item 12, amended 2026-10-30):
         /// takes the exclusive lock, so it waits its turn in the queue.
@@ -86,7 +92,7 @@ public actor CLIRunner {
         case lockStatus, lockStop
 
         /// Runs in a lane of its own, beside the queue.
-        public var hasLane: Bool { self == .disk || self == .diskAgents || self == .brewPackages }
+        public var hasLane: Bool { self == .disk || self == .diskAgents || self == .brewPackages || self == .dockerContents }
     }
 
     /// Names one run, so it can be cancelled without touching another.

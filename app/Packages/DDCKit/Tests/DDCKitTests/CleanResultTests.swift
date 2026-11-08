@@ -92,6 +92,21 @@ struct CleanResultTests {
         #expect(throws: CleanReport.ReadError.otherSchema(3)) { try self.report(entries, version: 3) }
     }
 
+    @Test("the result carries what docker said its prunes reclaimed, in docker's own figures")
+    func dockerReclaimed() throws {
+        let items = try ReviewFixture.items()
+        let confirmation = DDCKit.Confirmation(items, selection: try ReviewFixture.recordedSelection(items), deletePermanently: false)
+        let docker = #""rule": "vm.docker-desktop", "class": "review", "action": "native-only""#
+        let ran = #"{"path": "/Users/example/b", "dev": 1, "ino": 2, \#(docker), "bytes": 7, "outcome": "native", "commands": [{"program": "/usr/local/bin/docker", "args": ["--context", "desktop-linux", "builder", "prune", "-f"], "success": true, "code": 0, "output": "ID\tRECLAIMABLE\tSIZE\nabc\ttrue\t512MB\nTotal:\t512MB\n"}, {"program": "/usr/local/bin/docker", "args": ["--context", "desktop-linux", "image", "prune", "-f"], "success": true, "code": 0, "output": "Deleted Images:\ndeleted: sha256:0\n\nTotal reclaimed space: 123.4MB\n"}]}"#
+        let result = CleanResult.make(report: try report([ran]), confirmation: confirmation, volumes: [])
+        #expect(result.dockerReclaimed == "Docker reclaimed 512MB of build cache and 123.4MB of images.")
+
+        // A prune that failed says nothing reclaimed; no docker, no line.
+        let failed = ran.replacingOccurrences(of: #""success": true, "code": 0, "output": "Deleted"#, with: #""success": false, "code": 1, "output": "Deleted"#)
+        #expect(CleanResult.make(report: try report([failed]), confirmation: confirmation, volumes: []).dockerReclaimed == "Docker reclaimed 512MB of build cache.")
+        #expect(CleanResult.make(report: try report([]), confirmation: confirmation, volumes: []).dockerReclaimed == nil)
+    }
+
     @Test("more than three running apps are named three and counted")
     func manyApps() {
         let apps = ["Spotify", "Chrome", "Brave", "Slack", "Zoom"]
