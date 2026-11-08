@@ -247,3 +247,129 @@ fn lock_status_with_nobody_holding_it_says_so_and_writes_nothing() {
     assert_eq!(status.holders, []);
     assert!(!data.join("lock").exists(), "no lock file was made: the lock was never taken");
 }
+
+/// `ddc lock stop --pid P --started T`, run against this tree's data folder.
+fn stop(t: &Tree, pid: impl ToString, started: u64) -> Output {
+    t.ddc(&["lock", "stop", "--pid", &pid.to_string(), "--started", &started.to_string()]).output().unwrap()
+}
+
+#[test]
+fn lock_stop_sends_nothing_without_a_live_record_or_to_a_process_that_is_not_ddc() {
+    if common::unsupported("lock_stop_sends_nothing_without_a_live_record_or_to_a_process_that_is_not_ddc")
+        || common::lacks(
+            "lock_stop_sends_nothing_without_a_live_record_or_to_a_process_that_is_not_ddc",
+            Capability::InUseCheck,
+        )
+    {
+        return;
+    }
+    let t = Tree::new(500);
+    let refused = |out: &Output, why: &str| {
+        assert_eq!(out.status.code(), Some(2), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains(why) && stderr.contains("nothing was sent"), "{stderr}");
+        assert!(out.stdout.is_empty());
+    };
+    // Nobody holds the lock.
+    refused(&stop(&t, 4242, 1), "no scan or clean that holds the lock runs as pid 4242");
+
+    // This test holds it: a live record, but the test binary is not ddc's.
+    // Were it signalled, this test would die of the SIGINT.
+    let _held = store::try_lock(&t.env(), LockMode::Exclusive, HolderCommand::CleanItems).unwrap();
+    let me = t.status().holders.into_iter().next().expect("this test's record");
+    refused(&stop(&t, me.pid, me.start_us), "is not ddc's binary");
+    // The same pid with another start: a reused pid's.
+    refused(&stop(&t, me.pid, me.start_us + 10_000_000), "no scan or clean that holds the lock");
+    // A pid that holds nothing, though a holder exists.
+    refused(&stop(&t, 4242, me.start_us), "no scan or clean that holds the lock");
+
+    // A stale record on disk: a holder that ended without a trace. Its pid
+    // is a finished child's, so nothing runs there now.
+    let mut gone =
+        Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner")).arg("--version").stdout(Stdio::null()).spawn().unwrap();
+    let gone_pid = i32::try_from(gone.id()).unwrap();
+    gone.wait().unwrap();
+    let stale = ddc_core::holders::Holder { pid: gone_pid, start_us: me.start_us, ..me.clone() };
+    let path = t.data().join(HOLDERS_DIR).join(ddc_core::holders::record_name(gone_pid, me.start_us));
+    fs::write(&path, serde_json::to_vec(&stale).unwrap()).unwrap();
+    refused(&stop(&t, gone_pid, me.start_us), "no scan or clean that holds the lock");
+    assert!(path.exists(), "lock stop removes no record");
+}
+
+#[test]
+fn lock_stop_interrupts_a_running_clean_after_its_current_item() {
+    if common::unsupported("lock_stop_interrupts_a_running_clean_after_its_current_item")
+        || common::lacks("lock_stop_interrupts_a_running_clean_after_its_current_item", Capability::InUseCheck)
+    {
+        return;
+    }
+    const K: usize = 3;
+    let t = Tree::new(2_000);
+    let mut items = ddc_loadgen::items::listed(&t.g.manifest, &t.g.layout.tree).unwrap().expect("a plan with items");
+    items.items.retain(|i| i.action == ddc_core::plan::ActionKind::Delete);
+    let n = items.items.len();
+    assert!(n > 10 * K, "enough items that the clean cannot finish before the stop: {n}");
+    let list = t.data().with_file_name("items.json");
+    fs::write(&list, serde_json::to_vec(&items).unwrap()).unwrap();
+    let mut child = t
+        .ddc(&["clean", "--items", list.to_str().unwrap(), "--json", "--progress", "json"])
+        .arg(&t.g.layout.tree)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let reader = std::thread::spawn(move || {
+        let mut out = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::BufReader::new(stdout), &mut out).unwrap();
+        out
+    });
+    let mut scan = Scan(Some(child));
+    // Wait for the k-th item line, then hold the clean still. The lines are
+    // read on a thread, so a clean that hangs fails the deadline, not the run.
+    let stderr = scan.0.as_mut().unwrap().stderr.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let rest = std::thread::spawn(move || {
+        for line in std::io::BufRead::lines(std::io::BufReader::new(stderr)).map_while(Result::ok) {
+            let _ = tx.send(line);
+        }
+    });
+    let mut seen = 0;
+    while seen < K {
+        let line = rx.recv_timeout(Duration::from_secs(90)).expect("the k-th item line, in time");
+        if serde_json::from_str::<serde_json::Value>(&line).is_ok_and(|e| e["event"] == "item") {
+            seen += 1;
+        }
+    }
+    scan.signal(libc::SIGSTOP);
+    assert!(scan.running(), "the clean ended before the stop");
+
+    let clean = t.status().holders.into_iter().find(|h| h.command == HolderCommand::CleanItems).expect("its record");
+    assert_eq!(clean.pid, scan.pid());
+    let out = stop(&t, clean.pid, clean.start_us);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(text(&out).contains("it stops after its current item"), "{}", text(&out));
+
+    let status = scan.finish();
+    use std::os::unix::process::ExitStatusExt as _;
+    assert_eq!(status.signal(), Some(libc::SIGINT), "the clean ends by the interrupt");
+    drop(rest.join());
+    let report: ddc_core::exec::report::CleanReport = contract::holds("clean", &reader.join().unwrap());
+    assert!(report.cancelled);
+    let not_run = report.items.iter().filter(|i| i.outcome == ddc_core::exec::Outcome::NotRun).count();
+    let done = n - not_run;
+    assert!(done >= K && done < n, "{done} of {n} done");
+    assert!(
+        report.items[done..].iter().all(|i| i.outcome == ddc_core::exec::Outcome::NotRun),
+        "the items not run are the last ones"
+    );
+    for i in &report.items {
+        match i.outcome {
+            ddc_core::exec::Outcome::Deleted => assert!(!i.path.exists(), "{:?} deleted", i.path),
+            ddc_core::exec::Outcome::NotRun => assert!(i.path.exists(), "{:?} not run", i.path),
+            ref other => panic!("{:?} ended {other:?}", i.path),
+        }
+    }
+    assert!(t.records().is_empty(), "the clean forgot its record before it ended");
+}

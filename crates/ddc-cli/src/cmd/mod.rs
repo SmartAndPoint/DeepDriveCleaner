@@ -43,6 +43,7 @@ pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Agent { action: AgentAction::Status(args) } => agent_status::run(&args),
         Command::Keep { action: KeepAction::Remove(args) } => keep::remove(&args),
         Command::Lock { action: LockAction::Status(args) } => lock::status(&args),
+        Command::Lock { action: LockAction::Stop(args) } => lock::stop(&args),
         Command::Notify { action } => notify::run(action),
         Command::Schedule { action } => schedule::run(action),
         Command::Du(args) => du::run(args),

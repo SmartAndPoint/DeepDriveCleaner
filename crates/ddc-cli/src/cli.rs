@@ -46,7 +46,7 @@ pub enum Command {
         #[command(subcommand)]
         action: KeepAction,
     },
-    /// Say which scan or clean holds the lock (no scan, no cleanup).
+    /// Say which scan or clean holds the lock, or interrupt one (no scan, no cleanup).
     Lock {
         #[command(subcommand)]
         action: LockAction,
@@ -91,6 +91,7 @@ impl Command {
             Command::Agent { action: AgentAction::Status(a) } => a.json,
             Command::Keep { action: KeepAction::Remove(a) } => a.json,
             Command::Lock { action: LockAction::Status(a) } => a.json,
+            Command::Lock { action: LockAction::Stop(_) } => false,
             Command::Schedule { .. } | Command::Notify { .. } | Command::Du(_) | Command::Diag => false,
         }
     }
@@ -183,6 +184,21 @@ impl From<PlatformArg> for ddc_core::platform::Platform {
 pub enum LockAction {
     /// List the scans and cleans that hold the lock now: command, start, where it was started, a clean's progress.
     Status(LockStatusArgs),
+    /// Interrupt one holder, as Ctrl-C at its terminal would: a clean stops after its current item.
+    Stop(LockStopArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct LockStopArgs {
+    /// The holder's pid, as `ddc lock status` lists it.
+    #[arg(long, value_name = "PID")]
+    pub pid: i32,
+    /// The holder's start, its `start_us` in `ddc lock status --json`: nothing is sent unless this process still holds the lock and started then.
+    #[arg(long, value_name = "START_US")]
+    pub started: u64,
+    /// Where the last scan, the lock and the journal live (default: ~/Library/Application Support/DeepDriveCleaner).
+    #[arg(long, value_name = "DIR")]
+    pub data_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

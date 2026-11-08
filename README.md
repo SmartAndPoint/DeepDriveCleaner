@@ -390,18 +390,21 @@ ddc keep remove ~/Projects/app/node_modules         # asks first
 
 `--json` prints the report ([`docs/keep.schema.json`](docs/keep.schema.json)): the folder, its device and inode, the rule the file kept when the last scan says it, and the result: `removed`, `absent`, `refused` with a `reason` (`outside-scan-roots`, `changed-since-scan`, `no-folder`, `not-a-file`) or `failed` with an `error`.
 
-### `ddc lock`: which scan or clean holds the lock
+### `ddc lock`: which scan or clean holds the lock, and stop one
 
 Scans share the lock, and so do the dry runs of a clean of an item list and of `disk free`. A clean, `disk free` and `keep remove` hold it alone, and so does the dry run of a plain `clean`. While one holds it, a command that needs it exits 75 and names the holders. `ddc lock status` names them without waiting for anything: each holder writes a small record next to the lock while it holds it.
 
 ```
 ddc lock status [--json] [--data-dir DIR]
+ddc lock stop --pid PID --started START_US [--data-dir DIR]
 ```
 
 - One line per holder: its pid, its command, when it started, whether it was started from a terminal or from the app, and for a clean which item it is on.
 - `--json` prints [`docs/lock.schema.json`](docs/lock.schema.json): `holders`, oldest first, each with `pid`, `start_us` (its start, in microseconds), `started`, `command`, `mode` (`shared` or `exclusive`), `origin` (`app`, `terminal` or `other`; a guess) and, for a clean, `phase` (`preparing` while it re-checks its items, `cleaning` after) and `progress` (`done`, `total`).
 - A holder that was killed leaves its record; it is not listed, and the next holder removes it. A ddc from before `ddc lock` writes no record, so a lock it holds is named by nobody.
-- It reads other processes' start times, so it needs `in-use-check`: on Windows it exits 69 for now.
+- `lock stop` interrupts one holder, as Ctrl-C at its terminal would. A clean stops after its current item; one that is still re-checking its items ends at once, before it removed anything. `disk free` stops before its next action, and a tool's command it runs is interrupted; its dry run ends after its current check. A scan, `clean`'s dry runs or `keep remove` end at once.
+- `lock stop` sends SIGINT and nothing else, never SIGKILL, and only when that pid still holds the lock, started at `START_US` (its `start_us`), is yours and runs ddc's own binary. Otherwise it exits 2 and sends nothing. It does not run as root.
+- Both read other processes' start times, so they need `in-use-check`: on Windows they exit 69 for now.
 
 ### `ddc schedule`: scan in the background
 

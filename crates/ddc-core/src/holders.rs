@@ -174,6 +174,43 @@ pub fn live(start_us_of_record: u64, now: Option<ProcStart>, uid: u32) -> bool {
     now.is_some_and(|p| p.uid == uid && start_us(p).abs_diff(start_us_of_record) <= START_TOLERANCE_US)
 }
 
+/// The file name of ddc's binary: `ddc` is a link to it, and the app's copy
+/// is `Contents/Helpers/deepdrivecleaner`.
+pub const BINARY: &str = "deepdrivecleaner";
+
+/// Whether `exe`, as `procs::executable` read it, is ddc's binary: Linux's
+/// ` (deleted)` suffix after an update in place, and a Windows `.exe`, are
+/// ignored.
+pub fn is_ddc(exe: &Path) -> bool {
+    exe.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+        let n = n.strip_suffix(" (deleted)").unwrap_or(n);
+        n.strip_suffix(".exe").unwrap_or(n) == BINARY
+    })
+}
+
+/// Why `ddc lock stop` sends nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopRefusal {
+    /// No live record names that pid with that start: it ended, it was
+    /// never a holder, or the pid now runs another process.
+    NoLiveRecord,
+    /// The pid's executable is not ddc's binary, or cannot be read.
+    NotDdc,
+}
+
+/// The holder `ddc lock stop --pid --started` may interrupt: one of the
+/// live `holders` (so the user's, started then) whose executable `exe` is
+/// ddc's binary. Nothing else is ever signalled.
+pub fn stoppable<'a>(
+    holders: &'a [Holder],
+    pid: i32,
+    start_us: u64,
+    exe: Option<&Path>,
+) -> Result<&'a Holder, StopRefusal> {
+    let holder = holders.iter().find(|h| h.pid == pid && h.start_us == start_us).ok_or(StopRefusal::NoLiveRecord)?;
+    if exe.is_some_and(is_ddc) { Ok(holder) } else { Err(StopRefusal::NotDdc) }
+}
+
 /// The live holders of `env`'s lock, oldest first.
 pub fn holders(env: &Env) -> Vec<Holder> {
     holders_in(&dir(env), &procs::process_start, procs::uid())
@@ -410,6 +447,43 @@ mod tests {
         for other in [".4101-1.json.tmp-7", "4101.json", "a-1.json", "4101-1.txt", "lock"] {
             assert_eq!(parse_name(other), None, "{other}");
         }
+    }
+
+    #[test]
+    fn ddc_binary_is_known_by_its_file_name() {
+        for yes in [
+            "/opt/homebrew/bin/deepdrivecleaner",
+            "/Applications/DeepDriveCleaner.app/Contents/Helpers/deepdrivecleaner",
+            "/home/u/.local/bin/deepdrivecleaner (deleted)",
+            "/mnt/c/Users/u/deepdrivecleaner.exe",
+        ] {
+            assert!(is_ddc(Path::new(yes)), "{yes}");
+        }
+        for no in ["/opt/homebrew/bin/ddc-other", "/usr/bin/python3", "/bin/deepdrivecleaner2", "/"] {
+            assert!(!is_ddc(Path::new(no)), "{no}");
+        }
+    }
+
+    #[test]
+    fn only_a_live_holder_that_runs_ddc_may_be_stopped() {
+        let h = Holder {
+            pid: 4101,
+            start_us: 7,
+            started: "2026-10-19T10:00:00Z".into(),
+            command: HolderCommand::CleanItems,
+            mode: LockMode::Exclusive,
+            origin: Origin::Terminal,
+            phase: Some(HolderPhase::Cleaning),
+            progress: None,
+        };
+        let live = [h.clone()];
+        let ddc = Some(Path::new("/opt/homebrew/bin/deepdrivecleaner"));
+        assert_eq!(stoppable(&live, 4101, 7, ddc), Ok(&h));
+        assert_eq!(stoppable(&live, 4101, 8, ddc), Err(StopRefusal::NoLiveRecord), "another start");
+        assert_eq!(stoppable(&live, 4202, 7, ddc), Err(StopRefusal::NoLiveRecord), "another pid");
+        assert_eq!(stoppable(&[], 4101, 7, ddc), Err(StopRefusal::NoLiveRecord), "a stale record is not live");
+        assert_eq!(stoppable(&live, 4101, 7, Some(Path::new("/usr/bin/python3"))), Err(StopRefusal::NotDdc));
+        assert_eq!(stoppable(&live, 4101, 7, None), Err(StopRefusal::NotDdc), "unreadable");
     }
 
     #[test]
