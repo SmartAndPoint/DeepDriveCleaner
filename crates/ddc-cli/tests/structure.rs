@@ -90,6 +90,19 @@ fn only_the_holder_records_end_a_process_by_a_signal() {
     assert_eq!(callers, ["ddc-core/src/holders.rs"]);
 }
 
+/// `ddc lock status` reads the holders' records only (story "Busy: name the
+/// scan or clean that holds the lock, and offer to stop it"): it never
+/// probes the lock, which would make a running scan fail busy, and never
+/// removes a record.
+#[test]
+fn lock_status_never_probes_the_lock_or_sweeps() {
+    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/cmd/lock.rs");
+    let code = code(&file);
+    for forbidden in ["try_lock", "sweep_in", "remove_file", "write_atomic", "Command::new"] {
+        assert!(!code.contains(forbidden), "cmd/lock.rs mentions {forbidden}");
+    }
+}
+
 /// `ddc space` reads one `statfs` and the saved report's head (story
 /// "Popover: say when used space grew since the last scan"): it reaches no
 /// cleanup, starts no program, takes no lock and never writes a report.

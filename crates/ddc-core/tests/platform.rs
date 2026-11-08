@@ -50,7 +50,7 @@ fn the_envelope_has_its_own_version_key() {
     let required: Vec<&str> = schema["required"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
     assert_eq!(required, ["error_schema_version", "error"]);
     assert!(schema["properties"].get("schema_version").is_none(), "no report decoder may read it as its own");
-    assert_eq!(ERROR_SCHEMA_VERSION, 2);
+    assert_eq!(ERROR_SCHEMA_VERSION, 3);
     for name in ["Platform", "Capability", "ErrorCode"] {
         assert!(schema["$defs"].get(name).is_some(), "$defs/{name}");
     }

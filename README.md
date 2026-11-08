@@ -390,6 +390,19 @@ ddc keep remove ~/Projects/app/node_modules         # asks first
 
 `--json` prints the report ([`docs/keep.schema.json`](docs/keep.schema.json)): the folder, its device and inode, the rule the file kept when the last scan says it, and the result: `removed`, `absent`, `refused` with a `reason` (`outside-scan-roots`, `changed-since-scan`, `no-folder`, `not-a-file`) or `failed` with an `error`.
 
+### `ddc lock`: which scan or clean holds the lock
+
+Scans share the lock, and so do the dry runs of a clean of an item list and of `disk free`. A clean, `disk free` and `keep remove` hold it alone, and so does the dry run of a plain `clean`. While one holds it, a command that needs it exits 75 and names the holders. `ddc lock status` names them without waiting for anything: each holder writes a small record next to the lock while it holds it.
+
+```
+ddc lock status [--json] [--data-dir DIR]
+```
+
+- One line per holder: its pid, its command, when it started, whether it was started from a terminal or from the app, and for a clean which item it is on.
+- `--json` prints [`docs/lock.schema.json`](docs/lock.schema.json): `holders`, oldest first, each with `pid`, `start_us` (its start, in microseconds), `started`, `command`, `mode` (`shared` or `exclusive`), `origin` (`app`, `terminal` or `other`; a guess) and, for a clean, `phase` (`preparing` while it re-checks its items, `cleaning` after) and `progress` (`done`, `total`).
+- A holder that was killed leaves its record; it is not listed, and the next holder removes it. A ddc from before `ddc lock` writes no record, so a lock it holds is named by nobody.
+- It reads other processes' start times, so it needs `in-use-check`: on Windows it exits 69 for now.
+
 ### `ddc schedule`: scan in the background
 
 ```
@@ -419,9 +432,9 @@ ddc schedule status
 | 1 | An error; in text mode, `clean` also exits 1 when an item failed or Windows deleted an item instead of recycling it, `disk free` when an action failed, and `keep remove` when the file was not removed for a reason other than being gone already. |
 | 2 | Refused before anything was touched: run as root, a malformed list, a forbidden option, a confirmation that cannot be asked without a terminal, a scan root another account owns, in an elevated terminal (Windows), or a cancel event that cannot be opened (the Windows app's `--cancel-event`). |
 | 69 | Unavailable: ddc does not support this platform yet, where only `--version`, `--help` and `rules` run, or the command needs something this platform lacks. Nothing was scanned or changed. |
-| 75 | Busy: a clean is running, or a clean was asked for while another scan or clean runs. Try again when it ends. |
+| 75 | Busy: a clean is running, or a clean was asked for while another scan or clean runs. The `ddc:` line is followed by one line per holder (see `ddc lock status`). Try again when it ends. |
 
-With `--json` (and `scan --notify json`), a command refused with 69 prints an error report on stdout instead of its usual output ([`docs/error.schema.json`](docs/error.schema.json)): a `code`, `platform-not-supported` or `capability-absent`, the platform and, for the latter, the capability that is missing. A scan root another account owns, in an elevated terminal on Windows, exits 2 with the same report under `--json`: the code `root-not-owned`, the `root`, the `owner` when it was read, and `owner_unreadable`. The scan, clean and disk reports name their `platform` and its `capabilities`.
+With `--json` (and `scan --notify json`), a command refused with 69 prints an error report on stdout instead of its usual output ([`docs/error.schema.json`](docs/error.schema.json)): a `code`, `platform-not-supported` or `capability-absent`, the platform and, for the latter, the capability that is missing. A scan root another account owns, in an elevated terminal on Windows, exits 2 with the same report under `--json`: the code `root-not-owned`, the `root`, the `owner` when it was read, and `owner_unreadable`. A held lock exits 75 with the same report under `--json`: the code `busy` and `holders`, as `ddc lock status --json` lists them (none where `in-use-check` is not declared). The scan, clean and disk reports name their `platform` and its `capabilities`.
 
 The install script (under [Install](#on-an-older-macos-or-the-command-line-only)) has its own:
 
@@ -445,6 +458,7 @@ The install script (under [Install](#on-an-older-macos-or-the-command-line-only)
 | `~/Library/Application Support/DeepDriveCleaner/settings.json` | Settings shared by the app and the terminal (below). |
 | `~/Library/Application Support/DeepDriveCleaner/notify-state.json` | When the background scan last notified, so it does not repeat itself. |
 | `~/Library/Application Support/DeepDriveCleaner/lock` | Scans share it; a clean takes it alone. |
+| `~/Library/Application Support/DeepDriveCleaner/lock.holders/` | One record per process that holds the lock, which `ddc lock status` reads; the next holder removes the record of one that was killed. |
 | `~/Library/Logs/DeepDriveCleaner/actions.jsonl` | The journal: every deletion, move to the Trash, tool run and `keep remove` decision, one JSON line each. |
 | `~/Library/Logs/DeepDriveCleaner/background.log` | What the scheduled scans found; `background.out.log` and `background.err.log` hold their raw output. |
 | `~/Library/Logs/DeepDriveCleaner/app.log` | What the menu bar app did: each run of the command-line tool and its outcome. |

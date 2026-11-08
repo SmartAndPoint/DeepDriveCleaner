@@ -9,6 +9,7 @@
 use std::io::Write as _;
 use std::process::ExitCode;
 
+use ddc_core::holders::Holder;
 use ddc_core::platform::{self, Capability, ForeignRoot, Refusal, Unsupported};
 use ddc_core::refusal::ErrorReport;
 
@@ -36,6 +37,9 @@ fn refusal_for(cmd: &Command, supported: Result<(), Unsupported>, declared: &[Ca
         | Command::Notify { .. }
         | Command::Diag => None,
         Command::Schedule { .. } => Some(Capability::Schedule),
+        // It reads other processes' start times and owners: what
+        // `in-use-check` declares.
+        Command::Lock { .. } => Some(Capability::InUseCheck),
         Command::Disk(DiskArgs { action: None, .. }) => Some(Capability::WholeDisk),
         Command::Disk(DiskArgs { action: Some(DiskAction::Agents(_)), .. })
         | Command::Agent { action: AgentAction::Status(_) } => Some(Capability::CodingAgents),
@@ -84,6 +88,29 @@ pub fn refuse_root(foreign: &ForeignRoot, message: &str, json: bool) -> ExitCode
     ExitCode::from(exit::REFUSED)
 }
 
+/// A held lock (menu bar ADR §6 item 5, amended 2026-11-08): `message` and
+/// one line per holder to stderr and, when `json`, the `busy` envelope to
+/// stdout; the exit is 75. Where `in-use-check` is not declared the
+/// holders are not named (seam ADR §3, `ddc lock`).
+pub fn busy(holders: &[Holder], message: &str, json: bool) -> ExitCode {
+    let holders = named(holders, platform::CAPABILITIES);
+    eprintln!("ddc: {message}");
+    let now = humantime::format_rfc3339_seconds(std::time::SystemTime::now()).to_string();
+    for h in &holders {
+        eprintln!("  {}", crate::render::holder(h, &now));
+    }
+    if json {
+        envelope(&ErrorReport::busy(holders, message));
+    }
+    ExitCode::from(exit::BUSY)
+}
+
+/// The holders a busy command names on a platform that declares `declared`:
+/// none without `in-use-check`.
+fn named(holders: &[Holder], declared: &[Capability]) -> Vec<Holder> {
+    if declared.contains(&Capability::InUseCheck) { holders.to_vec() } else { Vec::new() }
+}
+
 fn envelope(report: &ErrorReport) {
     let mut out = std::io::stdout().lock();
     // A closed pipe loses only the envelope; the exit code still says it.
@@ -127,6 +154,8 @@ mod tests {
         &["agent", "status", "--json"],
         &["keep", "remove", "/p", "--folder-dev", "1", "--folder-ino", "2", "--json"],
         &["schedule", "status"],
+        &["lock", "status"],
+        &["lock", "status", "--json"],
         &["notify", "ack", "--bytes", "1"],
         &["diag"],
     ];
@@ -171,10 +200,27 @@ mod tests {
             refusal_for(&command(&["schedule", "status"]), Ok(()), &all_but(Capability::Schedule)),
             absent(Capability::Schedule)
         );
+        // Windows declares none: `lock` is refused there.
+        for args in [&["lock", "status"][..], &["lock", "status", "--json"]] {
+            assert_eq!(refusal_for(&command(args), Ok(()), &[]), absent(Capability::InUseCheck), "{args:?}");
+            assert_eq!(refusal_for(&command(args), Ok(()), &[Capability::InUseCheck]), None, "{args:?}");
+        }
         // `disk agents` needs only its own: Linux can declare it without the whole-disk report.
         assert_eq!(refusal_for(&command(&["disk", "agents"]), Ok(()), &[Capability::CodingAgents]), None);
         // The scan reads its absent capabilities in the report instead.
         assert_eq!(refusal_for(&command(&["scan"]), Ok(()), &[]), None);
+    }
+
+    #[test]
+    fn a_busy_command_names_holders_only_with_in_use_check() {
+        let h: ddc_core::holders::Holder = serde_json::from_value(serde_json::json!({
+            "pid": 4101, "start_us": 1, "started": "2026-10-19T10:00:00Z",
+            "command": "clean-items", "mode": "exclusive", "origin": "terminal"
+        }))
+        .unwrap();
+        let holders = vec![h];
+        assert_eq!(named(&holders, &[Capability::InUseCheck]), holders);
+        assert!(named(&holders, &[]).is_empty(), "Windows declares none");
     }
 
     /// `agent status` and its hidden alias `disk agents` are one command:
@@ -215,7 +261,7 @@ mod tests {
         let unsupported = Refusal::Unsupported(UNPORTED.unwrap_err());
         let report = ErrorReport::new(&unsupported, message(&unsupported));
         let json = serde_json::to_value(&report).unwrap();
-        assert_eq!(json["error_schema_version"], 2);
+        assert_eq!(json["error_schema_version"], 3);
         assert_eq!(json["error"]["code"], "platform-not-supported");
         assert_eq!(json["error"]["platform"], "linux");
         assert_eq!(
@@ -240,7 +286,7 @@ mod tests {
         use ddc_core::platform::Foreign;
         let foreign = ForeignRoot { path: "/elsewhere".into(), why: Foreign::Owner("S-1-5-18".to_owned()) };
         let json = serde_json::to_value(ErrorReport::root_not_owned(&foreign, foreign.to_string())).unwrap();
-        assert_eq!(json["error_schema_version"], 2);
+        assert_eq!(json["error_schema_version"], 3);
         assert_eq!(json["error"]["code"], "root-not-owned");
         assert_eq!(json["error"]["root"], "/elsewhere");
         assert_eq!(json["error"]["owner"], "S-1-5-18");

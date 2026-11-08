@@ -224,6 +224,7 @@ fn clean_does_not_start_while_the_lock_is_held() {
 
     assert_eq!(out.status.code(), Some(75), "a held lock exits 75 (EX_TEMPFAIL)");
     assert!(String::from_utf8_lossy(&out.stderr).contains("another ddc scan or clean is running"));
+    assert!(out.stdout.is_empty(), "no envelope without --json");
     assert!(fx.home.join("q/__pycache__").exists());
 }
 
@@ -240,8 +241,17 @@ fn scan_does_not_start_while_a_clean_holds_the_lock() {
     let out = ddc(&fx.home, &["scan", "--json", "--data-dir", fx.data_arg()]);
 
     assert_eq!(out.status.code(), Some(75));
-    assert!(out.stdout.is_empty());
     assert!(!fx.data.join("last-scan.json").exists());
+    // The busy envelope, naming the holder: this test's own process.
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(report["error_schema_version"], 3);
+    assert_eq!(report["error"]["code"], "busy");
+    let holders = report["error"]["holders"].as_array().unwrap();
+    assert_eq!(holders.len(), 1, "{report}");
+    assert_eq!(holders[0]["pid"], std::process::id());
+    assert_eq!((holders[0]["command"].as_str(), holders[0]["mode"].as_str()), (Some("clean"), Some("exclusive")));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains(&format!("\n  pid {}: clean, started ", std::process::id())), "{stderr}");
 }
 
 /// Story "Faster clean: re-check only what the selection needs", AC 8: the

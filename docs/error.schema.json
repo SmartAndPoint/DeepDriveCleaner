@@ -132,6 +132,16 @@
         "code": {
           "$ref": "#/$defs/ErrorCode"
         },
+        "holders": {
+          "description": "`busy` only: the live holders of the lock whose records were found;\nempty when none wrote one, or where `in-use-check` is not declared.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/Holder"
+          }
+        },
         "message": {
           "description": "For people; never parsed.",
           "type": "string"
@@ -195,6 +205,147 @@
           "description": "A scan root another account owns, in an elevated terminal (Windows),\nor one whose owner cannot be read there: refused with exit 2 before\nanything is scanned or changed.",
           "type": "string",
           "const": "root-not-owned"
+        },
+        {
+          "description": "Another scan or clean holds the data-dir lock: exit 75, nothing was\ntouched. Carries `holders`.",
+          "type": "string",
+          "const": "busy"
+        }
+      ]
+    },
+    "Holder": {
+      "description": "One holder of the lock, as its record holds it.",
+      "type": "object",
+      "properties": {
+        "command": {
+          "$ref": "#/$defs/HolderCommand"
+        },
+        "mode": {
+          "$ref": "#/$defs/LockMode"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "phase": {
+          "description": "A clean's phase; absent for every other command.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HolderPhase"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pid": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "progress": {
+          "description": "A clean's items done of its total, once its first item ran.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HolderProgress"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "start_us": {
+          "description": "The process's start, in microseconds since the epoch: the number in\nthe record's name.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "started": {
+          "description": "The same start, RFC 3339 in UTC, to the second.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pid",
+        "start_us",
+        "started",
+        "command",
+        "mode",
+        "origin"
+      ]
+    },
+    "HolderCommand": {
+      "description": "What took the lock: one value per caller of `try_lock`.",
+      "type": "string",
+      "enum": [
+        "scan",
+        "background-scan",
+        "clean",
+        "clean-dry-run",
+        "clean-items",
+        "clean-items-dry-run",
+        "disk-free",
+        "disk-free-dry-run",
+        "keep-remove"
+      ]
+    },
+    "HolderPhase": {
+      "description": "A clean's phase: what a SIGINT does to it.",
+      "oneOf": [
+        {
+          "description": "Re-checking the items: no handler yet, a SIGINT ends it at once and\nnothing has been removed.",
+          "type": "string",
+          "const": "preparing"
+        },
+        {
+          "description": "The executor runs: a SIGINT stops it after its current item.",
+          "type": "string",
+          "const": "cleaning"
+        }
+      ]
+    },
+    "HolderProgress": {
+      "type": "object",
+      "properties": {
+        "done": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "done",
+        "total"
+      ]
+    },
+    "LockMode": {
+      "description": "Scans share the lock; a cleanup takes it exclusively.",
+      "type": "string",
+      "enum": [
+        "shared",
+        "exclusive"
+      ]
+    },
+    "Origin": {
+      "description": "Where the holder was started. A guess, for the words only.",
+      "oneOf": [
+        {
+          "description": "The binary runs from an app bundle's `Contents/Helpers/`, without a\nterminal.",
+          "type": "string",
+          "const": "app"
+        },
+        {
+          "description": "stdin or stderr is a terminal.",
+          "type": "string",
+          "const": "terminal"
+        },
+        {
+          "description": "Anything else: a script, a launch agent, a pipe.",
+          "type": "string",
+          "const": "other"
         }
       ]
     },

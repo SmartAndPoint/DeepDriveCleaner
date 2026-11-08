@@ -151,6 +151,41 @@ pub fn age(at: &str, now: &str) -> Option<String> {
     })
 }
 
+/// One line per lock holder, as `ddc lock status` and a busy command print
+/// it: "pid 4101: clean --items, started 3 min ago from a terminal, on
+/// item 4 of 8".
+pub fn holder(h: &ddc_core::holders::Holder, now: &str) -> String {
+    use ddc_core::holders::{HolderCommand, HolderPhase, Origin};
+    let what = match h.command {
+        HolderCommand::Scan => "scan",
+        HolderCommand::BackgroundScan => "background scan",
+        HolderCommand::Clean => "clean",
+        HolderCommand::CleanDryRun => "clean --dry-run",
+        HolderCommand::CleanItems => "clean --items",
+        HolderCommand::CleanItemsDryRun => "clean --items --dry-run",
+        HolderCommand::DiskFree => "disk free",
+        HolderCommand::DiskFreeDryRun => "disk free --dry-run",
+        HolderCommand::KeepRemove => "keep remove",
+    };
+    let from = match h.origin {
+        Origin::App => " from the app",
+        Origin::Terminal => " from a terminal",
+        Origin::Other => "",
+    };
+    let mut line =
+        format!("pid {}: {what}, started {}{from}", h.pid, age(&h.started, now).unwrap_or_else(|| h.started.clone()));
+    match (h.phase, h.progress) {
+        (Some(HolderPhase::Cleaning), Some(p)) if p.done < p.total => {
+            line.push_str(&format!(", on item {} of {}", p.done + 1, p.total));
+        }
+        (Some(HolderPhase::Cleaning), Some(_)) => line.push_str(", finishing"),
+        (Some(HolderPhase::Cleaning), None) => line.push_str(", starting its first item"),
+        (Some(HolderPhase::Preparing), _) => line.push_str(", re-checking its items"),
+        (None, _) => {}
+    }
+    line
+}
+
 /// Colors only on a terminal and without `NO_COLOR`.
 pub fn use_color(is_terminal: bool, no_color: bool) -> bool {
     is_terminal && !no_color

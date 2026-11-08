@@ -46,6 +46,11 @@ pub enum Command {
         #[command(subcommand)]
         action: KeepAction,
     },
+    /// Say which scan or clean holds the lock (no scan, no cleanup).
+    Lock {
+        #[command(subcommand)]
+        action: LockAction,
+    },
     /// Scan in the background on a schedule and notify; never deletes anything.
     Schedule {
         #[command(subcommand)]
@@ -85,6 +90,7 @@ impl Command {
             Command::Changes(args) => args.json,
             Command::Agent { action: AgentAction::Status(a) } => a.json,
             Command::Keep { action: KeepAction::Remove(a) } => a.json,
+            Command::Lock { action: LockAction::Status(a) } => a.json,
             Command::Schedule { .. } | Command::Notify { .. } | Command::Du(_) | Command::Diag => false,
         }
     }
@@ -171,6 +177,22 @@ impl From<PlatformArg> for ddc_core::platform::Platform {
             PlatformArg::Windows => Self::Windows,
         }
     }
+}
+
+#[derive(Debug, Subcommand)]
+pub enum LockAction {
+    /// List the scans and cleans that hold the lock now: command, start, where it was started, a clean's progress.
+    Status(LockStatusArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct LockStatusArgs {
+    /// Print the holders as JSON (schema: docs/lock.schema.json).
+    #[arg(long)]
+    pub json: bool,
+    /// Where the last scan, the lock and the journal live (default: ~/Library/Application Support/DeepDriveCleaner).
+    #[arg(long, value_name = "DIR")]
+    pub data_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
