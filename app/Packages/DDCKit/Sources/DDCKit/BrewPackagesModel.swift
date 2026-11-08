@@ -125,7 +125,7 @@ public final class BrewPackagesModel {
         switch await Task.detached(operation: { Result { try BrewPackages.read(stdout) } }).value {
         case .success(let read):
             listing = read
-        case .failure(ScanReport.ReadError.otherSchema(let version)):
+        case .failure(ScanReport.ReadError.otherSchema(let version, _)):
             listing = nil
             message = "The CLI wrote another version of the list (schema \(version))."
         case .failure(let error):

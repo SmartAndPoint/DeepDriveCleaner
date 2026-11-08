@@ -22,6 +22,10 @@ public final class PopoverModel {
         case loading
         case scanning
         case firstScan
+        /// The saved report is of another schema: who made it, and why a new
+        /// scan is needed (story "Popover: after an update, say why a new
+        /// scan is needed").
+        case otherVersion(OtherVersion)
         case unreadable(String)
         /// Nothing the default selection would free.
         case nothingFound
@@ -119,6 +123,10 @@ public final class PopoverModel {
     @ObservationIgnored private let clock: @MainActor () -> Date
     @ObservationIgnored private let log: @MainActor (String) -> Void
     @ObservationIgnored private let appVersion: String?
+    /// Who made a saved report of another schema; nil for any other report
+    /// state. `report` stays `.none` (older) or `.unreadable` (newer), so
+    /// the growth band and the icon's attention are as before.
+    public private(set) var otherVersion: OtherVersion?
     @ObservationIgnored private let home: String
     @ObservationIgnored private var reportModified: Date?
     @ObservationIgnored private var settingsModified: Date?
@@ -207,8 +215,8 @@ public final class PopoverModel {
         if scan != nil { return .scanning }
         switch report {
         case .loading: return .loading
-        case .none: return .firstScan
-        case .unreadable(let reason): return .unreadable(reason)
+        case .none: return otherVersion.map(Content.otherVersion) ?? .firstScan
+        case .unreadable(let reason): return otherVersion.map(Content.otherVersion) ?? .unreadable(reason)
         case .loaded:
             guard let summary, summary.reclaimable > 0 else { return .nothingFound }
             return summary.isOverThreshold ? .found : .nothingWorthCleaning
@@ -221,8 +229,8 @@ public final class PopoverModel {
         if scan != nil { return "Scan in progress" }
         switch report {
         case .loading: return ""
-        case .none: return "No scan yet"
-        case .unreadable: return "The last report could not be read"
+        case .none: return otherVersion.map(Wording.otherVersionSubtitle) ?? "No scan yet"
+        case .unreadable: return otherVersion.map(Wording.otherVersionSubtitle) ?? "The last report could not be read"
         case .loaded(let report):
             var parts = ["Last scan \(Wording.date(rfc3339: report.generatedAt).map { Wording.age(of: $0, now: now) } ?? "at an unknown time")"]
             parts.append("\(Wording.count(report.totals.files)) files in \(Wording.duration(milliseconds: report.durationMs))")
@@ -455,6 +463,7 @@ public final class PopoverModel {
         let url = data.lastScan
         guard let modified = DataDirectory.modified(url) else {
             reportModified = nil
+            otherVersion = nil
             report = .none
             recompute()
             return
@@ -481,15 +490,19 @@ public final class PopoverModel {
     private func apply(_ decoded: Result<ScanReport, any Error>) {
         switch decoded {
         case .success(let read):
+            otherVersion = nil
             report = .loaded(read)
             // A readable report, whoever wrote it: no scan after the update is left due.
             if preferences.updateScanDue { preferences.setUpdateScanDue(false) }
         // Written by an older ddc, before an update: the next scan replaces it.
-        case .failure(ScanReport.ReadError.otherSchema(let version)) where version < ScanReport.schemaVersion:
+        case .failure(ScanReport.ReadError.otherSchema(let version, let maker)) where version < ScanReport.schemaVersion:
+            otherVersion = OtherVersion(schema: version, appSchema: ScanReport.schemaVersion, ddcVersion: maker, appVersion: appVersion)
             report = .none
-        case .failure(ScanReport.ReadError.otherSchema(let version)):
+        case .failure(ScanReport.ReadError.otherSchema(let version, let maker)):
+            otherVersion = OtherVersion(schema: version, appSchema: ScanReport.schemaVersion, ddcVersion: maker, appVersion: appVersion)
             report = .unreadable("It was written by a newer version of ddc (schema \(version)). Update DeepDriveCleaner to read it.")
         case .failure(let error):
+            otherVersion = nil
             report = .unreadable("It is not a scan report this app can read.")
             log("last-scan.json unreadable: \(error)")
         }

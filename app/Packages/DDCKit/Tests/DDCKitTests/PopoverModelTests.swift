@@ -181,26 +181,107 @@ struct PopoverModelTests {
         #expect(model.attention.isEmpty, "a held lock is no failure: no warning")
     }
 
-    @Test("a report of an older schema version is as no report: the first scan replaces it, with no warning")
+    @Test("a report of an older schema says who made it, not \"No scan yet\", with no warning and Scan Now")
     func olderSchema() async throws {
         try data.write(lastScan: try Fixture.data("scan-report-v1"))
         let model = try makeModel(runner: FakeRunner(scan: FakeRunner.done(Data())), data: data, defaults: defaults)
         await model.start()
-        #expect(model.content == .firstScan)
+        let other = OtherVersion(schema: 1, appSchema: ScanReport.schemaVersion, ddcVersion: "0.1.0", appVersion: nil)
+        #expect(model.content == .otherVersion(other))
+        #expect(Wording.otherVersionText(other) == "Your last scan was made by ddc 0.1.0 in an older report format, so this version needs a new scan.")
         #expect(model.attention.isEmpty)
         #expect(model.canScan)
     }
 
-    @Test("a report of a newer schema version could not be read and says why, and Scan now stays")
-    func newerSchema() async throws {
-        try data.write(lastScan: try Fixture.edited("scan-report") { $0["schema_version"] = ScanReport.schemaVersion + 1 })
-        let model = try makeModel(runner: FakeRunner(scan: FakeRunner.done(Data())), data: data, defaults: defaults)
+    /// An older-schema report made by `maker`, with the app at 0.18.0.
+    private func otherVersionModel(maker: String?, schema: Int = ScanReport.schemaVersion - 1) async throws -> (PopoverModel, FakeRunner) {
+        try data.write(lastScan: try Fixture.edited("scan-report") {
+            $0["schema_version"] = schema
+            if let maker { $0["ddc_version"] = maker } else { $0.removeValue(forKey: "ddc_version") }
+        })
+        let runner = FakeRunner(scan: FakeRunner.done(Data()))
+        let model = try makeModel(runner: runner, data: data, defaults: defaults, nextScan: { .off }, appVersion: "0.18.0")
         await model.start()
-        #expect(
-            model.content
-                == .unreadable("It was written by a newer version of ddc (schema \(ScanReport.schemaVersion + 1)). Update DeepDriveCleaner to read it.")
-        )
+        return (model, runner)
+    }
+
+    @Test("after an update: the text names the version that made the last scan and the update; the subtitle and title say to scan again")
+    func afterTheUpdate() async throws {
+        let (model, _) = try await otherVersionModel(maker: "0.17.4")
+        guard case .otherVersion(let other) = model.content else { Issue.record("\(model.content)"); return }
+        #expect(other.maker == .olderThanApp)
+        #expect(Wording.otherVersionTitle(other) == "Scan again after the update")
+        #expect(Wording.otherVersionText(other) == "Your last scan was made by ddc 0.17.4. After the update, this version reads reports differently, so it needs a new scan.")
+        #expect(model.subtitle == "Last scan by ddc 0.17.4 · scan again")
+        #expect(model.attention.isEmpty, "no warning on the icon, as since 0.14.10")
         #expect(model.canScan)
+    }
+
+    @Test("a successful scan, or an unreadable file, after an older report clears who made it")
+    func otherVersionClears() async throws {
+        let (model, _) = try await otherVersionModel(maker: "0.17.4")
+        #expect(model.otherVersion != nil)
+        try Data("{".utf8).write(to: data.directory.lastScan)
+        await model.refresh()
+        #expect(model.otherVersion == nil)
+        #expect(model.content == .unreadable("It is not a scan report this app can read."))
+        try data.write(lastScan: try Fixture.data("scan-report"))
+        await model.refresh()
+        #expect(model.otherVersion == nil)
+        #expect(model.loadedReport != nil)
+    }
+
+    @Test("a newer ddc made it: no \"after the update\", and the app should be updated")
+    func newerMaker() async throws {
+        let (model, _) = try await otherVersionModel(maker: "0.19.0")
+        guard case .otherVersion(let other) = model.content else { Issue.record("\(model.content)"); return }
+        let text = Wording.otherVersionText(other)
+        #expect(!text.contains("After the update") && !text.contains("after the update"))
+        #expect(text.contains("ddc 0.19.0, a newer version than this app. Update DeepDriveCleaner"))
+        #expect(Wording.otherVersionTitle(other) == "Update the app, or scan again")
+        #expect(model.subtitle == "Last scan by ddc 0.19.0 · update the app")
+    }
+
+    @Test("without ddc_version the text names no version")
+    func noMakerVersion() async throws {
+        let (model, _) = try await otherVersionModel(maker: nil)
+        guard case .otherVersion(let other) = model.content else { Issue.record("\(model.content)"); return }
+        #expect(Wording.otherVersionText(other) == "Your last scan was made by an earlier version of ddc, which this version reads differently, so it needs a new scan.")
+        #expect(model.subtitle == "Last scan by an earlier ddc · scan again")
+    }
+
+    @Test("no last-scan.json at all is still the first scan; a removed older report goes back to it")
+    func noFileIsFirstScan() async throws {
+        let (model, _) = try await otherVersionModel(maker: "0.17.4")
+        try FileManager.default.removeItem(at: data.directory.lastScan)
+        await model.refresh()
+        #expect(model.content == .firstScan)
+        #expect(model.subtitle == "No scan yet")
+        #expect(model.otherVersion == nil)
+    }
+
+    @Test("the popover starts no scan of its own for a report of another schema")
+    func noScanOfItsOwn() async throws {
+        let (model, runner) = try await otherVersionModel(maker: "0.17.4")
+        await model.refresh()
+        #expect(await runner.count(.scan) == 0)
+        #expect(await runner.count(.backgroundScan) == 0)
+        let (newer, newerRunner) = try await otherVersionModel(maker: "0.19.0", schema: ScanReport.schemaVersion + 1)
+        await newer.refresh()
+        #expect(await newerRunner.count(.scan) == 0)
+    }
+
+    @Test("a report of a newer schema says who made it and keeps the icon's warning; Scan Now stays")
+    func newerSchema() async throws {
+        let (model, _) = try await otherVersionModel(maker: "0.19.0", schema: ScanReport.schemaVersion + 1)
+        guard case .otherVersion(let other) = model.content else { Issue.record("\(model.content)"); return }
+        #expect(other.reportIsNewer && other.updateTheApp)
+        #expect(!model.attention.isEmpty, "the app cannot read it")
+        #expect(model.canScan)
+        // The same version, with a newer schema (a CLI from a branch): the number, and the direction from the schema.
+        let same = OtherVersion(schema: ScanReport.schemaVersion + 1, appSchema: ScanReport.schemaVersion, ddcVersion: "0.18.0", appVersion: "0.18.0")
+        #expect(Wording.otherVersionText(same) == "Your last scan was made by ddc 0.18.0 in a newer report format. Update DeepDriveCleaner to read it, or scan again.")
+        #expect(Wording.otherVersionSubtitle(same) == "Last scan by ddc 0.18.0 · update the app")
     }
 
     @Test("with no embedded CLI the popover says so, cannot scan, and still shows the last report")

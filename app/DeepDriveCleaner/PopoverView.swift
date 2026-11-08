@@ -80,6 +80,8 @@ struct PopoverView: View {
             ScanningView(model: model)
         case .firstScan:
             FirstScanView(model: model, openPrivacy: openPrivacy)
+        case .otherVersion(let other):
+            OtherVersionView(model: model, other: other, openPrivacy: openPrivacy)
         case .unreadable(let reason):
             StateBlock(title: "The last report could not be read", text: "\(reason) A new scan replaces it.") {
                 Button("Scan Now") { Task { await model.scanNow() } }.disabled(!model.canScan)
@@ -296,6 +298,39 @@ private struct FirstScanView: View {
                 title: "Give DeepDriveCleaner Full Disk Access first",
                 text: "Without it, a scan asks for Desktop, Documents, Downloads and other apps' data, one dialog per folder, and part of ~/Library stays unread."
             ) {
+                HStack(spacing: 12) {
+                    Button("Open Privacy Settings", action: openPrivacy)
+                        .buttonStyle(.borderedProminent)
+                    Button("Scan Anyway") { Task { await model.scanNow() } }
+                        .buttonStyle(.link)
+                        .disabled(!model.canScan)
+                }
+            }
+        }
+    }
+}
+
+/// The saved report is of another schema (story "Popover: after an update,
+/// say why a new scan is needed"): who made it and why a new scan is
+/// needed. Scan Now is the main action; without Full Disk Access the grant
+/// stays the main action, as on a first scan. The next scheduled scan is
+/// the footer's line.
+private struct OtherVersionView: View {
+    let model: PopoverModel
+    let other: OtherVersion
+    let openPrivacy: () -> Void
+
+    var body: some View {
+        StateBlock(
+            title: Wording.otherVersionTitle(other),
+            text: Wording.otherVersionText(other),
+            note: model.fullDiskAccess.isGranted ? nil : Wording.otherVersionWithoutAccess
+        ) {
+            if model.fullDiskAccess.isGranted {
+                Button("Scan Now") { Task { await model.scanNow() } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!model.canScan)
+            } else {
                 HStack(spacing: 12) {
                     Button("Open Privacy Settings", action: openPrivacy)
                         .buttonStyle(.borderedProminent)

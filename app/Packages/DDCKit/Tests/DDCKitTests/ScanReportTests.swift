@@ -130,7 +130,21 @@ struct ScanReportTests {
     @Test("a report of another schema version is unreadable")
     func otherSchemaIsUnreadable() throws {
         let data = try Data(contentsOf: try Self.fixture("scan-report-v1"))
-        #expect(throws: ScanReport.ReadError.otherSchema(1)) { try ScanReport.read(data) }
+        #expect(throws: ScanReport.ReadError.otherSchema(1, ddcVersion: "0.1.0")) { try ScanReport.read(data) }
+    }
+
+    @Test("the header's maker is read softly: without ddc_version, or with a number in its place, it is none, never an error")
+    func makerReadSoftly() throws {
+        let older = ScanReport.schemaVersion - 1
+        let none = try Fixture.edited("scan-report") { $0["schema_version"] = older; $0.removeValue(forKey: "ddc_version") }
+        #expect(throws: ScanReport.ReadError.otherSchema(older, ddcVersion: nil)) { try ScanReport.read(none) }
+        let number = try Fixture.edited("scan-report") { $0["schema_version"] = older; $0["ddc_version"] = 7 }
+        #expect(throws: ScanReport.ReadError.otherSchema(older, ddcVersion: nil)) { try ScanReport.read(number) }
+        let empty = try Fixture.edited("scan-report") { $0["schema_version"] = older; $0["ddc_version"] = "" }
+        #expect(throws: ScanReport.ReadError.otherSchema(older, ddcVersion: nil)) { try ScanReport.read(empty) }
+        // Other readers that share the header are not disturbed by it.
+        let space = try Fixture.edited("space-grew") { $0["ddc_version"] = 7 }
+        _ = try SpaceReport.read(space)
     }
 
     @Test("the app reads the schema version the embedded CLI writes")

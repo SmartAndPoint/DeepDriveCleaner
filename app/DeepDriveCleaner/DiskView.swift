@@ -104,12 +104,12 @@ struct DiskView: View {
                     Text("Scan Whole Disk measures what lies outside the home folder: apps, system data, Homebrew, simulator runtimes. It reads sizes only and takes a few minutes.")
                 }
             }
-        case .outdated:
+        case .outdated(let other):
             withAgents {
                 ContentUnavailableView {
-                    Label("Scan Whole Disk Again", systemImage: "internaldrive")
+                    Label(Wording.otherVersionDiskTitle(other), systemImage: "internaldrive")
                 } description: {
-                    Text("The last whole-disk report was made by an older version of DeepDriveCleaner, and this one reads it differently. A new scan takes a few minutes.")
+                    Text(Wording.otherVersionDiskText(other))
                 }
             }
         case .unreadable(let reason):

@@ -120,7 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             log: { AppLog.write($0) }
         )
         if let model {
-            let disk = DiskModel(runner: runner, data: data, log: { AppLog.write($0) })
+            let disk = DiskModel(runner: runner, data: data, log: { AppLog.write($0) }, appVersion: version)
             self.disk = disk
             // `brew cleanup` measured the Homebrew cache finding again: the popover shows the edited report.
             disk.scanReportEdited = { _ = await model.reloadReport() }

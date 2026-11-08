@@ -108,7 +108,7 @@ public final class AgentsModel {
         switch decoded {
         case .success(let read):
             return .success(read)
-        case .failure(ScanReport.ReadError.otherSchema(let version)):
+        case .failure(ScanReport.ReadError.otherSchema(let version, _)):
             return .failure(Failure(message: "The CLI wrote another version of the report (schema \(version))."))
         case .failure:
             return .failure(Failure(message: "The CLI's report could not be read."))

@@ -547,7 +547,10 @@ struct ScheduledScanTests {
             await rig.runner.reply(.backgroundScan, CLIRunner.Result(outcome: outcome, stdout: Data(), stderrTail: ["ddc: something"]))
             #expect(await rig.work.tick() == (outcome == .busy ? .busy : .failed))
             #expect(rig.preferences.updateScanDue && rig.work.due() == .update)
-            #expect(rig.popover.content == .firstScan && rig.popover.canScan)
+            if case .otherVersion = rig.popover.content {} else { Issue.record("not the other-version content: \(rig.popover.content)") }
+            #expect(rig.popover.canScan)
+            // The footer's line is the due function's: the update scan is due now.
+            #expect(rig.popover.nextScanText == "Next scan within the hour")
         }
     }
 
