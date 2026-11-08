@@ -51,11 +51,11 @@ fn main() -> ExitCode {
             if let Some(foreign) = ddc_core::platform::foreign_root_in(err.as_ref()) {
                 return gate::refuse_root(foreign, &format!("{err:#}"), json);
             }
+            if let Some(ddc_core::store::LockError::Busy { holders, .. }) = err.downcast_ref() {
+                return gate::busy(holders, &format!("{err:#}"), json);
+            }
             eprintln!("ddc: {err:#}");
-            let busy = err
-                .downcast_ref::<ddc_core::store::LockError>()
-                .is_some_and(|e| matches!(e, ddc_core::store::LockError::Busy { .. }));
-            if busy { ExitCode::from(exit::BUSY) } else { ExitCode::FAILURE }
+            ExitCode::FAILURE
         }
     }
 }

@@ -45,12 +45,22 @@ pub const START_TOLERANCE_US: u64 = 2_000_000;
 /// fsyncs, and a clean can have thousands of items.
 const PROGRESS_GAP: Duration = Duration::from_secs(1);
 
+/// Version of [`LockStatus`] (`docs/lock.schema.json`).
+pub const LOCK_SCHEMA_VERSION: u32 = 1;
+
+/// `ddc lock status --json`: the live holders of the lock, oldest first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LockStatus {
+    pub schema_version: u32,
+    pub holders: Vec<Holder>,
+}
+
 /// One holder of the lock, as its record holds it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Holder {
     pub pid: i32,
     /// The process's start, in microseconds since the epoch: the number in
-    /// the record's name, and what `ddc lock stop --started` takes.
+    /// the record's name.
     pub start_us: u64,
     /// The same start, RFC 3339 in UTC, to the second.
     pub started: String,

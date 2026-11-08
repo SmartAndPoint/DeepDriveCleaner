@@ -366,6 +366,8 @@ fn a_held_lock_exits_75_and_runs_nothing() {
     let out = fx.free(BREW, &["--json"]);
     assert_eq!(out.status.code(), Some(75));
     assert!(!fx.calls("brew").iter().any(|c| c.starts_with("cleanup")));
+    let busy: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(busy["error"]["code"], "busy", "the envelope in place of the report");
     drop(held);
 
     // The dry run shares the lock with a scan.

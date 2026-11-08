@@ -270,7 +270,10 @@ fn a_held_lock_or_a_call_refused_before_the_lock_removes_and_journals_nothing() 
         let _held = store::try_lock(&fx.env(), LockMode::Shared, HolderCommand::Scan).unwrap();
         let out = fx.remove("a/node_modules", Some(id), &["--json"]);
         assert_eq!(out.status.code(), Some(75), "{}", String::from_utf8_lossy(&out.stderr));
-        assert!(out.stdout.is_empty());
+        // The busy envelope in place of the report, naming this test's lock.
+        let busy: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(busy["error"]["code"], "busy");
+        assert_eq!(busy["error"]["holders"][0]["command"], "scan");
     }
 
     let out = fx.remove("a/node_modules", None, &["--json"]);

@@ -11,6 +11,7 @@ mod disk_brew_packages;
 mod disk_free;
 mod du;
 mod keep;
+mod lock;
 mod notify;
 mod rules;
 mod scan;
@@ -26,7 +27,7 @@ use ddc_core::report::recheck::{same_roots, walked_roots};
 use ddc_core::settings::{self, Resolved, ScanFlags, Settings};
 use ddc_core::store::{Kept, PREVIOUS_SCAN};
 
-use crate::cli::{AgentAction, Cli, Command, DiskAction, DiskArgs, KeepAction};
+use crate::cli::{AgentAction, Cli, Command, DiskAction, DiskArgs, KeepAction, LockAction};
 
 pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
@@ -41,6 +42,7 @@ pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Changes(args) => changes::run(&args),
         Command::Agent { action: AgentAction::Status(args) } => agent_status::run(&args),
         Command::Keep { action: KeepAction::Remove(args) } => keep::remove(&args),
+        Command::Lock { action: LockAction::Status(args) } => lock::status(&args),
         Command::Notify { action } => notify::run(action),
         Command::Schedule { action } => schedule::run(action),
         Command::Du(args) => du::run(args),

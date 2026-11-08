@@ -80,6 +80,8 @@ const REFUSED: &[(&[&str], bool)] = &[
     (&["agent", "status"], false),
     (&["keep", "remove", "/p", "--folder-dev", "1", "--folder-ino", "2", "--json"], true),
     (&["keep", "remove", "/p"], false),
+    (&["lock", "status", "--json"], true),
+    (&["lock", "status"], false),
     (&["schedule", "status"], false),
     (&["notify", "ack", "--bytes", "1"], false),
     (&["diag"], false),

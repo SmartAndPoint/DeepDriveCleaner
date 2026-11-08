@@ -268,3 +268,15 @@ fn interrupt_refuses_a_pid_of_one_or_less() {
         assert_eq!(e.kind(), std::io::ErrorKind::Unsupported, "{pid}");
     }
 }
+
+#[test]
+#[allow(clippy::disallowed_methods)] // DDC_UPDATE_SCHEMA regenerates the committed file
+fn committed_lock_schema_is_current() {
+    let schema = serde_json::to_string_pretty(&schemars::schema_for!(holders::LockStatus)).unwrap() + "\n";
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/lock.schema.json");
+    if std::env::var_os("DDC_UPDATE_SCHEMA").is_some() {
+        fs::write(&path, &schema).unwrap();
+    }
+    let committed = fs::read_to_string(&path).unwrap_or_default();
+    assert!(committed == schema, "docs/lock.schema.json is stale: run DDC_UPDATE_SCHEMA=1 cargo test");
+}

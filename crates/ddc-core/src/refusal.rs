@@ -13,11 +13,12 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::disk::ActionId;
+use crate::holders::Holder;
 use crate::platform::{Capability, Foreign, ForeignRoot, Platform, Refusal};
 
 /// Version of [`ErrorReport`]. A new [`ErrorCode`] bumps it: 2 added
-/// `root-not-owned`.
-pub const ERROR_SCHEMA_VERSION: u32 = 2;
+/// `root-not-owned`, 3 added `busy`.
+pub const ERROR_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ErrorReport {
@@ -52,6 +53,10 @@ pub struct ErrorBody {
     /// is the user's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_unreadable: Option<bool>,
+    /// `busy` only: the live holders of the lock whose records were found;
+    /// empty when none wrote one, or where `in-use-check` is not declared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub holders: Option<Vec<Holder>>,
     /// True only in a build made with `simulate-unported`: the refusal is a
     /// test build's, not the platform's.
     pub simulated: bool,
@@ -70,6 +75,9 @@ pub enum ErrorCode {
     /// or one whose owner cannot be read there: refused with exit 2 before
     /// anything is scanned or changed.
     RootNotOwned,
+    /// Another scan or clean holds the data-dir lock: exit 75, nothing was
+    /// touched. Carries `holders`.
+    Busy,
 }
 
 impl ErrorReport {
@@ -85,6 +93,7 @@ impl ErrorReport {
                 root: None,
                 owner: None,
                 owner_unreadable: None,
+                holders: None,
                 simulated: u.simulated,
             },
             Refusal::CapabilityAbsent(c) => ErrorBody {
@@ -96,6 +105,7 @@ impl ErrorReport {
                 root: None,
                 owner: None,
                 owner_unreadable: None,
+                holders: None,
                 simulated: false,
             },
         };
@@ -118,6 +128,25 @@ impl ErrorReport {
             root: Some(foreign.path.clone()),
             owner,
             owner_unreadable: Some(unreadable),
+            holders: None,
+            simulated: false,
+        };
+        Self { error_schema_version: ERROR_SCHEMA_VERSION, error: body }
+    }
+
+    /// The envelope of a held lock (`busy`), naming `holders`, with
+    /// `message` for people.
+    pub fn busy(holders: Vec<Holder>, message: impl Into<String>) -> Self {
+        let body = ErrorBody {
+            code: ErrorCode::Busy,
+            message: message.into(),
+            platform: Some(crate::platform::PLATFORM),
+            capability: None,
+            action: None,
+            root: None,
+            owner: None,
+            owner_unreadable: None,
+            holders: Some(holders),
             simulated: false,
         };
         Self { error_schema_version: ERROR_SCHEMA_VERSION, error: body }
