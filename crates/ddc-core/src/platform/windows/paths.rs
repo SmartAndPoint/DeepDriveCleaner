@@ -178,6 +178,18 @@ pub fn is_local(path: &Path) -> bool {
 mod tests {
     use super::*;
 
+    /// A drive root and a share's root have no parent and no file name: the
+    /// guard refuses such a path as `protected` before any other check
+    /// (safety ADR §6, Windows, system folders, planned 2026-11-08).
+    #[test]
+    fn a_drive_root_and_a_share_root_have_no_parent_and_no_name() {
+        for root in [r"D:\", r"C:\", r"\\server\share\", r"\\?\Volume{0b1e1d3c-0000-0000-0000-100000000000}\"] {
+            let path = Path::new(root);
+            assert!(path.parent().is_none() && path.file_name().is_none(), "{root}");
+        }
+        assert!(Path::new(r"D:\x").parent().is_some(), "a folder on it has one");
+    }
+
     /// A drive letter with nothing assigned, from the system's own list.
     fn free_drive() -> char {
         // SAFETY: no arguments; returns a bitmask of the assigned letters.

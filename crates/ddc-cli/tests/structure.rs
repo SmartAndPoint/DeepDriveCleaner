@@ -596,6 +596,46 @@ fn every_command_builds_its_catalog_from_its_env() {
     assert!(checked >= 7, "only {checked} files build the catalog");
 }
 
+/// The known-folder API is called in one file, for five machine-wide
+/// folders only (safety ADR §6, Windows, system folders, and seam ADR §8,
+/// planned 2026-11-08): a per-user known folder ignores the environment and
+/// would reach the real profile under a test's home.
+#[test]
+fn only_the_windows_folders_item_asks_for_known_folders_and_only_machine_wide_ones() {
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let allowed = crates.join("ddc-core/src/platform/windows/folders.rs");
+    let mut ids = std::collections::BTreeSet::new();
+    let mut checked = 0;
+    for entry in std::fs::read_dir(&crates).unwrap() {
+        let krate = entry.unwrap().path();
+        let dirs = [krate.join("src"), krate.join("tests")];
+        let files = dirs.iter().filter(|d| d.is_dir()).flat_map(|d| rust_files(d));
+        for path in files.filter(|p| !p.ends_with("tests/structure.rs")) {
+            let text = code(&path);
+            checked += 1;
+            if path != allowed {
+                for name in ["SHGetKnownFolder", "FOLDERID_", "KnownFolder", "SHGetFolderPath", "CSIDL_"] {
+                    assert!(!text.contains(name), "{} names {name}", path.display());
+                }
+                continue;
+            }
+            for (i, _) in text.match_indices("FOLDERID_") {
+                let id: String = text[i..].chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+                ids.insert(id);
+            }
+        }
+    }
+    assert!(checked > 50, "only {checked} files read");
+    let five = [
+        "FOLDERID_ProgramData",
+        "FOLDERID_ProgramFiles",
+        "FOLDERID_ProgramFilesX86",
+        "FOLDERID_UserProfiles",
+        "FOLDERID_Windows",
+    ];
+    assert_eq!(ids, five.iter().map(|s| (*s).to_owned()).collect());
+}
+
 /// No source enables a privilege (story "Windows scanner and rule catalog",
 /// step 7): with the backup, restore or take-ownership privilege enabled, an
 /// elevated token would pass every ACL. Only the Windows token module calls

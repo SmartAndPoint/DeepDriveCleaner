@@ -18,7 +18,13 @@ pub fn default_data_and_log(home: &Path) -> (PathBuf, PathBuf) {
 
 /// The folders the environment redirects that are protected wherever they
 /// point: none here (safety ADR §6, Windows, redirected folders).
-pub fn redirected() -> Vec<PathBuf> {
+pub fn redirected() -> Vec<(crate::platform::types::Redirect, PathBuf)> {
+    Vec::new()
+}
+
+/// System folders found at run time, besides the catalog's static list:
+/// none here.
+pub fn system_folders() -> Vec<PathBuf> {
     Vec::new()
 }
 

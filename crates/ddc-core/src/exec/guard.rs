@@ -207,6 +207,9 @@ impl<'a> Guard<'a> {
         let protected = Protected::of(env);
         let mut own: Vec<PathBuf> = Protected::new(env.home(), &[]).paths().map(Path::to_path_buf).collect();
         own.extend(protected_system(PLATFORM).iter().map(PathBuf::from));
+        // Where the system says its folders are, besides their default
+        // places (safety ADR §6, Windows, system folders).
+        own.extend(crate::platform::folders::system_folders());
         own.extend(roots.iter().cloned());
         let mut paths = own.clone();
         paths.extend(protected.paths().map(Path::to_path_buf));
@@ -978,7 +981,7 @@ mod tests {
     #[test]
     fn a_redirected_folder_on_a_share_is_never_read_and_a_home_there_still_is() {
         let home = Path::new("/share/home");
-        let redirected = PathBuf::from("/share/redirected/Roaming");
+        let redirected = (crate::platform::types::Redirect::Roaming, PathBuf::from("/share/redirected/Roaming"));
         let own: Vec<PathBuf> = Protected::new(home, &[]).paths().map(Path::to_path_buf).collect();
         let paths: Vec<PathBuf> =
             Protected::new(home, std::slice::from_ref(&redirected)).paths().map(Path::to_path_buf).collect();

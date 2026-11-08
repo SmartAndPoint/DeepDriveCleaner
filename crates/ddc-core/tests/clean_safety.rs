@@ -24,6 +24,7 @@ use ddc_core::exec::{
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{Action, Plan, PlanItem, PlanOptions, build_plan};
 use ddc_core::platform::procs::ProcInfo;
+use ddc_core::platform::types::Redirect;
 use ddc_core::report::{self, ScanOptions};
 use ddc_core::rules::{Catalog, RULES, owns};
 use ddc_core::scan::{Progress, WalkOptions};
@@ -256,7 +257,7 @@ fn a_redirected_folder_and_its_ancestors_are_never_claimed_or_removed() {
     let plain = fx.scan();
     assert!(plain.findings.iter().any(|f| f.path == profiles), "without the redirect the tag claims it");
 
-    let env = fx.env().with_redirected(vec![roaming.clone()]);
+    let env = fx.env().with_redirected(vec![(Redirect::Roaming, roaming.clone())]);
     let opts = ScanOptions { walk: WalkOptions { threads: Some(2), ..Default::default() }, ..Default::default() };
     let scan = report::scan(&env, &opts, &Progress::default()).unwrap();
     assert!(!scan.findings.iter().any(|f| roaming.starts_with(&f.path)), "{:#?}", scan.findings);
@@ -306,7 +307,7 @@ fn a_redirected_folder_is_protected_in_every_spelling_and_a_share_is_never_resol
         .output()
         .unwrap();
     assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stdout));
-    let env = fx.env().with_redirected(vec![fx.t.path("Roaming")]);
+    let env = fx.env().with_redirected(vec![(Redirect::Roaming, fx.t.path("Roaming"))]);
     assert_eq!(env.redirected().len(), 2, "as written and as it resolves: {:?}", env.redirected());
 
     let catalog = Catalog::builtin(&env);
@@ -329,9 +330,55 @@ fn a_redirected_folder_is_protected_in_every_spelling_and_a_share_is_never_resol
     assert!(target.join("tool/settings.json").exists());
 
     let share = PathBuf::from(r"\\ddc-test.invalid\share\Roaming");
-    let env = fx.env().with_redirected(vec![share.clone()]);
-    assert_eq!(env.redirected(), std::slice::from_ref(&share), "never resolved");
+    let env = fx.env().with_redirected(vec![(Redirect::Roaming, share.clone())]);
+    assert_eq!(env.redirected(), [(Redirect::Roaming, share.clone())], "never resolved");
     assert!(Catalog::builtin(&env).protected().contains(&share));
+}
+
+/// Windows' entries below `AppData\Roaming` are protected below a
+/// redirected `APPDATA` too, with their ancestors, and a drive root is
+/// refused by its shape (safety ADR §6, Windows, system folders, planned
+/// 2026-11-08). No item names a real system folder.
+#[cfg(windows)]
+#[test]
+fn the_windows_folders_below_a_redirected_appdata_and_every_drive_root_are_refused() {
+    if common::unsupported("the_windows_folders_below_a_redirected_appdata_and_every_drive_root_are_refused") {
+        return;
+    }
+    let fx = Fx::new();
+    let nm = fx.node_project("p");
+    fx.t.write("Profiles/Roaming/Microsoft/CACHEDIR.TAG", common::fixtures::TAG);
+    fx.t.file("Profiles/Roaming/Microsoft/Protect/master.key", 100);
+    let roaming = fx.t.path("Profiles/Roaming");
+    let (microsoft, protect) = (roaming.join("Microsoft"), roaming.join("Microsoft/Protect"));
+    let plain = fx.scan();
+    assert!(plain.findings.iter().any(|f| f.path == microsoft), "without the redirect the tag claims it");
+
+    let env = fx.env().with_redirected(vec![(Redirect::Roaming, roaming.clone())]);
+    let opts = ScanOptions { walk: WalkOptions { threads: Some(2), ..Default::default() }, ..Default::default() };
+    let scan = report::scan(&env, &opts, &Progress::default()).unwrap();
+    assert!(!scan.findings.iter().any(|f| protect.starts_with(&f.path)), "{:#?}", scan.findings);
+
+    let catalog = Catalog::builtin(&env);
+    let mut plan = build_plan(&plain, &catalog, &PlanOptions::default());
+    let template = plan.items.iter().find(|i| i.finding.path == nm).unwrap().clone();
+    let forged = |path: &Path| {
+        let mut item = template.clone();
+        item.finding.path = path.to_path_buf();
+        item
+    };
+    let (drive, share) = (PathBuf::from(r"D:\"), PathBuf::from(r"\\ddc-test.invalid\share\"));
+    plan.items = vec![forged(&protect), forged(&microsoft), forged(&drive), forged(&share)];
+    let trash = FakeTrash(fx.data.path().join("FakeTrash"));
+    let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
+    let (commands, procs, mut journal) = (FakeCommands::default(), FakeProcs::new(vec![]), MemoryJournal::default());
+    let ports = Ports { commands: &commands, trash: &trash, procs: &procs, journal: &mut journal };
+    let r = exec::execute(&env, &catalog, &plan, &consent, ports, &ExecOptions::default()).unwrap();
+
+    for path in [&protect, &microsoft, &drive, &share] {
+        assert_eq!(outcome(&r, path), &Outcome::Skipped(SkipReason::Protected), "{path:?}");
+    }
+    assert!(protect.join("master.key").exists());
 }
 
 #[test]

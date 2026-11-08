@@ -13,6 +13,19 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+// ---- Redirected folders (`platform::folders`, `Env`) ----
+
+/// Which variable a redirected folder came from (safety ADR §6, Windows,
+/// redirected and system folders): an entry of the protected list below its
+/// default place in the home is protected below that variable's value too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Redirect {
+    /// `APPDATA`, by default `AppData\Roaming`.
+    Roaming,
+    /// `LOCALAPPDATA`, by default `AppData\Local`.
+    Local,
+}
+
 // ---- Directory listing (`platform::bulk`, `scan::reader`) ----
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
