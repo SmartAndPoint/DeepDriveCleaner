@@ -109,6 +109,8 @@ dependencies = [
  "serde_json",
  "thiserror",
  "trash",
+ "windows",
+ "windows-core",
  "windows-sys",
 ]
 
