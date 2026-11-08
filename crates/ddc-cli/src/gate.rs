@@ -44,6 +44,9 @@ fn refusal_for(cmd: &Command, supported: Result<(), Unsupported>, declared: &[Ca
         Command::Disk(DiskArgs { action: Some(DiskAction::Agents(_)), .. })
         | Command::Agent { action: AgentAction::Status(_) } => Some(Capability::CodingAgents),
         Command::Disk(DiskArgs { action: Some(DiskAction::BrewPackages(_)), .. }) => Some(Capability::Homebrew),
+        // Nothing in it is the platform's (seam ADR §3): it runs the clean's
+        // own probe and one read, wherever `vm.docker-desktop` may be cleaned.
+        Command::Disk(DiskArgs { action: Some(DiskAction::Docker(_)), .. }) => None,
         // Gated per action in the core (`free::run`, `dry_run`, `available`);
         // refused whole only when no action could ever run.
         Command::Disk(DiskArgs { action: Some(DiskAction::Free(_)), .. }) => {
@@ -149,6 +152,8 @@ mod tests {
         &["disk", "agents", "--json"],
         &["disk", "free", "--json"],
         &["disk", "brew-packages", "--json"],
+        &["disk", "docker"],
+        &["disk", "docker", "--json"],
         &["space"],
         &["space", "--json"],
         &["agent", "status", "--json"],
@@ -212,6 +217,12 @@ mod tests {
         assert_eq!(refusal_for(&command(&["disk", "agents"]), Ok(()), &[Capability::CodingAgents]), None);
         // The scan reads its absent capabilities in the report instead.
         assert_eq!(refusal_for(&command(&["scan"]), Ok(()), &[]), None);
+        // `disk docker` needs none: it runs wherever a clean may run docker.
+        for args in [&["disk", "docker"][..], &["disk", "docker", "--json"]] {
+            assert_eq!(refusal_for(&command(args), Ok(()), &[]), None, "{args:?}");
+        }
+        assert!(command(&["disk", "docker", "--json"]).prints_json());
+        assert!(!command(&["disk", "docker"]).prints_json());
     }
 
     #[test]

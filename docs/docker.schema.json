@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DockerContents",
+  "description": "What `ddc disk docker --json` prints.",
+  "type": "object",
+  "properties": {
+    "ddc_version": {
+      "type": "string"
+    },
+    "result": {
+      "$ref": "#/$defs/DockerResult"
+    },
+    "schema_version": {
+      "description": "[`DOCKER_SCHEMA_VERSION`].",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "schema_version",
+    "ddc_version",
+    "result"
+  ],
+  "$defs": {
+    "DockerResult": {
+      "description": "What docker answered.",
+      "oneOf": [
+        {
+          "description": "`system df -v` answered and every figure was read.",
+          "type": "object",
+          "properties": {
+            "build_cache": {
+              "description": "Every build-cache record; its bytes leave out what is shared with\nimages, as `docker system df` does.",
+              "$ref": "#/$defs/Group"
+            },
+            "containers": {
+              "description": "Every container; its bytes are the writable layers.",
+              "$ref": "#/$defs/Group"
+            },
+            "estimate": {
+              "description": "What the clean's two prune commands would free, about.",
+              "$ref": "#/$defs/Estimate"
+            },
+            "images": {
+              "description": "Every image; its bytes are the sum of each image's unique size,\nshared layers left out.",
+              "$ref": "#/$defs/Group"
+            },
+            "status": {
+              "type": "string",
+              "const": "listed"
+            },
+            "volumes": {
+              "description": "Every volume; its bytes are the sizes docker gave (a volume\nwithout one is counted, not sized, as `docker system df` does).",
+              "$ref": "#/$defs/Group"
+            }
+          },
+          "required": [
+            "status",
+            "images",
+            "containers",
+            "volumes",
+            "build_cache",
+            "estimate"
+          ]
+        },
+        {
+          "description": "No `docker` command was found.",
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "not-installed"
+            }
+          },
+          "required": [
+            "status"
+          ]
+        },
+        {
+          "description": "The readiness probe failed; `detail` is its own words, as in a\nclean's `tool-not-ready` skip.",
+          "type": "object",
+          "properties": {
+            "detail": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "const": "not-ready"
+            }
+          },
+          "required": [
+            "status",
+            "detail"
+          ]
+        },
+        {
+          "description": "`system df -v` failed; `detail` is the last line it printed, in the\nprobe's words when it is one the probe knows.",
+          "type": "object",
+          "properties": {
+            "detail": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "const": "failed"
+            }
+          },
+          "required": [
+            "status",
+            "detail"
+          ]
+        },
+        {
+          "description": "`system df -v` did not finish within this.",
+          "type": "object",
+          "properties": {
+            "seconds": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "status": {
+              "type": "string",
+              "const": "timed-out"
+            }
+          },
+          "required": [
+            "status",
+            "seconds"
+          ]
+        },
+        {
+          "description": "`system df -v` printed what ddc cannot read.",
+          "type": "object",
+          "properties": {
+            "detail": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "const": "unreadable"
+            }
+          },
+          "required": [
+            "status",
+            "detail"
+          ]
+        }
+      ]
+    },
+    "Estimate": {
+      "description": "What `docker builder prune -f` and `docker image prune -f` would free.\nBoth parts come from sizes docker rounds, so it is \"about\".",
+      "type": "object",
+      "properties": {
+        "build_cache": {
+          "description": "Build-cache records not in use, not shared with an image, neither\n`internal` nor `frontend`.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "bytes": {
+          "description": "The two together; absent while a part is.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "dangling_images": {
+          "description": "Images with repository and tag `<none>` and no container, by their\nunique size; absent when one of them has none.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "build_cache"
+      ]
+    },
+    "Group": {
+      "description": "A kind of record: how many, and their size together.",
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Absent when one of them has no size (`N/A`); volumes without one\nare left out of it instead.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "count": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "count"
+      ]
+    }
+  }
+}

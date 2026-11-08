@@ -637,6 +637,14 @@ fn the_probe_names_a_missing_context_or_says_what_docker_said() {
     let (r, _) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs::new(vec![]));
     assert_eq!(outcome(&r, &docker), &skipped("Docker Desktop is not running or not answering"));
 
+    // docker 29 words it so, with the socket's path: the detail names neither.
+    let commands = said(
+        "failed to connect to the docker API at unix:///x/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /x/.docker/run/docker.sock: connect: no such file or directory\n",
+    );
+    let (r, _) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs::new(vec![]));
+    assert_eq!(outcome(&r, &docker), &skipped("Docker Desktop is not running or not answering"));
+    assert_eq!(commands.calls.borrow().len(), 1);
+
     let commands = said("Client: Docker Engine\nerror during connect: the engine is updating\n\n");
     let (r, _) = fx.run(&plan, Consent::Interactive, &commands, &FakeProcs::new(vec![]));
     assert_eq!(outcome(&r, &docker), &skipped("error during connect: the engine is updating"), "its last line");

@@ -3,6 +3,7 @@
 
 use crate::platform::Canonical as _;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -51,32 +52,60 @@ pub(super) enum Native {
     Cancelled,
 }
 
-/// Runs the readiness probe; `None` when the runtime answers. A timeout or
+/// What a readiness probe answered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Readiness {
+    Ready,
+    /// The probe's program is not installed.
+    Unavailable,
+    /// Not ready; why, in words.
+    NotReady(String),
+    /// A cancel arrived while it ran.
+    Cancelled,
+}
+
+/// Runs the readiness probe; `None` when the runtime answers.
+pub(super) fn ready(probe: &ReadyProbe, commands: &dyn CommandRunner, opts: &ExecOptions<'_>) -> Option<Native> {
+    match readiness(probe, commands, opts.cancel) {
+        Readiness::Ready => None,
+        Readiness::Unavailable => Some(Native::Unavailable),
+        Readiness::NotReady(detail) => Some(Native::NotReady(detail)),
+        Readiness::Cancelled => Some(Native::Cancelled),
+    }
+}
+
+/// The probe itself, for the clean and for `ddc disk docker`. A timeout or
 /// no output is `down`, a known needle in the last line its own detail,
 /// any other last line that line itself.
-pub(super) fn ready(probe: &ReadyProbe, commands: &dyn CommandRunner, opts: &ExecOptions<'_>) -> Option<Native> {
-    let Some(exe) = commands.find(probe.program) else { return Some(Native::Unavailable) };
+pub(crate) fn readiness(probe: &ReadyProbe, commands: &dyn CommandRunner, cancel: &AtomicBool) -> Readiness {
+    let Some(exe) = commands.find(probe.program) else { return Readiness::Unavailable };
     let args: Vec<String> = probe.args.iter().map(|a| (*a).to_owned()).collect();
     let ran = commands.run(&exe, &args, &[], READY_TIMEOUT);
     // A probe killed by a forwarded signal is a cancel, not a runtime that is down.
-    if opts.cancelled() {
-        return Some(Native::Cancelled);
+    if cancel.load(Ordering::SeqCst) {
+        return Readiness::Cancelled;
     }
     let out = match ran {
-        Ok(out) if out.success && !out.stdout.trim().is_empty() => return None,
+        Ok(out) if out.success && !out.stdout.trim().is_empty() => return Readiness::Ready,
         Ok(out) => tail(&out.stdout, &out.stderr),
         Err(e) if e.kind() == std::io::ErrorKind::TimedOut => String::new(),
         Err(e) => e.to_string(),
     };
-    let detail = match last_line(&out) {
-        None => probe.down.to_owned(),
-        Some(line) => probe
+    Readiness::NotReady(said(probe, &out).unwrap_or_else(|| probe.down.to_owned()))
+}
+
+/// What a command of the probe's runtime said in its last line: the
+/// probe's own words for a known needle, else the line itself; `None` when
+/// it printed nothing.
+pub(crate) fn said(probe: &ReadyProbe, output: &str) -> Option<String> {
+    let line = last_line(output)?;
+    Some(
+        probe
             .known
             .iter()
             .find(|(needle, _)| line.contains(needle))
             .map_or_else(|| line.to_owned(), |(_, detail)| (*detail).to_owned()),
-    };
-    Some(Native::NotReady(detail))
+    )
 }
 
 pub(super) fn run(

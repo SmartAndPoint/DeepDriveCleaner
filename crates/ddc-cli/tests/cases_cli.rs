@@ -181,6 +181,7 @@ const COMMANDS: &[&str] = &[
     "disk agents",
     "disk free",
     "disk brew-packages",
+    "disk docker",
     "space",
     "changes",
     "agent status",

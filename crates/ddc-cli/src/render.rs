@@ -11,6 +11,7 @@ use ddc_core::agents::{
 use ddc_core::brew::{BrewPackages, NotOffered, Service, ServicesState};
 use ddc_core::class::{Category, RiskClass};
 use ddc_core::disk::{ActionId, DiskReport, HeldKind, HomeSource, SimulatorStatus};
+use ddc_core::docker::{DockerContents, DockerResult, Group};
 use ddc_core::free::{ActionReport, ActionResult, FreeReport, Refusal, ReportEdit};
 use ddc_core::model::{Finding, NotSelected, OriginHarness, ScanReport};
 use ddc_core::rules::Note;
@@ -930,6 +931,82 @@ pub fn brew_packages(w: &mut impl Write, r: &BrewPackages, home: &Path, style: &
         writeln!(w, "{}", style.dim(&missing))?;
     }
     Ok(())
+}
+
+/// `ddc disk docker`: each kind of record with its count and size, what a
+/// clean would free, and what it leaves; or why docker did not say.
+pub fn docker(w: &mut impl Write, c: &DockerContents, style: &Style) -> io::Result<()> {
+    let size = |g: &Group| g.bytes.map_or_else(|| "size not known".to_owned(), human);
+    match &c.result {
+        DockerResult::Listed { images, containers, volumes, build_cache, estimate } => {
+            writeln!(w, "{}", style.bold("Docker Desktop's disk image holds:"))?;
+            let rows = [
+                ("images", images, "unique to each image"),
+                ("containers", containers, "their writable layers"),
+                ("volumes", volumes, ""),
+                ("build cache", build_cache, "not shared with images"),
+            ];
+            for (name, g, note) in rows {
+                writeln!(w, "  {name:<12} {:>6}  {:>14}  {}", g.count, size(g), style.dim(note))?;
+            }
+            let frees =
+                estimate.bytes.map_or_else(|| "an amount not known".to_owned(), |b| format!("about {}", human(b)));
+            let dangling = estimate.dangling_images.map_or_else(|| "not known".to_owned(), human);
+            writeln!(
+                w,
+                "\nA clean frees {frees}: unused build cache {}, dangling images {dangling}.",
+                human(estimate.build_cache)
+            )?;
+            writeln!(w, "{}", style.dim("It leaves these; each is yours to run:"))?;
+            for (what, cmd) in [
+                ("unused tagged images", "docker image prune -a"),
+                ("stopped containers", "docker container prune"),
+                ("volumes, with their data", "docker volume prune"),
+                ("the rest of the build cache", "docker builder prune --all"),
+            ] {
+                writeln!(w, "  {what:<28} {}", style.dim(cmd))?;
+            }
+            writeln!(
+                w,
+                "{}",
+                style.dim(
+                    "These sizes leave out shared layers, and the disk image keeps space it freed until \
+                     Docker Desktop shrinks it: they do not add up to its folder's size."
+                )
+            )?;
+        }
+        DockerResult::NotInstalled => writeln!(w, "Docker's command-line tool was not found.")?,
+        DockerResult::NotReady { detail } => {
+            if detail == ddc_core::rules::DOCKER_DOWN {
+                writeln!(w, "{detail}.")?;
+            } else {
+                writeln!(w, "Docker did not answer: {}.", escaped(detail.trim_end_matches('.')))?;
+            }
+            if let Some(advice) = docker_advice(detail) {
+                writeln!(w, "{}", style.dim(advice))?;
+            }
+        }
+        DockerResult::Failed { detail } => writeln!(w, "docker system df failed: {}", escaped(detail))?,
+        DockerResult::TimedOut { seconds } => {
+            writeln!(w, "docker system df did not finish within {seconds} seconds.")?;
+        }
+        DockerResult::Unreadable { detail } => {
+            writeln!(w, "docker system df printed what ddc cannot read: {}", escaped(detail))?
+        }
+    }
+    Ok(())
+}
+
+/// What to do when the probe said `detail` (story "VM images: docker prune
+/// runs only while Docker Desktop answers").
+fn docker_advice(detail: &str) -> Option<&'static str> {
+    if detail == ddc_core::rules::DOCKER_DOWN {
+        Some("Start Docker Desktop to see what is inside.")
+    } else if detail == ddc_core::rules::DOCKER_READY.no_context {
+        Some("If you no longer use Docker Desktop, its folder is yours to delete.")
+    } else {
+        None
+    }
 }
 
 /// Why a formula's service keeps its removal from being offered.

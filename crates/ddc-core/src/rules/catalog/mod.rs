@@ -194,8 +194,10 @@ pub const CONDA_CACHE_HINT: &str =
 pub const DOCKER_DOWN: &str = "Docker Desktop is not running or not answering";
 
 /// Docker Desktop's engine answers on its own context. The context's
-/// metadata lives under the sha256 of its name, `desktop-linux`.
-const DOCKER_READY: ReadyProbe = ReadyProbe {
+/// metadata lives under the sha256 of its name, `desktop-linux`. The clean's
+/// probe, and the first call of `ddc disk docker` (story "Docker Desktop:
+/// what is inside its disk image, and what a clean frees").
+pub const DOCKER_READY: ReadyProbe = ReadyProbe {
     program: "docker",
     args: &["--context", "desktop-linux", "version", "--format", "{{.Server.Version}}"],
     process: "com.docker.backend",
@@ -205,6 +207,8 @@ const DOCKER_READY: ReadyProbe = ReadyProbe {
     known: &[
         ("does not exist", "the desktop-linux context does not exist"),
         ("Cannot connect to the Docker daemon", DOCKER_DOWN),
+        // docker 29's words for the same.
+        ("failed to connect to the docker API", DOCKER_DOWN),
     ],
 };
 
