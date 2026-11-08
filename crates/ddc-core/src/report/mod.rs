@@ -87,7 +87,7 @@ impl Commands {
         Self(Some(runner))
     }
 
-    fn runner(&self, env: &Env) -> Arc<dyn CommandRunner + Send + Sync> {
+    pub(crate) fn runner(&self, env: &Env) -> Arc<dyn CommandRunner + Send + Sync> {
         self.0.clone().unwrap_or_else(|| Arc::new(SystemCommands::new(env)))
     }
 }
@@ -109,7 +109,7 @@ impl Processes {
         Self(Some(Arc::new(table)))
     }
 
-    fn table(&self) -> &dyn ProcessTable {
+    pub(crate) fn table(&self) -> &dyn ProcessTable {
         match &self.0 {
             Some(table) => table.as_ref(),
             None => &SystemProcesses,
@@ -227,6 +227,76 @@ pub(crate) fn scan_inner(
     reader: Option<&dyn DirReader>,
     reach: Option<&recheck::Reach>,
 ) -> Result<Scanned, ScanError> {
+    let Walked { out, findings, index, large_files, not_scanned, started, .. } =
+        walk_classified(env, opts, progress, reader, reach, worktree::Assess::Scan)?;
+    let totals = totals(&findings, &out);
+    let inaccessible = out
+        .errors
+        .iter()
+        .filter(|e| e.error.kind == ReadErrorKind::PermissionDenied)
+        .map(|e| Inaccessible { path: e.path.clone(), error: e.error.to_string() })
+        .collect();
+    let skipped = out.skipped.iter().map(|s| SkippedPath { path: s.path.clone(), reason: s.reason }).collect();
+    let roots: Vec<&Path> = out.roots.iter().map(|r| r.path.as_path()).collect();
+
+    let mut report = ScanReport {
+        schema_version: SCHEMA_VERSION,
+        ddc_version: env!("CARGO_PKG_VERSION").to_owned(),
+        platform: crate::platform::PLATFORM,
+        capabilities: crate::platform::CAPABILITIES.to_vec(),
+        generated_at: humantime::format_rfc3339_seconds(env.now()).to_string(),
+        duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        home: env.home().to_path_buf(),
+        scan_roots: out.roots.iter().map(|r| r.path.clone()).collect(),
+        full_disk_access: full_disk_access(env),
+        volumes: volumes::volumes(&roots, statfs),
+        min_age_days: opts.min_age.as_secs() / 86_400,
+        totals,
+        findings,
+        large_files,
+        inaccessible,
+        errors_total: out.errors_total,
+        skipped,
+        skipped_total: out.skipped_total,
+        cancelled: out.cancelled,
+        not_scanned,
+        lossy_paths: None,
+        written_by: None,
+        written_at: None,
+        previous_written_at: None,
+        rules_in_force: Some(crate::rules::listing::rule_ids(crate::platform::PLATFORM)),
+    };
+    report.lossy_paths = crate::json_path::count_lossy(&report);
+    Ok(Scanned { report, index, errors: out.errors })
+}
+
+/// The walk and its classification, before any total: what `scan_inner`
+/// and `ddc agent footprint` share (story "ddc footprint: a scoped project
+/// report"), so both classify alike. `assess` is `Scan` for every scan and
+/// clean; only footprint passes `Footprint`.
+pub(crate) struct Walked {
+    pub(crate) out: scan::WalkOutput,
+    /// Sorted, with their entries attached.
+    pub(crate) findings: Vec<Finding>,
+    pub(crate) index: EntryIndex,
+    pub(crate) large_files: Vec<LargeFile>,
+    pub(crate) not_scanned: Vec<PathBuf>,
+    /// The worktrees and orphans the walk recognised, by path.
+    pub(crate) worktrees: HashMap<PathBuf, worktree::Recognized>,
+    /// Why each `git.worktree` finding is not selected, by its path, in the
+    /// order of the conditions; empty for one that is.
+    pub(crate) held: HashMap<PathBuf, Vec<worktree::Held>>,
+    pub(crate) started: Instant,
+}
+
+pub(crate) fn walk_classified(
+    env: &Env,
+    opts: &ScanOptions,
+    progress: &Progress,
+    reader: Option<&dyn DirReader>,
+    reach: Option<&recheck::Reach>,
+    assess: worktree::Assess,
+) -> Result<Walked, ScanError> {
     crate::platform::require_supported().map_err(ScanError::Unsupported)?;
     require_own_roots(env, opts)?;
     let started = Instant::now();
@@ -264,11 +334,18 @@ pub(crate) fn scan_inner(
         tool_dirs: env.tool_dirs(),
         timeout: opts.probe_timeout,
         disabled_rules: &opts.disabled_rules,
+        mode: assess,
     };
     // A worktree's removal takes the findings inside it: a flag in one holds
     // the worktree too (safety ADR, amendment of 2026-11-04, "Linux file kinds").
     let locked: Vec<&Path> = out.owners.iter().filter(|o| o.locked > 0).map(|o| o.path.as_path()).collect();
-    let mut findings: Vec<Finding> = classify_probed(&out, &visitor, &probing)
+    let classified = classify_probed(&out, &visitor, &probing);
+    let held = classified
+        .iter()
+        .filter(|c| worktree::is_worktree_rule(c.rule) && !c.held.is_empty())
+        .map(|c| (c.owner.path.clone(), c.held.clone()))
+        .collect();
+    let mut findings: Vec<Finding> = classified
         .iter()
         .map(|c| {
             let mut f = finding(c, env.now(), opts, &mut activity);
@@ -293,47 +370,17 @@ pub(crate) fn scan_inner(
         protected: catalog.protected(),
     };
     let index = contents::attach(&mut findings, &out.entries, &cx);
-
-    let totals = totals(&findings, &out);
     let large_files = visitor.large_files().into_iter().map(|(bytes, path)| LargeFile { path, bytes }).collect();
-    let inaccessible = out
-        .errors
-        .iter()
-        .filter(|e| e.error.kind == ReadErrorKind::PermissionDenied)
-        .map(|e| Inaccessible { path: e.path.clone(), error: e.error.to_string() })
-        .collect();
-    let skipped = out.skipped.iter().map(|s| SkippedPath { path: s.path.clone(), reason: s.reason }).collect();
-    let roots: Vec<&Path> = out.roots.iter().map(|r| r.path.as_path()).collect();
-
-    let mut report = ScanReport {
-        schema_version: SCHEMA_VERSION,
-        ddc_version: env!("CARGO_PKG_VERSION").to_owned(),
-        platform: crate::platform::PLATFORM,
-        capabilities: crate::platform::CAPABILITIES.to_vec(),
-        generated_at: humantime::format_rfc3339_seconds(env.now()).to_string(),
-        duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-        home: env.home().to_path_buf(),
-        scan_roots: out.roots.iter().map(|r| r.path.clone()).collect(),
-        full_disk_access: full_disk_access(env),
-        volumes: volumes::volumes(&roots, statfs),
-        min_age_days: opts.min_age.as_secs() / 86_400,
-        totals,
+    Ok(Walked {
         findings,
+        index,
         large_files,
-        inaccessible,
-        errors_total: out.errors_total,
-        skipped,
-        skipped_total: out.skipped_total,
-        cancelled: out.cancelled,
         not_scanned: visitor.not_scanned(),
-        lossy_paths: None,
-        written_by: None,
-        written_at: None,
-        previous_written_at: None,
-        rules_in_force: Some(crate::rules::listing::rule_ids(crate::platform::PLATFORM)),
-    };
-    report.lossy_paths = crate::json_path::count_lossy(&report);
-    Ok(Scanned { report, index, errors: out.errors })
+        worktrees: visitor.worktrees(),
+        held,
+        started,
+        out,
+    })
 }
 
 /// The artifacts inside the folder at `path` that ddc removes on its own

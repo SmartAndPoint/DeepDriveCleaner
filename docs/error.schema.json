@@ -172,7 +172,7 @@
           ]
         },
         "root": {
-          "description": "The scan root that is not the user's (`root-not-owned`).",
+          "description": "The scan root that is not the user's (`root-not-owned`); the folder\nasked about (`not-a-repository`); the main checkout\n(`home-is-the-checkout`).",
           "type": [
             "string",
             "null"
@@ -210,6 +210,16 @@
           "description": "Another scan or clean holds the data-dir lock: exit 75, nothing was\ntouched. Carries `holders`.",
           "type": "string",
           "const": "busy"
+        },
+        {
+          "description": "`ddc agent footprint`: the folder is not inside a git repository\n(exit 2). Carries `root`.",
+          "type": "string",
+          "const": "not-a-repository"
+        },
+        {
+          "description": "`ddc agent footprint`: the main checkout is the home folder; walking\nit is a home scan (exit 2). Carries `root`, the main checkout.",
+          "type": "string",
+          "const": "home-is-the-checkout"
         }
       ]
     },

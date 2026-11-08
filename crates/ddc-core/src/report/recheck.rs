@@ -125,9 +125,15 @@ impl Reach {
 
     /// The folder at `path` with its whole subtree, and its ancestors.
     pub(crate) fn subtree(path: &Path) -> Self {
+        Self::subtrees(std::slice::from_ref(&path.to_path_buf()))
+    }
+
+    /// Each folder of `paths` with its whole subtree, and their ancestors:
+    /// `ddc agent footprint`'s checkouts.
+    pub(crate) fn subtrees(paths: &[PathBuf]) -> Self {
         Reach {
-            items: HashSet::from([path.to_path_buf()]),
-            ancestors: path.ancestors().skip(1).map(Path::to_path_buf).collect(),
+            items: paths.iter().cloned().collect(),
+            ancestors: paths.iter().flat_map(|p| p.ancestors().skip(1).map(Path::to_path_buf)).collect(),
             ..Reach::default()
         }
     }

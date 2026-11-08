@@ -196,6 +196,71 @@ pub struct Probing<'a> {
     pub timeout: Duration,
     /// Rules switched off in `settings.json`: a worktree of one is never probed.
     pub disabled_rules: &'a [String],
+    /// `Scan` for every scan and clean; `Footprint` only for `ddc agent
+    /// footprint`.
+    pub mode: Assess,
+}
+
+/// How far a worktree is assessed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Assess {
+    /// The ADR's order: the probes of 4 to 6 run only for a worktree that
+    /// passed 1 to 3.
+    Scan,
+    /// `ddc agent footprint` (story "ddc footprint: a scoped project
+    /// report"): a worktree that failed only 2 or 3 is probed for 4 to 6
+    /// too, so the report can tell what it frees once its session ends.
+    /// Its class stays `review` whatever the probes say.
+    Footprint,
+}
+
+/// Why a `git.worktree` finding is not selected, in the conditions' order
+/// (ADR "Agent footprint", §2): what `ddc agent footprint` sorts by.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Held {
+    /// Condition 1: a harness ddc does not select from yet.
+    NotAHarness(OriginHarness),
+    /// Copied or moved by hand: its gitdir does not name it.
+    NotLinked,
+    /// The person's own (`origin.harness: git`).
+    Yours,
+    /// Its rule is switched off in `settings.json`.
+    RuleDisabled,
+    /// Condition 2: `<gitdir>/locked` exists.
+    Locked,
+    /// Condition 2: a process of the current user works inside it.
+    InUse,
+    /// Condition 3: used within `--worktree-min-age`.
+    Idle,
+    /// Condition 3: nothing tells when it was last used.
+    ActivityUnknown,
+    /// Condition 4.
+    Submodules,
+    /// Condition 5: uncommitted changes or untracked files.
+    Dirty,
+    /// Condition 5: ignored content, or files git does not check.
+    IgnoredContent,
+    /// Condition 6.
+    OwnCommits,
+    /// A probe failed: fail closed.
+    ProbeUnknown,
+}
+
+/// The pid in a `git worktree lock` reason, wherever `(pid N` stands in it:
+/// Claude Code writes `claude agent <name> (pid N start …)` and `claude
+/// session <name> (pid N …)`. None when the reason names no pid.
+pub fn lock_pid(reason: &str) -> Option<u32> {
+    let at = reason.find("(pid ")? + "(pid ".len();
+    let digits: String = reason[at..].chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok().filter(|&pid| pid > 0)
+}
+
+/// The reason in `<gitdir>/locked`, its first line; None without the file.
+pub fn lock_reason(linked: &Linked) -> Option<String> {
+    if fs::symlink_metadata(linked.gitdir.join("locked")).is_err() {
+        return None;
+    }
+    Some(read_line(&linked.gitdir.join("locked")).unwrap_or_default())
 }
 
 /// The most ignored paths a worktree's state lists.
@@ -211,14 +276,16 @@ struct Candidate {
     path: PathBuf,
     linked: Linked,
     state: WorktreeState,
+    /// Footprint only: it failed condition 2 or 3, whose hint it keeps.
+    early: bool,
 }
 
 /// Where a candidate's probes ended.
 enum Verdict {
     /// All six conditions hold.
     Eligible,
-    /// The first condition that failed, in words.
-    Kept(String),
+    /// The first condition that failed: its number, and why, in words.
+    Kept(u8, String),
     /// A probe failed: fail closed.
     Unknown(String),
 }
@@ -245,16 +312,23 @@ pub(crate) type Owners<'o> = dyn Fn() -> Cow<'o, [PathBuf]> + Sync + 'o;
 pub(crate) fn assess(found: &mut [Classified], worktrees: &HashMap<PathBuf, Recognized>, probing: &Probing<'_>) {
     let mut users: Option<Users> = None;
     let mut candidates = Vec::new();
+    let footprint = probing.mode == Assess::Footprint;
     for (index, c) in found.iter_mut().enumerate() {
         if !is_worktree_rule(c.rule) {
             continue;
         }
         let Some(Recognized::Linked(linked)) = worktrees.get(&c.owner.path) else { continue };
         let Some(state) = c.worktree.as_mut() else { continue };
-        if !linked.linked
-            || linked.harness == OriginHarness::Git
-            || probing.disabled_rules.iter().any(|r| r == c.rule.id)
-        {
+        if !linked.linked {
+            c.held.push(Held::NotLinked);
+            continue;
+        }
+        if linked.harness == OriginHarness::Git {
+            c.held.push(Held::Yours);
+            continue;
+        }
+        if probing.disabled_rules.iter().any(|r| r == c.rule.id) {
+            c.held.push(Held::RuleDisabled);
             continue;
         }
         let kept = |reason: &str| Some(kept_hint(&linked.main, reason));
@@ -262,34 +336,69 @@ pub(crate) fn assess(found: &mut [Classified], worktrees: &HashMap<PathBuf, Reco
         if linked.harness != OriginHarness::ClaudeCode {
             c.hint =
                 kept(&format!("made by {}, whose worktrees ddc does not select yet", harness_name(linked.harness)));
+            c.held.push(Held::NotAHarness(linked.harness));
             continue;
         }
         // 2. Unlocked and not in use.
         if state.locked == Some(true) {
             c.hint = kept("locked; git worktree unlock releases it when no session needs it");
+            c.held.push(Held::Locked);
+        }
+        if c.held.is_empty() || footprint {
+            let users = users.get_or_insert_with(|| {
+                let table = Users::read(probing.processes);
+                // Footprint is asked from inside the worktree, or about it by path.
+                match i32::try_from(std::process::id()) {
+                    Ok(own) if footprint => table.without(own),
+                    _ => table,
+                }
+            });
+            if let Some(user) = users.of(&[c.owner.path.as_path()]) {
+                state.in_use = Some(true);
+                if c.held.is_empty() {
+                    c.hint = kept(&in_use(&user));
+                }
+                c.held.push(Held::InUse);
+            } else {
+                state.in_use = Some(false);
+            }
+        }
+        if !c.held.is_empty() && !footprint {
             continue;
         }
-        let users = users.get_or_insert_with(|| Users::read(probing.processes));
-        if let Some(user) = users.of(&[c.owner.path.as_path()]) {
-            state.in_use = Some(true);
-            c.hint = kept(&in_use(&user));
-            continue;
-        }
-        state.in_use = Some(false);
         // 3. Idle by its own activity.
-        let Some(last) = project::last_activity(&c.owner.path) else {
-            c.hint = kept("nothing tells when it was last used");
-            continue;
-        };
-        let idle = probing.now.duration_since(last).unwrap_or_default();
-        state.idle_days = Some(idle.as_secs() / 86_400);
-        if idle < probing.min_age {
-            let days = idle.as_secs() / 86_400;
-            let window = probing.min_age.as_secs() / 86_400;
-            c.hint = kept(&format!("used {days} days ago, within the {window}-day window (--worktree-min-age)"));
+        match project::last_activity(&c.owner.path) {
+            None => {
+                if c.held.is_empty() {
+                    c.hint = kept("nothing tells when it was last used");
+                }
+                c.held.push(Held::ActivityUnknown);
+            }
+            Some(last) => {
+                let idle = probing.now.duration_since(last).unwrap_or_default();
+                state.idle_days = Some(idle.as_secs() / 86_400);
+                if idle < probing.min_age {
+                    let days = idle.as_secs() / 86_400;
+                    let window = probing.min_age.as_secs() / 86_400;
+                    if c.held.is_empty() {
+                        c.hint =
+                            kept(&format!("used {days} days ago, within the {window}-day window (--worktree-min-age)"));
+                    }
+                    c.held.push(Held::Idle);
+                }
+            }
+        }
+        let early = !c.held.is_empty();
+        if early && !footprint {
             continue;
         }
-        candidates.push(Candidate { index, path: c.owner.path.clone(), linked: linked.clone(), state: state.clone() });
+        candidates.push(Candidate {
+            index,
+            path: c.owner.path.clone(),
+            linked: linked.clone(),
+            state: state.clone(),
+            early,
+        });
     }
     if candidates.is_empty() {
         return;
@@ -312,7 +421,7 @@ pub(crate) fn assess(found: &mut [Classified], worktrees: &HashMap<PathBuf, Reco
                     let refs = &repos[&cand.linked.main];
                     match conditions(&git, &cand.path, &cand.linked, owners, refs, &mut cand.state) {
                         Ok(()) => Verdict::Eligible,
-                        Err(Failed::Kept(_, reason)) => Verdict::Kept(reason),
+                        Err(Failed::Kept(n, reason)) => Verdict::Kept(n, reason),
                         Err(Failed::Unknown(_, why)) => Verdict::Unknown(why),
                     }
                 }
@@ -324,16 +433,29 @@ pub(crate) fn assess(found: &mut [Classified], worktrees: &HashMap<PathBuf, Reco
         let c = &mut found[cand.index];
         cand.state.probe =
             if matches!(verdict, Verdict::Unknown(_)) { WorktreeProbe::Unknown } else { WorktreeProbe::Known };
-        c.hint = Some(match verdict {
-            Verdict::Eligible => {
-                c.class = RiskClass::Rebuildable;
-                let main = cand.linked.main.display();
-                let branch = cand.state.branch.as_deref().filter(|_| cand.state.detached == Some(false));
-                format!("a linked worktree of {main} that nothing needs any more; {}", removed(branch))
-            }
-            Verdict::Kept(reason) => kept_hint(&cand.linked.main, &reason),
-            Verdict::Unknown(why) => kept_hint(&cand.linked.main, &format!("git could not tell its state: {why}")),
-        });
+        match &verdict {
+            Verdict::Eligible => {}
+            Verdict::Kept(n, reason) => c.held.push(match n {
+                4 => Held::Submodules,
+                5 if reason.starts_with("it has uncommitted") => Held::Dirty,
+                5 => Held::IgnoredContent,
+                _ => Held::OwnCommits,
+            }),
+            Verdict::Unknown(_) => c.held.push(Held::ProbeUnknown),
+        }
+        // A footprint candidate that failed 2 or 3 keeps that hint and its class.
+        if !cand.early {
+            c.hint = Some(match verdict {
+                Verdict::Eligible => {
+                    c.class = RiskClass::Rebuildable;
+                    let main = cand.linked.main.display();
+                    let branch = cand.state.branch.as_deref().filter(|_| cand.state.detached == Some(false));
+                    format!("a linked worktree of {main} that nothing needs any more; {}", removed(branch))
+                }
+                Verdict::Kept(_, reason) => kept_hint(&cand.linked.main, &reason),
+                Verdict::Unknown(why) => kept_hint(&cand.linked.main, &format!("git could not tell its state: {why}")),
+            });
+        }
         c.worktree = Some(cand.state);
     }
 }
@@ -700,6 +822,16 @@ fn same_file(a: &Path, b: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_lock_names_its_pid_wherever_it_stands() {
+        assert_eq!(lock_pid("claude agent a1b2 (pid 4242 start 1730000000)"), Some(4242));
+        assert_eq!(lock_pid("claude session fix-it (pid 77)"), Some(77));
+        assert_eq!(lock_pid("(pid 9)"), Some(9));
+        for reason in ["", "kept for Monday", "pid 12", "(pid )", "(pid x1)", "(pid 0)"] {
+            assert_eq!(lock_pid(reason), None, "{reason:?}");
+        }
+    }
 
     #[test]
     fn resolve_follows_git_relative_paths() {

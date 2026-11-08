@@ -77,7 +77,7 @@ public struct LockStatus: Decodable, Sendable, Equatable {
 /// meets a held lock (exit 75; platform seam ADR §7, amended 2026-11-08).
 public struct BusyReport: Sendable, Equatable {
     /// `ERROR_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let errorSchemaVersion = 3
+    public static let errorSchemaVersion = 4
 
     /// The live holders whose records were found; empty when none wrote one.
     public let holders: [LockHolder]

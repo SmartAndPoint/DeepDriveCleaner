@@ -185,6 +185,7 @@ const COMMANDS: &[&str] = &[
     "space",
     "changes",
     "agent status",
+    "agent footprint",
     "keep remove",
     "lock status",
     "lock stop",

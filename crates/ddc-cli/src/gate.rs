@@ -47,6 +47,9 @@ fn refusal_for(cmd: &Command, supported: Result<(), Unsupported>, declared: &[Ca
         // Nothing in it is the platform's (seam ADR §3): it runs the clean's
         // own probe and one read, wherever `vm.docker-desktop` may be cleaned.
         Command::Disk(DiskArgs { action: Some(DiskAction::Docker(_)), .. }) => None,
+        // A walk of one project with the scan's own rules, as `scan` (which
+        // reads its absent capabilities in the report instead).
+        Command::Agent { action: AgentAction::Footprint(_) } => None,
         // Gated per action in the core (`free::run`, `dry_run`, `available`);
         // refused whole only when no action could ever run.
         Command::Disk(DiskArgs { action: Some(DiskAction::Free(_)), .. }) => {
@@ -87,6 +90,16 @@ pub fn refuse_root(foreign: &ForeignRoot, message: &str, json: bool) -> ExitCode
     eprintln!("ddc: {message}");
     if json {
         envelope(&ErrorReport::root_not_owned(foreign, message));
+    }
+    ExitCode::from(exit::REFUSED)
+}
+
+/// `ddc agent footprint`'s refusal: `message` to stderr and, when `json`,
+/// its envelope to stdout; the exit is 2.
+pub fn refuse_footprint(refused: &ddc_core::footprint::Refused, message: &str, json: bool) -> ExitCode {
+    eprintln!("ddc: {message}");
+    if json {
+        envelope(&ErrorReport::footprint(refused, message));
     }
     ExitCode::from(exit::REFUSED)
 }
@@ -157,6 +170,8 @@ mod tests {
         &["space"],
         &["space", "--json"],
         &["agent", "status", "--json"],
+        &["agent", "footprint"],
+        &["agent", "footprint", "--json"],
         &["keep", "remove", "/p", "--folder-dev", "1", "--folder-ino", "2", "--json"],
         &["schedule", "status"],
         &["lock", "status"],
@@ -275,7 +290,7 @@ mod tests {
         let unsupported = Refusal::Unsupported(UNPORTED.unwrap_err());
         let report = ErrorReport::new(&unsupported, message(&unsupported));
         let json = serde_json::to_value(&report).unwrap();
-        assert_eq!(json["error_schema_version"], 3);
+        assert_eq!(json["error_schema_version"], 4);
         assert_eq!(json["error"]["code"], "platform-not-supported");
         assert_eq!(json["error"]["platform"], "linux");
         assert_eq!(
@@ -300,7 +315,7 @@ mod tests {
         use ddc_core::platform::Foreign;
         let foreign = ForeignRoot { path: "/elsewhere".into(), why: Foreign::Owner("S-1-5-18".to_owned()) };
         let json = serde_json::to_value(ErrorReport::root_not_owned(&foreign, foreign.to_string())).unwrap();
-        assert_eq!(json["error_schema_version"], 3);
+        assert_eq!(json["error_schema_version"], 4);
         assert_eq!(json["error"]["code"], "root-not-owned");
         assert_eq!(json["error"]["root"], "/elsewhere");
         assert_eq!(json["error"]["owner"], "S-1-5-18");

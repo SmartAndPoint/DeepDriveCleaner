@@ -1,5 +1,5 @@
 {
-  "error_schema_version": 3,
+  "error_schema_version": 4,
   "error": {
     "code": "busy",
     "message": "another ddc scan or clean is running (lock /Users/example/Library/Application Support/DeepDriveCleaner/lock)",

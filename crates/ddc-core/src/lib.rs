@@ -15,6 +15,7 @@ pub mod disk;
 pub mod docker;
 pub mod env;
 pub mod exec;
+pub mod footprint;
 pub mod free;
 pub mod git;
 pub mod heap;

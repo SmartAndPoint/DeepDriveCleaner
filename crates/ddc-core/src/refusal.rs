@@ -17,8 +17,9 @@ use crate::holders::Holder;
 use crate::platform::{Capability, Foreign, ForeignRoot, Platform, Refusal};
 
 /// Version of [`ErrorReport`]. A new [`ErrorCode`] bumps it: 2 added
-/// `root-not-owned`, 3 added `busy`.
-pub const ERROR_SCHEMA_VERSION: u32 = 3;
+/// `root-not-owned`, 3 added `busy`, 4 added `not-a-repository` and
+/// `home-is-the-checkout`.
+pub const ERROR_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ErrorReport {
@@ -40,7 +41,9 @@ pub struct ErrorBody {
     /// The `disk free` action that needs the absent capability.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<ActionId>,
-    /// The scan root that is not the user's (`root-not-owned`).
+    /// The scan root that is not the user's (`root-not-owned`); the folder
+    /// asked about (`not-a-repository`); the main checkout
+    /// (`home-is-the-checkout`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(serialize_with = "crate::json_path::opt_path")]
     pub root: Option<PathBuf>,
@@ -78,6 +81,12 @@ pub enum ErrorCode {
     /// Another scan or clean holds the data-dir lock: exit 75, nothing was
     /// touched. Carries `holders`.
     Busy,
+    /// `ddc agent footprint`: the folder is not inside a git repository
+    /// (exit 2). Carries `root`.
+    NotARepository,
+    /// `ddc agent footprint`: the main checkout is the home folder; walking
+    /// it is a home scan (exit 2). Carries `root`, the main checkout.
+    HomeIsTheCheckout,
 }
 
 impl ErrorReport {
@@ -128,6 +137,27 @@ impl ErrorReport {
             root: Some(foreign.path.clone()),
             owner,
             owner_unreadable: Some(unreadable),
+            holders: None,
+            simulated: false,
+        };
+        Self { error_schema_version: ERROR_SCHEMA_VERSION, error: body }
+    }
+
+    /// The envelope of `ddc agent footprint`'s refusal, with `message` for people.
+    pub fn footprint(refused: &crate::footprint::Refused, message: impl Into<String>) -> Self {
+        let (code, root) = match refused {
+            crate::footprint::Refused::NotARepository { root } => (ErrorCode::NotARepository, root),
+            crate::footprint::Refused::HomeIsTheCheckout { main } => (ErrorCode::HomeIsTheCheckout, main),
+        };
+        let body = ErrorBody {
+            code,
+            message: message.into(),
+            platform: Some(crate::platform::PLATFORM),
+            capability: None,
+            action: None,
+            root: Some(root.clone()),
+            owner: None,
+            owner_unreadable: None,
             holders: None,
             simulated: false,
         };

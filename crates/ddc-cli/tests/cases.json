@@ -24,7 +24,7 @@
       {"path": "home/esc\u001b[2J/__pycache__/a.cpython-312.pyc", "bytes": 5000, "unix": true}
     ]
   },
-  "data_dir_commands": ["scan", "clean", "disk", "disk agents", "agent status", "disk free", "disk brew-packages", "disk docker", "keep remove", "notify ack", "notify snooze", "space", "changes", "lock status", "lock stop"],
+  "data_dir_commands": ["scan", "clean", "disk", "disk agents", "agent status", "agent footprint", "disk free", "disk brew-packages", "disk docker", "keep remove", "notify ack", "notify snooze", "space", "changes", "lock status", "lock stop"],
   "cases": [
     {
       "name": "the owner's call: scan . in ~/Projects suggests the clean of ~/Projects",
@@ -313,6 +313,12 @@
     {"name": "clean --json", "reason": "it requires --items"},
     {"name": "clean --local-snapshots", "reason": "it requires --items"},
     {"name": "disk free", "reason": "its dry run runs each tool's own dry run (brew, conda)"},
+    {"name": "agent footprint", "reason": "it needs a real git repository, which the case fixture does not make; footprint_cli.rs runs it"},
+    {"name": "agent footprint <root>", "reason": "agent footprint is never run"},
+    {"name": "agent footprint --json", "reason": "agent footprint is never run"},
+    {"name": "agent footprint --min-age", "reason": "agent footprint is never run"},
+    {"name": "agent footprint --worktree-min-age", "reason": "agent footprint is never run"},
+    {"name": "agent footprint --data-dir", "reason": "agent footprint is never run"},
     {"name": "disk docker", "reason": "it runs the machine's docker, which the cases do not fake; disk_docker_cli.rs runs it with a fake docker"},
     {"name": "disk docker --json", "reason": "disk docker is never run"},
     {"name": "disk docker --data-dir", "reason": "disk docker is never run"},
