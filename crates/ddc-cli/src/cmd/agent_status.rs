@@ -27,7 +27,7 @@ pub fn run(args: &AgentsArgs) -> anyhow::Result<ExitCode> {
     let opts = AgentsOptions { sizes: !args.no_sizes, threads: args.threads, user_skips: resolved.options.user_skips };
     let report = agents::report(&env, &opts, &procs::current_user_processes_unopened(), cancel);
     if let Some(sig) = signals::received() {
-        signals::reraise(sig);
+        ddc_core::holders::end_by_signal(sig);
     }
 
     let mut stdout = std::io::stdout().lock();

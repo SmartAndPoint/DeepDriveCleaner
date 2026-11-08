@@ -272,6 +272,11 @@ pub fn watch_event(name: &str) -> io::Result<()> {
     Ok(())
 }
 
+/// Not on Windows yet: `ddc lock stop` needs `in-use-check`.
+pub fn interrupt(_pid: i32) -> io::Result<()> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "ddc lock stop is not ported to Windows"))
+}
+
 /// Ends the process with the shell's code for a death by `sig`.
 pub fn reraise(sig: i32) -> ! {
     std::process::exit(128 + sig)

@@ -331,6 +331,12 @@ fn describe(pid: i32, bsd: &libc::proc_bsdinfo, argmax: usize) -> ProcInfo {
     info
 }
 
+/// The executable `pid` runs, every symlink resolved (`proc_pidpath`);
+/// `None` when it cannot be read. `ddc lock stop` checks it is ddc's.
+pub fn executable(pid: i32) -> Option<PathBuf> {
+    pidpath(pid)
+}
+
 /// The executable `pid` runs, every symlink resolved (`proc_pidpath`):
 /// `KERN_PROCARGS2` keeps the path passed to `execve`, which for Claude
 /// Code is its launcher link, not the build it runs.

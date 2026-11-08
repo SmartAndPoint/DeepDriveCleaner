@@ -49,7 +49,7 @@ pub fn remove(args: &KeepRemoveArgs) -> anyhow::Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    let _lock = store::try_lock(&env, LockMode::Exclusive)?;
+    let _lock = store::try_lock(&env, LockMode::Exclusive, ddc_core::holders::HolderCommand::KeepRemove)?;
     let mut journal = FileJournal::open(&env).context("cannot open the action journal")?;
     let target = Target { folder: args.folder.clone(), identity, rule: keep::kept_rule(&env, &args.folder) };
     let report = keep::unprotect(&target, &roots, &mut journal).map_err(|e| match e.kind() {

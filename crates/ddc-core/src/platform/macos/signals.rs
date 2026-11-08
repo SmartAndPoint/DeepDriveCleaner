@@ -120,6 +120,17 @@ pub fn signal_group(group: i32, sig: i32) -> io::Result<()> {
     if unsafe { libc::kill(-group, sig) } == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
 }
 
+/// Sends SIGINT to the one process `pid` (`ddc lock stop`). Refuses a pid
+/// of 1 or less: `kill(-1)` reaches every process of the user, 0 the
+/// caller's group, and 1 is init.
+pub fn interrupt(pid: i32) -> io::Result<()> {
+    if pid <= 1 {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("not a process to interrupt: {pid}")));
+    }
+    // SAFETY: kill(2) with a positive pid signals that one process; no memory is involved.
+    if unsafe { libc::kill(pid, libc::SIGINT) } == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
 /// Ends the process by `sig`: restores its default action, unblocks it and
 /// raises it. Call after the report is written and stdout flushed.
 pub fn reraise(sig: i32) -> ! {

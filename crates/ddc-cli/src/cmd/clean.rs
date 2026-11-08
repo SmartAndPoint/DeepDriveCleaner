@@ -82,7 +82,15 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
             return Ok(ExitCode::SUCCESS);
         }
     }
-    let _lock = store::try_lock(&env, LockMode::Exclusive)?;
+    let _lock = store::try_lock(
+        &env,
+        LockMode::Exclusive,
+        if args.dry_run {
+            ddc_core::holders::HolderCommand::CleanDryRun
+        } else {
+            ddc_core::holders::HolderCommand::Clean
+        },
+    )?;
     let reporter = progress::Reporter::new(args.progress.is_some());
     reporter.phase(Phase::Preparing);
 
@@ -197,7 +205,7 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
     prompt::print_result(&mut out, &result, &scanned.home, &journal_path, &style)?;
     out.flush()?;
     if let Some(sig) = ddc_core::platform::signals::received() {
-        ddc_core::platform::signals::reraise(sig);
+        ddc_core::holders::end_by_signal(sig);
     }
     let failed = result
         .items

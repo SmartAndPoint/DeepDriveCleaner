@@ -58,7 +58,7 @@ pub fn run(args: DiskArgs) -> anyhow::Result<ExitCode> {
     };
     drop(stdout);
     if let Some(sig) = signals::received() {
-        signals::reraise(sig);
+        ddc_core::holders::end_by_signal(sig);
     }
     saved?;
     match written {

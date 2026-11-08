@@ -12,6 +12,7 @@ use std::time::{Duration, SystemTime};
 
 use ddc_core::changes::{ChangesReport, ItemKind, Reason, Status};
 use ddc_core::env::Env;
+use ddc_core::holders::HolderCommand;
 use ddc_core::model::ScanReport;
 use ddc_core::store::{self, LockMode};
 use ddc_loadgen::isolate::ClearEnv as _;
@@ -160,7 +161,7 @@ fn changes_reads_without_the_lock_writes_nothing_and_honours_ddc_data_dir() {
     fx.scan();
     let before = fx.files();
     let env = Env::with_paths(&fx.home, &fx.data, &fx.data.join("logs"), SystemTime::now()).unwrap();
-    let lock = store::try_lock(&env, LockMode::Exclusive).unwrap();
+    let lock = store::try_lock(&env, LockMode::Exclusive, HolderCommand::Clean).unwrap();
     let held = fx.files();
     std::thread::sleep(Duration::from_millis(20));
     let r = fx.changes();

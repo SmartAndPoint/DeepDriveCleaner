@@ -183,6 +183,7 @@ mod pins {
     const _: fn(i32) -> Vec<PathBuf> = imp::procs::open_files;
     const _: fn(i32) -> Vec<OpenVnode> = imp::procs::open_vnodes;
     const _: fn(i32) -> Option<ProcStart> = imp::procs::process_start;
+    const _: fn(i32) -> Option<PathBuf> = imp::procs::executable;
     const _: fn(i32) -> Option<u32> = imp::procs::thread_count;
     const _: fn() -> Vec<String> = imp::procs::other_user_names;
     const _: fn() -> bool = imp::procs::process_table_hidden;
@@ -197,6 +198,7 @@ mod pins {
     const _: fn(i32, i32) = imp::signals::kill_group;
     const _: fn(i32, i32) -> io::Result<()> = imp::signals::signal_group;
     const _: fn(i32) -> ! = imp::signals::reraise;
+    const _: fn(i32) -> io::Result<()> = imp::signals::interrupt;
     const _: fn(&str) -> io::Result<()> = imp::signals::watch_event;
     const _: i32 = imp::signals::SIGKILL;
 

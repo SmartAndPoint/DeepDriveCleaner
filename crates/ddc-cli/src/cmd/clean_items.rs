@@ -67,7 +67,7 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
         return dry_run(args, &env, &catalog, &list, &resolved.options);
     }
 
-    let _lock = store::try_lock(&env, LockMode::Exclusive)?;
+    let _lock = store::try_lock(&env, LockMode::Exclusive, ddc_core::holders::HolderCommand::CleanItems)?;
     let reporter = progress::Reporter::new(args.progress.is_some());
     reporter.phase(Phase::Preparing);
     let opts = ScanOptions { walk: WalkOptions::default(), ..resolved.options };
@@ -217,7 +217,7 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
     // A signal stopped the run (or arrived after it): end by it, so the caller
     // sees a cancel, with the report already on stdout.
     if let Some(sig) = signals::received() {
-        signals::reraise(sig);
+        ddc_core::holders::end_by_signal(sig);
     }
     // With --json the report carries failures; the run itself succeeded. As
     // plain `clean`, the text mode fails on an item that failed.
@@ -234,7 +234,7 @@ fn dry_run(
     list: &ListedItems,
     opts: &ScanOptions,
 ) -> anyhow::Result<ExitCode> {
-    let _lock = store::try_lock(env, LockMode::Shared)?;
+    let _lock = store::try_lock(env, LockMode::Shared, ddc_core::holders::HolderCommand::CleanItemsDryRun)?;
     let commands = SystemCommands::new(env);
     let ports = PreflightPorts {
         commands: &commands,

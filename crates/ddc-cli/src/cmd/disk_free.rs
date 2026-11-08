@@ -74,14 +74,14 @@ pub fn run(args: &FreeArgs) -> anyhow::Result<ExitCode> {
     // lock or the journal is touched (exit 69 in `main`).
     free::check_capabilities(&ctx, &list)?;
     if args.dry_run {
-        let _lock = store::try_lock(&env, LockMode::Shared)?;
+        let _lock = store::try_lock(&env, LockMode::Shared, ddc_core::holders::HolderCommand::DiskFreeDryRun)?;
         let report = FreeReport::new(true, free::dry_run(&ctx, &list)?);
         print(args, &report, &env, &style)?;
         end_by_signal();
         return Ok(ExitCode::SUCCESS);
     }
 
-    let _lock = store::try_lock(&env, LockMode::Exclusive)?;
+    let _lock = store::try_lock(&env, LockMode::Exclusive, ddc_core::holders::HolderCommand::DiskFree)?;
     let mut journal = FileJournal::open(&env).context("cannot open the action journal")?;
     // A platform refusal keeps its own message, and `main` still finds it (exit 69).
     let actions = free::run(&ctx, &list, &mut journal).map_err(|e| match e.kind() {
@@ -103,7 +103,7 @@ pub fn run(args: &FreeArgs) -> anyhow::Result<ExitCode> {
 /// report already on stdout.
 fn end_by_signal() {
     if let Some(sig) = signals::received() {
-        signals::reraise(sig);
+        ddc_core::holders::end_by_signal(sig);
     }
 }
 
@@ -121,7 +121,7 @@ fn ask(ctx: &FreeContext<'_>, env: &Env, args: &FreeArgs, style: &Style) -> anyh
         return Ok(None);
     }
     let previews = {
-        let _lock = store::try_lock(env, LockMode::Shared)?;
+        let _lock = store::try_lock(env, LockMode::Shared, ddc_core::holders::HolderCommand::DiskFreeDryRun)?;
         free::dry_run(ctx, &available)?
     };
     render::free(&mut out, &FreeReport::new(true, previews.clone()), env.home(), style)?;

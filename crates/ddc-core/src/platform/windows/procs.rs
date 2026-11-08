@@ -444,6 +444,12 @@ pub fn open_vnodes(_pid: i32) -> Vec<OpenVnode> {
     Vec::new()
 }
 
+/// Not read on Windows yet: `ddc lock` needs `in-use-check`, which Windows
+/// does not declare.
+pub fn executable(_pid: i32) -> Option<PathBuf> {
+    None
+}
+
 /// The start of `pid`, of any user; `None` when there is no such process.
 /// A process whose token cannot be read counts as the user's: the start
 /// time already tells a reused pid, so a live session is never lost to it.

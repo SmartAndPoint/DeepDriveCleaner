@@ -13,6 +13,7 @@ use std::time::SystemTime;
 
 use ddc_core::env::Env;
 use ddc_core::free::{ActionResult, FreeReport, Refusal, ReportEdit};
+use ddc_core::holders::HolderCommand;
 use ddc_core::platform::Capability;
 use ddc_core::store::{self, LockMode};
 use ddc_loadgen::isolate::ClearEnv as _;
@@ -361,14 +362,14 @@ fn a_held_lock_exits_75_and_runs_nothing() {
     }
     let fx = Fx::new();
     let env = fx.env();
-    let held = store::try_lock(&env, LockMode::Shared).unwrap();
+    let held = store::try_lock(&env, LockMode::Shared, HolderCommand::Scan).unwrap();
     let out = fx.free(BREW, &["--json"]);
     assert_eq!(out.status.code(), Some(75));
     assert!(!fx.calls("brew").iter().any(|c| c.starts_with("cleanup")));
     drop(held);
 
     // The dry run shares the lock with a scan.
-    let _scan = store::try_lock(&env, LockMode::Shared).unwrap();
+    let _scan = store::try_lock(&env, LockMode::Shared, HolderCommand::Scan).unwrap();
     assert!(fx.free(BREW, &["--dry-run", "--json"]).status.success());
 }
 
@@ -526,7 +527,7 @@ fn a_conda_action_under_a_held_lock_exits_75_and_runs_no_conda() {
         return;
     }
     let fx = Fx::new().with_conda();
-    let held = store::try_lock(&fx.env(), LockMode::Shared).unwrap();
+    let held = store::try_lock(&fx.env(), LockMode::Shared, HolderCommand::Scan).unwrap();
     let env = format!("{}/envs/old", fx.opt_conda());
     let out = fx.free(&fx.conda_list("conda-env-remove", &env), &["--json"]);
     assert_eq!(out.status.code(), Some(75));

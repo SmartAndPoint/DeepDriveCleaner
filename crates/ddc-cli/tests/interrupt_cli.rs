@@ -1,6 +1,6 @@
 //! An interrupted scan or clean leaves a consistent state (story "Coverage
 //! floor and property tests for the safety invariants", DDC-005): a scan
-//! killed mid-walk, a clean stopped by SIGTERM after some items, a SIGKILL
+//! killed mid-walk, a clean stopped by SIGTERM or SIGINT after some items, a SIGKILL
 //! during one large deletion, and a temp file of the saved scan left behind.
 //! After each, the data-dir lock is free, `last-scan.json` is the previous
 //! file or a complete new one, a second run works and nothing outside the
@@ -262,6 +262,16 @@ fn stop_and_signal(w: &mut Watched, sig: i32) -> bool {
     true
 }
 
+/// The lock-holder records in `data`, as JSON.
+fn holder_records(data: &Path) -> Vec<serde_json::Value> {
+    let Ok(dir) = fs::read_dir(data.join(ddc_core::holders::HOLDERS_DIR)) else { return Vec::new() };
+    dir.map(|e| e.unwrap().path())
+        .filter(|p| !p.file_name().unwrap().to_string_lossy().starts_with('.'))
+        .filter_map(|p| fs::read(p).ok())
+        .map(|bytes| serde_json::from_slice(&bytes).unwrap())
+        .collect()
+}
+
 /// `.last-scan.json.tmp-*` and `.previous-scan.json.tmp-*` files in `data`.
 fn temp_files(data: &Path) -> Vec<String> {
     fs::read_dir(data)
@@ -293,12 +303,16 @@ fn a_scan_killed_mid_walk_leaves_the_saved_scan_whole_and_the_lock_free() {
 
             if interrupted {
                 assert_eq!(status.signal(), Some(sig), "a scan has no handler: the signal ends it");
+                let left = holder_records(t.data());
+                assert_eq!(left.len(), 1, "a killed holder leaves its record: {left:?}");
+                assert_eq!(left[0]["command"], "scan");
             } else {
                 assert!(status.success(), "the scan ended before the stop: {status}");
             }
             t.assert_consistent(&previous);
             let again = t.scan();
             t.assert_consistent(&again);
+            assert_eq!(holder_records(t.data()), Vec::<serde_json::Value>::new(), "the next holder swept it");
             if interrupted {
                 break;
             }
@@ -309,7 +323,18 @@ fn a_scan_killed_mid_walk_leaves_the_saved_scan_whole_and_the_lock_free() {
 
 #[test]
 fn a_clean_stopped_after_its_kth_item_ends_the_current_one_and_runs_no_other() {
-    if common::unsupported("a_clean_stopped_after_its_kth_item_ends_the_current_one_and_runs_no_other") {
+    stopped_after_kth("a_clean_stopped_after_its_kth_item_ends_the_current_one_and_runs_no_other", libc::SIGTERM);
+}
+
+/// SIGINT is Ctrl-C, and what `ddc lock stop` sends.
+#[test]
+fn a_clean_interrupted_after_its_kth_item_ends_the_current_one_and_leaves_no_record() {
+    stopped_after_kth("a_clean_interrupted_after_its_kth_item_ends_the_current_one_and_leaves_no_record", libc::SIGINT);
+}
+
+/// A `clean --items` stopped by `sig` once its k-th item event is read.
+fn stopped_after_kth(test: &str, sig: i32) {
+    if common::unsupported(test) {
         return;
     }
     const K: usize = 3;
@@ -322,10 +347,23 @@ fn a_clean_stopped_after_its_kth_item_ends_the_current_one_and_runs_no_other() {
     let mut w = Watched::spawn(t.ddc(&["clean", "--items", list.to_str().unwrap(), "--json", "--progress", "json"]));
     w.wait_for("the k-th item event", K, |e| e["event"] == "item");
 
-    assert!(stop_and_signal(&mut w, libc::SIGTERM), "the clean ended before the stop");
+    assert!(w.stop(), "the clean ended before the stop");
+    // While it runs, its record says what it is and how far it got.
+    let records = holder_records(t.data());
+    assert_eq!(records.len(), 1, "{records:?}");
+    let r = &records[0];
+    assert_eq!(
+        (r["command"].as_str(), r["mode"].as_str(), r["phase"].as_str()),
+        (Some("clean-items"), Some("exclusive"), Some("cleaning"))
+    );
+    assert!(r["progress"]["done"].as_u64().unwrap() >= 1, "{r}");
+    assert_eq!(r["progress"]["total"].as_u64(), Some(n as u64), "{r}");
+    w.signal(sig);
+    w.resume();
     let (status, stdout, events) = w.finish();
 
-    assert_eq!(status.signal(), Some(libc::SIGTERM), "the clean ends by the signal it got");
+    assert_eq!(status.signal(), Some(sig), "the clean ends by the signal it got");
+    assert_eq!(holder_records(t.data()), Vec::<serde_json::Value>::new(), "forgotten before the signal ended it");
     // Each item's event follows its outcome, and the stop comes some time
     // after the k-th is read: at least k items ran, then only `not-run`.
     let outcomes: Vec<&str> =
