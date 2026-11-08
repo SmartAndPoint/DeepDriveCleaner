@@ -6,13 +6,13 @@ use std::path::{Path, PathBuf};
 
 use super::{NotRead, NotReadKind};
 use crate::model::ScanReport;
-use crate::rules::{Catalog, Matcher};
+use crate::rules::Matcher;
 use crate::scan::SkipReason;
 
 /// The cloud folders of the platform's catalog (the `user.cloud` rule,
 /// never read), under `home`. None where the catalog has no such rule.
 pub fn cloud_roots(home: &Path) -> Vec<PathBuf> {
-    match Catalog::builtin(home).by_id("user.cloud").map(|r| &r.matcher) {
+    match crate::rules::RULES.iter().find(|r| r.id == "user.cloud").map(|r| &r.matcher) {
         Some(Matcher::NoTraverse(paths)) => paths.iter().map(|p| home.join(p)).collect(),
         _ => Vec::new(),
     }

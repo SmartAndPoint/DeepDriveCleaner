@@ -36,7 +36,7 @@ pub fn run(args: DuArgs) -> anyhow::Result<ExitCode> {
     let mut stdout = std::io::stdout().lock();
     let out = if args.rules {
         let env = Env::from_process(None)?;
-        let catalog = Catalog::builtin(env.home());
+        let catalog = Catalog::builtin(&env);
         let visitor = RuleVisitor::new(&catalog, Vec::new());
         let out = scan::walk(&roots, &visitor, &opts, &progress)?;
         for f in classify(&out, &visitor) {

@@ -636,7 +636,7 @@ proptest! {
     fn every_directory_gets_the_reference_verdict_from_the_rule_visitor(t in trees()) {
         let (tb, excludes) = on_disk(&t);
         let home = tb.root();
-        let catalog = Catalog::builtin(home);
+        let catalog = Catalog::for_home(home);
         let visitor = RuleVisitor::new(&catalog, excludes);
         for rel in &t.dirs {
             let real = visitor_verdict(&visitor, &catalog, home, &t, rel);
@@ -657,7 +657,7 @@ proptest! {
         }
         let (tb, excludes) = on_disk(&t);
         let home = tb.root();
-        let catalog = Catalog::builtin(home);
+        let catalog = Catalog::for_home(home);
         let visitor = RuleVisitor::new(&catalog, excludes);
         let found = walk_found(&visitor, &catalog, home);
         prop_assert_eq!(&found, &reference_walk(&t));
@@ -684,7 +684,7 @@ fn names_that_differ_only_in_case_are_one_folder() {
     let t = Tree::build(vec![seed("caches"), seed("Caches")], None);
     assert!(!t.dirs.contains(Path::new(".gradle/Caches")), "{:?}", t.dirs);
     let (tb, excludes) = on_disk(&t);
-    let catalog = Catalog::builtin(tb.root());
+    let catalog = Catalog::for_home(tb.root());
     let visitor = RuleVisitor::new(&catalog, excludes);
     assert_eq!(walk_found(&visitor, &catalog, tb.root()), reference_walk(&t));
 }

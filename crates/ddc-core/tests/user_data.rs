@@ -93,7 +93,7 @@ impl Home {
     }
 
     fn catalog(&self) -> Catalog {
-        Catalog::builtin(self.tree.root())
+        Catalog::for_home(self.tree.root())
     }
 
     /// An entry as the app lists it when picked: to the Trash, never permanent.

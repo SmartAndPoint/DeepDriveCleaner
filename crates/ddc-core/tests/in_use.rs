@@ -54,7 +54,7 @@ impl Home {
     }
 
     fn catalog(&self) -> Catalog {
-        Catalog::builtin(self.tree.root())
+        Catalog::for_home(self.tree.root())
     }
 
     fn scan(&self) -> ScanReport {

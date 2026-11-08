@@ -110,7 +110,7 @@ fn a_finding_inside_a_subvolume_is_deleted() {
     let env = Env::with_paths(tree.root(), data.path(), &data.path().join("logs"), now).unwrap();
     let scanned = report::scan(&env, &ScanOptions::default(), &Progress::default()).unwrap();
     let opts = PlanOptions { permanent: true, ..PlanOptions::default() };
-    let plan = build_plan(&scanned, &Catalog::builtin(tree.root()), &opts);
+    let plan = build_plan(&scanned, &Catalog::for_home(tree.root()), &opts);
     assert!(plan.items.iter().any(|i| i.finding.path == tree.path("sv/p/node_modules")), "{plan:#?}");
 
     let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
@@ -123,7 +123,7 @@ fn a_finding_inside_a_subvolume_is_deleted() {
         journal: &mut journal,
     };
     let report =
-        exec::execute(&env, &Catalog::builtin(tree.root()), &plan, &consent, ports, &ExecOptions::default()).unwrap();
+        exec::execute(&env, &Catalog::for_home(tree.root()), &plan, &consent, ports, &ExecOptions::default()).unwrap();
     let nm = report.items.iter().find(|i| i.path == tree.path("sv/p/node_modules")).expect("planned");
     assert_eq!(nm.outcome, Outcome::Deleted, "{report:#?}");
     assert!(!tree.path("sv/p/node_modules").exists());
@@ -178,7 +178,7 @@ fn the_guard_refuses_a_finding_that_is_a_subvolume_whatever_the_plan_says() {
     assert!(finding.incomplete, "the scan marks it");
     finding.incomplete = false;
     let opts = PlanOptions { permanent: true, ..PlanOptions::default() };
-    let plan = build_plan(&scanned, &Catalog::builtin(tree.root()), &opts);
+    let plan = build_plan(&scanned, &Catalog::for_home(tree.root()), &opts);
     assert!(plan.items.iter().any(|i| i.finding.path == nm), "{plan:#?}");
 
     let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
@@ -191,7 +191,7 @@ fn the_guard_refuses_a_finding_that_is_a_subvolume_whatever_the_plan_says() {
         journal: &mut journal,
     };
     let report =
-        exec::execute(&env, &Catalog::builtin(tree.root()), &plan, &consent, ports, &ExecOptions::default()).unwrap();
+        exec::execute(&env, &Catalog::for_home(tree.root()), &plan, &consent, ports, &ExecOptions::default()).unwrap();
     let item = report.items.iter().find(|i| i.path == nm).expect("planned");
     assert_eq!(item.outcome, Outcome::Skipped(Skip::Incomplete), "{report:#?}");
     assert!(tree.path("p/node_modules/dep/index.js").exists(), "nothing removed");
@@ -264,7 +264,7 @@ fn a_saved_scan_and_a_keep_record_still_match_after_a_remount() {
     assert_eq!((nm.dev, nm.ino), meta::lstat(&nm.path).unwrap().id());
 
     let opts = PlanOptions { permanent: true, ..PlanOptions::default() };
-    let plan = build_plan(&saved, &Catalog::builtin(&home), &opts);
+    let plan = build_plan(&saved, &Catalog::for_home(&home), &opts);
     assert!(plan.items.iter().any(|i| i.finding.path == nm.path), "{plan:#?}");
     let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
     let data = tempfile::tempdir().unwrap();
@@ -277,7 +277,7 @@ fn a_saved_scan_and_a_keep_record_still_match_after_a_remount() {
         journal: &mut journal,
     };
     let report =
-        exec::execute(&env, &Catalog::builtin(&home), &plan, &consent, ports, &ExecOptions::default()).unwrap();
+        exec::execute(&env, &Catalog::for_home(&home), &plan, &consent, ports, &ExecOptions::default()).unwrap();
     let item = report.items.iter().find(|i| i.path == nm.path).expect("planned");
     assert_eq!(item.outcome, Outcome::Deleted, "{report:#?}");
     assert!(!nm.path.exists());

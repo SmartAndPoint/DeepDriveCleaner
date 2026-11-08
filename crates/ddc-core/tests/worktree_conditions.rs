@@ -370,7 +370,7 @@ fn unique_ignored_content_keeps_the_worktree() {
     assert_eq!((venv.rule.as_str(), venv.class), ("python.venv", RiskClass::Review), "still its own review finding");
     let plan = build_plan(
         &r,
-        &Catalog::builtin(h.t.root()),
+        &Catalog::for_home(h.t.root()),
         &PlanOptions { classes: vec![RiskClass::Rebuildable], ..PlanOptions::default() },
     );
     for file in [a.join(".env"), b.join("state/local-only.txt"), c.join(".venv/pyvenv.cfg")] {

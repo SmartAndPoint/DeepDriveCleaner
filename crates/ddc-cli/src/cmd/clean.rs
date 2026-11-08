@@ -119,7 +119,7 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
         min_size: args.min_size.unwrap_or(0),
         permanent: args.permanent,
     };
-    let catalog = Catalog::builtin(env.home());
+    let catalog = Catalog::builtin(&env);
     let mut plan = build_plan(&scanned, &catalog, &plan_opts);
 
     let style = Style { color: render::use_color(std::io::stdout().is_terminal(), Env::no_color()), all: false };

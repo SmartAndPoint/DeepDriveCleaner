@@ -210,7 +210,7 @@ fn a_clean_through_the_recycle_bin_moves_what_fits_and_skips_a_folder_too_large_
     let env = Env::with_paths(t.root(), data.path(), &data.path().join("logs"), now).unwrap();
     let opts = ScanOptions { walk: WalkOptions { threads: Some(2), ..Default::default() }, ..Default::default() };
     let scan = report::scan(&env, &opts, &Progress::default()).unwrap();
-    let catalog = Catalog::builtin(t.root());
+    let catalog = Catalog::for_home(t.root());
     let mut plan = build_plan(&scan, &catalog, &PlanOptions::default());
     plan.items.iter_mut().for_each(|i| i.selected = true);
     let mut journal = MemoryJournal::default();

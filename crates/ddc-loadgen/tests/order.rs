@@ -74,7 +74,7 @@ impl Case {
             None => report::scan_with(&self.env, &opts, &progress, &SystemStatFs),
         }
         .unwrap();
-        let plan = build_plan(&report, &Catalog::builtin(self.env.home()), &PlanOptions::default());
+        let plan = build_plan(&report, &Catalog::for_home(self.env.home()), &PlanOptions::default());
         (comparable(&report), plan)
     }
 }

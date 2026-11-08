@@ -62,7 +62,7 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
     if !resolved.dropped_excludes.is_empty() {
         return refuse(&prompt::dropped_excludes(&resolved.dropped_excludes, env.home()));
     }
-    let catalog = Catalog::builtin(env.home());
+    let catalog = Catalog::builtin(&env);
     if args.dry_run {
         return dry_run(args, &env, &catalog, &list, &resolved.options);
     }

@@ -171,7 +171,7 @@ pub fn measure_with(
     }
     let hide = data_root.as_deref().and_then(|root| own_home_in_users(root, env.home()));
 
-    let catalog = Catalog::builtin(env.home());
+    let catalog = Catalog::builtin(env);
     let mut budgeted: Vec<bool> = AREAS.iter().map(|d| d.budgeted).collect();
     budgeted.push(false);
     let visitor = DiskVisitor {

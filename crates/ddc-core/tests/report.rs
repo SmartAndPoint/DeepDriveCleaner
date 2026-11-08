@@ -282,7 +282,7 @@ fn ignored_findings_keep_their_reason_and_leave_the_totals_and_the_plan() {
     assert_eq!(class_bytes + r.totals.ignored_bytes, r.findings.iter().map(|f| f.bytes).sum::<u64>());
     assert_eq!(r.totals.selected_bytes, venv.bytes + tombstone.bytes);
 
-    let plan = build_plan(&r, &Catalog::builtin(t.root()), &PlanOptions::default());
+    let plan = build_plan(&r, &Catalog::for_home(t.root()), &PlanOptions::default());
     assert!(plan.items.iter().all(|i| !i.finding.ignored), "a plan never holds an ignored finding");
     assert!(plan.items.iter().any(|i| i.finding.path == tombstone.path));
 }

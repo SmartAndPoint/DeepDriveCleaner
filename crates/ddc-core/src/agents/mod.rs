@@ -208,7 +208,7 @@ struct Found {
 pub fn report(env: &Env, opts: &AgentsOptions, procs: &[ProcInfo], cancel: &AtomicBool) -> AgentsReport {
     let started = Instant::now();
     let home = env.home();
-    let catalog = Catalog::builtin(home);
+    let catalog = Catalog::builtin(env);
     let skipped = |path: &Path| catalog.never_open(path, &opts.user_skips).is_some();
     let pids: Vec<i32> = procs.iter().map(|p| p.pid).collect();
     let dirs = InstallDirs::under(home);

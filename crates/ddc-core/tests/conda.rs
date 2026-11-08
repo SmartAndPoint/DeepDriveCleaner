@@ -87,7 +87,7 @@ impl Fx {
     }
 
     fn catalog(&self) -> Catalog {
-        Catalog::builtin(self.home.root())
+        Catalog::for_home(self.home.root())
     }
 
     fn prefix(&self) -> PathBuf {

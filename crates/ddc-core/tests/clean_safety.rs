@@ -79,7 +79,7 @@ impl Fx {
     }
 
     fn plan(&self) -> Plan {
-        build_plan(&self.scan(), &Catalog::builtin(self.t.root()), &PlanOptions::default())
+        build_plan(&self.scan(), &Catalog::for_home(self.t.root()), &PlanOptions::default())
     }
 
     fn run(
@@ -107,7 +107,7 @@ impl Fx {
         let env = self.env();
         exec::execute(
             &env,
-            &Catalog::builtin(self.t.root()),
+            &Catalog::for_home(self.t.root()),
             plan,
             &consent,
             Ports { commands, trash: &trash, procs, journal },
@@ -239,6 +239,101 @@ fn protected_directories_and_project_roots_are_refused_even_if_planned() {
     assert!(fx.t.path("Documents/cv.pdf").exists() && nm.exists());
 }
 
+/// `APPDATA` and `LOCALAPPDATA` are protected wherever they point, with
+/// every ancestor (safety ADR §6, Windows, redirected folders, planned
+/// 2026-11-08): a `CACHEDIR.TAG` above a redirected folder is no finding,
+/// and a plan item at the folder or above it is refused.
+#[test]
+fn a_redirected_folder_and_its_ancestors_are_never_claimed_or_removed() {
+    if common::unsupported("a_redirected_folder_and_its_ancestors_are_never_claimed_or_removed") {
+        return;
+    }
+    let fx = Fx::new();
+    let nm = fx.node_project("p");
+    fx.t.write("Profiles/CACHEDIR.TAG", common::fixtures::TAG);
+    fx.t.file("Profiles/Roaming/app/settings.json", 100);
+    let (profiles, roaming) = (fx.t.path("Profiles"), fx.t.path("Profiles/Roaming"));
+    let plain = fx.scan();
+    assert!(plain.findings.iter().any(|f| f.path == profiles), "without the redirect the tag claims it");
+
+    let env = fx.env().with_redirected(vec![roaming.clone()]);
+    let opts = ScanOptions { walk: WalkOptions { threads: Some(2), ..Default::default() }, ..Default::default() };
+    let scan = report::scan(&env, &opts, &Progress::default()).unwrap();
+    assert!(!scan.findings.iter().any(|f| roaming.starts_with(&f.path)), "{:#?}", scan.findings);
+
+    let catalog = Catalog::builtin(&env);
+    let mut plan = build_plan(&plain, &catalog, &PlanOptions::default());
+    let template = plan.items.iter().find(|i| i.finding.path == nm).unwrap().clone();
+    let forged = |path: &Path| {
+        let mut item = template.clone();
+        item.finding.path = path.to_path_buf();
+        item
+    };
+    plan.items = vec![forged(&roaming), forged(&profiles)];
+    let trash = FakeTrash(fx.data.path().join("FakeTrash"));
+    let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
+    let (commands, procs, mut journal) = (FakeCommands::default(), FakeProcs::new(vec![]), MemoryJournal::default());
+    let ports = Ports { commands: &commands, trash: &trash, procs: &procs, journal: &mut journal };
+    let r = exec::execute(&env, &catalog, &plan, &consent, ports, &ExecOptions::default()).unwrap();
+
+    assert_eq!(outcome(&r, &roaming), &Outcome::Skipped(SkipReason::Protected));
+    assert_eq!(outcome(&r, &profiles), &Outcome::Skipped(SkipReason::Protected), "its ancestor");
+    assert!(fx.t.path("Profiles/Roaming/app/settings.json").exists());
+}
+
+/// A redirected folder reached through a junction is protected at the
+/// folder it resolves to, with that spelling's ancestors; one on a share is
+/// kept as written and never resolved (safety ADR §6, Windows, redirected
+/// folders, planned 2026-11-08).
+#[cfg(windows)]
+#[test]
+fn a_redirected_folder_is_protected_in_every_spelling_and_a_share_is_never_resolved() {
+    if common::unsupported("a_redirected_folder_is_protected_in_every_spelling_and_a_share_is_never_resolved") {
+        return;
+    }
+    let fx = Fx::new();
+    let nm = fx.node_project("p");
+    fx.t.file("Data/Profile/Roaming/app/settings.json", 100);
+    let target = fx.t.path("Data/Profile/Roaming");
+    // cmd takes only `\` as a separator; the tree builder joins with `/`.
+    let backslashed = |p: PathBuf| p.to_string_lossy().replace('/', "\\");
+    let made = std::process::Command::new("cmd")
+        .arg("/C")
+        .arg("mklink")
+        .arg("/J")
+        .arg(backslashed(fx.t.path("Roaming")))
+        .arg(backslashed(target.clone()))
+        .output()
+        .unwrap();
+    assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stdout));
+    let env = fx.env().with_redirected(vec![fx.t.path("Roaming")]);
+    assert_eq!(env.redirected().len(), 2, "as written and as it resolves: {:?}", env.redirected());
+
+    let catalog = Catalog::builtin(&env);
+    let mut plan = fx.plan();
+    let template = plan.items.iter().find(|i| i.finding.path == nm).unwrap().clone();
+    let forged = |path: &Path| {
+        let mut item = template.clone();
+        item.finding.path = path.to_path_buf();
+        item
+    };
+    let profile = fx.t.path("Data/Profile");
+    plan.items = vec![forged(&target), forged(&profile)];
+    let trash = FakeTrash(fx.data.path().join("FakeTrash"));
+    let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
+    let (commands, procs, mut journal) = (FakeCommands::default(), FakeProcs::new(vec![]), MemoryJournal::default());
+    let ports = Ports { commands: &commands, trash: &trash, procs: &procs, journal: &mut journal };
+    let r = exec::execute(&env, &catalog, &plan, &consent, ports, &ExecOptions::default()).unwrap();
+    assert_eq!(outcome(&r, &target), &Outcome::Skipped(SkipReason::Protected), "the folder it resolves to");
+    assert_eq!(outcome(&r, &profile), &Outcome::Skipped(SkipReason::Protected), "an ancestor of that spelling");
+    assert!(target.join("app/settings.json").exists());
+
+    let share = PathBuf::from(r"\\ddc-test.invalid\share\Roaming");
+    let env = fx.env().with_redirected(vec![share.clone()]);
+    assert_eq!(env.redirected(), std::slice::from_ref(&share), "never resolved");
+    assert!(Catalog::builtin(&env).protected().contains(&share));
+}
+
 #[test]
 fn assume_yes_never_touches_review_and_rejects_review_class() {
     if common::unsupported("assume_yes_never_touches_review_and_rejects_review_class") {
@@ -269,7 +364,7 @@ fn assume_yes_never_touches_review_and_rejects_review_class() {
     let mut journal = MemoryJournal::default();
     let err = exec::execute(
         &fx.env(),
-        &Catalog::builtin(fx.t.root()),
+        &Catalog::for_home(fx.t.root()),
         &plan,
         &Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Review] },
         Ports {
@@ -336,7 +431,7 @@ fn a_trash_that_would_cross_skips_the_item_and_a_told_place_is_journaled() {
         let env = fx.env();
         let r = exec::execute(
             &env,
-            &Catalog::builtin(fx.t.root()),
+            &Catalog::for_home(fx.t.root()),
             &plan,
             &Consent::Interactive,
             ports,
@@ -382,7 +477,7 @@ fn the_recycle_bins_refusal_hold_and_destruction_are_reported_as_such() {
         let env = fx.env();
         let r = exec::execute(
             &env,
-            &Catalog::builtin(fx.t.root()),
+            &Catalog::for_home(fx.t.root()),
             &plan,
             &Consent::Interactive,
             ports,
@@ -1170,7 +1265,7 @@ fn review_items_default_to_the_trash_unless_permanent() {
     let venv = fx.t.path("nolock/.venv");
     fx.t.write("nolock/.venv/pyvenv.cfg", "x");
     let report = fx.scan();
-    let catalog = Catalog::builtin(fx.t.root());
+    let catalog = Catalog::for_home(fx.t.root());
 
     let action = |permanent| {
         let plan = build_plan(&report, &catalog, &PlanOptions { permanent, ..PlanOptions::default() });
@@ -1230,7 +1325,7 @@ fn the_executor_refuses_actions_the_rule_does_not_allow() {
         fx.t.path("Library/Application Support/MobileSync/Backup")
     });
     let report = fx.scan();
-    let mut plan = build_plan(&report, &Catalog::builtin(fx.t.root()), &PlanOptions::default());
+    let mut plan = build_plan(&report, &Catalog::for_home(fx.t.root()), &PlanOptions::default());
     use ddc_core::plan::Action;
     plan.items = std::iter::once(&docker)
         .chain(&backups)
@@ -1723,7 +1818,7 @@ fn the_hook_says_cleaning_with_no_items_and_nothing_when_execute_refuses() {
     let mut journal = MemoryJournal::default();
     let result = exec::execute(
         &fx.env(),
-        &Catalog::builtin(fx.t.root()),
+        &Catalog::for_home(fx.t.root()),
         &fx.plan(),
         &Consent::AssumeYes { classes: vec![RiskClass::Review] },
         Ports {
@@ -1868,7 +1963,7 @@ fn a_fifo_and_a_socket_in_a_finding_count_nothing_and_go_with_it() {
     let bytes = |p: &Path| report.findings.iter().find(|f| f.path == p).unwrap().bytes;
     assert_eq!(bytes(&nm), bytes(&plain), "a FIFO and a socket allocate nothing");
 
-    let mut plan = build_plan(&report, &Catalog::builtin(fx.t.root()), &PlanOptions::default());
+    let mut plan = build_plan(&report, &Catalog::for_home(fx.t.root()), &PlanOptions::default());
     select_all(&mut plan);
     let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs::new(vec![]));
     assert_eq!(outcome(&r, &nm), &Outcome::Deleted);
