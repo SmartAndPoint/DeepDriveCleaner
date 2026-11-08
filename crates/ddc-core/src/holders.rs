@@ -5,7 +5,7 @@
 //!
 //! A holder writes `<data-dir>/lock.holders/<pid>-<start_us>.json` right
 //! after [`crate::store::try_lock`] took the lock, and forgets it before the
-//! lock is released ([`release`], from the lock's `Drop`) or before the
+//! lock is released (`release`, from the lock's `Drop`) or before the
 //! process ends by a signal ([`end_by_signal`]: `reraise` skips `Drop`).
 //!
 //! A record is **live** while its pid runs as the caller's user and that
@@ -320,7 +320,7 @@ pub fn note_progress(done: u64, total: u64) {
 }
 
 /// Whether a progress change is written now: the first and the last
-/// always, any other once [`PROGRESS_GAP`] passed since the last write.
+/// always, any other once a second (`PROGRESS_GAP`) passed since the last write.
 pub fn should_write(first: bool, last: bool, since_last_write: Duration) -> bool {
     first || last || since_last_write >= PROGRESS_GAP
 }
