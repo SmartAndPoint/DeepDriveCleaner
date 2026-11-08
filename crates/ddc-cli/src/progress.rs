@@ -128,8 +128,11 @@ impl Reporter {
     }
 }
 
-/// The executor's hook in every mode: the phase and progress go to this
-/// process's lock-holder record (`ddc_core::holders`), then on to `inner`.
+/// The executor's hook in every mode: `inner` first, then the phase and
+/// progress to this process's lock-holder record (`ddc_core::holders`).
+/// The record's write fsyncs, so it comes after the line: before it, the
+/// JSON ticker could see the last item counted and send its final tick
+/// ahead of the last item's line.
 #[derive(Debug)]
 struct HolderEvents<'a> {
     inner: Option<&'a dyn ExecEvents>,
@@ -137,17 +140,17 @@ struct HolderEvents<'a> {
 
 impl ExecEvents for HolderEvents<'_> {
     fn cleaning(&self) {
-        ddc_core::holders::note_cleaning();
         if let Some(inner) = self.inner {
             inner.cleaning();
         }
+        ddc_core::holders::note_cleaning();
     }
 
     fn item(&self, i: u64, n: u64, item: &PlanItem, outcome: &Outcome) {
-        ddc_core::holders::note_progress(i, n);
         if let Some(inner) = self.inner {
             inner.item(i, n, item, outcome);
         }
+        ddc_core::holders::note_progress(i, n);
     }
 }
 
