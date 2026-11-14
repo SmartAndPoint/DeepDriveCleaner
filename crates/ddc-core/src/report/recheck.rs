@@ -232,6 +232,21 @@ pub fn pruned(
     Ok((scanned.report, scanned.index))
 }
 
+/// `ddc agent clean`'s walk (story "Clean: --agent bounded consent"): the
+/// scan's own walk and classification, pruned to `reach` (a project's
+/// checkouts, [`crate::footprint::Scope::reach`]), with worktrees assessed
+/// as a scan assesses them. The report is partial and never saved.
+pub fn scoped(
+    env: &Env,
+    opts: &ScanOptions,
+    reach: &Reach,
+    progress: &Progress,
+    statfs: &dyn StatFs,
+    reader: Option<&dyn DirReader>,
+) -> Result<ScanReport, ScanError> {
+    super::scan_inner(env, opts, progress, statfs, reader, Some(reach)).map(|s| s.report)
+}
+
 /// The pruned re-check's estimate of the files it reads: the listed
 /// findings' files and, for a `Siblings` item, its sibling findings'. A
 /// picked entry counts none. `None` when that is nothing.

@@ -45,8 +45,9 @@ pub fn owner(_md: &Metadata) -> Option<u32> {
     None
 }
 
-/// The owner's user id (`st_uid`), only as a read gate: the agents report
-/// opens Claude Code's temporary folder only when the user owns it. Never
+/// The owner's user id (`st_uid`), only as a gate that refuses: the agents
+/// report opens Claude Code's temporary folder only when the user owns it,
+/// and an agent's clean leaves out a checkout in another account's folder. Never
 /// fed to the removal guard or a finding, which use [`owner`] (`None` on
 /// macOS, safety ADR, amendment of 2026-10-31).
 pub fn uid(md: &Metadata) -> Option<u32> {
