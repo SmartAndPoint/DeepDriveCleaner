@@ -91,6 +91,7 @@ impl Command {
             Command::Changes(args) => args.json,
             Command::Agent { action: AgentAction::Status(a) } => a.json,
             Command::Agent { action: AgentAction::Footprint(a) } => a.json,
+            Command::Agent { action: AgentAction::Clean(a) } => a.json,
             Command::Keep { action: KeepAction::Remove(a) } => a.json,
             Command::Lock { action: LockAction::Status(a) } => a.json,
             Command::Lock { action: LockAction::Stop(_) } => false,
@@ -509,6 +510,28 @@ pub enum AgentAction {
     Status(AgentsArgs),
     /// One project's checkouts and worktrees, what each holds, and what can go (read-only).
     Footprint(FootprintArgs),
+    /// Remove the safe build caches inside one project's checkouts, if settings.json allows it; list the rest for you.
+    Clean(AgentCleanArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentCleanArgs {
+    /// A folder inside the project: its main checkout or any of its worktrees (default: the current folder).
+    #[arg(value_name = "ROOT")]
+    pub root: Option<PathBuf>,
+    /// Only these items, a JSON list (`-` reads stdin): a filter, never more than the project's safe items.
+    #[arg(long, value_name = "FILE")]
+    pub items: Option<PathBuf>,
+    /// Remove nothing: say what would go.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Print the report as JSON (schema: docs/clean.schema.json).
+    #[arg(long)]
+    pub json: bool,
+    /// Where settings.json and the action journal live (tests). Hidden: the
+    /// opt-in, the lock and the journal are the person's own folder's.
+    #[arg(long, value_name = "DIR", hide = true)]
+    pub data_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

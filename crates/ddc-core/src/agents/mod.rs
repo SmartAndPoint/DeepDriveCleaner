@@ -354,6 +354,7 @@ pub fn report(env: &Env, opts: &AgentsOptions, procs: &[ProcInfo], cancel: &Atom
         duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         sizes: opts.sizes,
         harnesses,
+        agents_clean_safe: false,
     }
 }
 

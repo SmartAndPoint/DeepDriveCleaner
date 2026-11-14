@@ -24,7 +24,7 @@
       {"path": "home/esc\u001b[2J/__pycache__/a.cpython-312.pyc", "bytes": 5000, "unix": true}
     ]
   },
-  "data_dir_commands": ["scan", "clean", "disk", "disk agents", "agent status", "agent footprint", "disk free", "disk brew-packages", "disk docker", "keep remove", "notify ack", "notify snooze", "space", "changes", "lock status", "lock stop"],
+  "data_dir_commands": ["scan", "clean", "disk", "disk agents", "agent status", "agent footprint", "agent clean", "disk free", "disk brew-packages", "disk docker", "keep remove", "notify ack", "notify snooze", "space", "changes", "lock status", "lock stop"],
   "cases": [
     {
       "name": "the owner's call: scan . in ~/Projects suggests the clean of ~/Projects",
@@ -236,6 +236,12 @@
       "expect": {"exit": 0, "schema": "agents"}
     },
     {
+      "name": "agent clean outside a git repository refuses before anything",
+      "group": "commands",
+      "args": ["agent", "clean", "{home}/Projects", "--dry-run", "--json"],
+      "expect": {"exit": 2, "schema": "error", "stdout": {"contains": ["\"not-a-repository\""]}}
+    },
+    {
       "name": "disk agents, the hidden alias of agent status, lists no harness in a fresh home",
       "group": "commands",
       "args": ["disk", "agents", "--json", "--no-sizes", "--threads", "2", "--system-root", "{root}/sys"],
@@ -319,6 +325,7 @@
     {"name": "agent footprint --min-age", "reason": "agent footprint is never run"},
     {"name": "agent footprint --worktree-min-age", "reason": "agent footprint is never run"},
     {"name": "agent footprint --data-dir", "reason": "agent footprint is never run"},
+    {"name": "agent clean --items", "reason": "it needs a real git repository; agent_clean_cli.rs runs it"},
     {"name": "disk docker", "reason": "it runs the machine's docker, which the cases do not fake; disk_docker_cli.rs runs it with a fake docker"},
     {"name": "disk docker --json", "reason": "disk docker is never run"},
     {"name": "disk docker --data-dir", "reason": "disk docker is never run"},

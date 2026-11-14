@@ -1219,9 +1219,155 @@ pub fn refusal(r: Refusal) -> &'static str {
     }
 }
 
+/// Items in the person's command at most: a longer list is saved to a file.
+pub const PERSON_COMMAND_ITEMS: usize = 50;
+
+/// The heredoc's delimiter, quoted in the command, so the shell expands
+/// nothing in the list.
+const ITEMS_DELIMITER: &str = "DDC_ITEMS";
+
+/// `ddc agent clean`'s text report: what went (or would), what was left
+/// and why, the checkouts out of the bound, and what a person may clean.
+pub fn agent_clean(
+    w: &mut impl Write,
+    r: &ddc_core::exec::report::CleanReport,
+    folders: &[PathBuf],
+    home: &Path,
+    style: &Style,
+) -> io::Result<()> {
+    use ddc_core::exec::{Outcome, SkipReason};
+    if let Some(project) = &r.project {
+        writeln!(w, "{} {}", style.bold("Project:"), tilde(project, home))?;
+    }
+    if let Some(error) = &r.settings_error {
+        writeln!(w, "settings.json cannot be read, so nothing was considered: {}", escaped(error))?;
+        return Ok(());
+    }
+    let held = r.items.iter().any(|i| i.outcome == Outcome::Skipped(SkipReason::AgentOptInOff));
+    if r.agents_clean_safe == Some(false) && held {
+        writeln!(
+            w,
+            "Nothing was removed: coding agents may remove safe items only once the person allows it in DeepDriveCleaner's settings."
+        )?;
+    }
+    if r.dry_run {
+        writeln!(w, "Dry run: nothing was removed.")?;
+    }
+    let removed = r.items.iter().filter(|i| i.outcome == Outcome::Deleted);
+    let (n, bytes) = removed.fold((0, 0), |(n, b), i| (n + 1, b + i.bytes.unwrap_or(0)));
+    if n > 0 {
+        writeln!(w, "Removed {n} safe item{} ({}).", if n == 1 { "" } else { "s" }, human(bytes))?;
+    }
+    for item in &r.items {
+        let path = tilde(&item.path, home);
+        match &item.outcome {
+            Outcome::Deleted => writeln!(w, "  removed    {path}")?,
+            Outcome::NotRun => writeln!(w, "  would go   {path}")?,
+            Outcome::Skipped(why) => writeln!(w, "  left       {path}: {}", crate::prompt::reason(why))?,
+            Outcome::Failed { error } => writeln!(w, "  failed     {path}: {}", escaped(error))?,
+            Outcome::Trashed | Outcome::RemovedNotRecycled | Outcome::Native { .. } => {
+                writeln!(w, "  done       {path}")?
+            }
+        }
+    }
+    for out in &r.left_out {
+        writeln!(w, "Not this clean's: {}: {}", tilde(&out.path, home), out.why)?;
+    }
+    let Some(list) = &r.for_person else { return Ok(()) };
+    let total: u64 = list.items.len() as u64;
+    writeln!(
+        w,
+        "\n{} {total} item{} only you can agree to:",
+        style.bold("For you:"),
+        if total == 1 { "" } else { "s" }
+    )?;
+    match person_command(list, folders, home) {
+        Some(command) => {
+            writeln!(
+                w,
+                "review the list, then run in a POSIX shell (in fish or on Windows, save it to a file first):\n"
+            )?;
+            writeln!(w, "{command}")
+        }
+        None => {
+            for item in &list.items {
+                writeln!(w, "  {}", tilde(&item.path, home))?;
+            }
+            writeln!(
+                w,
+                "Review them in the app's Review window, or save for_person of `ddc agent clean --json` to a file and run `ddc clean --items FILE`."
+            )
+        }
+    }
+}
+
+/// The person's `ddc clean --items -` command, its list in a heredoc whose
+/// delimiter is quoted: one item per line, its path first. `folders` are
+/// the scan folders `ddc clean` must walk to reach the items. `None` on
+/// Windows, for more than [`PERSON_COMMAND_ITEMS`] items, or when a path is
+/// not UTF-8 or holds a control or bidirectional character.
+pub fn person_command(list: &ddc_core::plan::ListedItems, folders: &[PathBuf], home: &Path) -> Option<String> {
+    let windows = ddc_core::platform::PLATFORM == ddc_core::platform::Platform::Windows;
+    if windows || list.items.len() > PERSON_COMMAND_ITEMS || list.items.is_empty() {
+        return None;
+    }
+    let mut lines = Vec::with_capacity(list.items.len());
+    for item in &list.items {
+        let path = item.path.to_str()?;
+        if path.chars().any(|c| c.is_control() || bidi(c)) {
+            return None;
+        }
+        lines.push(serde_json::to_string(item).ok()?);
+    }
+    let base = clean_command(folders, home)?;
+    let mut command = format!("{base} --items - <<'{ITEMS_DELIMITER}'\n");
+    command.push_str(&format!("{{\"schema_version\": {}, \"items\": [\n", list.schema_version));
+    command.push_str(&lines.join(",\n"));
+    command.push_str(&format!("\n]}}\n{ITEMS_DELIMITER}"));
+    Some(command)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Story "Clean: --agent bounded consent": the person's command quotes
+    /// its delimiter, carries at most 50 items and no path a terminal
+    /// cannot show, and quotes the folders it names.
+    #[test]
+    fn the_persons_command_quotes_its_delimiter_and_keeps_to_its_limits() {
+        use ddc_core::plan::{ActionKind, ListedItem, ListedItems};
+        let item = |p: &str| ListedItem {
+            path: PathBuf::from(p),
+            dev: 1,
+            ino: 2,
+            rule: "python.pycache".into(),
+            class: RiskClass::Safe,
+            action: ActionKind::Delete,
+            permanent: false,
+        };
+        let list = |n: usize| ListedItems {
+            schema_version: 1,
+            items: (0..n).map(|i| item(&format!("/h/p/{i}/__pycache__"))).collect(),
+        };
+        let home = Path::new("/h");
+        let command = person_command(&list(2), &[], home);
+        if ddc_core::platform::PLATFORM == ddc_core::platform::Platform::Windows {
+            assert_eq!(command, None, "no heredoc in PowerShell");
+            return;
+        }
+        let command = command.unwrap();
+        assert!(command.starts_with("ddc clean --items - <<'DDC_ITEMS'\n"), "{command}");
+        assert!(command.ends_with("\n]}\nDDC_ITEMS"), "{command}");
+        assert_eq!(command.lines().filter(|l| l.starts_with("{\"path\":")).count(), 2, "one item per line");
+        assert!(person_command(&list(PERSON_COMMAND_ITEMS), &[], home).is_some());
+        assert_eq!(person_command(&list(PERSON_COMMAND_ITEMS + 1), &[], home), None);
+        assert_eq!(person_command(&list(0), &[], home), None);
+        let odd = ListedItems { schema_version: 1, items: vec![item("/h/a\u{202e}b")] };
+        assert_eq!(person_command(&odd, &[], home), None, "a bidirectional character");
+        let named = person_command(&list(1), &[PathBuf::from("/h/x y"), PathBuf::from("/h")], home).unwrap();
+        assert!(named.starts_with("ddc clean ~/'x y' ~ --items - <<'DDC_ITEMS'\n"), "{named}");
+    }
 
     /// `ddc space`, `ddc changes` and `ddc scan` say an age the same way, with
     /// the app's thresholds.

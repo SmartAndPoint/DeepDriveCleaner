@@ -709,6 +709,15 @@ struct ContractTests {
         #expect(Set(try values(packages, "NotOffered")) == Set(BrewPackages.NotOffered.allCases.map(\.rawValue)))
     }
 
+    /// Story "Clean: --agent bounded consent": `ddc agent clean` is a coding
+    /// agent's command, bound by its own consent; the app never runs it.
+    @Test("no app source runs agent clean")
+    func agentCleanIsNeverRun() throws {
+        for (file, source) in try appSources() {
+            #expect(!source.contains(/"agent"\s*,\s*"clean"/), "\(file) runs ddc agent clean")
+        }
+    }
+
     @Test("the coding agents report is the CLI's: version and every enum")
     func agentsContracts() throws {
         let source = try rustSource("crates/ddc-core/src/agents/model.rs")

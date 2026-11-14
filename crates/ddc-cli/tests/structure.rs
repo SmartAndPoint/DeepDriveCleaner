@@ -108,6 +108,35 @@ fn the_footprint_only_reads() {
     }
 }
 
+/// `ddc agent clean` (story "Clean: --agent bounded consent") removes
+/// through the executor once, under an agent's consent only: it builds no
+/// other consent and no person's plan, asks nobody, and never edits or
+/// saves the scan report.
+#[test]
+fn the_agent_clean_runs_the_executor_once_under_an_agents_consent() {
+    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/cmd/agent_clean.rs");
+    let code = code(&file);
+    assert_eq!(code.matches("exec::execute(").count(), 1, "one call of the executor");
+    assert_eq!(code.matches("Consent::").count(), 1, "one consent");
+    assert!(code.contains("Consent::Agent {"));
+    assert_eq!(code.matches("HolderCommand::").count(), 1, "one lock holder");
+    assert!(code.contains("HolderCommand::AgentClean"), "the app's Busy panel names it");
+    for forbidden in [
+        "build_plan",
+        "plan_listed",
+        "write_last_scan",
+        "after_clean",
+        "prompt::",
+        "confirm",
+        "Trasher",
+        "remove_dir",
+        "remove_file",
+        "Command::new",
+    ] {
+        assert!(!code.contains(forbidden), "agent_clean.rs mentions {forbidden}");
+    }
+}
+
 /// `ddc disk docker` runs the clean's probe and `system df -v`, and no
 /// other docker command: nothing in it prunes or removes.
 #[test]

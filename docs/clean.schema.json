@@ -72,6 +72,13 @@
       "type": "boolean",
       "default": false
     },
+    "left_out": {
+      "description": "`ddc agent clean`: checkouts git lists that are out of the bound, and\nwhy; nothing in them was considered. Absent when there are none.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/LeftOut"
+      }
+    },
     "local_snapshots": {
       "description": "Local Time Machine snapshots keep deleted blocks until macOS thins them.",
       "type": "integer",
@@ -693,6 +700,23 @@
         "codex",
         "cursor",
         "opencode"
+      ]
+    },
+    "LeftOut": {
+      "description": "A checkout outside an agent's bound (ADR \"Agent footprint\", §7, note of\n2026-11-14).",
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "why": {
+          "description": "Why, in words.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "why"
       ]
     },
     "ListedItem": {

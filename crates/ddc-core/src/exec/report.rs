@@ -31,8 +31,8 @@ use crate::platform::{Capability, Platform};
 /// `immutable` (safety ADR, amendment of 2026-11-04, "Linux file kinds").
 /// 13: the skip reasons `not-consented` and `agent-opt-in-off`, and the
 /// optional `consent`, `project`, `agents_clean_safe`, `dry_run`,
-/// `for_person` and `settings_error` of `ddc agent clean` (ADR "Agent
-/// footprint", §7).
+/// `for_person`, `settings_error` and `left_out` of `ddc agent clean` (ADR
+/// "Agent footprint", §7).
 pub const CLEAN_SCHEMA_VERSION: u32 = 13;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -93,6 +93,20 @@ pub struct CleanReport {
     /// considered then.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settings_error: Option<String>,
+    /// `ddc agent clean`: checkouts git lists that are out of the bound, and
+    /// why; nothing in them was considered. Absent when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left_out: Vec<LeftOut>,
+}
+
+/// A checkout outside an agent's bound (ADR "Agent footprint", §7, note of
+/// 2026-11-14).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LeftOut {
+    #[serde(serialize_with = "crate::json_path::path")]
+    pub path: PathBuf,
+    /// Why, in words.
+    pub why: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -123,6 +137,8 @@ pub struct AgentPart {
     pub dry_run: bool,
     /// Why `settings.json` could not be read; nothing was considered then.
     pub settings_error: Option<String>,
+    /// The bound's checkouts left out, and why.
+    pub left_out: Vec<(PathBuf, String)>,
 }
 
 impl CleanReport {
@@ -159,6 +175,7 @@ impl CleanReport {
             items: for_person.to_vec(),
         });
         report.settings_error = part.settings_error;
+        report.left_out = part.left_out.into_iter().map(|(path, why)| LeftOut { path, why }).collect();
         report.lossy_paths = crate::json_path::count_lossy(&report);
         report
     }
@@ -216,6 +233,7 @@ impl CleanReport {
             dry_run: false,
             for_person: None,
             settings_error: None,
+            left_out: Vec::new(),
         };
         report.lossy_paths = crate::json_path::count_lossy(&report);
         report

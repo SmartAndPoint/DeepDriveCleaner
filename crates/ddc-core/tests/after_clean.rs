@@ -119,6 +119,7 @@ fn clean(items: Vec<CleanItem>) -> CleanReport {
         dry_run: false,
         for_person: None,
         settings_error: None,
+        left_out: Vec::new(),
     }
 }
 
