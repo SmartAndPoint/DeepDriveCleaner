@@ -229,7 +229,13 @@ fn with_the_opt_in_on_an_agent_removes_safe_items_and_lists_the_rest_for_a_perso
 }
 
 fn part(p: &Proj, opt_in: bool) -> AgentPart {
-    AgentPart { project: Some(p.main.clone()), agents_clean_safe: opt_in, dry_run: false, settings_error: None }
+    AgentPart {
+        project: Some(p.main.clone()),
+        agents_clean_safe: opt_in,
+        dry_run: false,
+        settings_error: None,
+        left_out: Vec::new(),
+    }
 }
 
 #[test]

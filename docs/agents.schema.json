@@ -4,6 +4,11 @@
   "description": "What coding-agent harnesses keep under the home folder, and their\nsessions (story \"Coding agents in the Whole disk view\"). Read-only, and\nnever stored: liveness is read again on every run.",
   "type": "object",
   "properties": {
+    "agents_clean_safe": {
+      "description": "`settings.json` lets `ddc agent clean` remove `safe` items (story\n\"Clean: --agent bounded consent\"); absent from an older CLI: false.",
+      "type": "boolean",
+      "default": false
+    },
     "ddc_version": {
       "type": "string"
     },

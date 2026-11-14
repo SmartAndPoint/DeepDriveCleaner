@@ -50,6 +50,10 @@ fn refusal_for(cmd: &Command, supported: Result<(), Unsupported>, declared: &[Ca
         // A walk of one project with the scan's own rules, as `scan` (which
         // reads its absent capabilities in the report instead).
         Command::Agent { action: AgentAction::Footprint(_) } => None,
+        // The footprint's walk and the clean's own executor: nothing in it
+        // is a capability of its own, as `clean` (story "Clean: --agent
+        // bounded consent").
+        Command::Agent { action: AgentAction::Clean(_) } => None,
         // Gated per action in the core (`free::run`, `dry_run`, `available`);
         // refused whole only when no action could ever run.
         Command::Disk(DiskArgs { action: Some(DiskAction::Free(_)), .. }) => {
@@ -172,6 +176,8 @@ mod tests {
         &["agent", "status", "--json"],
         &["agent", "footprint"],
         &["agent", "footprint", "--json"],
+        &["agent", "clean"],
+        &["agent", "clean", "--json"],
         &["keep", "remove", "/p", "--folder-dev", "1", "--folder-ino", "2", "--json"],
         &["schedule", "status"],
         &["lock", "status"],

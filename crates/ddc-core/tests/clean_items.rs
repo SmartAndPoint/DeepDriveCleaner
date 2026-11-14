@@ -733,7 +733,7 @@ fn the_agent_fields_are_absent_unless_set_and_round_trip_when_set() {
     });
     let plain: CleanReport = serde_json::from_value(base.clone()).unwrap();
     let written = serde_json::to_value(&plain).unwrap();
-    for key in ["consent", "project", "agents_clean_safe", "dry_run", "for_person", "settings_error"] {
+    for key in ["consent", "project", "agents_clean_safe", "dry_run", "for_person", "settings_error", "left_out"] {
         assert!(written.get(key).is_none(), "{key} written: {written}");
     }
     let mut agent = base;
@@ -742,6 +742,7 @@ fn the_agent_fields_are_absent_unless_set_and_round_trip_when_set() {
         "for_person": {"schema_version": 1, "items": [{"path": "/Users/example/proj/.venv", "dev": 1, "ino": 2,
             "rule": "python.venv", "class": "rebuildable", "action": "delete"}]},
         "settings_error": "unreadable",
+        "left_out": [{"path": "/Users/example/elsewhere", "why": "the walk did not find it as a worktree of this project"}],
         "items": [{"path": "/Users/example/proj/x", "dev": 1, "ino": 3, "rule": "python.pycache", "class": "safe",
             "action": "delete", "outcome": "skipped", "reason": "agent-opt-in-off"},
             {"path": "/Users/example/proj/y", "dev": 1, "ino": 4, "rule": "python.venv", "class": "rebuildable",

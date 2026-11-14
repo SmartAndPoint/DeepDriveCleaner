@@ -81,6 +81,8 @@ const REFUSED: &[(&[&str], bool)] = &[
     (&["agent", "status", "--json"], true),
     (&["agent", "footprint"], false),
     (&["agent", "footprint", "--json"], true),
+    (&["agent", "clean"], false),
+    (&["agent", "clean", "--json"], true),
     (&["agent", "status"], false),
     (&["keep", "remove", "/p", "--folder-dev", "1", "--folder-ino", "2", "--json"], true),
     (&["keep", "remove", "/p"], false),

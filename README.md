@@ -386,6 +386,20 @@ ddc agent footprint [ROOT] [--json] [--min-age DAYS] [--worktree-min-age DAYS] [
 ddc agent footprint --json | jq '.totals'
 ```
 
+`ddc agent clean` is the one cleanup command for a coding agent. Give it any folder of a project, as `ddc agent footprint`. It removes only the `safe` project artifacts (`__pycache__`, `.pytest_cache` and the like) inside the project's main checkout and the worktrees the walk knows as this project's, and only when `settings.json` has `"agents_clean_safe": true`, which is off by default. It never removes a `rebuildable` or `review` item, a worktree itself, a tool's command, or anything outside the checkouts, such as `~/.cargo` or another project. Everything else you could clean there (an idle `.venv`, a dead worktree, and the safe items while the setting is off) it lists for you, with a `ddc clean --items -` command that carries the list in a heredoc: read it, then run it yourself. The command is for a POSIX shell such as zsh or bash; fish has no heredocs. With more than 50 items, a path a terminal cannot show, or on Windows, it prints the list without a command: use the app's Review window, or save `for_person` from `--json` to a file for `ddc clean --items FILE`.
+
+- Without the setting, with `--dry-run`, or when `settings.json` cannot be read, it removes nothing, takes no lock and writes no journal line, and exits 0. `--dry-run` with the setting on says what would go (`not-run`).
+- A real run takes the lock a clean takes (`ddc lock status` names `agent clean`), reads the setting again under it, walks only the checkouts, and checks each item again as any clean does. Every journal line names `consent: agent` and the project. It never saves the scan report, so the app shows the removed items until the next scan.
+- `--items FILE` (or `-` for stdin) narrows it to a list: an item outside what an agent may remove is skipped `not-consented`, never removed.
+- Outside a git repository, when the main checkout is your home folder, with a malformed list, or as root, it exits 2. A real run with the setting on exits 75 while a scan or clean holds the lock; a dry run never waits. `--json` follows [`docs/clean.schema.json`](docs/clean.schema.json), with `consent`, `project`, `agents_clean_safe`, `dry_run`, `settings_error`, `for_person` and `left_out` (checkouts git lists that were left out, and why).
+
+The setting lets a program you run remove files without asking you each time. The checks above still apply, and what goes refills on the next build or test run, but see the [Disclaimer](DISCLAIMER.md) before you switch it on. `ddc agent status` says whether it is on.
+
+```
+ddc agent clean [ROOT] [--items FILE] [--dry-run] [--json]
+ddc agent clean --dry-run --json | jq '.for_person'
+```
+
 ### `ddc keep`: remove a folder's protection
 
 A `.ddc-keep` file keeps its folder, and everything in it, out of every plan: the scan lists it under "Protected by you". `ddc keep remove <folder>` removes that file from one folder and nothing else; the folder and what lies in it stay. The next scan lists the folder in its own group, where it can be cleaned with that group's checks, and may be selected for cleanup by default. To keep it again, put the file back (the app's Protect This Folder).
@@ -493,6 +507,7 @@ The install script (under [Install](#on-an-older-macos-or-the-command-line-only)
 | `excludes` | Absolute folders never touched, reported as user data. | `--exclude` |
 | `skips` | Absolute folders never read: not scanned, never cleaned, listed as not scanned. A finding that holds one is kept whole. | `--skip` adds to it |
 | `min_age_days` | Idle days before a project's artifacts are selected (default 14). | `--min-age` |
+| `agents_clean_safe` | `true` lets `ddc agent clean` remove the `safe` project artifacts inside one project's checkouts without asking you (default off). A `ddc` older than this setting refuses a file that has it. | none |
 | `disabled_rules` | Rule ids from `ddc rules` switched off: their findings are reported as ignored and never selected or counted. | none |
 | `min_size` | Bytes: smaller findings are ignored. `clean --min-size` filters the plan on top of it, so the larger of the two applies. | none |
 | `notify_threshold`, `notify_low_disk` | When the background scan notifies (default 10G, and low disk on); `notify_low_disk` also decides whether `ddc space` says low disk. | `--threshold` |

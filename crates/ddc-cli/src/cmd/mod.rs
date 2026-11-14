@@ -1,5 +1,6 @@
 //! Subcommand dispatch.
 
+mod agent_clean;
 mod agent_footprint;
 mod agent_status;
 mod background;
@@ -45,6 +46,7 @@ pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Changes(args) => changes::run(&args),
         Command::Agent { action: AgentAction::Status(args) } => agent_status::run(&args),
         Command::Agent { action: AgentAction::Footprint(args) } => agent_footprint::run(&args),
+        Command::Agent { action: AgentAction::Clean(args) } => agent_clean::run(&args),
         Command::Keep { action: KeepAction::Remove(args) } => keep::remove(&args),
         Command::Lock { action: LockAction::Status(args) } => lock::status(&args),
         Command::Lock { action: LockAction::Stop(args) } => lock::stop(&args),

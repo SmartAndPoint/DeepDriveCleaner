@@ -186,6 +186,7 @@ const COMMANDS: &[&str] = &[
     "changes",
     "agent status",
     "agent footprint",
+    "agent clean",
     "keep remove",
     "lock status",
     "lock stop",
@@ -498,6 +499,10 @@ mod allow {
                     return Err(format!("clean {f}"));
                 }
             }
+            // It removes a project's safe items for real: only its dry run, never a list.
+            "agent clean" if !has("--dry-run") => return Err("agent clean without --dry-run".into()),
+            "agent clean" if has("--items") => return Err("agent clean --items".into()),
+            "agent clean" => {}
             "keep remove" | "notify ack" | "notify snooze" | "space" | "changes" | "lock status" | "lock stop"
                 if !inside(value("--data-dir")) =>
             {
@@ -901,6 +906,8 @@ fn the_allowlist_refuses_each_forbidden_call() {
         (&["clean", "--dry-run", "--yes"], "clean --yes"),
         (&["clean", "--dry-run", "--items", "list"], "clean --items"),
         (&["clean", "--dry-run", "--permanent"], "clean --permanent"),
+        (&["agent", "clean", "--json"], "agent clean without --dry-run"),
+        (&["agent", "clean", "--dry-run", "--items", "list"], "agent clean --items"),
         (&["schedule", "install"], "schedule install is never run"),
         (&["schedule", "uninstall"], "schedule uninstall is never run"),
         (&["disk", "free", "--dry-run", "--system-root", &sys], "disk free is never run"),

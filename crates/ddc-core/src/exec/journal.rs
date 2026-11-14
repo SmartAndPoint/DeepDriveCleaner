@@ -250,9 +250,14 @@ pub struct FileJournal {
 }
 
 impl FileJournal {
+    /// Where the journal is, without opening or making it.
+    pub fn path_in(env: &Env) -> PathBuf {
+        env.log_dir().join("actions.jsonl")
+    }
+
     pub fn open(env: &Env) -> io::Result<Self> {
         fs::create_dir_all(env.log_dir())?;
-        let path = env.log_dir().join("actions.jsonl");
+        let path = Self::path_in(env);
         let file = OpenOptions::new().create(true).append(true).open(&path)?;
         Ok(Self { file, path })
     }

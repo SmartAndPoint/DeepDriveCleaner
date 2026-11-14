@@ -4,6 +4,7 @@
   "generated_at": "2026-10-28T14:00:05Z",
   "duration_ms": 5100,
   "sizes": true,
+  "agents_clean_safe": false,
   "harnesses": [
     {
       "id": "claude-code",

@@ -32,6 +32,10 @@ pub struct AgentsReport {
     pub sizes: bool,
     /// The harnesses with at least one folder, in the table's order.
     pub harnesses: Vec<Harness>,
+    /// `settings.json` lets `ddc agent clean` remove `safe` items (story
+    /// "Clean: --agent bounded consent"); absent from an older CLI: false.
+    #[serde(default)]
+    pub agents_clean_safe: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]

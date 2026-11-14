@@ -22,10 +22,13 @@ pub fn run(args: &AgentsArgs) -> anyhow::Result<ExitCode> {
         env = env.with_system_root(root);
     }
     // The skips only: they bind the record read as well as the walk.
-    let resolved = super::resolve(&env, ScanFlags { paths: vec![env.home().to_path_buf()], ..ScanFlags::default() })?;
+    let settings = ddc_core::settings::load(&env)?;
+    let resolved =
+        settings.resolve(&env, &ScanFlags { paths: vec![env.home().to_path_buf()], ..ScanFlags::default() })?;
     super::note_missing(&resolved.missing);
     let opts = AgentsOptions { sizes: !args.no_sizes, threads: args.threads, user_skips: resolved.options.user_skips };
-    let report = agents::report(&env, &opts, &procs::current_user_processes_unopened(), cancel);
+    let mut report = agents::report(&env, &opts, &procs::current_user_processes_unopened(), cancel);
+    report.agents_clean_safe = settings.agents_clean_safe;
     if let Some(sig) = signals::received() {
         ddc_core::holders::end_by_signal(sig);
     }
