@@ -336,6 +336,22 @@ pub enum Consent {
     /// `--items`: the user confirmed exactly these items in the app's sheet;
     /// interactive consent (ADR "Menu bar app: Swift shell over the ddc CLI", §7).
     Listed,
+    /// `ddc agent clean`: a coding agent, never a person (ADR "Agent
+    /// footprint", §7): only what [`crate::plan::agent_may_remove`] allows
+    /// inside `bound`; anything else is `not-consented`.
+    Agent { bound: crate::plan::AgentBound },
+}
+
+impl Consent {
+    /// How the report and the journal name it.
+    pub fn kind(&self) -> ConsentKind {
+        match self {
+            Consent::Interactive => ConsentKind::Interactive,
+            Consent::AssumeYes { .. } => ConsentKind::Yes,
+            Consent::Listed => ConsentKind::Listed,
+            Consent::Agent { .. } => ConsentKind::Agent,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -491,7 +507,10 @@ pub fn execute(
             if removed.iter().any(|t| path != t && path.starts_with(t)) {
                 Outcome::Skipped(SkipReason::InsideAnotherItem)
             } else if !allowed(item, consent) {
-                Outcome::Skipped(SkipReason::NeedsConfirmation)
+                Outcome::Skipped(match consent {
+                    Consent::Agent { .. } => SkipReason::NotConsented,
+                    _ => SkipReason::NeedsConfirmation,
+                })
             } else if let Err(reason) = action_allowed(item, catalog, consent) {
                 Outcome::Skipped(reason)
             } else {
@@ -520,7 +539,7 @@ pub fn execute(
             // then the entry's own line with its key's bytes.
             let mut recorded: io::Result<()> = Ok(());
             for companion in &companions {
-                recorded = ports.journal.record(&JournalEntry::companion(item, companion));
+                recorded = ports.journal.record(&tagged(JournalEntry::companion(item, companion), consent));
                 if recorded.is_err() {
                     break;
                 }
@@ -531,7 +550,7 @@ pub fn execute(
                     line.bytes = bytes;
                 }
                 line.trash = place.take().map(TrashedTo::from);
-                recorded = ports.journal.record(&line);
+                recorded = ports.journal.record(&tagged(line, consent));
             }
             if recorded.is_err() {
                 progress.item_finished(item, false);
@@ -561,9 +580,23 @@ pub fn execute(
     Ok(report)
 }
 
+/// An agent's clean names itself and its project on every line (ADR "Agent
+/// footprint", §7); other cleans' lines stay as they were.
+fn tagged(mut line: JournalEntry, consent: &Consent) -> JournalEntry {
+    if let Consent::Agent { bound } = consent {
+        line.consent = Some(consent.kind());
+        line.project = Some(bound.project.clone());
+    }
+    line
+}
+
 fn allowed(item: &PlanItem, consent: &Consent) -> bool {
     match consent {
         Consent::Interactive | Consent::Listed => true,
+        // The plan's rule again, here: the executor does not trust the plan.
+        Consent::Agent { bound } => {
+            item.default_selected && crate::plan::agent_may_remove(&item.finding, &item.action, bound)
+        }
         Consent::AssumeYes { classes } => {
             item.default_selected
                 && classes.contains(&item.finding.class)
@@ -642,7 +675,8 @@ impl WorktreeRecheck<'_> {
             now: self.env.now(),
             min_age: self.opts.worktree_min_age,
         };
-        let person = !matches!(self.consent, Consent::AssumeYes { .. });
+        // Only a person's consent waives conditions 1 and 3; an agent's never does.
+        let person = matches!(self.consent, Consent::Interactive | Consent::Listed);
         // The main checkout the scan recorded: the worktree's project root.
         let Some(main) = item.finding.project.as_ref().map(|p| p.root.as_path()) else {
             return Err(SkipReason::ChangedSinceScan);

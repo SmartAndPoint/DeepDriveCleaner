@@ -114,7 +114,55 @@ pub struct CleanItem {
     pub outcome: Outcome,
 }
 
+/// What `ddc agent clean` adds to its report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentPart {
+    /// The main checkout; `None` when nothing was resolved.
+    pub project: Option<PathBuf>,
+    pub agents_clean_safe: bool,
+    pub dry_run: bool,
+    /// Why `settings.json` could not be read; nothing was considered then.
+    pub settings_error: Option<String>,
+}
+
 impl CleanReport {
+    /// `ddc agent clean`'s report: every considered item in the plan's
+    /// order, its outcome from `run` when the executor ran, `not-run` for
+    /// one that would go but did not (a dry run), and its skip otherwise;
+    /// `for_person` when not empty. When the settings read again under the
+    /// lock say off, the caller plans again with the opt-in off and reports
+    /// that plan, never this one's removals as `not-run`.
+    pub fn for_agent(
+        items: &[crate::plan::AgentItem],
+        for_person: &[ListedItem],
+        run: Option<&ExecReport>,
+        journal: PathBuf,
+        part: AgentPart,
+    ) -> Self {
+        use crate::plan::AgentVerdict;
+        let listed: Vec<ListedItem> = items.iter().map(|i| i.item.clone()).collect();
+        let refused: Vec<Refused> = items
+            .iter()
+            .filter_map(|i| match &i.verdict {
+                AgentVerdict::Skip(reason) => Some(Refused { item: i.item.clone(), reason: reason.clone() }),
+                AgentVerdict::Remove => None,
+            })
+            .collect();
+        let empty = ExecReport::default();
+        let mut report = Self::new(&listed, &refused, run.unwrap_or(&empty), journal);
+        report.consent = Some(super::ConsentKind::Agent);
+        report.project = part.project;
+        report.agents_clean_safe = Some(part.agents_clean_safe);
+        report.dry_run = part.dry_run;
+        report.for_person = (!for_person.is_empty()).then(|| crate::plan::ListedItems {
+            schema_version: crate::plan::LISTED_SCHEMA_VERSION,
+            items: for_person.to_vec(),
+        });
+        report.settings_error = part.settings_error;
+        report.lossy_paths = crate::json_path::count_lossy(&report);
+        report
+    }
+
     pub fn new(listed: &[ListedItem], refused: &[Refused], run: &ExecReport, journal: PathBuf) -> Self {
         let items: Vec<CleanItem> = listed
             .iter()

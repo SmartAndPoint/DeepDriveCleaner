@@ -388,20 +388,8 @@ pub fn plan_listed_checked(
         }
     }
     for item in listed.iter().filter(|i| i.class != RiskClass::UserData) {
-        let fresh = report.findings.iter().find(|f| {
-            f.path.as_os_str() == item.path.as_os_str()
-                && (f.dev, f.ino) == (item.dev, item.ino)
-                && f.rule == item.rule
-                && (f.class == item.class || worktree_verdicts(&f.rule, f.class, item.class))
-        });
-        let Some(f) = fresh else {
-            let kept = report.findings.iter().any(|f| f.rule == crate::rules::KEPT && item.path.starts_with(&f.path));
-            let reason = match catalog.by_id(&item.rule) {
-                None => SkipReason::RuleMismatch,
-                Some(_) if kept => SkipReason::Kept,
-                Some(_) => SkipReason::ChangedSinceScan,
-            };
-            refused.push(Refused { item: item.clone(), reason });
+        let Some(f) = fresh(report, item) else {
+            refused.push(Refused { item: item.clone(), reason: unconfirmed(report, catalog, item) });
             continue;
         };
         let Some(action) = catalog.by_id(&f.rule).and_then(|rule| action_for(rule, f.class, item.permanent)) else {
@@ -444,6 +432,272 @@ pub fn plan_listed_checked(
         }
     }
     ListedPlan { plan: Plan { roots: report.scan_roots.clone(), items, dropped: Vec::new() }, refused }
+}
+
+/// The finding of the fresh scan a listed item names: the same path,
+/// `(dev, ino)`, rule and class (a worktree's two verdicts match).
+fn fresh<'r>(report: &'r ScanReport, item: &ListedItem) -> Option<&'r Finding> {
+    report.findings.iter().find(|f| {
+        f.path.as_os_str() == item.path.as_os_str()
+            && (f.dev, f.ino) == (item.dev, item.ino)
+            && f.rule == item.rule
+            && (f.class == item.class || worktree_verdicts(&f.rule, f.class, item.class))
+    })
+}
+
+/// Why the fresh scan does not confirm a listed item: an unknown rule, an
+/// item kept now at or above it, or anything else that changed.
+fn unconfirmed(report: &ScanReport, catalog: &Catalog, item: &ListedItem) -> SkipReason {
+    let kept = report.findings.iter().any(|f| f.rule == crate::rules::KEPT && item.path.starts_with(&f.path));
+    match catalog.by_id(&item.rule) {
+        None => SkipReason::RuleMismatch,
+        Some(_) if kept => SkipReason::Kept,
+        Some(_) => SkipReason::ChangedSinceScan,
+    }
+}
+
+/// The tree a coding agent's clean is bound to (ADR "Agent footprint", §7,
+/// and its note of 2026-11-14): the main checkout and the linked worktrees
+/// the walk recognised as this project's. It is the owner's consent rule
+/// for an honest agent, not a defence against one that removes files itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentBound {
+    /// The main checkout (or the bare repository): the journal's `project`.
+    pub project: PathBuf,
+    /// The checkouts inside which an agent may remove `safe` items.
+    pub checkouts: Vec<PathBuf>,
+    /// Checkouts git listed that are out of the bound, and why in words.
+    pub left_out: Vec<(PathBuf, String)>,
+}
+
+impl AgentBound {
+    /// From the walk of the project's checkouts: `main` unless `bare`, and
+    /// each of `checkouts` the report holds as a `git.worktree` finding of
+    /// `main` at that exact path (one hidden by `min_size` or a disabled
+    /// rule included). A checkout at or above `home`, by identity, or whose
+    /// parent is another account's, is left out.
+    pub fn new(report: &ScanReport, main: &Path, bare: bool, checkouts: &[PathBuf], home: &Path) -> Self {
+        let mut bound = AgentBound { project: main.to_path_buf(), checkouts: Vec::new(), left_out: Vec::new() };
+        for checkout in checkouts {
+            let is_main = !bare && checkout == main;
+            let recognised = is_main
+                || report.findings.iter().any(|f| {
+                    f.path == *checkout
+                        && f.rule == worktree::WORKTREE_RULE
+                        && f.project.as_ref().is_some_and(|p| p.root == main)
+                });
+            let why = if !recognised {
+                Some("the walk did not find it as a worktree of this project")
+            } else if at_or_above(checkout, home) {
+                Some("it is at or above the home folder")
+            } else if checkout.parent().is_some_and(foreign) {
+                Some("its folder belongs to another account")
+            } else {
+                None
+            };
+            match why {
+                Some(why) => bound.left_out.push((checkout.clone(), why.to_owned())),
+                None => bound.checkouts.push(checkout.clone()),
+            }
+        }
+        bound
+    }
+
+    /// Strictly inside one of the bound's checkouts; never a checkout itself.
+    pub fn contains(&self, path: &Path) -> bool {
+        self.checkouts.iter().any(|c| path != c && path.starts_with(c))
+    }
+
+    /// `path` holds a checkout git listed, in the bound or left out of it:
+    /// removing it would remove the checkout too.
+    fn holds_a_checkout(&self, path: &Path) -> bool {
+        self.checkouts.iter().chain(self.left_out.iter().map(|(c, _)| c)).any(|c| c.starts_with(path))
+    }
+}
+
+/// Another account's folder, or one whose owner cannot be read: `st_uid`
+/// on macOS and Linux ([`crate::platform::meta::uid`], which only ever
+/// narrows the bound here), and under an elevated Windows token the
+/// platform's own check of a root.
+fn foreign(dir: &Path) -> bool {
+    if crate::platform::require_own_root(dir).is_err() {
+        return true;
+    }
+    let me = crate::platform::procs::uid();
+    match std::fs::metadata(dir) {
+        Ok(md) => crate::platform::meta::uid(&md).is_some_and(|owner| owner != me),
+        Err(_) => true,
+    }
+}
+
+/// `dir` is the home folder or one of its ancestors, by identity where both
+/// can be read (a symlinked home included).
+fn at_or_above(dir: &Path, home: &Path) -> bool {
+    use crate::platform::Canonical;
+    if home.starts_with(dir) {
+        return true;
+    }
+    let id = |p: &Path| crate::platform::meta::stat(p).ok().map(|s| (s.dev, s.ino));
+    let Some(dir_id) = id(dir) else { return false };
+    // The home's own path and its resolved one: a link above it (macOS's
+    // `/var` to `/private/var`) hides the real ancestors.
+    let canonical = home.canonical().ok();
+    std::iter::once(home).chain(canonical.as_deref()).any(|h| h.ancestors().any(|a| id(a) == Some(dir_id)))
+}
+
+/// Whether a coding agent may remove `f` with `action` inside `bound`
+/// (ADR "Agent footprint", §7): a `safe` project artifact by its rule and
+/// its class, selected by default and not hidden, deleted, strictly inside
+/// one of the checkouts, holding none, and not kept. The plan and the
+/// executor both ask.
+pub fn agent_may_remove(f: &Finding, action: &Action, bound: &AgentBound) -> bool {
+    f.class == RiskClass::Safe
+        && f.rule_class == RiskClass::Safe
+        && f.selected
+        && !f.ignored
+        && f.category == Category::ProjectArtifact
+        && matches!(action, Action::Delete { .. })
+        && f.rule != KEPT
+        && bound.contains(&f.path)
+        && !bound.holds_a_checkout(&f.path)
+}
+
+/// One item of an agent's clean: what it is, and whether it goes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentItem {
+    pub item: ListedItem,
+    pub bytes: u64,
+    pub verdict: AgentVerdict,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentVerdict {
+    /// In the plan the executor runs.
+    Remove,
+    /// Left alone, with why.
+    Skip(SkipReason),
+}
+
+/// The plan of `ddc agent clean`: the executor's plan (the items that go),
+/// every item considered with its verdict, and what a person may clean.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentPlan {
+    pub plan: Plan,
+    pub items: Vec<AgentItem>,
+    pub for_person: Vec<ListedItem>,
+}
+
+/// An agent's plan over the fresh walk of its project (ADR "Agent
+/// footprint", §7). Without `listed`, every finding inside the bound that
+/// `build_plan`'s filters let through is considered, by path; with it, the
+/// list filters and never widens, in its order. A `safe` item an agent may
+/// remove goes when `opt_in` is on and is `agent-opt-in-off` otherwise;
+/// any other is `not-consented`. `contain()` is not applied: an agent never
+/// removes a worktree, so a safe item inside one is its own.
+///
+/// `for_person`: the `rebuildable` items selected by default inside the
+/// bound, and while `opt_in` is off the `safe` ones too; nothing inside a
+/// listed worktree. Under `listed`, only listed items.
+pub fn plan_agent(
+    report: &ScanReport,
+    catalog: &Catalog,
+    bound: &AgentBound,
+    listed: Option<&[ListedItem]>,
+    opt_in: bool,
+) -> AgentPlan {
+    let plannable = |f: &Finding| -> Option<Action> {
+        if f.class == RiskClass::UserData || f.ignored || report.scan_roots.contains(&f.path) {
+            return None;
+        }
+        let rule = catalog.by_id(&f.rule).filter(|r| !r.listed_only)?;
+        action_for(rule, f.class, false)
+    };
+    let as_listed = |f: &Finding, action: &Action| ListedItem {
+        path: f.path.clone(),
+        dev: f.dev,
+        ino: f.ino,
+        rule: f.rule.clone(),
+        class: f.class,
+        action: action.kind(),
+        permanent: false,
+    };
+    let verdict = |f: &Finding, action: &Action| {
+        if !agent_may_remove(f, action, bound) {
+            AgentVerdict::Skip(SkipReason::NotConsented)
+        } else if opt_in {
+            AgentVerdict::Remove
+        } else {
+            AgentVerdict::Skip(SkipReason::AgentOptInOff)
+        }
+    };
+    // Considered: inside the bound, and its worktrees themselves (never removed
+    // by an agent, listed for the person).
+    let in_tree = |p: &Path| bound.contains(p) || bound.checkouts.iter().any(|c| c == p && *c != bound.project);
+    let mut considered: Vec<(Option<&Finding>, Option<Action>, AgentItem)> = Vec::new();
+    match listed {
+        None => {
+            let mut found: Vec<&Finding> = report.findings.iter().filter(|f| in_tree(&f.path)).collect();
+            found.sort_by(|a, b| a.path.cmp(&b.path));
+            for f in found {
+                let Some(action) = plannable(f) else { continue };
+                let item = AgentItem { item: as_listed(f, &action), bytes: f.bytes, verdict: verdict(f, &action) };
+                considered.push((Some(f), Some(action), item));
+            }
+        }
+        Some(list) => {
+            for listed in list {
+                let skip = |reason| AgentItem { item: listed.clone(), bytes: 0, verdict: AgentVerdict::Skip(reason) };
+                if !in_tree(&listed.path) {
+                    considered.push((None, None, skip(SkipReason::NotConsented)));
+                    continue;
+                }
+                let Some(f) = fresh(report, listed) else {
+                    considered.push((None, None, skip(unconfirmed(report, catalog, listed))));
+                    continue;
+                };
+                let Some(action) = plannable(f) else {
+                    considered.push((Some(f), None, skip(SkipReason::NotConsented)));
+                    continue;
+                };
+                let mut v = verdict(f, &action);
+                // A safe item the agent may remove, listed with another action: changed.
+                if v != AgentVerdict::Skip(SkipReason::NotConsented) && listed.action != action.kind() {
+                    v = AgentVerdict::Skip(SkipReason::ChangedSinceScan);
+                }
+                considered.push((
+                    Some(f),
+                    Some(action),
+                    AgentItem { item: as_listed(f, &action), bytes: f.bytes, verdict: v },
+                ));
+            }
+        }
+    }
+    let plan_items = considered
+        .iter()
+        .filter(|(_, _, i)| i.verdict == AgentVerdict::Remove)
+        .filter_map(|(f, action, _)| {
+            Some(PlanItem { finding: (*f)?.clone(), action: (*action)?, default_selected: true, selected: true })
+        })
+        .collect();
+    // What a person may clean: the rebuildable ones selected by default, and
+    // the safe ones the opt-in held back; nothing a listed worktree holds.
+    let mut for_person: Vec<ListedItem> = considered
+        .iter()
+        .filter_map(|(f, action, i)| {
+            let (f, action) = ((*f)?, (*action)?);
+            let rebuildable = f.class == RiskClass::Rebuildable && f.selected && !f.ignored;
+            let held = i.verdict == AgentVerdict::Skip(SkipReason::AgentOptInOff);
+            (rebuildable || held).then(|| as_listed(f, &action))
+        })
+        .collect();
+    let worktrees: Vec<PathBuf> =
+        for_person.iter().filter(|i| i.rule == worktree::WORKTREE_RULE).map(|i| i.path.clone()).collect();
+    for_person.retain(|i| !worktrees.iter().any(|w| i.path != *w && i.path.starts_with(w)));
+    AgentPlan {
+        plan: Plan { roots: report.scan_roots.clone(), items: plan_items, dropped: Vec::new() },
+        items: considered.into_iter().map(|(_, _, i)| i).collect(),
+        for_person,
+    }
 }
 
 /// A linked worktree's class is the six conditions' verdict: under a

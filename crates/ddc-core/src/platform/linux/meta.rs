@@ -35,8 +35,9 @@ pub fn owner(md: &Metadata) -> Option<u32> {
     Some(md.uid())
 }
 
-/// The owner's user id (`st_uid`), only as a read gate: the agents report
-/// opens Claude Code's temporary folder only when the user owns it. The
+/// The owner's user id (`st_uid`), only as a gate that refuses: the agents
+/// report opens Claude Code's temporary folder only when the user owns it,
+/// and an agent's clean leaves out a checkout in another account's folder. The
 /// same value as [`owner`] here, but never fed to the removal guard or a
 /// finding, which use [`owner`].
 pub fn uid(md: &Metadata) -> Option<u32> {

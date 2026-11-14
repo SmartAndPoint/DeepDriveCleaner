@@ -27,7 +27,7 @@ use ddc_core::exec::{
 use ddc_core::git::{CLEARED, PROBE_CONFIG, PROBE_ENV};
 use ddc_core::model::{Finding, RemovalKind, ScanReport};
 use ddc_core::plan::{
-    Action, ActionKind, DropReason, ListedItem, ListedPlan, Plan, PlanItem, PlanOptions, build_plan,
+    Action, ActionKind, AgentBound, DropReason, ListedItem, ListedPlan, Plan, PlanItem, PlanOptions, build_plan,
     plan_listed_checked,
 };
 use ddc_core::report::{self, Commands, Processes, ScanOptions};
@@ -576,6 +576,27 @@ fn a_listed_agent_worktree_touched_an_hour_ago_is_removed() {
     assert!(plan.refused.is_empty(), "{:?}", plan.refused);
     assert!(matches!(outcome(&run, &wt), Outcome::Native { .. }), "{:?}", outcome(&run, &wt));
     assert!(!wt.exists());
+}
+
+/// Story "Clean: --agent bounded consent": the same listed worktree, run
+/// under an agent's consent, stays. An agent never removes a worktree, not
+/// even one its bound names as a checkout.
+#[test]
+fn a_listed_worktree_run_under_an_agents_consent_stays() {
+    let hour = Duration::from_secs(3_600);
+    let Some(h) = Home::ready_after("a_listed_worktree_run_under_an_agents_consent_stays", hour) else { return };
+    let (main, wt) = project(&h);
+    let r = h.scan();
+    let commands = SharedCommands::system(&h.env());
+    let plan = h.plan_listed(&[listed(&r, &wt)], &commands);
+    assert!(plan.refused.is_empty(), "{:?}", plan.refused);
+    let bound = AgentBound { project: main.clone(), checkouts: vec![main, wt.clone()], left_out: Vec::new() };
+
+    let (run, journal) = h.execute(&plan.plan, Consent::Agent { bound }, &commands);
+
+    assert_eq!(outcome(&run, &wt), &Outcome::Skipped(SkipReason::NotConsented));
+    assert!(wt.exists());
+    assert_eq!(journal.0.len(), 1, "the refusal is journaled");
 }
 
 /// Decision 8: listing a worktree and the `.venv` inside it removes the
