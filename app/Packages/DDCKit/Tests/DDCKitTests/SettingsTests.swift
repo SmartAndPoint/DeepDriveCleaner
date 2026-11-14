@@ -85,6 +85,24 @@ struct SettingsTests {
         #expect(throws: Never.self) { try SharedSettings.read(at: data.directory.settings) }
     }
 
+    @Test("the agents' opt-in a person set in the file survives an edit of the app, and the app never writes it on its own")
+    func keepsTheAgentsOptIn() throws {
+        try Data(#"{"schema_version": 1, "agents_clean_safe": true}"#.utf8).write(to: data.directory.settings)
+        let store = SettingsStore(url: data.directory.settings)
+        #expect(store.update { $0.skips = ["/Users/example/huge"] })
+        #expect(try json()["agents_clean_safe"] as? Bool == true)
+        #expect(throws: Never.self) { try SharedSettings.read(at: data.directory.settings) }
+        try Data(#"{"schema_version": 1}"#.utf8).write(to: data.directory.settings)
+        #expect(store.update { $0.skips = [] })
+        #expect(try json()["agents_clean_safe"] == nil, "off is never written")
+        // `null`, which the CLI refuses, is refused here too, and the file stays as it is.
+        let null = Data(#"{"schema_version": 1, "agents_clean_safe": null}"#.utf8)
+        try null.write(to: data.directory.settings)
+        #expect(throws: SharedSettings.ReadError.self) { try SettingsFile.read(at: data.directory.settings) }
+        #expect(!store.update { $0.skips = ["/Users/example/x"] })
+        #expect(try Data(contentsOf: data.directory.settings) == null)
+    }
+
     @Test("a malformed or newer file is never overwritten, and the pane says why")
     func neverOverwritesUnreadable() throws {
         let popover = try makeModel(runner: nil, data: data, defaults: defaults)

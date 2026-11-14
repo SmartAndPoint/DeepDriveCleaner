@@ -244,7 +244,7 @@ fn scan_does_not_start_while_a_clean_holds_the_lock() {
     assert!(!fx.data.join("last-scan.json").exists());
     // The busy envelope, naming the holder: this test's own process.
     let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(report["error_schema_version"], 4);
+    assert_eq!(report["error_schema_version"], 5);
     assert_eq!(report["error"]["code"], "busy");
     let holders = report["error"]["holders"].as_array().unwrap();
     assert_eq!(holders.len(), 1, "{report}");

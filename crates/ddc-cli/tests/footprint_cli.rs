@@ -132,7 +132,7 @@ fn outside_a_repository_it_refuses_with_exit_2() {
     let report: ErrorReport = contract::holds("error", &out.stdout);
     let json = serde_json::to_value(&report).unwrap();
     assert_eq!(json["error"]["code"], "not-a-repository");
-    assert_eq!(json["error_schema_version"], 4);
+    assert_eq!(json["error_schema_version"], 5);
 
     // The home itself as the main checkout: a home scan, refused.
     common::git(&fx.home, &["init", "-q", "-b", "main"]).unwrap();

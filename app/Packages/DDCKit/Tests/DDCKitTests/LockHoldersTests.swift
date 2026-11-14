@@ -44,7 +44,7 @@ final class Sleeps: Sendable {
 @Suite("The lock's holders")
 struct LockHoldersTests {
     static func status(_ holders: [String]) -> Data {
-        Data(#"{"schema_version":1,"holders":[\#(holders.joined(separator: ","))]}"#.utf8)
+        Data(#"{"schema_version":2,"holders":[\#(holders.joined(separator: ","))]}"#.utf8)
     }
 
     static func holder(pid: Int, mode: String, command: String = "scan", extra: String = "") -> String {
@@ -58,15 +58,15 @@ struct LockHoldersTests {
         #expect(status.holders[1].phase == .cleaning && status.holders[1].progress == .init(done: 3, total: 8))
         let busy = try BusyReport.read(Fixture.data("error-busy"))
         #expect(busy.holders.map(\.command) == [.itemsClean])
-        #expect(throws: (any Error).self) { try LockStatus.read(Data(#"{"schema_version":2,"holders":[]}"#.utf8)) }
+        #expect(throws: (any Error).self) { try LockStatus.read(Data(#"{"schema_version":3,"holders":[]}"#.utf8)) }
         #expect(throws: (any Error).self) { try LockStatus.read(Self.status([Self.holder(pid: 1, mode: "shared", command: "nap")])) }
         #expect(throws: BusyReport.ReadError.notBusy("capability-absent")) {
-            try BusyReport.read(Data(#"{"error_schema_version":4,"error":{"code":"capability-absent","message":"m","simulated":false}}"#.utf8))
+            try BusyReport.read(Data(#"{"error_schema_version":5,"error":{"code":"capability-absent","message":"m","simulated":false}}"#.utf8))
         }
         #expect(throws: BusyReport.ReadError.otherSchema(2)) {
             try BusyReport.read(Data(#"{"error_schema_version":2,"error":{"code":"busy","message":"m","simulated":false}}"#.utf8))
         }
-        let none = try BusyReport.read(Data(#"{"error_schema_version":4,"error":{"code":"busy","message":"m","simulated":false}}"#.utf8))
+        let none = try BusyReport.read(Data(#"{"error_schema_version":5,"error":{"code":"busy","message":"m","simulated":false}}"#.utf8))
         #expect(none.holders.isEmpty, "no holder named: no record, or no in-use-check")
     }
 

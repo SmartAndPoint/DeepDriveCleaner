@@ -27,6 +27,8 @@ public enum CleanWording {
         case .incomplete: "Partly unreadable, or another disk is mounted inside"
         case .foreignOwner: "Holds another user's files"
         case .immutable: lockedFlag
+        case .notConsented: "A coding agent may not remove it · you can"
+        case .agentOptInOff: "A coding agent could remove it, but “Let coding agents clean safe items” is off"
         case .nativeUnavailable(let program): "\(program) is not installed"
         case .toolNotReady(_, let detail): detail.prefix(1).uppercased() + detail.dropFirst()
         case .notAnEntry: "No longer a file or folder you can pick in its folder"

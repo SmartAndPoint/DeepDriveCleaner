@@ -113,6 +113,12 @@ fn clean(items: Vec<CleanItem>) -> CleanReport {
         last_scan_saved: false,
         lossy_paths: None,
         unreadable_processes: None,
+        consent: None,
+        project: None,
+        agents_clean_safe: None,
+        dry_run: false,
+        for_person: None,
+        settings_error: None,
     }
 }
 

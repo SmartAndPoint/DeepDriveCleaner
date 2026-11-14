@@ -294,7 +294,8 @@
         "clean-items-dry-run",
         "disk-free",
         "disk-free-dry-run",
-        "keep-remove"
+        "keep-remove",
+        "agent-clean"
       ]
     },
     "HolderPhase": {

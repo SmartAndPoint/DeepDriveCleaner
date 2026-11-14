@@ -18,6 +18,8 @@ public struct LockHolder: Decodable, Sendable, Equatable, Hashable, Identifiable
         case toolCleanup = "disk-free"
         case toolDryRun = "disk-free-dry-run"
         case keepRemoval = "keep-remove"
+        /// `ddc agent clean`, a coding agent's clean of its project's safe items.
+        case agentCleanup = "agent-clean"
     }
 
     public enum Mode: String, Decodable, Sendable, CaseIterable {
@@ -61,7 +63,7 @@ public struct LockHolder: Decodable, Sendable, Equatable, Hashable, Identifiable
 /// What `deepdrivecleaner lock status --json` prints.
 public struct LockStatus: Decodable, Sendable, Equatable {
     /// `LOCK_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
 
     public let holders: [LockHolder]
 
@@ -77,7 +79,7 @@ public struct LockStatus: Decodable, Sendable, Equatable {
 /// meets a held lock (exit 75; platform seam ADR §7, amended 2026-11-08).
 public struct BusyReport: Sendable, Equatable {
     /// `ERROR_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let errorSchemaVersion = 4
+    public static let errorSchemaVersion = 5
 
     /// The live holders whose records were found; empty when none wrote one.
     public let holders: [LockHolder]
@@ -147,6 +149,7 @@ extension Wording {
         case .toolCleanup: "A tool's cleanup (disk free)"
         case .toolDryRun: "A tool's dry run (disk free)"
         case .keepRemoval: "Remove Protection"
+        case .agentCleanup: "A coding agent's clean"
         }
         let from = switch h.origin {
         case .terminal: " from a terminal"

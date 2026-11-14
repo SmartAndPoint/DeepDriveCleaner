@@ -170,6 +170,7 @@ pub fn holder(h: &ddc_core::holders::Holder, now: &str) -> String {
         HolderCommand::DiskFree => "disk free",
         HolderCommand::DiskFreeDryRun => "disk free --dry-run",
         HolderCommand::KeepRemove => "keep remove",
+        HolderCommand::AgentClean => "agent clean (a coding agent)",
     };
     let from = match h.origin {
         Origin::App => " from the app",

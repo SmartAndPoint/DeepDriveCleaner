@@ -273,6 +273,10 @@ pub fn reason(r: &SkipReason) -> String {
         SkipReason::Incomplete => "partly unreadable or has another filesystem mounted inside".to_owned(),
         SkipReason::ForeignOwner => "it holds another user's files".to_owned(),
         SkipReason::Immutable => immutable_text(),
+        SkipReason::NotConsented => "a coding agent may not remove it; ddc clean may, with you".to_owned(),
+        SkipReason::AgentOptInOff => {
+            "a coding agent could remove it, but agents_clean_safe is off in settings.json".to_owned()
+        }
         SkipReason::NotAnEntry => "no longer a file or folder you can pick in its folder".to_owned(),
         SkipReason::EntryLocked { lock } => format!("locked: {}", lock_text(lock)),
         SkipReason::InsideAnotherItem => "removed with the folder it is in".to_owned(),

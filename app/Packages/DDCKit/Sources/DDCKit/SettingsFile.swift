@@ -23,6 +23,11 @@ public struct SettingsFile: Codable, Sendable, Equatable {
     public var notifyLowDisk: Bool?
     /// Who runs the scheduled scan (menu bar ADR §5); the app never edits it here.
     public var scheduler: Scheduler?
+    /// "Let coding agents clean safe items" (ADR "Agent footprint", §7): kept
+    /// as read and written back only when true, as the CLI writes it; the
+    /// app never sets it here (story "Settings: let coding agents clean safe
+    /// items" switches it through the CLI).
+    public private(set) var agentsCleanSafe = false
 
     public struct Scheduler: Codable, Sendable, Equatable {
         public var by: String
@@ -33,6 +38,7 @@ public struct SettingsFile: Codable, Sendable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, roots, excludes, skips, disabledRules, minAgeDays, minSize, notifyThreshold, notifyLowDisk, scheduler
+        case agentsCleanSafe
     }
 
     public init(from decoder: any Decoder) throws {
@@ -53,6 +59,11 @@ public struct SettingsFile: Codable, Sendable, Equatable {
         notifyThreshold = try c.decodeIfPresent(UInt64.self, forKey: .notifyThreshold)
         notifyLowDisk = try c.decodeIfPresent(Bool.self, forKey: .notifyLowDisk)
         scheduler = try c.decodeIfPresent(Scheduler.self, forKey: .scheduler)
+        // serde refuses `null` for the flag too.
+        if c.contains(.agentsCleanSafe), try c.decodeNil(forKey: .agentsCleanSafe) {
+            throw DecodingError.valueNotFound(Bool.self, .init(codingPath: [CodingKeys.agentsCleanSafe], debugDescription: "agents_clean_safe is null"))
+        }
+        agentsCleanSafe = try c.decodeIfPresent(Bool.self, forKey: .agentsCleanSafe) ?? false
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -67,6 +78,7 @@ public struct SettingsFile: Codable, Sendable, Equatable {
         try c.encodeIfPresent(notifyThreshold, forKey: .notifyThreshold)
         try c.encodeIfPresent(notifyLowDisk, forKey: .notifyLowDisk)
         try c.encodeIfPresent(scheduler, forKey: .scheduler)
+        if agentsCleanSafe { try c.encode(true, forKey: .agentsCleanSafe) }
     }
 
     /// No file gives the defaults, as for the CLI. The version is read first:

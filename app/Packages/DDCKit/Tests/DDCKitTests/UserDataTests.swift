@@ -289,7 +289,7 @@ struct UserDataTests {
 
             """.utf8))
         try fake.put("clean-report.json", Data("""
-            {"schema_version": 12, "ddc_version": "0.2.0", "platform": "macos", "capabilities": ["private-size", "in-use-check", "dataless-files", "full-disk-access", "local-snapshots", "whole-disk", "coding-agents", "homebrew", "schedule", "notifications"], "cancelled": false, "failed": 0, "local_snapshots": 0,
+            {"schema_version": 13, "ddc_version": "0.2.0", "platform": "macos", "capabilities": ["private-size", "in-use-check", "dataless-files", "full-disk-access", "local-snapshots", "whole-disk", "coding-agents", "homebrew", "schedule", "notifications"], "cancelled": false, "failed": 0, "local_snapshots": 0,
              "journal": "/Users/example/Library/Logs/DeepDriveCleaner/actions.jsonl", "volumes": [],
              "items": [{"path": "\(home)/Downloads/Project", "dev": 1, "ino": 102, "rule": "user.downloads",
                         "class": "user-data", "action": "trash", "bytes": 30000000, "outcome": "trashed"}]}
