@@ -18,7 +18,7 @@ public struct SharedSettings: Sendable, Equatable {
     /// Every key of the CLI's `Settings`; it denies any other.
     static let keys: Set<String> = [
         "schema_version", "roots", "excludes", "skips", "disabled_rules", "min_age_days", "min_size",
-        "notify_threshold", "notify_low_disk", "scheduler",
+        "notify_threshold", "notify_low_disk", "scheduler", "agents_clean_safe",
     ]
 
     public enum ReadError: Error, Equatable {

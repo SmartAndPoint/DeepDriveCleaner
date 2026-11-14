@@ -29,6 +29,10 @@ public enum SkipReason: Sendable, Equatable, Hashable {
     /// Something inside, or the item itself, has an immutable or append-only
     /// flag; ddc never clears it.
     case immutable
+    /// `ddc agent clean`: a coding agent may not remove it; a person may.
+    case notConsented
+    /// `ddc agent clean`: a safe item, but "Let coding agents clean safe items" is off.
+    case agentOptInOff
     case nativeUnavailable(program: String)
     /// The runtime did not answer before its prune commands; `detail` says why.
     case toolNotReady(program: String, detail: String)
@@ -80,7 +84,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
         "missing", "not-a-directory", "symlink", "changed-since-scan", "parent-changed", "rule-mismatch",
         "outside-scan-roots", "scan-root", "protected", "project-root", "kept", "in-use", "in-use-unknown-cwd",
         "owner-running", "held-open", "needs-confirmation", "action-not-allowed", "incomplete", "foreign-owner", "immutable",
-        "native-unavailable",
+        "not-consented", "agent-opt-in-off", "native-unavailable",
         "tool-not-ready", "not-an-entry", "entry-locked", "inside-another-item", "trash-crosses-filesystem",
         "recycle-bin-refuses", "agent-live", "worktree-kept",
     ]
@@ -114,6 +118,8 @@ public enum SkipReason: Sendable, Equatable, Hashable {
         case "incomplete": self = .incomplete
         case "foreign-owner": self = .foreignOwner
         case "immutable": self = .immutable
+        case "not-consented": self = .notConsented
+        case "agent-opt-in-off": self = .agentOptInOff
         case "native-unavailable": self = .nativeUnavailable(program: try c.decode(String.self, forKey: .program))
         case "tool-not-ready":
             self = .toolNotReady(program: try c.decode(String.self, forKey: .program), detail: try c.decode(String.self, forKey: .detail))
@@ -136,7 +142,7 @@ public enum SkipReason: Sendable, Equatable, Hashable {
 /// `clean --items --json`: what happened to each listed item.
 public struct CleanReport: Decodable, Sendable, Equatable {
     /// `CLEAN_SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 12
+    public static let schemaVersion = 13
 
     public enum ReadError: Error, Equatable {
         case otherSchema(Int)

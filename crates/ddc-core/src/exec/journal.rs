@@ -36,8 +36,11 @@ use crate::plan::PlanItem;
 /// companion's line included (safety ADR §5, the Recycle Bin on Windows,
 /// planned 2026-11-04). 12: in an `item` line, the skip reason `immutable`
 /// and the entry lock `immutable` (safety ADR, amendment of 2026-11-04,
-/// "Linux file kinds").
-pub const JOURNAL_SCHEMA_VERSION: u32 = 12;
+/// "Linux file kinds"). 13: the skip reasons `not-consented` and
+/// `agent-opt-in-off`, and an `item` line's optional `consent` and
+/// `project` (ADR "Agent footprint", §7, story "Clean: --agent bounded
+/// consent").
+pub const JOURNAL_SCHEMA_VERSION: u32 = 13;
 
 /// Where an item went in the Trash: the trash folder and the name in its
 /// `files/`. Absent where the Trash does not tell (macOS): a trash on
@@ -88,6 +91,13 @@ pub struct JournalEntry {
     pub entry: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trash: Option<TrashedTo>,
+    /// Who consented; set on the lines of `ddc agent clean`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consent: Option<super::ConsentKind>,
+    /// The main checkout an agent's clean was bound to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "crate::json_path::opt_path")]
+    pub project: Option<PathBuf>,
     #[serde(flatten)]
     pub outcome: Outcome,
 }
@@ -109,6 +119,8 @@ impl JournalEntry {
             private_bytes: f.private_bytes,
             entry: None,
             trash: None,
+            consent: None,
+            project: None,
             outcome: outcome.clone(),
         }
     }
@@ -131,6 +143,8 @@ impl JournalEntry {
             private_bytes: None,
             entry: Some(f.path.clone()),
             trash: moved.place.clone().map(TrashedTo::from),
+            consent: None,
+            project: None,
             outcome: if moved.recycled { Outcome::Trashed } else { Outcome::RemovedNotRecycled },
         }
     }

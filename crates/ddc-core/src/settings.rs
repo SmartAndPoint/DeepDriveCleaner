@@ -58,6 +58,12 @@ pub struct Settings {
     /// Who runs the scheduled scan (ADR §5).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scheduler: Option<SchedulerRecord>,
+    /// "Let coding agents clean safe items" (ADR "Agent footprint", §7):
+    /// `ddc agent clean` removes `safe` items of the agent's project only
+    /// while it is on. Written only when true, so an older ddc refuses the
+    /// file only while it is.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agents_clean_safe: bool,
 }
 
 impl Default for Settings {
@@ -73,6 +79,7 @@ impl Default for Settings {
             notify_threshold: None,
             notify_low_disk: None,
             scheduler: None,
+            agents_clean_safe: false,
         }
     }
 }
@@ -137,7 +144,15 @@ pub fn parse(bytes: &[u8]) -> Result<Settings, String> {
         Some(v) => return Err(format!("schema_version {v}; this ddc reads {SETTINGS_SCHEMA_VERSION}")),
         None => return Err("no schema_version".to_owned()),
     }
-    let settings: Settings = serde_json::from_value(value).map_err(|e| e.to_string())?;
+    let settings: Settings = serde_json::from_value(value).map_err(|e| {
+        let reason = e.to_string();
+        // A key a newer DeepDriveCleaner wrote (`agents_clean_safe`, say).
+        if reason.starts_with("unknown field") {
+            format!("{reason}; if a newer DeepDriveCleaner wrote it, update ddc")
+        } else {
+            reason
+        }
+    })?;
     if let Some(p) = settings.roots.iter().chain(&settings.excludes).chain(&settings.skips).find(|p| !p.is_absolute()) {
         return Err(format!("{} is not an absolute path", p.display()));
     }

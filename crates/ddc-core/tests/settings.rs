@@ -242,3 +242,25 @@ fn committed_settings_schema_is_current() {
     let committed = std::fs::read_to_string(&path).unwrap_or_default();
     assert!(committed == schema, "docs/settings.schema.json is stale: run DDC_UPDATE_SCHEMA=1 cargo test");
 }
+
+/// `agents_clean_safe` (ADR "Agent footprint", §7): read when true, false
+/// when absent, and written only when true, so a file stays readable by an
+/// older ddc while the opt-in is off.
+#[test]
+fn the_agents_opt_in_is_written_only_when_on() {
+    let on = settings::parse(br#"{"schema_version": 1, "agents_clean_safe": true}"#).unwrap();
+    assert!(on.agents_clean_safe);
+    assert!(!settings::parse(br#"{"schema_version": 1}"#).unwrap().agents_clean_safe);
+    assert!(settings::parse(br#"{"schema_version": 1, "agents_clean_safe": "yes"}"#).is_err());
+    let off = serde_json::to_value(Settings::default()).unwrap();
+    assert!(off.get("agents_clean_safe").is_none(), "{off}");
+    assert_eq!(serde_json::to_value(&on).unwrap()["agents_clean_safe"], true);
+}
+
+/// A key this ddc does not know is one a newer DeepDriveCleaner wrote: the
+/// refusal says to update.
+#[test]
+fn an_unknown_key_says_to_update_ddc() {
+    let err = settings::parse(br#"{"schema_version": 1, "from_the_future": true}"#).unwrap_err();
+    assert!(err.contains("from_the_future") && err.contains("update ddc"), "{err}");
+}

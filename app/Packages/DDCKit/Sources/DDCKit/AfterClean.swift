@@ -32,7 +32,8 @@ extension SkipReason {
         // `trashCrossesFilesystem`, and the Recycle Bin's other refusals:
         // only `--permanent` removes it.
         case .kept, .protected, .projectRoot, .scanRoot, .outsideScanRoots, .actionNotAllowed, .needsConfirmation,
-             .insideAnotherItem, .nativeUnavailable, .foreignOwner, .immutable, .trashCrossesFilesystem, .recycleBinRefuses:
+             .insideAnotherItem, .nativeUnavailable, .foreignOwner, .immutable, .trashCrossesFilesystem, .recycleBinRefuses,
+             .notConsented, .agentOptInOff:
             .never
         }
     }

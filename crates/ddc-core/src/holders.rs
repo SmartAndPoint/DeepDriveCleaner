@@ -45,8 +45,9 @@ pub const START_TOLERANCE_US: u64 = 2_000_000;
 /// fsyncs, and a clean can have thousands of items.
 const PROGRESS_GAP: Duration = Duration::from_secs(1);
 
-/// Version of [`LockStatus`] (`docs/lock.schema.json`).
-pub const LOCK_SCHEMA_VERSION: u32 = 1;
+/// Version of [`LockStatus`] (`docs/lock.schema.json`). 2: the command
+/// `agent-clean`.
+pub const LOCK_SCHEMA_VERSION: u32 = 2;
 
 /// `ddc lock status --json`: the live holders of the lock, oldest first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -88,6 +89,9 @@ pub enum HolderCommand {
     DiskFree,
     DiskFreeDryRun,
     KeepRemove,
+    // `ddc agent clean`, a coding agent's clean of its project's `safe`
+    // items (no doc comment: one would turn the schema's enum into a oneOf).
+    AgentClean,
 }
 
 /// Where the holder was started. A guess, for the words only.
@@ -295,7 +299,8 @@ pub(crate) fn claim(env: &Env, command: HolderCommand, mode: LockMode) -> Option
         command,
         mode,
         origin: origin(),
-        phase: matches!(command, HolderCommand::Clean | HolderCommand::CleanItems).then_some(HolderPhase::Preparing),
+        phase: matches!(command, HolderCommand::Clean | HolderCommand::CleanItems | HolderCommand::AgentClean)
+            .then_some(HolderPhase::Preparing),
         progress: None,
     };
     let path = dir.join(record_name(pid, start));

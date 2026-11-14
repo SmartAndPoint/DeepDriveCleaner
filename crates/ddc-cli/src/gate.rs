@@ -290,7 +290,7 @@ mod tests {
         let unsupported = Refusal::Unsupported(UNPORTED.unwrap_err());
         let report = ErrorReport::new(&unsupported, message(&unsupported));
         let json = serde_json::to_value(&report).unwrap();
-        assert_eq!(json["error_schema_version"], 4);
+        assert_eq!(json["error_schema_version"], 5);
         assert_eq!(json["error"]["code"], "platform-not-supported");
         assert_eq!(json["error"]["platform"], "linux");
         assert_eq!(
@@ -315,7 +315,7 @@ mod tests {
         use ddc_core::platform::Foreign;
         let foreign = ForeignRoot { path: "/elsewhere".into(), why: Foreign::Owner("S-1-5-18".to_owned()) };
         let json = serde_json::to_value(ErrorReport::root_not_owned(&foreign, foreign.to_string())).unwrap();
-        assert_eq!(json["error_schema_version"], 4);
+        assert_eq!(json["error_schema_version"], 5);
         assert_eq!(json["error"]["code"], "root-not-owned");
         assert_eq!(json["error"]["root"], "/elsewhere");
         assert_eq!(json["error"]["owner"], "S-1-5-18");

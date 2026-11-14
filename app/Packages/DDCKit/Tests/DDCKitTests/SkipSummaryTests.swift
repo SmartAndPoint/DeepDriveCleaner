@@ -199,9 +199,9 @@ struct SkipSummaryTests {
         ])
         #expect(classes[.never] == [
             "kept", "protected", "project-root", "scan-root", "outside-scan-roots", "action-not-allowed", "needs-confirmation",
-            "inside-another-item", "native-unavailable", "foreign-owner", "immutable", "trash-crosses-filesystem",
+            "inside-another-item", "native-unavailable", "foreign-owner", "immutable", "not-consented", "agent-opt-in-off", "trash-crosses-filesystem",
             "recycle-bin-refuses",
         ])
-        #expect(SkipReason.tags.count == 29)
+        #expect(SkipReason.tags.count == 31)
     }
 }

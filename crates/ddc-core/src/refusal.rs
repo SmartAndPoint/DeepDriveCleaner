@@ -18,8 +18,9 @@ use crate::platform::{Capability, Foreign, ForeignRoot, Platform, Refusal};
 
 /// Version of [`ErrorReport`]. A new [`ErrorCode`] bumps it: 2 added
 /// `root-not-owned`, 3 added `busy`, 4 added `not-a-repository` and
-/// `home-is-the-checkout`.
-pub const ERROR_SCHEMA_VERSION: u32 = 4;
+/// `home-is-the-checkout`, 5 the holder command `agent-clean` that `busy`
+/// envelopes carry.
+pub const ERROR_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ErrorReport {

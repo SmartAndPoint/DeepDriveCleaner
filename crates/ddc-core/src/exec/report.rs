@@ -29,7 +29,11 @@ use crate::platform::{Capability, Platform};
 /// `removed-not-recycled` (safety ADR §5, the Recycle Bin on Windows,
 /// planned 2026-11-04). 12: the skip reason `immutable` and the entry lock
 /// `immutable` (safety ADR, amendment of 2026-11-04, "Linux file kinds").
-pub const CLEAN_SCHEMA_VERSION: u32 = 12;
+/// 13: the skip reasons `not-consented` and `agent-opt-in-off`, and the
+/// optional `consent`, `project`, `agents_clean_safe`, `dry_run`,
+/// `for_person` and `settings_error` of `ddc agent clean` (ADR "Agent
+/// footprint", §7).
+pub const CLEAN_SCHEMA_VERSION: u32 = 13;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CleanReport {
@@ -68,6 +72,27 @@ pub struct CleanReport {
     /// read every one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unreadable_processes: Option<u64>,
+    /// Who consented; set by `ddc agent clean`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consent: Option<super::ConsentKind>,
+    /// `ddc agent clean`: the main checkout it was bound to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "crate::json_path::opt_path")]
+    pub project: Option<PathBuf>,
+    /// `ddc agent clean`: whether `settings.json` let it remove `safe` items.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agents_clean_safe: Option<bool>,
+    /// `ddc agent clean --dry-run`: nothing ran; what would go is `not-run`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dry_run: bool,
+    /// `ddc agent clean`: what a person may clean, as the list `ddc clean
+    /// --items` reads; absent when it would be empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub for_person: Option<crate::plan::ListedItems>,
+    /// `ddc agent clean`: why `settings.json` could not be read; nothing was
+    /// considered then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings_error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -137,6 +162,12 @@ impl CleanReport {
             last_scan_saved: false,
             lossy_paths: None,
             unreadable_processes: (run.withheld_processes > 0).then_some(run.withheld_processes),
+            consent: None,
+            project: None,
+            agents_clean_safe: None,
+            dry_run: false,
+            for_person: None,
+            settings_error: None,
         };
         report.lossy_paths = crate::json_path::count_lossy(&report);
         report

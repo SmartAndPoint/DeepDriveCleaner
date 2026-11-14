@@ -4,6 +4,10 @@
   "description": "Unknown keys are refused: app-only preferences never belong here, and an\nunknown key may be a protection this CLI does not know about.",
   "type": "object",
   "properties": {
+    "agents_clean_safe": {
+      "description": "\"Let coding agents clean safe items\" (ADR \"Agent footprint\", §7):\n`ddc agent clean` removes `safe` items of the agent's project only\nwhile it is on. Written only when true, so an older ddc refuses the\nfile only while it is.",
+      "type": "boolean"
+    },
     "disabled_rules": {
       "description": "Rule ids switched off in the Types settings: their findings are\n`ignored`. Unknown ids are inert, so a renamed rule breaks nothing.",
       "type": "array",

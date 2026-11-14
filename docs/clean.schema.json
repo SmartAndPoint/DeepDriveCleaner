@@ -3,6 +3,13 @@
   "title": "CleanReport",
   "type": "object",
   "properties": {
+    "agents_clean_safe": {
+      "description": "`ddc agent clean`: whether `settings.json` let it remove `safe` items.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "cancelled": {
       "description": "A signal stopped the run; the items it left are `not-run`.",
       "type": "boolean"
@@ -14,14 +21,40 @@
         "$ref": "#/$defs/Capability"
       }
     },
+    "consent": {
+      "description": "Who consented; set by `ddc agent clean`.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConsentKind"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "ddc_version": {
       "type": "string"
+    },
+    "dry_run": {
+      "description": "`ddc agent clean --dry-run`: nothing ran; what would go is `not-run`.",
+      "type": "boolean"
     },
     "failed": {
       "description": "Items that `failed`, or whose tool command failed.",
       "type": "integer",
       "format": "uint64",
       "minimum": 0
+    },
+    "for_person": {
+      "description": "`ddc agent clean`: what a person may clean, as the list `ddc clean\n--items` reads; absent when it would be empty.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ListedItems"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "items": {
       "description": "In the order of the list.",
@@ -58,10 +91,24 @@
       "description": "The platform the CLI was built for.",
       "$ref": "#/$defs/Platform"
     },
+    "project": {
+      "description": "`ddc agent clean`: the main checkout it was bound to.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "schema_version": {
       "type": "integer",
       "format": "uint32",
       "minimum": 0
+    },
+    "settings_error": {
+      "description": "`ddc agent clean`: why `settings.json` could not be read; nothing was\nconsidered then.",
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "unreadable_processes": {
       "description": "Processes of the user the in-use check could not read in full: a\nnon-dumpable one, or one that exited during the read (safety ADR, §5,\namendment of 2026-10-31). What they use is unknown. Absent when it\nread every one.",
@@ -427,6 +474,31 @@
         "program",
         "args",
         "success"
+      ]
+    },
+    "ConsentKind": {
+      "description": "Who consented to a clean, as its report and journal name it.",
+      "oneOf": [
+        {
+          "description": "A person at a terminal confirmed the plan.",
+          "type": "string",
+          "const": "interactive"
+        },
+        {
+          "description": "`ddc clean --yes`: a script, within its class bound.",
+          "type": "string",
+          "const": "yes"
+        },
+        {
+          "description": "`ddc clean --items`: a list a person confirmed.",
+          "type": "string",
+          "const": "listed"
+        },
+        {
+          "description": "`ddc agent clean`: a coding agent, within ADR \"Agent footprint\" §7.",
+          "type": "string",
+          "const": "agent"
+        }
       ]
     },
     "EntryLock": {
@@ -1230,6 +1302,32 @@
             "reason": {
               "type": "string",
               "const": "immutable"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "`ddc agent clean` (ADR \"Agent footprint\", §7): an agent may not remove\nit; a `rebuildable`, `review` or `user-data` item, a `safe` item that\nis not a project artifact, a tool's command, or one outside the\nproject's checkouts. A person's `ddc clean` may.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "not-consented"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        },
+        {
+          "description": "`ddc agent clean`: a `safe` item an agent could remove, but\n`agents_clean_safe` is off in `settings.json`.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "agent-opt-in-off"
             }
           },
           "required": [

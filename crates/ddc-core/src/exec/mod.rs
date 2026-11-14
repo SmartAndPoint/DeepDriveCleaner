@@ -45,6 +45,20 @@ use crate::rules::entries::{self, EntryLock};
 use crate::rules::{Catalog, is_keep_marker};
 use crate::scan::{self, EntryMeta, OwnerKind, Progress, Tag, Visitor, WalkOptions};
 
+/// Who consented to a clean, as its report and journal name it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConsentKind {
+    /// A person at a terminal confirmed the plan.
+    Interactive,
+    /// `ddc clean --yes`: a script, within its class bound.
+    Yes,
+    /// `ddc clean --items`: a list a person confirmed.
+    Listed,
+    /// `ddc agent clean`: a coding agent, within ADR "Agent footprint" §7.
+    Agent,
+}
+
 /// Why an item was left alone. Serialized into the journal and the clean report.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "reason", rename_all = "kebab-case")]
@@ -96,6 +110,14 @@ pub enum SkipReason {
     /// append-only flag (safety ADR, amendment of 2026-11-04, "Linux file
     /// kinds"): refused before any rename. ddc never clears the flag.
     Immutable,
+    /// `ddc agent clean` (ADR "Agent footprint", §7): an agent may not remove
+    /// it; a `rebuildable`, `review` or `user-data` item, a `safe` item that
+    /// is not a project artifact, a tool's command, or one outside the
+    /// project's checkouts. A person's `ddc clean` may.
+    NotConsented,
+    /// `ddc agent clean`: a `safe` item an agent could remove, but
+    /// `agents_clean_safe` is off in `settings.json`.
+    AgentOptInOff,
     NativeUnavailable {
         program: String,
     },

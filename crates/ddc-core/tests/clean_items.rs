@@ -719,3 +719,44 @@ fn committed_clean_schema_is_current() {
     let committed = fs::read_to_string(&path).unwrap_or_default();
     assert!(committed == text, "docs/clean.schema.json is stale: run DDC_UPDATE_SCHEMA=1 cargo test");
 }
+
+/// The fields of `ddc agent clean` (story "Clean: --agent bounded consent"):
+/// absent from every other clean's report, and when set, as the schema
+/// names them, read back unchanged.
+#[test]
+fn the_agent_fields_are_absent_unless_set_and_round_trip_when_set() {
+    let base = serde_json::json!({
+        "schema_version": ddc_core::exec::report::CLEAN_SCHEMA_VERSION, "ddc_version": "test",
+        "platform": serde_json::to_value(ddc_core::platform::PLATFORM).unwrap(), "capabilities": [],
+        "cancelled": false, "items": [], "failed": 0, "volumes": [], "local_snapshots": 0, "journal": "/journal",
+        "last_scan_saved": false,
+    });
+    let plain: CleanReport = serde_json::from_value(base.clone()).unwrap();
+    let written = serde_json::to_value(&plain).unwrap();
+    for key in ["consent", "project", "agents_clean_safe", "dry_run", "for_person", "settings_error"] {
+        assert!(written.get(key).is_none(), "{key} written: {written}");
+    }
+    let mut agent = base;
+    let fields = serde_json::json!({
+        "consent": "agent", "project": "/Users/example/proj", "agents_clean_safe": false, "dry_run": true,
+        "for_person": {"schema_version": 1, "items": [{"path": "/Users/example/proj/.venv", "dev": 1, "ino": 2,
+            "rule": "python.venv", "class": "rebuildable", "action": "delete"}]},
+        "settings_error": "unreadable",
+        "items": [{"path": "/Users/example/proj/x", "dev": 1, "ino": 3, "rule": "python.pycache", "class": "safe",
+            "action": "delete", "outcome": "skipped", "reason": "agent-opt-in-off"},
+            {"path": "/Users/example/proj/y", "dev": 1, "ino": 4, "rule": "python.venv", "class": "rebuildable",
+            "action": "delete", "outcome": "skipped", "reason": "not-consented"}],
+    });
+    for (k, v) in fields.as_object().unwrap() {
+        agent[k] = v.clone();
+    }
+    let doc: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/clean.schema.json")).unwrap(),
+    )
+    .unwrap();
+    let validator = jsonschema::validator_for(&doc).unwrap();
+    let errors: Vec<String> = validator.iter_errors(&agent).map(|e| e.to_string()).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    let read: CleanReport = serde_json::from_value(agent.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&read).unwrap(), agent, "read back unchanged");
+}
