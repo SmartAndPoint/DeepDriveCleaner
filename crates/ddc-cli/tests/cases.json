@@ -24,7 +24,7 @@
       {"path": "home/esc\u001b[2J/__pycache__/a.cpython-312.pyc", "bytes": 5000, "unix": true}
     ]
   },
-  "data_dir_commands": ["scan", "clean", "disk", "disk agents", "agent status", "agent footprint", "agent clean", "disk free", "disk brew-packages", "disk docker", "keep remove", "notify ack", "notify snooze", "space", "changes", "lock status", "lock stop"],
+  "data_dir_commands": ["scan", "clean", "disk", "disk agents", "agent status", "agent footprint", "agent clean", "settings set", "disk free", "disk brew-packages", "disk docker", "keep remove", "notify ack", "notify snooze", "space", "changes", "lock status", "lock stop"],
   "cases": [
     {
       "name": "the owner's call: scan . in ~/Projects suggests the clean of ~/Projects",
@@ -234,6 +234,24 @@
       "group": "commands",
       "args": ["agent", "status", "--json", "--no-sizes", "--threads", "2", "--system-root", "{root}/sys"],
       "expect": {"exit": 0, "schema": "agents"}
+    },
+    {
+      "name": "settings set agents_clean_safe off in a fresh data folder changes nothing",
+      "group": "commands",
+      "args": ["settings", "set", "agents_clean_safe", "off"],
+      "expect": {"exit": 0, "stdout": {"contains": ["agents_clean_safe: off (unchanged)"]}}
+    },
+    {
+      "name": "settings set agents_clean_safe on without a terminal is refused",
+      "group": "commands",
+      "args": ["settings", "set", "agents_clean_safe", "on"],
+      "expect": {"exit": 2, "stderr": {"contains": ["needs you at a terminal"]}}
+    },
+    {
+      "name": "settings set agents_clean_safe on --approved, as the app's toggle, switches it on",
+      "group": "commands",
+      "args": ["settings", "set", "agents_clean_safe", "on", "--approved"],
+      "expect": {"exit": 0, "stdout": {"contains": ["agents_clean_safe: on"]}}
     },
     {
       "name": "agent clean outside a git repository refuses before anything",

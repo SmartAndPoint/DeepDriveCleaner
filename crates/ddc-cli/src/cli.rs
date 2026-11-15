@@ -41,6 +41,11 @@ pub enum Command {
         #[command(subcommand)]
         action: AgentAction,
     },
+    /// Switch a setting only you should switch, such as letting coding agents clean safe items.
+    Settings {
+        #[command(subcommand)]
+        action: SettingsAction,
+    },
     /// Remove a folder's protection: its .ddc-keep file, never the folder.
     Keep {
         #[command(subcommand)]
@@ -93,6 +98,7 @@ impl Command {
             Command::Agent { action: AgentAction::Footprint(a) } => a.json,
             Command::Agent { action: AgentAction::Clean(a) } => a.json,
             Command::Keep { action: KeepAction::Remove(a) } => a.json,
+            Command::Settings { .. } => false,
             Command::Lock { action: LockAction::Status(a) } => a.json,
             Command::Lock { action: LockAction::Stop(_) } => false,
             Command::Schedule { .. } | Command::Notify { .. } | Command::Du(_) | Command::Diag => false,
@@ -502,6 +508,77 @@ pub struct FreeArgs {
     /// `/` (tests).
     #[arg(long, hide = true, value_name = "DIR")]
     pub system_root: Option<PathBuf>,
+}
+
+/// A usage error never suggests an option that is hidden wherever it exists
+/// (story "Settings: let coding agents clean safe items", D5): clap's typo
+/// hint takes every long name, hidden or not, so `--approve` would name the
+/// app's `--approved`.
+pub fn without_hidden_hints(mut e: clap::Error) -> clap::Error {
+    use clap::CommandFactory as _;
+    use clap::error::{ContextKind, ContextValue};
+    let (mut hidden, mut shown) = (Vec::new(), Vec::new());
+    longs(&Cli::command(), &mut hidden, &mut shown);
+    hidden.retain(|h| !shown.contains(h));
+    let names = |text: &str| hidden.iter().any(|h| text.contains(&format!("--{h}")));
+    if matches!(e.get(ContextKind::SuggestedArg), Some(ContextValue::String(s)) if names(s)) {
+        e.remove(ContextKind::SuggestedArg);
+    }
+    if let Some(ContextValue::StyledStrs(all)) = e.get(ContextKind::Suggested) {
+        let kept: Vec<_> = all.iter().filter(|s| !names(&s.to_string())).cloned().collect();
+        e.remove(ContextKind::Suggested);
+        if !kept.is_empty() {
+            e.insert(ContextKind::Suggested, ContextValue::StyledStrs(kept));
+        }
+    }
+    e
+}
+
+fn longs(cmd: &clap::Command, hidden: &mut Vec<String>, shown: &mut Vec<String>) {
+    for arg in cmd.get_arguments() {
+        if let Some(long) = arg.get_long() {
+            let to = if arg.is_hide_set() { &mut *hidden } else { &mut *shown };
+            to.push(long.to_owned());
+        }
+    }
+    for sub in cmd.get_subcommands() {
+        longs(sub, hidden, shown);
+    }
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SettingsAction {
+    /// Switch a setting on or off.
+    Set(SettingsSetArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct SettingsSetArgs {
+    /// The setting. agents_clean_safe lets coding agents remove the safe build caches inside their own project without asking you.
+    #[arg(value_enum, value_name = "SETTING")]
+    pub key: SettingKey,
+    /// on or off. Switching it on asks you first.
+    #[arg(value_enum, value_name = "VALUE")]
+    pub value: OnOff,
+    /// The app's toggle, which shows the risk itself (hidden: a person answers at a terminal, an agent never passes it).
+    #[arg(long, hide = true)]
+    pub approved: bool,
+    /// Where settings.json and the action journal live (tests). Hidden, as on agent clean.
+    #[arg(long, value_name = "DIR", hide = true)]
+    pub data_dir: Option<PathBuf>,
+}
+
+/// The settings `ddc settings set` switches: one, so there is no generic writer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum SettingKey {
+    #[value(name = "agents_clean_safe")]
+    AgentsCleanSafe,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OnOff {
+    On,
+    Off,
 }
 
 #[derive(Debug, Subcommand)]

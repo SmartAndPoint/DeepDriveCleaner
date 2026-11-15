@@ -400,6 +400,19 @@ ddc agent clean [ROOT] [--items FILE] [--dry-run] [--json]
 ddc agent clean --dry-run --json | jq '.for_person'
 ```
 
+### `ddc settings`: what only you switch
+
+`ddc settings set agents_clean_safe on` lets coding agents remove, with `ddc agent clean`, the safe build caches inside their own project without asking you; `off` takes that back. At a terminal, `on` first says what it allows and links the [Disclaimer](DISCLAIMER.md), then asks, default No; a No exits 1 and changes nothing. `off` never asks. Without a terminal `on` is refused (exit 2), so a coding agent's command alone does not switch it on; it does not stop a program that edits `settings.json` itself.
+
+- It changes only that key of `settings.json` and keeps every other key and the file's permissions. A switch that changes nothing writes nothing.
+- Each change is logged to `actions.jsonl`, one `settings-set` line with the value before and after. When that line cannot be written after `on`, the setting goes back to off.
+- It takes no lock a scan or clean takes, so it never waits for one and never exits 75. A clean that is already running is stopped with `ddc lock stop`; the next `ddc agent clean` sees the new value. It exits 1 when `settings.json` cannot be read, the journal cannot be written, or another program is writing the settings for more than a second.
+
+```
+ddc settings set agents_clean_safe on|off
+ddc settings set agents_clean_safe off        # never asks
+```
+
 ### `ddc keep`: remove a folder's protection
 
 A `.ddc-keep` file keeps its folder, and everything in it, out of every plan: the scan lists it under "Protected by you". `ddc keep remove <folder>` removes that file from one folder and nothing else; the folder and what lies in it stay. The next scan lists the folder in its own group, where it can be cleaned with that group's checks, and may be selected for cleanup by default. To keep it again, put the file back (the app's Protect This Folder).
@@ -459,7 +472,7 @@ ddc schedule status
 | Code | Meaning |
 |---|---|
 | 0 | Done. `clean --items --json`, `disk free --json` and `keep remove --json` exit 0 even when an item or action failed or was refused: the report says which. |
-| 1 | An error; in text mode, `clean` also exits 1 when an item failed or Windows deleted an item instead of recycling it, `disk free` when an action failed, and `keep remove` when the file was not removed for a reason other than being gone already. |
+| 1 | An error; in text mode, `clean` also exits 1 when an item failed or Windows deleted an item instead of recycling it, `disk free` when an action failed, `keep remove` when the file was not removed for a reason other than being gone already, and `settings set` when you answer No. |
 | 2 | Refused before anything was touched: run as root, a malformed list, a forbidden option, a confirmation that cannot be asked without a terminal, a scan root another account owns, in an elevated terminal (Windows), or a cancel event that cannot be opened (the Windows app's `--cancel-event`). |
 | 69 | Unavailable: ddc does not support this platform yet, where only `--version`, `--help` and `rules` run, or the command needs something this platform lacks. Nothing was scanned or changed. |
 | 75 | Busy: a clean is running, or a clean was asked for while another scan or clean runs. The `ddc:` line is followed by one line per holder (see `ddc lock status`). Try again when it ends. |
@@ -486,10 +499,11 @@ The install script (under [Install](#on-an-older-macos-or-the-command-line-only)
 | `~/Library/Application Support/DeepDriveCleaner/last-disk.json` | The last `ddc disk` report; the next one replaces it. |
 | `~/Library/Application Support/DeepDriveCleaner/space.json` | What `ddc space` read of the free space: one reading an hour for 14 days, and the latest. |
 | `~/Library/Application Support/DeepDriveCleaner/settings.json` | Settings shared by the app and the terminal (below). |
+| `~/Library/Application Support/DeepDriveCleaner/settings.lock` | Held for a moment by whatever writes `settings.json`, the app or `ddc`, so neither loses the other's change. |
 | `~/Library/Application Support/DeepDriveCleaner/notify-state.json` | When the background scan last notified, so it does not repeat itself. |
 | `~/Library/Application Support/DeepDriveCleaner/lock` | Scans share it; a clean takes it alone. |
 | `~/Library/Application Support/DeepDriveCleaner/lock.holders/` | One record per process that holds the lock, which `ddc lock status` reads; the next holder removes the record of one that was killed. |
-| `~/Library/Logs/DeepDriveCleaner/actions.jsonl` | The journal: every deletion, move to the Trash, tool run and `keep remove` decision, one JSON line each. |
+| `~/Library/Logs/DeepDriveCleaner/actions.jsonl` | The journal: every deletion, move to the Trash, tool run, `keep remove` decision and switch of `agents_clean_safe`, one JSON line each. |
 | `~/Library/Logs/DeepDriveCleaner/background.log` | What the scheduled scans found; `background.out.log` and `background.err.log` hold their raw output. |
 | `~/Library/Logs/DeepDriveCleaner/app.log` | What the menu bar app did: each run of the command-line tool and its outcome. |
 | `~/Library/LaunchAgents/com.smartandpoint.deepdrivecleaner.plist` | The background agent of `ddc schedule install` on macOS. |
@@ -507,7 +521,7 @@ The install script (under [Install](#on-an-older-macos-or-the-command-line-only)
 | `excludes` | Absolute folders never touched, reported as user data. | `--exclude` |
 | `skips` | Absolute folders never read: not scanned, never cleaned, listed as not scanned. A finding that holds one is kept whole. | `--skip` adds to it |
 | `min_age_days` | Idle days before a project's artifacts are selected (default 14). | `--min-age` |
-| `agents_clean_safe` | `true` lets `ddc agent clean` remove the `safe` project artifacts inside one project's checkouts without asking you (default off). A `ddc` older than this setting refuses a file that has it. | none |
+| `agents_clean_safe` | `true` lets `ddc agent clean` remove the `safe` project artifacts inside one project's checkouts without asking you (default off). Switch it with `ddc settings set agents_clean_safe on` (or `off`), not by hand. A `ddc` older than this setting refuses a file that has it. | none |
 | `disabled_rules` | Rule ids from `ddc rules` switched off: their findings are reported as ignored and never selected or counted. | none |
 | `min_size` | Bytes: smaller findings are ignored. `clean --min-size` filters the plan on top of it, so the larger of the two applies. | none |
 | `notify_threshold`, `notify_low_disk` | When the background scan notifies (default 10G, and low disk on); `notify_low_disk` also decides whether `ddc space` says low disk. | `--threshold` |

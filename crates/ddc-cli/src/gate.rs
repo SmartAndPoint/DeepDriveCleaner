@@ -54,6 +54,9 @@ fn refusal_for(cmd: &Command, supported: Result<(), Unsupported>, declared: &[Ca
         // is a capability of its own, as `clean` (story "Clean: --agent
         // bounded consent").
         Command::Agent { action: AgentAction::Clean(_) } => None,
+        // One file of the data folder, as `notify` (story "Settings: let
+        // coding agents clean safe items").
+        Command::Settings { .. } => None,
         // Gated per action in the core (`free::run`, `dry_run`, `available`);
         // refused whole only when no action could ever run.
         Command::Disk(DiskArgs { action: Some(DiskAction::Free(_)), .. }) => {
@@ -178,6 +181,7 @@ mod tests {
         &["agent", "footprint", "--json"],
         &["agent", "clean"],
         &["agent", "clean", "--json"],
+        &["settings", "set", "agents_clean_safe", "off"],
         &["keep", "remove", "/p", "--folder-dev", "1", "--folder-ino", "2", "--json"],
         &["schedule", "status"],
         &["lock", "status"],

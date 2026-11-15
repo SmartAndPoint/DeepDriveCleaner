@@ -137,6 +137,44 @@ fn the_agent_clean_runs_the_executor_once_under_an_agents_consent() {
     }
 }
 
+/// `ddc settings set` (story "Settings: let coding agents clean safe
+/// items") takes no ddc lock and writes one key through the core's switch;
+/// and no guidance an agent reads names it.
+#[test]
+fn the_settings_switch_takes_no_ddc_lock_and_no_guidance_names_it() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = code(&root.join("src/cmd/settings_set.rs"));
+    assert_eq!(src.matches("settings::set_agents_clean_safe(").count(), 1, "one write");
+    for forbidden in [
+        "try_lock",
+        "LockMode",
+        "HolderCommand",
+        "exec::execute",
+        "remove_",
+        "Command::new",
+        "write_atomic",
+        "settings::edit(",
+    ] {
+        assert!(!src.contains(forbidden), "settings_set.rs mentions {forbidden}");
+    }
+    let mut stack = vec![root.join("../../agents")];
+    let mut read = 0;
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if let Ok(text) = std::fs::read_to_string(&path) {
+                assert!(!text.contains("settings set"), "{} names settings set", path.display());
+                read += 1;
+            }
+        }
+    }
+    assert!(read > 0, "the guidance was read");
+    let render = code(&root.join("src/render.rs"));
+    assert!(!render.contains("settings set"), "no agent-facing text hands an agent the command");
+}
+
 /// `ddc disk docker` runs the clean's probe and `system df -v`, and no
 /// other docker command: nothing in it prunes or removes.
 #[test]

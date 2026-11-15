@@ -19,6 +19,7 @@ mod notify;
 mod rules;
 mod scan;
 mod schedule;
+mod settings_set;
 mod space;
 
 use std::path::{Path, PathBuf};
@@ -30,7 +31,7 @@ use ddc_core::report::recheck::{same_roots, walked_roots};
 use ddc_core::settings::{self, Resolved, ScanFlags, Settings};
 use ddc_core::store::{Kept, PREVIOUS_SCAN};
 
-use crate::cli::{AgentAction, Cli, Command, DiskAction, DiskArgs, KeepAction, LockAction};
+use crate::cli::{AgentAction, Cli, Command, DiskAction, DiskArgs, KeepAction, LockAction, SettingsAction};
 
 pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
@@ -48,6 +49,7 @@ pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Agent { action: AgentAction::Footprint(args) } => agent_footprint::run(&args),
         Command::Agent { action: AgentAction::Clean(args) } => agent_clean::run(&args),
         Command::Keep { action: KeepAction::Remove(args) } => keep::remove(&args),
+        Command::Settings { action: SettingsAction::Set(args) } => settings_set::run(&args),
         Command::Lock { action: LockAction::Status(args) } => lock::status(&args),
         Command::Lock { action: LockAction::Stop(args) } => lock::stop(&args),
         Command::Notify { action } => notify::run(action),
