@@ -43,6 +43,51 @@ struct SettingsTests {
 
     // MARK: - The file
 
+    /// `settings.lock` held by another writer, as the CLI holds it.
+    private func holdLock() throws -> Int32 {
+        try FileManager.default.createDirectory(at: data.directory.url, withIntermediateDirectories: true)
+        let fd = open(data.directory.settingsLock.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o644)
+        try #require(fd >= 0)
+        try #require(flock(fd, LOCK_EX | LOCK_NB) == 0)
+        return fd
+    }
+
+    /// Story "Settings: let coding agents clean safe items" (D2): an edit
+    /// waits for the CLI's hold of settings.lock and gives up after about a
+    /// second, writing nothing; once the lock is free it writes, keeping the
+    /// mode and agents_clean_safe as they were on disk.
+    @Test("an edit holds settings.lock: while another writer holds it nothing is written; after, the key and the mode survive")
+    func editsHoldTheSettingsLock() throws {
+        try data.write(settings: #"{"schema_version": 1, "agents_clean_safe": true}"#)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: data.directory.settings.path)
+        let before = try Data(contentsOf: data.directory.settings)
+        let store = SettingsStore(url: data.directory.settings)
+        let held = try holdLock()
+
+        let started = Date()
+        #expect(!store.update { $0.disabledRules = ["cache.npm"] })
+        #expect(Date().timeIntervalSince(started) >= 0.9, "it tried for about a second")
+        #expect(store.problem?.contains("another program is changing it") == true)
+        #expect(try Data(contentsOf: data.directory.settings) == before)
+
+        close(held)
+        #expect(store.update { $0.disabledRules = ["cache.npm"] })
+        #expect(store.problem == nil)
+        let after = try json()
+        #expect(after["agents_clean_safe"] as? Bool == true, "kept as read")
+        #expect(after["disabled_rules"] as? [String] == ["cache.npm"])
+        let mode = try #require((try FileManager.default.attributesOfItem(atPath: data.directory.settings.path))[.posixPermissions] as? Int)
+        #expect(mode == 0o600)
+    }
+
+    @Test("an edit never writes agents_clean_safe when the file has none")
+    func neverWritesTheOptIn() throws {
+        try data.write(settings: #"{"schema_version": 1}"#)
+        let store = SettingsStore(url: data.directory.settings)
+        #expect(store.update { $0.minSize = 5 })
+        #expect(try json()["agents_clean_safe"] == nil)
+    }
+
     @Test("an edit writes the file atomically, keeps every key it did not edit, the scheduler record included, and passes SharedSettings.read")
     func keepsUneditedKeys() throws {
         try data.write(settings: """
