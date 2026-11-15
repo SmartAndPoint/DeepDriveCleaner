@@ -187,6 +187,7 @@ const COMMANDS: &[&str] = &[
     "agent status",
     "agent footprint",
     "agent clean",
+    "settings set",
     "keep remove",
     "lock status",
     "lock stop",
@@ -503,6 +504,10 @@ mod allow {
             "agent clean" if !has("--dry-run") => return Err("agent clean without --dry-run".into()),
             "agent clean" if has("--items") => return Err("agent clean --items".into()),
             "agent clean" => {}
+            "settings set" if !inside(value("--data-dir")) => {
+                return Err("settings set without --data-dir inside the temporary root".into());
+            }
+            "settings set" => {}
             "keep remove" | "notify ack" | "notify snooze" | "space" | "changes" | "lock status" | "lock stop"
                 if !inside(value("--data-dir")) =>
             {
@@ -916,6 +921,7 @@ fn the_allowlist_refuses_each_forbidden_call() {
         (&["agent", "status", "--json"], "without --system-root"),
         (&["disk", "brew-packages", "--system-root", "/"], "without --system-root"),
         (&["keep", "remove", "x"], "without --data-dir"),
+        (&["settings", "set", "agents_clean_safe", "off"], "without --data-dir"),
         (&["notify", "ack", "--bytes", "1", "--data-dir", "/tmp"], "without --data-dir"),
         (&["space", "--json"], "without --data-dir"),
         (&["changes", "--json"], "without --data-dir"),
