@@ -61,6 +61,29 @@ struct AutomationSettingsView: View {
                     Text("Off: they go to the Trash and can be put back.")
                 }
             }
+            // Not the schedule's: it stays usable with scheduled scans off.
+            Section("Coding agents") {
+                Toggle(isOn: Binding(
+                    get: { model.agentsCleanSafe },
+                    set: { on in Task { await model.setAgentsCleanSafe(on) } }
+                )) {
+                    Text(AgentsOptIn.title)
+                    Text(AgentsOptIn.help)
+                }
+                .disabled(model.agentsOptInRunning)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(AgentsOptIn.risk)
+                    Link("Read the Disclaimer", destination: AgentsOptIn.disclaimerURL)
+                    Text(AgentsOptIn.olderDdc)
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                if let failure = model.agentsOptInFailure {
+                    Label(failure, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(ReportClassStyle.ink(.review))
+                }
+            }
+            .disabled(model.problem != nil)
         }
         .settingsPane()
     }

@@ -33,11 +33,16 @@ public final class SettingsModel {
     public private(set) var legacyAgentFound = false
     /// Why the last Replace It changed nothing, under the Permissions row.
     public private(set) var replaceFailure: String?
+    /// The coding agents' switch is running its command.
+    public private(set) var agentsOptInRunning = false
+    /// Why the last switch did not happen, under the toggle.
+    public private(set) var agentsOptInFailure: String?
 
     @ObservationIgnored private let popover: PopoverModel
     @ObservationIgnored private let preferences: AppPreferences
     @ObservationIgnored private let scheduler: any SchedulerControl
     @ObservationIgnored private let clock: @MainActor () -> Date
+    @ObservationIgnored private let runner: (any CLIRunning)?
 
     public init(
         store: SettingsStore,
@@ -46,6 +51,7 @@ public final class SettingsModel {
         scheduler: any SchedulerControl = NoSchedulerControl(),
         home: String = FileManager.default.homeDirectoryForCurrentUser.path,
         commandLineTool: String = "",
+        runner: (any CLIRunning)? = nil,
         clock: @escaping @MainActor () -> Date = { .now }
     ) {
         self.store = store
@@ -54,6 +60,7 @@ public final class SettingsModel {
         self.scheduler = scheduler
         self.home = home.count > 1 && home.hasSuffix("/") ? String(home.dropLast()) : home
         self.commandLineTool = commandLineTool
+        self.runner = runner
         self.clock = clock
         schedule = preferences.schedule
         afterScheduledScan = preferences.afterScheduledScan
@@ -79,6 +86,26 @@ public final class SettingsModel {
 
     /// Why `settings.json` cannot be changed here; every pane that writes it says so.
     public var problem: String? { store.problem }
+
+    // MARK: - Coding agents
+
+    /// What `settings.json` says, as the CLI left it.
+    public var agentsCleanSafe: Bool { store.file.agentsCleanSafe }
+
+    /// The toggle: runs `settings set` (`AgentsOptIn`), never `store.update`,
+    /// then reads the file again, so the toggle shows what the CLI left.
+    public func setAgentsCleanSafe(_ on: Bool) async {
+        guard !agentsOptInRunning else { return }
+        guard let runner else {
+            agentsOptInFailure = "The command-line tool is missing, so this cannot be switched."
+            return
+        }
+        agentsOptInRunning = true
+        agentsOptInFailure = await AgentsOptIn.run(on, runner: runner)
+        store.reloadAfterCLI()
+        agentsOptInRunning = false
+        revision += 1
+    }
 
     // MARK: - General
 

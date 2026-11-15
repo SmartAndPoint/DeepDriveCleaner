@@ -30,6 +30,8 @@ public struct SharedSettings: Sendable, Equatable {
     public var disabledRules: [String] = []
     public var minSize: UInt64 = 0
     public var notifyThreshold: UInt64?
+    /// Coding agents may remove safe items (`ddc agent clean`); the popover says so.
+    public var agentsCleanSafe = false
 
     public init() {}
 
@@ -47,5 +49,6 @@ public struct SharedSettings: Sendable, Equatable {
         disabledRules = file.disabledRules
         minSize = file.minSize ?? 0
         notifyThreshold = file.notifyThreshold
+        agentsCleanSafe = file.agentsCleanSafe
     }
 }

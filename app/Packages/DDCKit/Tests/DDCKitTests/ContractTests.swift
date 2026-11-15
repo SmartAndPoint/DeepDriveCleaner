@@ -709,6 +709,39 @@ struct ContractTests {
         #expect(Set(try values(packages, "NotOffered")) == Set(BrewPackages.NotOffered.allCases.map(\.rawValue)))
     }
 
+    /// Story "Settings: let coding agents clean safe items": the Automation
+    /// toggle is the one caller of `settings set`, through `AgentsOptIn`, and
+    /// nothing scheduled, the popover or AppDelegate runs it; the app never
+    /// assigns the key but where it reads the file.
+    @Test("only the Automation toggle runs settings set, once, and nothing scheduled does")
+    func agentsOptInCallers() throws {
+        let sources = try appSources()
+        func files(_ pattern: Regex<Substring>) -> Set<String> {
+            Set(sources.filter { $0.value.contains(pattern) }.map(\.key))
+        }
+        #expect(files(/"settings", "set"/) == ["AgentsOptIn.swift"])
+        let owner = try #require(sources["AgentsOptIn.swift"])
+        #expect(owner.matches(of: /\.run\(\.settingsSet\b/).count == 1, "one run of settings set")
+        #expect(files(/\.settingsSet\b/) == ["CLIRunner.swift", "AgentsOptIn.swift", "RunnerActivity.swift"])
+        #expect(owner.matches(of: /arguments\(/).count == 2, "declared once, used once: by run")
+        #expect(files(/AgentsOptIn\.(?:run|arguments)\(/) == ["SettingsModel.swift"])
+        let model = try #require(sources["SettingsModel.swift"])
+        #expect(model.matches(of: /AgentsOptIn\.run\(/).count == 1, "one run, inside setAgentsCleanSafe")
+        #expect(model.matches(of: /\bsetAgentsCleanSafe\(/).count == 1, "declared, never called from the model itself")
+        #expect(files(/\.setAgentsCleanSafe\(/) == ["AutomationSettingsView.swift"], "the toggle is the one caller")
+        #expect(try #require(sources["AutomationSettingsView.swift"]).matches(of: /\.setAgentsCleanSafe\(/).count == 1)
+        for file in ["ScheduledWork.swift", "SchedulerAgent.swift", "ScanDue.swift", "AppDelegate.swift", "PopoverModel.swift", "PopoverView.swift"] {
+            #expect(!(try #require(sources[file])).contains(/settingsSet|setAgentsCleanSafe|"settings", "set"/), "\(file) never switches it")
+        }
+        #expect(files(/agentsCleanSafe\s=\s/) == ["SettingsFile.swift", "SharedSettings.swift"], "the key is only read from the file")
+        // The popover's line opens Settings on Automation, and switches nothing.
+        #expect(try #require(sources["PopoverView.swift"]).matches(of: /openAgentsOptIn\(\)/).count == 1)
+        #expect(try #require(sources["AppDelegate.swift"]).contains("openAgentsOptIn: { [weak self] in self?.settings?.show(pane: .automation) }"))
+        let rust = try rustSource("crates/ddc-cli/src/disclaimer.rs")
+        let url = try #require(rust.firstMatch(of: /pub const URL: &str = "([^"]+)";/))
+        #expect(String(url.1) == AgentsOptIn.disclaimerURL.absoluteString)
+    }
+
     /// Story "Settings: let coding agents clean safe items": the app and the
     /// CLI hold the same lock file around their writes of settings.json.
     @Test("the app's settings.lock is the CLI's")

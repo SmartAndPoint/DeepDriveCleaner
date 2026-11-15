@@ -82,6 +82,11 @@ public final class PopoverModel {
     public private(set) var summary: ReportSummary?
     /// Nil when `settings.json` cannot be read: the report's own selection stands.
     public private(set) var settings: SharedSettings?
+
+    /// The footer's line while coding agents may clean safe items (story
+    /// "Settings: let coding agents clean safe items"); nil otherwise, an
+    /// unreadable settings file included. It only opens Settings.
+    public var agentsOptInLine: String? { settings?.agentsCleanSafe == true ? AgentsOptIn.popoverLine : nil }
     public private(set) var rules: RuleList?
     public private(set) var scan: ScanProgress?
     /// A clean of the Review window, or the rescan after it, is in flight.
