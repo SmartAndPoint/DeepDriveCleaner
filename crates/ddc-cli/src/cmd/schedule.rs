@@ -91,7 +91,13 @@ pub fn install_with(
             )?;
             return Ok(ExitCode::from(exit::REFUSED));
         }
-        settings::clear_scheduler(env)?;
+        if settings::clear_scheduler(env)?.unlocked {
+            writeln!(
+                err,
+                "ddc: the file system of {} takes no locks; wrote it without one",
+                settings::path(env).display()
+            )?;
+        }
         writeln!(out, "Note: {} is gone; cleared its scheduler record.", record.app.display())?;
     }
     let installed = scheduler.install(&spec)?;

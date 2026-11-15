@@ -13,6 +13,12 @@ pub const EACCES: i32 = 5;
 /// stands in for.
 pub const EIO: i32 = 1117;
 
+/// `ERROR_NOT_SUPPORTED`: the file system takes no byte-range locks, and a
+/// writer of `settings.json` goes on without `settings.lock`.
+pub fn lock_unsupported(errno: i32) -> bool {
+    errno == 50
+}
+
 /// `ERROR_PATH_NOT_FOUND`: a folder on the way is gone.
 const PATH_NOT_FOUND: i32 = 3;
 /// `ERROR_DIRECTORY`: the name is not a folder (any more).
@@ -37,6 +43,12 @@ pub fn read_error_kind(errno: i32) -> ReadErrorKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_locks_where_the_file_system_takes_none() {
+        assert!(lock_unsupported(50));
+        assert!(!lock_unsupported(EACCES));
+    }
 
     #[test]
     fn a_read_error_is_read_by_its_raw_win32_code() {

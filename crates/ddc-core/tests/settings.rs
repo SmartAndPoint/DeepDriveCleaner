@@ -264,3 +264,247 @@ fn an_unknown_key_says_to_update_ddc() {
     let err = settings::parse(br#"{"schema_version": 1, "from_the_future": true}"#).unwrap_err();
     assert!(err.contains("from_the_future") && err.contains("update ddc"), "{err}");
 }
+
+// Story "Settings: let coding agents clean safe items": the switch, under
+// `settings.lock`, with its journal line and the rollback of `on`.
+
+use ddc_core::exec::{JOURNAL_SCHEMA_VERSION, JournalKind, MemorySettingsJournal};
+
+fn never_opened() -> std::io::Result<MemorySettingsJournal> {
+    panic!("the journal is opened only for a change")
+}
+
+fn json(path: &Path) -> serde_json::Value {
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+/// A file with every kind of field and a private mode.
+fn full(fx: &Fx) -> PathBuf {
+    std::fs::create_dir_all(fx.t.path("p")).unwrap();
+    let s = Settings {
+        roots: vec![fx.t.path("p")],
+        disabled_rules: vec!["node.node_modules".into()],
+        min_size: Some(1024),
+        notify_low_disk: Some(false),
+        scheduler: Some(SchedulerRecord {
+            by: SchedulerOwner::App,
+            app: PathBuf::from("/Applications/DeepDriveCleaner.app"),
+        }),
+        ..Settings::default()
+    };
+    fx.write(&serde_json::to_string_pretty(&s).unwrap());
+    let path = fx.data.path().join(settings::SETTINGS);
+    private(&path);
+    path
+}
+
+#[cfg(unix)]
+fn private(path: &Path) {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+}
+#[cfg(not(unix))]
+fn private(_: &Path) {}
+
+#[cfg(unix)]
+fn assert_private(path: &Path) {
+    use std::os::unix::fs::PermissionsExt as _;
+    assert_eq!(std::fs::metadata(path).unwrap().permissions().mode() & 0o777, 0o600, "the mode is kept");
+}
+#[cfg(not(unix))]
+fn assert_private(_: &Path) {}
+
+#[test]
+fn switching_on_and_off_keeps_every_other_key_and_journals_each_change() {
+    let fx = Fx::new();
+    let path = full(&fx);
+    let before = json(&path);
+    let mut journal = MemorySettingsJournal::default();
+
+    let on = settings::set_agents_clean_safe(&fx.env(), true, || Ok(&mut journal)).unwrap();
+
+    assert!(on.changed() && !on.previous && on.now);
+    let mut want = before.clone();
+    want["agents_clean_safe"] = true.into();
+    assert_eq!(json(&path), want, "only the key changed");
+    assert_private(&path);
+    assert_eq!(journal.lines.len(), 1);
+    let line = serde_json::to_value(&journal.lines[0]).unwrap();
+    assert_eq!(line["kind"], "settings-set");
+    assert_eq!(line["schema_version"], JOURNAL_SCHEMA_VERSION);
+    assert_eq!(
+        (line["key"].as_str(), line["value"].as_bool(), line["previous"].as_bool()),
+        (Some("agents_clean_safe"), Some(true), Some(false))
+    );
+    assert_eq!(journal.lines[0].kind, JournalKind::SettingsSet);
+    assert_eq!(JOURNAL_SCHEMA_VERSION, 14);
+
+    let off = settings::set_agents_clean_safe(&fx.env(), false, || Ok(&mut journal)).unwrap();
+    assert!(off.changed() && off.previous && !off.now);
+    assert_eq!(json(&path), before, "off removes the key");
+    assert_eq!(journal.lines.len(), 2);
+    assert_eq!((journal.lines[1].value, journal.lines[1].previous), (false, true));
+}
+
+#[test]
+fn a_value_already_in_place_opens_and_writes_nothing() {
+    let fx = Fx::new();
+    let path = fx.data.path().join(settings::SETTINGS);
+
+    let off = settings::set_agents_clean_safe(&fx.env(), false, never_opened).unwrap();
+
+    assert!(!off.changed());
+    assert!(!path.exists(), "no settings.json made for nothing");
+    assert!(!fx.data.path().join("logs").exists(), "no journal");
+    fx.write(r#"{"schema_version": 1, "agents_clean_safe": true}"#);
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(!settings::set_agents_clean_safe(&fx.env(), true, never_opened).unwrap().changed());
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
+fn on_without_a_file_writes_one_with_only_the_version_and_the_key() {
+    let fx = Fx::new();
+    let mut journal = MemorySettingsJournal::default();
+
+    settings::set_agents_clean_safe(&fx.env(), true, || Ok(&mut journal)).unwrap();
+
+    let path = fx.data.path().join(settings::SETTINGS);
+    assert_eq!(json(&path), serde_json::json!({"schema_version": 1, "agents_clean_safe": true}));
+    assert!(settings::load(&fx.env()).unwrap().agents_clean_safe);
+}
+
+#[test]
+fn an_unreadable_file_or_journal_leaves_the_settings_as_they_were() {
+    let fx = Fx::new();
+    let path = fx.data.path().join(settings::SETTINGS);
+    for bad in
+        ["{ not json", "null", r#"{"schema_version": 2}"#, r#"{"schema_version": 1, "agents_clean_review": true}"#]
+    {
+        fx.write(bad);
+        let err = settings::set_agents_clean_safe(&fx.env(), true, never_opened).unwrap_err();
+        assert!(matches!(err, SettingsError::Malformed { .. }), "{bad}: {err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), bad);
+    }
+    let path = full(&fx);
+    let bytes = std::fs::read(&path).unwrap();
+    let err = settings::set_agents_clean_safe(&fx.env(), true, || {
+        Err::<MemorySettingsJournal, _>(std::io::Error::other("read-only"))
+    })
+    .unwrap_err();
+    assert!(matches!(err, SettingsError::JournalOpen { .. }), "{err}");
+    assert!(err.to_string().contains("nothing changed"), "{err}");
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
+fn a_journal_line_that_fails_after_on_puts_the_settings_back() {
+    let fx = Fx::new();
+    let path = full(&fx);
+    let before = json(&path);
+    let mut failing = MemorySettingsJournal { fail: true, ..MemorySettingsJournal::default() };
+
+    let err = settings::set_agents_clean_safe(&fx.env(), true, || Ok(&mut failing)).unwrap_err();
+
+    assert!(matches!(err, SettingsError::JournalWrite { on: true, .. }), "{err}");
+    assert!(err.to_string().contains("stays off"), "{err}");
+    assert_eq!(json(&path), before);
+    assert_private(&path);
+
+    // No file before: it reads as the defaults after, and nothing is removed.
+    let fx = Fx::new();
+    let mut failing = MemorySettingsJournal { fail: true, ..MemorySettingsJournal::default() };
+    settings::set_agents_clean_safe(&fx.env(), true, || Ok(&mut failing)).unwrap_err();
+    assert_eq!(settings::load(&fx.env()).unwrap(), Settings::default());
+
+    // After off, off stays and the error says the line is missing.
+    let fx = Fx::new();
+    fx.write(r#"{"schema_version": 1, "agents_clean_safe": true}"#);
+    let mut failing = MemorySettingsJournal { fail: true, ..MemorySettingsJournal::default() };
+    let err = settings::set_agents_clean_safe(&fx.env(), false, || Ok(&mut failing)).unwrap_err();
+    assert!(matches!(err, SettingsError::JournalWrite { on: false, .. }), "{err}");
+    assert!(!settings::load(&fx.env()).unwrap().agents_clean_safe);
+}
+
+#[test]
+fn a_writer_that_holds_the_settings_lock_makes_another_give_up() {
+    let fx = Fx::new();
+    let path = full(&fx);
+    let bytes = std::fs::read(&path).unwrap();
+    let held = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(fx.data.path().join(settings::SETTINGS_LOCK))
+        .unwrap();
+    held.try_lock().unwrap();
+    let started = std::time::Instant::now();
+
+    let err = settings::set_agents_clean_safe(&fx.env(), true, never_opened).unwrap_err();
+
+    assert!(matches!(err, SettingsError::Busy { .. }), "{err}");
+    let waited = started.elapsed();
+    assert!(waited >= Duration::from_millis(900), "it tried again for about a second: {waited:?}");
+    assert!(waited < Duration::from_secs(5), "within its bound: {waited:?}");
+    assert!(matches!(settings::clear_scheduler(&fx.env()).unwrap_err(), SettingsError::Busy { .. }));
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    held.unlock().unwrap();
+    drop(held);
+    assert!(!settings::clear_scheduler(&fx.env()).unwrap().unlocked);
+    assert!(settings::load(&fx.env()).unwrap().scheduler.is_none());
+    assert_private(&path);
+}
+
+#[test]
+fn a_writer_that_lets_go_within_the_bound_lets_the_other_write() {
+    let fx = Fx::new();
+    let held = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(fx.data.path().join(settings::SETTINGS_LOCK))
+        .unwrap();
+    held.try_lock().unwrap();
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        held.unlock().unwrap();
+    });
+    let mut journal = MemorySettingsJournal::default();
+
+    let on = settings::set_agents_clean_safe(&fx.env(), true, || Ok(&mut journal)).unwrap();
+
+    release.join().unwrap();
+    assert!(on.changed());
+    assert!(settings::load(&fx.env()).unwrap().agents_clean_safe);
+}
+
+/// A journal that fails its line after it made the data folder read-only,
+/// so putting the settings back fails too.
+#[cfg(unix)]
+struct Sealing<'a>(&'a Path);
+
+#[cfg(unix)]
+impl ddc_core::exec::SettingsJournal for Sealing<'_> {
+    fn record_setting(&mut self, _: &ddc_core::exec::SettingsSetEntry) -> std::io::Result<()> {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(self.0, std::fs::Permissions::from_mode(0o500))?;
+        Err(std::io::Error::other("no space left"))
+    }
+}
+
+/// Unix only: Windows' folders take no write bits.
+#[cfg(unix)]
+#[test]
+fn a_rollback_that_fails_says_the_opt_in_is_still_on() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let fx = Fx::new();
+    let path = full(&fx);
+
+    let err = settings::set_agents_clean_safe(&fx.env(), true, || Ok(Sealing(fx.data.path()))).unwrap_err();
+
+    std::fs::set_permissions(fx.data.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(matches!(err, SettingsError::RollbackFailed { .. }), "{err}");
+    let text = err.to_string();
+    assert!(text.contains("still on") && text.contains("switch it off"), "{text}");
+    assert_eq!(json(&path)["agents_clean_safe"], true, "it says what is true");
+}

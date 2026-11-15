@@ -1,13 +1,15 @@
 //! `<data-dir>/settings.json`: what the app's Settings and the terminal share
 //! (ADR "Menu bar app: Swift shell over the ddc CLI", §6 item 6). The app
 //! writes it; the CLI reads it and writes it only to clear a stale
-//! `scheduler` record. Schema: `docs/settings.schema.json`.
+//! `scheduler` record and to switch `agents_clean_safe` (`ddc settings
+//! set`, amendment of 2026-11-15). Every writer holds `settings.lock`
+//! around read, edit and replace. Schema: `docs/settings.schema.json`.
 
 use crate::platform::Canonical as _;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -17,6 +19,11 @@ use crate::model::ExclusionOrigin;
 use crate::report::{DEFAULT_MIN_AGE, DEFAULT_WORKTREE_MIN_AGE, ScanOptions};
 
 pub const SETTINGS: &str = "settings.json";
+/// The advisory lock every writer of [`SETTINGS`] holds, the app's too.
+pub const SETTINGS_LOCK: &str = "settings.lock";
+/// How long a writer tries for [`SETTINGS_LOCK`] before it gives up.
+const LOCK_WAIT: Duration = Duration::from_secs(1);
+const LOCK_RETRY: Duration = Duration::from_millis(20);
 /// Version of [`Settings`]; the scan report has its own.
 pub const SETTINGS_SCHEMA_VERSION: u32 = 1;
 const MAX_MIN_AGE_DAYS: u64 = 3650;
@@ -113,6 +120,46 @@ pub enum SettingsError {
     /// A skip that is not a folder, or a `--skip` that cannot be resolved.
     #[error("cannot skip {}: {reason} ({origin})", .skip.display())]
     Skip { skip: PathBuf, origin: String, reason: String },
+    #[error("cannot write {path}: {source}; nothing changed")]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    /// The switch to `on` was written, its journal line failed, and putting
+    /// the settings back failed too: the opt-in is on without its record.
+    #[error(
+        "agents_clean_safe is still on, and the action journal {journal} has no line for it ({line}); putting it back failed: {source}; switch it off"
+    )]
+    RollbackFailed {
+        path: PathBuf,
+        journal: PathBuf,
+        line: io::Error,
+        #[source]
+        source: io::Error,
+    },
+    /// Another writer held [`SETTINGS_LOCK`] past [`LOCK_WAIT`].
+    #[error("another program is changing the settings ({path}); nothing changed, try again")]
+    Busy { path: PathBuf },
+    #[error("cannot open the action journal {path}: {source}; nothing changed")]
+    JournalOpen {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    /// The switch was written but its journal line was not: `on` was put
+    /// back, `off` stays.
+    #[error("cannot write the action journal {path}: {source}; {}", journal_kept(*.on))]
+    JournalWrite {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+        on: bool,
+    },
+}
+
+fn journal_kept(on: bool) -> &'static str {
+    if on { "agents_clean_safe stays off" } else { "agents_clean_safe is off, but the journal has no line for it" }
 }
 
 fn list(paths: &[PathBuf]) -> String {
@@ -162,14 +209,121 @@ pub fn parse(bytes: &[u8]) -> Result<Settings, String> {
     Ok(settings)
 }
 
-/// Clears the `scheduler` record, keeping every other field: the CLI's only write.
-pub fn clear_scheduler(env: &Env) -> Result<(), SettingsError> {
-    let mut settings = load(env)?;
-    settings.scheduler = None;
+/// `<data-dir>/settings.lock` while held (menu bar ADR §6 item 6, amendment
+/// of 2026-11-15). `unlocked`: the file system takes no locks, and the
+/// writer goes on without one, as every writer did before.
+struct SettingsLock {
+    _file: File,
+    unlocked: bool,
+}
+
+impl SettingsLock {
+    fn take(env: &Env) -> Result<Self, SettingsError> {
+        let path = env.data_dir().join(SETTINGS_LOCK);
+        let io_err = |source| SettingsError::Write { path: path.clone(), source };
+        fs::create_dir_all(env.data_dir()).map_err(io_err)?;
+        let file = OpenOptions::new().create(true).truncate(false).write(true).open(&path).map_err(io_err)?;
+        let started = Instant::now();
+        loop {
+            match file.try_lock() {
+                Ok(()) => return Ok(Self { _file: file, unlocked: false }),
+                Err(fs::TryLockError::WouldBlock) if started.elapsed() < LOCK_WAIT => std::thread::sleep(LOCK_RETRY),
+                Err(fs::TryLockError::WouldBlock) => return Err(SettingsError::Busy { path: path.clone() }),
+                Err(fs::TryLockError::Error(e))
+                    if e.kind() == io::ErrorKind::Unsupported
+                        || e.raw_os_error().is_some_and(crate::platform::errno::lock_unsupported) =>
+                {
+                    return Ok(Self { _file: file, unlocked: true });
+                }
+                Err(fs::TryLockError::Error(e)) => return Err(io_err(e)),
+            }
+        }
+    }
+}
+
+fn write(env: &Env, settings: &Settings) -> Result<(), SettingsError> {
     let path = path(env);
-    let mut json = serde_json::to_vec_pretty(&settings).expect("settings serialize");
+    let mut json = serde_json::to_vec_pretty(settings).expect("settings serialize");
     json.push(b'\n');
-    crate::store::write_atomic(&path, &json).map(drop).map_err(|source| SettingsError::Io { path, source })
+    crate::store::write_atomic(&path, &json).map(drop).map_err(|source| SettingsError::Write { path, source })
+}
+
+/// What [`edit`] gave back, and whether it wrote without [`SETTINGS_LOCK`]
+/// because the file system takes no locks (the caller says so).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Edited<R> {
+    pub value: R,
+    pub unlocked: bool,
+}
+
+/// Reads the settings under [`SETTINGS_LOCK`], lets `f` change them, and
+/// writes them back, keeping the file's mode, only when they changed.
+pub fn edit<R>(env: &Env, f: impl FnOnce(&mut Settings) -> R) -> Result<Edited<R>, SettingsError> {
+    let lock = SettingsLock::take(env)?;
+    let before = load(env)?;
+    let mut after = before.clone();
+    let value = f(&mut after);
+    if after != before {
+        write(env, &after)?;
+    }
+    Ok(Edited { value, unlocked: lock.unlocked })
+}
+
+/// Clears the `scheduler` record, keeping every other field.
+pub fn clear_scheduler(env: &Env) -> Result<Edited<()>, SettingsError> {
+    edit(env, |s| s.scheduler = None)
+}
+
+/// What [`set_agents_clean_safe`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Switched {
+    pub previous: bool,
+    pub now: bool,
+    /// The file system took no lock: written without one.
+    pub unlocked: bool,
+}
+
+impl Switched {
+    pub fn changed(&self) -> bool {
+        self.previous != self.now
+    }
+}
+
+/// Switches `agents_clean_safe` (story "Settings: let coding agents clean
+/// safe items", D3): under [`SETTINGS_LOCK`], a value already in place
+/// opens and writes nothing; otherwise `open` gives the journal, the file
+/// is written, and one `settings-set` line follows. If that line fails
+/// after `on`, the settings before are written back under the same hold
+/// (an absent file then reads as the defaults), so the opt-in is never on
+/// without its record.
+pub fn set_agents_clean_safe<J: crate::exec::SettingsJournal>(
+    env: &Env,
+    on: bool,
+    open: impl FnOnce() -> io::Result<J>,
+) -> Result<Switched, SettingsError> {
+    let lock = SettingsLock::take(env)?;
+    let before = load(env)?;
+    let previous = before.agents_clean_safe;
+    let done = Switched { previous, now: on, unlocked: lock.unlocked };
+    if previous == on {
+        return Ok(done);
+    }
+    let journal_path = crate::exec::FileJournal::path_in(env);
+    let mut journal = open().map_err(|source| SettingsError::JournalOpen { path: journal_path.clone(), source })?;
+    let after = Settings { agents_clean_safe: on, ..before.clone() };
+    write(env, &after)?;
+    let entry = crate::exec::SettingsSetEntry::new("agents_clean_safe", on, previous);
+    if let Err(line) = journal.record_setting(&entry) {
+        if on && let Err(back) = write(env, &before) {
+            let source = match back {
+                SettingsError::Write { source, .. } => source,
+                other => io::Error::other(other.to_string()),
+            };
+            return Err(SettingsError::RollbackFailed { path: path(env), journal: journal_path, line, source });
+        }
+        return Err(SettingsError::JournalWrite { path: journal_path, source: line, on });
+    }
+    Ok(done)
 }
 
 /// What the command line gave; an empty or absent value leaves the setting.
