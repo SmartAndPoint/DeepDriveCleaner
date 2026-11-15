@@ -9,6 +9,12 @@ pub const ENOENT: i32 = libc::ENOENT;
 pub const EACCES: i32 = libc::EACCES;
 pub const EIO: i32 = libc::EIO;
 
+/// The file system takes no advisory locks (`ENOLCK`, `ENOTSUP`, `EOPNOTSUPP`
+/// on a share): a writer of `settings.json` goes on without `settings.lock`.
+pub fn lock_unsupported(errno: i32) -> bool {
+    matches!(errno, libc::ENOLCK | libc::ENOTSUP | libc::EOPNOTSUPP)
+}
+
 /// What a directory read makes of `errno`.
 pub fn read_error_kind(errno: i32) -> ReadErrorKind {
     match errno {
@@ -23,6 +29,14 @@ pub fn read_error_kind(errno: i32) -> ReadErrorKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_locks_where_the_share_takes_none() {
+        assert!(
+            lock_unsupported(libc::ENOLCK) && lock_unsupported(libc::ENOTSUP) && lock_unsupported(libc::EOPNOTSUPP)
+        );
+        assert!(!lock_unsupported(EACCES));
+    }
 
     #[test]
     fn a_dataless_item_is_edeadlk_by_its_raw_number() {

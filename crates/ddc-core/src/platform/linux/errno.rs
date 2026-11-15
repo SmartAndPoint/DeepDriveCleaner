@@ -10,6 +10,12 @@ pub const ENOENT: i32 = Errno::NOENT.raw_os_error();
 pub const EACCES: i32 = Errno::ACCESS.raw_os_error();
 pub const EIO: i32 = Errno::IO.raw_os_error();
 
+/// The file system takes no advisory locks (`ENOLCK` on NFS, `ENOTSUP`):
+/// a writer of `settings.json` goes on without `settings.lock`.
+pub fn lock_unsupported(errno: i32) -> bool {
+    matches!(Errno::from_raw_os_error(errno), Errno::NOLCK | Errno::NOTSUP)
+}
+
 /// What a directory read makes of `errno`.
 pub fn read_error_kind(errno: i32) -> ReadErrorKind {
     match Errno::from_raw_os_error(errno) {
@@ -26,6 +32,13 @@ pub fn read_error_kind(errno: i32) -> ReadErrorKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_locks_on_nfs_or_where_they_are_not_supported() {
+        assert!(lock_unsupported(Errno::NOLCK.raw_os_error()));
+        assert!(lock_unsupported(Errno::NOTSUP.raw_os_error()));
+        assert!(!lock_unsupported(EACCES));
+    }
 
     #[test]
     fn a_read_error_is_read_by_its_raw_linux_number() {

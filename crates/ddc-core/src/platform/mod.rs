@@ -128,6 +128,7 @@ mod pins {
     const _: fn(&imp::bulk::Anchor, &Path, Identity, bool, Times) -> Result<DirListing, ReadError> = imp::bulk::list_in;
 
     const _: fn(i32) -> ReadErrorKind = imp::errno::read_error_kind;
+    const _: fn(i32) -> bool = imp::errno::lock_unsupported;
     const _: i32 = imp::errno::ENOENT;
     const _: i32 = imp::errno::EACCES;
     const _: i32 = imp::errno::EIO;

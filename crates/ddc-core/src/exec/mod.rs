@@ -25,7 +25,8 @@ use serde::{Deserialize, Serialize};
 
 pub use journal::{
     AreaActionEntry, AreaJournal, FileJournal, JOURNAL_SCHEMA_VERSION, Journal, JournalEntry, JournalKind, KeepJournal,
-    KeepRemoveEntry, MemoryAreaJournal, MemoryJournal, MemoryKeepJournal, TrashedTo,
+    KeepRemoveEntry, MemoryAreaJournal, MemoryJournal, MemoryKeepJournal, MemorySettingsJournal, SettingsJournal,
+    SettingsSetEntry, TrashedTo,
 };
 pub use native::CommandResult;
 pub(crate) use native::{Readiness, readiness, said, tail};

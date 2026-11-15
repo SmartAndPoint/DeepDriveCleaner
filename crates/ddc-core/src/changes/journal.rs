@@ -13,7 +13,7 @@ use crate::env::Env;
 /// A line of `actions.jsonl`, with the fields a clean's credit needs.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct JournalLine {
-    /// `item`, `area-action` or `keep-remove`; absent on a version 1 line,
+    /// `item`, `area-action`, `keep-remove` or `settings-set`; absent on a version 1 line,
     /// which is an item line.
     #[serde(default)]
     pub kind: Option<String>,
@@ -117,5 +117,19 @@ mod tests {
             removed,
             [(true, false), (true, false), (true, false), (true, true), (false, false), (false, false), (false, false)]
         );
+    }
+
+    /// Story "Settings: let coding agents clean safe items": a switch of a
+    /// setting is no removal, and the reader goes on past it.
+    #[test]
+    fn a_settings_switch_counts_as_nothing() {
+        let text = [
+            r#"{"schema_version":14,"kind":"settings-set","ts":"2026-11-15T10:00:00Z","key":"agents_clean_safe","value":true,"previous":false}"#,
+            r#"{"kind":"item","ts":"2026-11-15T10:01:00Z","path":"/h/p/target","outcome":"deleted"}"#,
+        ]
+        .join("\n");
+        let lines = parse_journal(&text);
+        assert_eq!(lines.iter().filter(|l| l.removed()).count(), 1, "the item line after it is read");
+        assert!(!lines.iter().any(|l| l.kind.as_deref() == Some("settings-set") && (l.removed() || l.trashed())));
     }
 }

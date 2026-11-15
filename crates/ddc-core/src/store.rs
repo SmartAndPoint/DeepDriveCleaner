@@ -303,11 +303,25 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
     fs::create_dir_all(dir)?;
     let name = path.file_name().ok_or_else(|| io::Error::other("path has no file name"))?;
     let tmp = dir.join(format!(".{}.tmp-{}", name.to_string_lossy(), std::process::id()));
+    // The file it replaces keeps its permissions: a `settings.json` made
+    // private stays private (story "Settings: let coding agents clean safe items").
+    let kept = fs::metadata(path).ok().filter(fs::Metadata::is_file).map(|m| m.permissions());
     let result = (|| {
         let mut file = File::create(&tmp)?;
+        // Before the bytes, unless that would make it read-only first.
+        let (now, after) = match kept {
+            Some(p) if !p.readonly() => (Some(p), None),
+            other => (None, other),
+        };
+        if let Some(permissions) = now {
+            file.set_permissions(permissions)?;
+        }
         file.write_all(bytes)?;
         file.sync_all()?;
         drop(file);
+        if let Some(permissions) = after {
+            fs::set_permissions(&tmp, permissions)?;
+        }
         fs::rename(&tmp, path)
     })();
     if result.is_err() {

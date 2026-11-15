@@ -1,6 +1,7 @@
 //! Action journal: one JSON line per item in `<log-dir>/actions.jsonl`, one
-//! per area action (safety ADR, amendment of 2026-10-28), and one per
-//! decision of `ddc keep remove` (amendment of 2026-10-30).
+//! per area action (safety ADR, amendment of 2026-10-28), one per decision
+//! of `ddc keep remove` (amendment of 2026-10-30), and one per switch of
+//! `agents_clean_safe` (amendment of 2026-11-15).
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write as _};
@@ -39,8 +40,9 @@ use crate::plan::PlanItem;
 /// "Linux file kinds"). 13: the skip reasons `not-consented` and
 /// `agent-opt-in-off`, and an `item` line's optional `consent` and
 /// `project` (ADR "Agent footprint", §7, story "Clean: --agent bounded
-/// consent").
-pub const JOURNAL_SCHEMA_VERSION: u32 = 13;
+/// consent"). 14: the kind `settings-set` (story "Settings: let coding
+/// agents clean safe items").
+pub const JOURNAL_SCHEMA_VERSION: u32 = 14;
 
 /// Where an item went in the Trash: the trash folder and the name in its
 /// `files/`. Absent where the Trash does not tell (macOS): a trash on
@@ -66,6 +68,8 @@ pub enum JournalKind {
     AreaAction,
     /// A decision of `ddc keep remove` under the lock.
     KeepRemove,
+    /// A switch of a setting by `ddc settings set`.
+    SettingsSet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -229,6 +233,25 @@ impl KeepRemoveEntry {
     }
 }
 
+/// A switch of `agents_clean_safe` by `ddc settings set` (story "Settings:
+/// let coding agents clean safe items"), written only when the value
+/// changed. No path or class: no finding is touched.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SettingsSetEntry {
+    pub schema_version: u32,
+    pub kind: JournalKind,
+    pub ts: String,
+    pub key: &'static str,
+    pub value: bool,
+    pub previous: bool,
+}
+
+impl SettingsSetEntry {
+    pub fn new(key: &'static str, value: bool, previous: bool) -> Self {
+        Self { schema_version: JOURNAL_SCHEMA_VERSION, kind: JournalKind::SettingsSet, ts: now(), key, value, previous }
+    }
+}
+
 pub trait Journal {
     fn record(&mut self, entry: &JournalEntry) -> io::Result<()>;
 }
@@ -241,6 +264,17 @@ pub trait AreaJournal {
 /// Where `ddc keep remove` journals its decisions.
 pub trait KeepJournal {
     fn record_keep(&mut self, entry: &KeepRemoveEntry) -> io::Result<()>;
+}
+
+/// Where `ddc settings set` journals a switch.
+pub trait SettingsJournal {
+    fn record_setting(&mut self, entry: &SettingsSetEntry) -> io::Result<()>;
+}
+
+impl<T: SettingsJournal + ?Sized> SettingsJournal for &mut T {
+    fn record_setting(&mut self, entry: &SettingsSetEntry) -> io::Result<()> {
+        (**self).record_setting(entry)
+    }
 }
 
 /// Appends to `<log-dir>/actions.jsonl`.
@@ -290,6 +324,12 @@ impl KeepJournal for FileJournal {
     }
 }
 
+impl SettingsJournal for FileJournal {
+    fn record_setting(&mut self, entry: &SettingsSetEntry) -> io::Result<()> {
+        self.append(entry)
+    }
+}
+
 /// In-memory journal for tests.
 #[derive(Debug, Default)]
 pub struct MemoryJournal(pub Vec<JournalEntry>);
@@ -319,6 +359,23 @@ pub struct MemoryKeepJournal(pub Vec<KeepRemoveEntry>);
 impl KeepJournal for MemoryKeepJournal {
     fn record_keep(&mut self, entry: &KeepRemoveEntry) -> io::Result<()> {
         self.0.push(entry.clone());
+        Ok(())
+    }
+}
+
+/// In-memory settings journal for tests; `fail` makes every append fail.
+#[derive(Debug, Default)]
+pub struct MemorySettingsJournal {
+    pub lines: Vec<SettingsSetEntry>,
+    pub fail: bool,
+}
+
+impl SettingsJournal for MemorySettingsJournal {
+    fn record_setting(&mut self, entry: &SettingsSetEntry) -> io::Result<()> {
+        if self.fail {
+            return Err(io::Error::other("the journal is full"));
+        }
+        self.lines.push(entry.clone());
         Ok(())
     }
 }
