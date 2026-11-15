@@ -13,6 +13,8 @@ struct PopoverView: View {
     let openPrivacy: () -> Void
     /// The Whole disk window (story "Whole disk in the app").
     let openWholeDisk: () -> Void
+    /// The coding agents' line: Settings on Automation, where the toggle is.
+    let openAgentsOptIn: () -> Void
     /// The update line's model, and the runner it waits for.
     let update: UpdateModel?
     let activity: RunnerActivity?
@@ -123,6 +125,17 @@ struct PopoverView: View {
     private var footer: some View {
         VStack(spacing: 10) {
             Divider()
+            if let line = model.agentsOptInLine {
+                // Opens a window and changes nothing; the toggle switches it.
+                Button(line) { openAgentsOptIn() }
+                    .buttonStyle(.link)
+                    .foregroundStyle(.secondary)
+                    .pointerStyle(.link)
+                    .help("Open Settings → Automation, where you can switch it off")
+                    .accessibilityHint("Opens Settings on the Automation pane")
+                    .font(.system(size: 12))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             HStack(alignment: .center) {
                 if let scan = model.scan {
                     TimelineView(.periodic(from: scan.started, by: 1)) { context in

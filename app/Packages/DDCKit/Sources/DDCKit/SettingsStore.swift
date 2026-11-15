@@ -59,6 +59,14 @@ public final class SettingsStore {
         }
     }
 
+    /// After the CLI wrote the file (`settings set`): reads it again and tells
+    /// the app, as a write of its own does. Whatever the run's exit, the file
+    /// is what the panes show.
+    public func reloadAfterCLI() {
+        reload()
+        changed()
+    }
+
     /// Applies `edit` to the file as it is on disk now and writes it back.
     /// False when the file cannot be read or written; `problem` says why.
     @discardableResult
@@ -83,8 +91,13 @@ public final class SettingsStore {
         do {
             let mode = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.posixPermissions]
             try edited.encoded().write(to: url, options: .atomic)
+            // The edit is written: a mode that cannot be put back is only logged.
             if let mode {
-                try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
+                do {
+                    try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
+                } catch {
+                    log("settings.json mode not kept: \(error)")
+                }
             }
         } catch {
             problem = "settings.json could not be written (\(error.localizedDescription))."

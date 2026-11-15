@@ -22,7 +22,7 @@ extension CLIRunner: CLIRunning {}
 
 /// The one way the app runs the embedded CLI (ADR §1).
 ///
-/// Every run but the lane kinds (`.disk`, `.diskAgents`, `.brewPackages`, `.dockerContents`) goes through one queue and never overlaps another:
+/// Every run but the lane kinds (`.disk`, `.diskAgents`, `.brewPackages`, `.dockerContents`, `.settingsSet`) goes through one queue and never overlaps another:
 /// two that take the ddc lock would make one fail as busy, and `rules`,
 /// `notify`, `schedule`, `space` and `changes` are queued too. A scan requested while a scan is queued
 /// or running joins it and gets the same result (its own arguments and
@@ -30,7 +30,9 @@ extension CLIRunner: CLIRunning {}
 /// requested during a scan starts when the scan ends.
 ///
 /// `.disk`, `.diskAgents`, `.brewPackages` and `.dockerContents` take no lock, and the app keeps
-/// what they write apart from any reader, so each runs in a lane of its own, beside the
+/// what they write apart from any reader; `.settingsSet` takes no ddc lock either and writes
+/// `settings.json` atomically under `settings.lock`, so a queued run reads the old file or the
+/// new one (menu bar ADR §1, amended 2026-11-15). Each runs in a lane of its own, beside the
 /// queue: it never waits for a run of the queue or of another lane, and
 /// nothing waits for it. A lane holds one run. A second request with the
 /// same arguments joins it; one with other arguments waits for it, then
@@ -91,8 +93,19 @@ public actor CLIRunner {
         /// 2026-11-08): no lock, milliseconds; queued like `space`.
         case lockStatus, lockStop
 
+        /// `settings set agents_clean_safe on --approved|off`, the Automation
+        /// pane's "Let coding agents clean safe items" (story "Settings: let
+        /// coding agents clean safe items"; menu bar ADR §1, amended
+        /// 2026-11-15): milliseconds and no ddc lock, in a lane of its own so
+        /// the person's `off` never waits behind a queued scan or clean; it
+        /// writes `settings.json` atomically under `settings.lock`. The lane
+        /// runs a quick on and off in order.
+        case settingsSet
+
         /// Runs in a lane of its own, beside the queue.
-        public var hasLane: Bool { self == .disk || self == .diskAgents || self == .brewPackages || self == .dockerContents }
+        public var hasLane: Bool {
+            self == .disk || self == .diskAgents || self == .brewPackages || self == .dockerContents || self == .settingsSet
+        }
     }
 
     /// Names one run, so it can be cancelled without touching another.

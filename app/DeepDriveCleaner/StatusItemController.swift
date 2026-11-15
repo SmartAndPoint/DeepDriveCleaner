@@ -33,7 +33,8 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSPopoverDelegate {
         openSettings: @escaping @MainActor () -> Void,
         openNextScan: @escaping @MainActor (SettingsDestination) -> Void,
         openPrivacy: @escaping @MainActor () -> Void,
-        openWholeDisk: @escaping @MainActor () -> Void
+        openWholeDisk: @escaping @MainActor () -> Void,
+        openAgentsOptIn: @escaping @MainActor () -> Void
     ) {
         self.model = model
         super.init()
@@ -61,6 +62,10 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSPopoverDelegate {
             openWholeDisk: { [weak self] in
                 self?.popover.performClose(nil)
                 openWholeDisk()
+            },
+            openAgentsOptIn: { [weak self] in
+                self?.popover.performClose(nil)
+                openAgentsOptIn()
             },
             update: update,
             activity: activity

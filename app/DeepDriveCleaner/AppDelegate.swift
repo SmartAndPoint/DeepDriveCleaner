@@ -201,7 +201,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 popover: model,
                 preferences: preferences,
                 scheduler: agent,
-                commandLineTool: HelperLocator.commandLineTool(bundleURL: Bundle.main.bundleURL)
+                commandLineTool: HelperLocator.commandLineTool(bundleURL: Bundle.main.bundleURL),
+                runner: runner
             )
             let updates = UpdaterSettings(updater: updater, model: update, activity: runner)
             // A check that ends while Settings is open moves its last check time.
@@ -292,7 +293,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     openSettings: { [weak self] in self?.settings?.show() },
                     openNextScan: { [weak self] destination in self?.settings?.show(pane: .init(destination)) },
                     openPrivacy: Self.privacy.openFullDiskAccess,
-                    openWholeDisk: { [weak self] in self?.diskWindow?.show() }
+                    openWholeDisk: { [weak self] in self?.diskWindow?.show() },
+                    openAgentsOptIn: { [weak self] in self?.settings?.show(pane: .automation) }
                 )
                 self.statusItem = statusItem
                 reviewWindow.returnToPopover = { [weak statusItem] in statusItem?.showPopover() }
