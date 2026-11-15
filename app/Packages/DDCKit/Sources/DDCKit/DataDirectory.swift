@@ -36,6 +36,8 @@ public struct DataDirectory: Sendable, Equatable {
     /// What `ddc disk` saved last (story "Whole disk in the app").
     public var lastDisk: URL { url.appending(path: "last-disk.json") }
     public var settings: URL { url.appending(path: "settings.json") }
+    /// The advisory lock every writer of `settings.json` holds (`SettingsStore`).
+    public var settingsLock: URL { url.appending(path: SettingsStore.lockName) }
 
     /// The file's modification date, or nil when it does not exist.
     public static func modified(_ file: URL) -> Date? {

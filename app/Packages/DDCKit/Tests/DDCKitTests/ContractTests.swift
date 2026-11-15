@@ -709,6 +709,15 @@ struct ContractTests {
         #expect(Set(try values(packages, "NotOffered")) == Set(BrewPackages.NotOffered.allCases.map(\.rawValue)))
     }
 
+    /// Story "Settings: let coding agents clean safe items": the app and the
+    /// CLI hold the same lock file around their writes of settings.json.
+    @Test("the app's settings.lock is the CLI's")
+    func settingsLockName() throws {
+        let source = try rustSource("crates/ddc-core/src/settings.rs")
+        let name = try #require(source.firstMatch(of: /pub const SETTINGS_LOCK: &str = "([^"]+)";/))
+        #expect(String(name.1) == SettingsStore.lockName)
+    }
+
     /// Story "Clean: --agent bounded consent": `ddc agent clean` is a coding
     /// agent's command, bound by its own consent; the app never runs it.
     @Test("no app source runs agent clean")
