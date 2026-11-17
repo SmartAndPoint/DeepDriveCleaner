@@ -15,7 +15,9 @@ use std::path::{Path, PathBuf};
 use common::TreeBuilder;
 use common::fixtures::TAG;
 use ddc_core::platform::PLATFORM;
-use ddc_core::rules::{Catalog, KEEP_MARKER, KEPT, Matcher, RULES, RuleVisitor, protected_in_home};
+use ddc_core::rules::{
+    Catalog, KEEP_MARKER, KEPT, Matcher, RULES, RuleVisitor, never_walked_in_home, protected_in_home,
+};
 use ddc_core::scan::{
     self, DirCtx, DirListing, EntryKind, EntryMeta, OwnerKind, Post, Pre, Progress, Visitor, WalkOptions,
 };
@@ -248,7 +250,9 @@ enum Verdict {
 /// confirmation", §2 and §6; code in `rules/visitor.rs` and `rules/mod.rs`).
 ///
 /// Before the directory is read (`RuleVisitor::before_read`, visitor.rs:121-149):
-/// 1. a cloud folder (`NoTraverse`) is not opened (visitor.rs:123);
+/// 1. a cloud folder (`NoTraverse`) or a folder in the home never walked
+///    (`never_walked_in_home`: eCryptfs's on Linux) is not opened
+///    (visitor.rs:123);
 /// 2. at or under an exclude: `user.kept` (visitor.rs:135);
 /// 3. an exact known path (visitor.rs:138), then a region (visitor.rs:141),
 ///    then a child of a known parent (visitor.rs:145), each in catalog order;
@@ -280,7 +284,9 @@ fn reference(t: &Tree, rel: &Path) -> Verdict {
     let named = |paths: &[&str]| paths.iter().any(|p| key(rel) == key(Path::new(p)));
 
     // Before the read.
-    if RULES.iter().any(|r| matches!(r.matcher, Matcher::NoTraverse(paths) if named(paths))) {
+    if RULES.iter().any(|r| matches!(r.matcher, Matcher::NoTraverse(paths) if named(paths)))
+        || named(never_walked_in_home(PLATFORM))
+    {
         return Verdict::Skip;
     }
     if t.excludes.iter().any(|e| rel.starts_with(e)) {

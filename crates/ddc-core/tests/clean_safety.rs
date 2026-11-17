@@ -242,6 +242,56 @@ fn protected_directories_and_project_roots_are_refused_even_if_planned() {
     assert!(fx.t.path("Documents/cv.pdf").exists() && nm.exists());
 }
 
+/// eCryptfs's lower folder and its key folder are never walked and never
+/// removed (safety ADR §6, amendment of 2026-11-17, story "Network and
+/// encrypted homes on Linux"): a tagged cache inside is no finding, a
+/// folder inside that cannot be read is never reported, and a plan item at
+/// either is refused as protected.
+#[cfg(target_os = "linux")]
+#[test]
+fn ecryptfs_folders_in_the_home_are_never_walked_or_removed() {
+    use ddc_core::scan::SkipReason as ScanSkip;
+    let fx = Fx::new();
+    let nm = fx.node_project("p");
+    let mut locked = Vec::new();
+    for dir in [".Private", ".ecryptfs"] {
+        fx.t.write(&format!("{dir}/cache/CACHEDIR.TAG"), common::fixtures::TAG);
+        fx.t.file(&format!("{dir}/cache/blob"), 10_000);
+        fx.t.file(&format!("{dir}/locked/x"), 100);
+        locked.push(fx.t.lock(&format!("{dir}/locked")));
+    }
+    let scan = fx.scan();
+    for dir in [".Private", ".ecryptfs"] {
+        let path = fx.t.path(dir);
+        assert!(!scan.findings.iter().any(|f| f.path.starts_with(&path)), "{dir}: {:#?}", scan.findings);
+        assert!(
+            scan.skipped.iter().any(|s| s.path == path && s.reason == ScanSkip::Excluded),
+            "{dir} is listed as excluded: {:?}",
+            scan.skipped
+        );
+    }
+    for l in &locked {
+        assert!(scan.inaccessible.iter().all(|i| &i.path != l), "never opened: {:?}", scan.inaccessible);
+    }
+
+    let mut plan = fx.plan();
+    let template = plan.items.iter().find(|i| i.finding.path == nm).unwrap().clone();
+    let forged = |path: PathBuf| {
+        let mut item = template.clone();
+        item.finding.path = path;
+        item
+    };
+    let (private, keys) = (fx.t.path(".Private"), fx.t.path(".ecryptfs"));
+    plan.items = vec![forged(private.clone()), forged(keys.clone()), forged(fx.t.path(".Private/cache"))];
+
+    let (r, _) = fx.run_yes(&plan);
+
+    assert_eq!(outcome(&r, &private), &Outcome::Skipped(SkipReason::Protected));
+    assert_eq!(outcome(&r, &keys), &Outcome::Skipped(SkipReason::Protected));
+    assert!(matches!(outcome(&r, &fx.t.path(".Private/cache")), Outcome::Skipped(_)), "inside: never removed");
+    assert!(fx.t.path(".Private/cache/blob").exists() && fx.t.path(".ecryptfs/cache/blob").exists());
+}
+
 /// `APPDATA` and `LOCALAPPDATA` are protected wherever they point, with
 /// every ancestor (safety ADR §6, Windows, redirected folders, planned
 /// 2026-11-08): a `CACHEDIR.TAG` above a redirected folder is no finding,

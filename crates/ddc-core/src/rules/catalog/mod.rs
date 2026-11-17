@@ -80,6 +80,17 @@ pub const fn never_walked(p: Platform) -> &'static [&'static str] {
     }
 }
 
+/// Folders in the home that are neither removed nor walked on platform `p`
+/// (safety ADR, §6, amendment of 2026-11-17): eCryptfs's lower and key
+/// folders on Linux. Relative to the home, spelled with `/`; each is also
+/// in [`protected_in_home`].
+pub const fn never_walked_in_home(p: Platform) -> &'static [&'static str] {
+    match p {
+        Platform::Linux => &linux::NEVER_WALKED_IN_HOME,
+        Platform::Macos | Platform::Windows => &[],
+    }
+}
+
 /// `a` then `b`, as one array of `N`: a section of protected folders after
 /// the shared one. A wrong `N` fails the build.
 const fn concat<const N: usize>(a: &[&'static str], b: &[&'static str]) -> [&'static str; N] {
@@ -493,18 +504,31 @@ mod tests {
     }
 
     /// §6's folders neither removed nor walked: root Docker's and Podman's
-    /// storage on Linux, under a protected system folder; and a catalog of
-    /// this platform never opens them.
+    /// storage and eCryptfs's encrypted homes on Linux, under a protected
+    /// system folder, and eCryptfs's folders in the home, each protected
+    /// itself; and a catalog of this platform never opens them.
     #[test]
     fn root_container_storage_is_never_walked_on_linux() {
-        assert_eq!(never_walked(Platform::Linux), ["/var/lib/docker", "/var/lib/containers"]);
+        assert_eq!(never_walked(Platform::Linux), ["/var/lib/docker", "/var/lib/containers", "/home/.ecryptfs"]);
         assert!(never_walked(Platform::Macos).is_empty() && never_walked(Platform::Windows).is_empty());
         for p in never_walked(Platform::Linux) {
             assert!(protected_system(Platform::Linux).iter().any(|s| *s != "/" && p.starts_with(s)), "{p}");
         }
-        let catalog = super::super::Catalog::from_rules(RULES, std::path::Path::new("/home/example"));
+        assert_eq!(never_walked_in_home(Platform::Linux), [".Private", ".ecryptfs"]);
+        assert!(never_walked_in_home(Platform::Macos).is_empty() && never_walked_in_home(Platform::Windows).is_empty());
+        for p in [Platform::Macos, Platform::Linux, Platform::Windows] {
+            for f in never_walked_in_home(p) {
+                assert!(relative(f) && protected_in_home(p).contains(f), "{p}: {f}");
+            }
+        }
+        let home = std::path::Path::new("/home/example");
+        let catalog = super::super::Catalog::from_rules(RULES, home);
         for p in never_walked(PLATFORM) {
             let never = catalog.never_open(std::path::Path::new(p), &[]);
+            assert_eq!(never, Some(super::super::NeverOpen::NoTraverse), "{p}");
+        }
+        for p in never_walked_in_home(PLATFORM) {
+            let never = catalog.never_open(&home.join(p), &[]);
             assert_eq!(never, Some(super::super::NeverOpen::NoTraverse), "{p}");
         }
     }

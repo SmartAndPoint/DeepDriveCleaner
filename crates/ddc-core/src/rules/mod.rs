@@ -17,8 +17,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub use catalog::{
-    DOCKER_DOWN, DOCKER_READY, RULES, SHARED_IDS, never_walked, protected_in_home, protected_system, redirectable,
-    rules_of,
+    DOCKER_DOWN, DOCKER_READY, RULES, SHARED_IDS, never_walked, never_walked_in_home, protected_in_home,
+    protected_system, redirectable, rules_of,
 };
 pub(crate) use classify::AtOrAbove;
 pub use classify::{Classified, LockFiles, Note, classify, classify_probed, effective_class};
@@ -168,7 +168,8 @@ const PROJECT_MANIFESTS: &[&str] = &[
 pub enum NeverOpen<'s> {
     /// At or under this skip of the user's.
     UserSkip(&'s PathBuf),
-    /// A cloud folder, or a system folder never walked ([`never_walked`]).
+    /// A cloud folder, or a folder never walked ([`never_walked`],
+    /// [`never_walked_in_home`]).
     NoTraverse,
 }
 
@@ -305,6 +306,9 @@ impl Catalog {
         }
         for p in never_walked(PLATFORM) {
             c.no_traverse.insert(PathBuf::from(p), Tag::MAX);
+        }
+        for p in never_walked_in_home(PLATFORM) {
+            c.no_traverse.insert(home.join(p), Tag::MAX);
         }
         assert!(c.kept != Tag::MAX, "catalog must define {KEPT}");
         c
