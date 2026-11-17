@@ -1573,6 +1573,33 @@ fn the_agent_guidance_runs_nothing_that_removes() {
     assert_eq!(snippet.matches("<!-- ddc:").count(), 2, "one begin and one end marker");
 }
 
+/// The guidance installer writes ddc's own text and nothing else (spec "Agent
+/// skill install", contracts 2 and 11): it removes, renames, locks, journals
+/// and runs nothing; its one write is `store::write_atomic`.
+#[test]
+fn the_guidance_installer_deletes_locks_and_runs_nothing() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ddc-core/src/guidance");
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        let text = std::fs::read_to_string(&path).unwrap();
+        for forbidden in [
+            "remove_file",
+            "remove_dir",
+            "fs::rename",
+            "try_lock",
+            "lock_exclusive",
+            "Journal",
+            "Command::new",
+            "trash",
+            "fs::write(",
+            "File::create",
+            "OpenOptions",
+        ] {
+            assert!(!text.contains(forbidden), "{}: {forbidden}", path.display());
+        }
+    }
+}
+
 /// The skill's `allowed-tools` is exactly the commands that read, under both
 /// names, each a pattern `Bash(<command> *)` whose command parses; and its
 /// `metadata.version` is this release's, as `make bump` writes it

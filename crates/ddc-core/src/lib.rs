@@ -18,6 +18,7 @@ pub mod exec;
 pub mod footprint;
 pub mod free;
 pub mod git;
+pub mod guidance;
 pub mod heap;
 pub mod holders;
 pub mod json_path;

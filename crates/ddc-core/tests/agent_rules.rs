@@ -229,6 +229,10 @@ fn sealed_folders_and_auto_memory_are_never_findings() {
     project(".claude/shell-snapshots");
     project(".claude/plugins/marketplaces/m");
     t.write(".claude/plugins/cache/p/Cargo.toml", "");
+    // What `ddc agent skill install` writes, and a skill with a project in it.
+    t.write(".claude/skills/ddc/SKILL.md", "---\nname: ddc\n---\n");
+    t.write(".claude/skills/ddc/.ddc-skill", "{}");
+    project(".claude/skills/other");
     t.file(".claude/plugins/cache/p/target/debug/x", 1_000);
     project(".cursor/extensions/vendor.ext-1.0.0");
     project(".cursor/plugins/p");
@@ -246,6 +250,7 @@ fn sealed_folders_and_auto_memory_are_never_findings() {
         ".claude/sessions",
         ".claude/shell-snapshots",
         ".claude/plugins",
+        ".claude/skills",
         ".cursor/extensions",
         ".cursor/plugins",
         ".cursor/plans",
