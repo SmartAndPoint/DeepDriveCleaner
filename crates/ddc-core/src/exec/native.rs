@@ -146,7 +146,7 @@ pub(super) fn run(
 
 /// The conda that owns `target` runs the command (safety ADR, amendment of
 /// 2026-10-29): every known install is asked once per clean, the first that
-/// claims the finding runs it by its own `bin/conda`. A cache is cleaned
+/// claims the finding runs it by its own conda (`CONDA_PROGRAM`). A cache is cleaned
 /// only when no install that lists it links packages by symlink, and only
 /// when its claiming install, asked with `CONDA_PKGS_DIRS` set, would clean
 /// that one folder and no other.

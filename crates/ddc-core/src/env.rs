@@ -291,6 +291,21 @@ mod tests {
         assert_eq!(base(Platform::Windows, Some(over), Some(tmp)), None);
     }
 
+    /// Every git search takes the tool path, then the system's git
+    /// folders: `/usr/bin` on Linux is last, whatever `PATH` holds.
+    #[test]
+    fn the_git_search_path_is_the_tool_path_then_the_systems_git_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = Env::with_paths(dir.path(), &dir.path().join("data"), &dir.path().join("logs"), SystemTime::now())
+            .unwrap()
+            .with_search_path(vec![dir.path().join("bin")]);
+        let (git, tools) = (env.git_dirs(), env.tool_dirs());
+        assert!(git.starts_with(&tools), "{git:?}");
+        if crate::platform::PLATFORM == Platform::Linux {
+            assert_eq!(git.last(), Some(&PathBuf::from("/usr/bin")));
+        }
+    }
+
     #[test]
     fn a_fixture_system_root_drops_the_temporary_variables() {
         let env = Env {

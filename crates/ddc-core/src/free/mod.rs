@@ -151,7 +151,7 @@ fn confirmed(listed: &ListedAction) -> uninstall::Confirmed<'_> {
 
 /// The actions the probe would let run now, for the terminal's prompt:
 /// each runtime that passes, then Homebrew when its `brew` is there, then
-/// each `/opt` conda install with its own `bin/conda`: its package folder,
+/// each `/opt` conda install with its own conda (`CONDA_PROGRAM`): its package folder,
 /// then its environments, as the file system lists them. No formula is
 /// offered here: a package is removed from the app's list of them. An
 /// action whose capability the platform does not declare is not offered.
