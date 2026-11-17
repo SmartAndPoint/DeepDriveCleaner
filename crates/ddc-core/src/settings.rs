@@ -138,7 +138,7 @@ pub enum SettingsError {
         #[source]
         source: io::Error,
     },
-    /// Another writer held [`SETTINGS_LOCK`] past [`LOCK_WAIT`].
+    /// Another writer held [`SETTINGS_LOCK`] past the wait (about a second).
     #[error("another program is changing the settings ({path}); nothing changed, try again")]
     Busy { path: PathBuf },
     #[error("cannot open the action journal {path}: {source}; nothing changed")]
