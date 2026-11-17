@@ -256,15 +256,23 @@ mod tests {
         let ids = |scope| rules.iter().filter(|r| r.scope == scope).map(|r| r.id).collect::<Vec<_>>();
         assert_eq!(ids(Scope::Tree), PINNED);
         assert_eq!(ids(Scope::Siblings), [&[NEWEST_KEPT], SERVERS].concat());
-        // Every Claude Code project folder is a finding of its own: nothing
-        // is decided from its siblings.
-        let every_child = ["agent.claude-code-transcripts"];
-        for rule in rules.iter().filter(|r| matches!(r.matcher, Matcher::KnownChildren(_))) {
-            if every_child.contains(&rule.id) {
-                assert_eq!(rule.scope, Scope::Item, "{}", rule.id);
-                continue;
+        // Every Claude Code project folder, and every child of Windows'
+        // temporary folder, is a finding of its own: nothing is decided from
+        // its siblings. On every platform.
+        let every_child = ["agent.claude-code-transcripts", "windows.temp"];
+        for p in [Platform::Macos, Platform::Linux, Platform::Windows] {
+            for rule in rules_of(p).iter().filter(|r| matches!(r.matcher, Matcher::KnownChildren(_))) {
+                if every_child.contains(&rule.id) {
+                    assert_eq!(rule.scope, Scope::Item, "{p}: {}", rule.id);
+                    continue;
+                }
+                assert_ne!(
+                    rule.scope,
+                    Scope::Item,
+                    "{p}: {}: a known-children rule decides from its siblings",
+                    rule.id
+                );
             }
-            assert_ne!(rule.scope, Scope::Item, "{}: a known-children rule decides from its siblings", rule.id);
         }
     }
 

@@ -227,7 +227,7 @@ impl<'a> Guard<'a> {
             protected_ids,
             markers,
             uses: table.iter().map(uses).collect(),
-            names: table.iter().map(|p| p.name.clone()).collect(),
+            names: table.iter().map(|p| bare(&p.name).to_owned()).collect(),
             apps: table
                 .iter()
                 .filter(|p| !crash_reporter(p))
@@ -272,7 +272,10 @@ impl<'a> Guard<'a> {
         self.withheld
     }
 
-    /// A process named `name` was running at the snapshot.
+    /// A process named `name` was running at the snapshot, a Windows name's
+    /// `.exe` aside (safety ADR §6, Windows, Docker Desktop, planned 2026-11-17).
+    /// The suffix is dropped on every OS, as `crash_reporter` drops it: elsewhere
+    /// no runtime's process carries it, and the clean asks the runtime itself.
     pub fn running(&self, name: &str) -> bool {
         self.names.contains(name)
     }
@@ -895,7 +898,15 @@ fn uses(p: &ProcInfo) -> Uses {
 /// and writes only to its own database: it does not make the app running.
 /// What it holds open still counts through the in-use check.
 fn crash_reporter(p: &ProcInfo) -> bool {
-    p.name.strip_suffix(".exe").unwrap_or(&p.name).ends_with("crashpad_handler")
+    bare(&p.name).ends_with("crashpad_handler")
+}
+
+/// A process's name without the `.exe` a Windows name carries, in any case.
+fn bare(name: &str) -> &str {
+    match name.len().checked_sub(4) {
+        Some(i) if name.is_char_boundary(i) && name[i..].eq_ignore_ascii_case(".exe") => &name[..i],
+        _ => name,
+    }
 }
 
 /// The first running process that uses one of `targets` (spellings of one
@@ -998,6 +1009,22 @@ mod tests {
         let others = Users(vec![at(1), at(2)]).without(1);
         assert!(matches!(others.of(&target), Some(SkipReason::InUse { pid: 2, .. })));
         assert_eq!(Users(vec![at(1)]).without(1).of(&target), None);
+    }
+
+    /// A Windows process's name carries `.exe`; a runtime's check names it without.
+    #[test]
+    fn a_process_name_is_compared_without_exe() {
+        for (name, bare_name) in [
+            ("com.docker.backend.exe", "com.docker.backend"),
+            ("Com.Docker.Backend.EXE", "Com.Docker.Backend"),
+            ("com.docker.backend", "com.docker.backend"),
+            (".exe", ""),
+            ("exe", "exe"),
+            ("tool.exe.bak", "tool.exe.bak"),
+            ("é.exe", "é"),
+        ] {
+            assert_eq!(bare(name), bare_name, "{name}");
+        }
     }
 
     /// The guard reads no folder that only a redirected value on a share

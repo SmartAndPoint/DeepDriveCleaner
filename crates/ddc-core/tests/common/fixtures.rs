@@ -48,6 +48,8 @@ pub fn rule_fixture(t: &TreeBuilder, rule: &Rule) -> Option<String> {
                     &[(".rustup/settings.toml", "default_toolchain = \"stable-aarch64-apple-darwin\"\n")],
                 ),
                 "ide.jetbrains-old-data" => ("PyCharm2023.1", "PyCharm2024.1", &[]),
+                // Every child of Temp is one: both are.
+                "windows.temp" => ("installer-1", "installer-2", &[]),
                 "agent.claude-code-transcripts" => ("-Users-example-a", "-Users-example-b", &[]),
                 // The CLI's record names the build it used last; the other goes.
                 "ide.vscode-server" => (
@@ -89,6 +91,14 @@ pub fn rule_fixture(t: &TreeBuilder, rule: &Rule) -> Option<String> {
                 "python.conda-env" => (
                     &[("miniconda3/envs/old/conda-meta/history", ""), ("miniconda3/envs/old/bin/python", "")],
                     Some("miniconda3/envs/old"),
+                ),
+                "vm.wsl" => (
+                    &[("AppData/Local/wsl/{00000000-0000-0000-0000-000000000001}/ext4.vhdx", "")],
+                    Some("AppData/Local/wsl/{00000000-0000-0000-0000-000000000001}"),
+                ),
+                "vm.wsl-store" => (
+                    &[("AppData/Local/Packages/Example.Distro_0000000000000/LocalState/ext4.vhdx", "")],
+                    Some("AppData/Local/Packages/Example.Distro_0000000000000"),
                 ),
                 "python.tox" => (&[("p/tox.ini", ""), ("p/.tox/py/f", "")], Some("p/.tox")),
                 "python.pycache" => (&[("p/__pycache__/m.pyc", "")], Some("p/__pycache__")),

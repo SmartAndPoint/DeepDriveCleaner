@@ -310,6 +310,27 @@ fn a_runtime_prunes_while_its_daemon_works_inside_its_finding() {
     assert!(docker.join("Data/vms/0/Docker.raw").exists(), "the runtime's files are never removed by ddc");
 }
 
+/// On Windows Docker Desktop's backend runs as `com.docker.backend.exe`:
+/// it counts as running, so the dry run predicts the prune (safety ADR §6,
+/// Windows, Docker Desktop, planned 2026-11-17).
+#[test]
+fn a_docker_desktop_backend_named_with_exe_counts_as_running() {
+    if common::unsupported("a_docker_desktop_backend_named_with_exe_counts_as_running") {
+        return;
+    }
+    let home = Home::new();
+    let docker = home.path(common::rule_path("vm.docker-desktop"));
+    home.tree.file(&format!("{}/Data/vms/0/Docker.raw", common::rule_path("vm.docker-desktop")), 50_000);
+    home.tree.write(DOCKER_CONTEXT, "{}");
+    let item = home.listed(&docker, ActionKind::NativeOnly, false);
+    let backend = ProcInfo { pid: 709, name: "com.docker.backend.exe".into(), ..ProcInfo::default() };
+    let daemon = FakeProcs::new(vec![backend]);
+    let commands = FakeCommands::default().with("docker", true, "").answer("docker", DOCKER_VERSION, true, "28.5.1\n");
+
+    assert_eq!(home.dry_run(&[item], &commands, &daemon), [Prediction::WouldRun]);
+    assert!(commands.calls.borrow().is_empty(), "the dry run runs nothing: {:?}", commands.calls.borrow());
+}
+
 #[test]
 fn the_dry_run_predicts_a_docker_desktop_that_cannot_answer_without_running_anything() {
     if common::unsupported("the_dry_run_predicts_a_docker_desktop_that_cannot_answer_without_running_anything") {

@@ -275,9 +275,10 @@ mod tests {
             sorted.dedup();
             assert_eq!(sorted.len(), rules_of(p).len(), "{p}: an id repeats");
         }
-        // Windows lists the shared section alone until story "Windows scanner
-        // and rule catalog" adds its own rules.
-        assert_eq!(ids(Platform::Windows), SHARED_IDS);
+        // Windows' own rules are the five of step 13 of the story "Windows
+        // scanner and rule catalog".
+        let own: Vec<_> = ids(Platform::Windows).into_iter().filter(|id| !SHARED_IDS.contains(id)).collect();
+        assert_eq!(own, ["cache.nuget", "repo.nuget", "vm.wsl", "vm.wsl-store", "windows.temp"]);
         // Every list holds every shared rule, in the macOS order, and ends
         // with the generic rule, which only claims what no other rule did.
         for p in ALL {
@@ -322,6 +323,50 @@ mod tests {
                 assert!(same, "{}: {mac:?} and {other:?} differ beyond the paths", mac.id);
             }
         }
+    }
+
+    /// Windows' own rules are the safety ADR's bullet "§6, Windows, neither
+    /// removed nor walked" (planned 2026-11-17): Temp's children for review
+    /// and the Recycle Bin, WSL's disks reported only, NuGet's cache deleted
+    /// and its packages folder for review, each in its group.
+    #[test]
+    fn the_windows_rules_are_the_safety_adrs_list() {
+        use crate::class::Category::*;
+        use crate::class::RiskClass::*;
+        let rule = |id: &str| win::RULES.iter().find(|r| r.id == id).unwrap_or_else(|| panic!("{id}"));
+        let group = |id: &str| crate::rules::listing::group_of(id).unwrap_or_else(|| panic!("{id} has no group"));
+
+        let temp = rule("windows.temp");
+        assert_eq!((temp.category, temp.class, &temp.removal), (AppCache, Review, &Removal::Trash));
+        assert!(matches!(temp.matcher, Matcher::KnownChildren(["AppData/Local/Temp"])), "the children, not Temp");
+        assert_eq!(group("windows.temp"), "Browser and app caches");
+
+        for (id, parent, file) in [
+            ("vm.wsl", "AppData/Local/wsl", "ext4.vhdx"),
+            ("vm.wsl-store", "AppData/Local/Packages", "LocalState/ext4.vhdx"),
+        ] {
+            let r = rule(id);
+            assert_eq!((r.category, r.class, &r.removal), (VmContainer, Review, &Removal::NativeOnly(&[])), "{id}");
+            assert!(!r.removal.removes_files(), "{id}: ddc never touches a .vhdx");
+            assert!(crate::plan::action_for(r, r.class, false).is_none(), "{id}: no plan action, a report only");
+            let Matcher::ChildHolding { parents, file: f } = r.matcher else { panic!("{id}: {:?}", r.matcher) };
+            assert_eq!((parents, f), (&[parent][..], file), "{id}");
+            assert!(r.hint.contains("learn.microsoft.com/en-us/windows/wsl/disk-space"), "{id}: {}", r.hint);
+            assert_eq!(group(id), "VM and container images");
+        }
+
+        let cache = rule("cache.nuget");
+        assert_eq!((cache.category, cache.class, &cache.removal), (PackageCache, Safe, &Removal::Delete));
+        assert!(matches!(cache.matcher, Matcher::KnownPaths(["AppData/Local/NuGet/v3-cache"])));
+        assert_eq!(group("cache.nuget"), "Package downloads");
+        let packages = rule("repo.nuget");
+        assert_eq!((packages.category, packages.class, &packages.removal), (PackageCache, Review, &Removal::Trash));
+        assert!(matches!(packages.matcher, Matcher::KnownPaths([".nuget/packages"])));
+        assert_eq!(group("repo.nuget"), "Maven and test browsers");
+
+        // Docker Desktop's shared rule stays as it is: only docker's own prune.
+        let docker = rule("vm.docker-desktop");
+        assert!(matches!(docker.removal, Removal::NativeOnly(cmds) if !cmds.is_empty()));
     }
 
     /// The macOS protected folders are §6's list of the safety ADR "Cleanup
