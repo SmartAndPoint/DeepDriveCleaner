@@ -40,10 +40,14 @@ pub const GROUPS: &[(&str, &[&str])] = &[
             "cache.poetry",
             "cache.homebrew",
             "cache.cocoapods",
+            "cache.nuget",
         ],
     ),
     ("Toolchain caches", &["cache.cargo", "cache.uv", "cache.go-mod", "cache.go-build", "cache.gradle"]),
-    ("Maven and test browsers", &["repo.maven", "browsers.playwright", "browsers.puppeteer", "browsers.cypress"]),
+    (
+        "Maven and test browsers",
+        &["repo.maven", "repo.nuget", "browsers.playwright", "browsers.puppeteer", "browsers.cypress"],
+    ),
     (
         "Browser and app caches",
         &[
@@ -53,6 +57,7 @@ pub const GROUPS: &[(&str, &[&str])] = &[
             "app.spotify-cache",
             "app.slack-cache",
             "app.adobe-camera-raw-cache",
+            "windows.temp",
             "generic.cachedir-tag",
         ],
     ),
@@ -101,6 +106,8 @@ pub const GROUPS: &[(&str, &[&str])] = &[
             "vm.orbstack",
             "vm.rancher-desktop",
             "cache.colima",
+            "vm.wsl",
+            "vm.wsl-store",
         ],
     ),
     ("Interrupted cleanups", &[TOMBSTONE]),

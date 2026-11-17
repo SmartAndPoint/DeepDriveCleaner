@@ -138,8 +138,9 @@ pub fn home(d: &mut Desc, home: &[u8], rule: &'static Rule, rng: &mut Rng) {
                 d.unopened.push(at(p));
             }
         }
-        // Every project folder of Claude Code's is a finding of its own.
-        Matcher::KnownChildren(&[parent]) if rule.id == "agent.claude-code-transcripts" => {
+        // Every project folder of Claude Code's is a finding of its own, and
+        // so is every child of Windows' temporary folder.
+        Matcher::KnownChildren(&[parent]) if matches!(rule.id, "agent.claude-code-transcripts" | "windows.temp") => {
             for p in ["-Users-example-a", "-Users-example-b"] {
                 payload(d, rng, &at(&format!("{parent}/{p}")), 4);
                 d.plant(at(&format!("{parent}/{p}")), rule.id);

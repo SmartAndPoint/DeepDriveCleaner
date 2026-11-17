@@ -210,6 +210,25 @@ fn the_linux_text_shows_the_xdg_folders_and_its_own_rules() {
     }
 }
 
+/// The rules only Windows has are listed for it alone (story "Windows
+/// scanner and rule catalog", step 13), with Temp's children, not Temp.
+#[test]
+fn the_windows_text_shows_its_own_rules() {
+    let windows = text_of("windows");
+    assert_eq!(paths_under(&windows, "windows.temp"), ["~/AppData/Local/Temp/*"]);
+    assert_eq!(paths_under(&windows, "vm.wsl"), ["~/AppData/Local/wsl/*"]);
+    assert_eq!(paths_under(&windows, "vm.wsl-store"), ["~/AppData/Local/Packages/*"]);
+    assert_eq!(paths_under(&windows, "cache.nuget"), ["~/AppData/Local/NuGet/v3-cache"]);
+    assert_eq!(paths_under(&windows, "repo.nuget"), ["~/.nuget/packages"]);
+    for os in ["macos", "linux"] {
+        let text = text_of(os);
+        let ids = ids_in(&text);
+        for id in ["windows.temp", "vm.wsl", "vm.wsl-store", "cache.nuget", "repo.nuget"] {
+            assert!(!ids.contains(&id), "{os} lists {id}");
+        }
+    }
+}
+
 /// Another platform's JSON keeps the contract: valid against the schema and
 /// read back unchanged, with that platform's rules.
 #[test]
