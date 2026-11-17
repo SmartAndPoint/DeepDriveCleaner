@@ -145,6 +145,28 @@ fn a_finding_where_one_side_did_not_read_is_not_compared() {
     );
 }
 
+/// A folder the catalog never walks (root container storage and eCryptfs's
+/// folders on Linux; none elsewhere) is not listed as not read: no scan
+/// reads it, and it is behind no prompt (safety ADR §6, amendment of
+/// 2026-11-17).
+#[test]
+fn a_folder_the_catalog_never_walks_is_not_listed_as_not_read() {
+    use ddc_core::platform::PLATFORM;
+    use ddc_core::rules::{never_walked, never_walked_in_home};
+    let mut r = report(NOW, 500 * G);
+    let home = r.home.clone();
+    let never: Vec<PathBuf> = never_walked(PLATFORM)
+        .iter()
+        .map(PathBuf::from)
+        .chain(never_walked_in_home(PLATFORM).iter().map(|p| home.join(p)))
+        .collect();
+    r.skipped = never.iter().map(|p| SkippedPath { path: p.clone(), reason: SkipReason::Excluded }).collect();
+    r.skipped.push(SkippedPath { path: home.join(".Private/inside"), reason: SkipReason::Excluded });
+    r.skipped_total = r.skipped.len() as u64;
+    let listed: Vec<PathBuf> = changes::not_read(&r, &[]).into_iter().map(|n| n.path).collect();
+    assert_eq!(listed, [home.join(".Private/inside")], "only the folder no list names");
+}
+
 #[test]
 fn every_skip_reason_has_its_kind_and_an_inaccessible_folder_is_refused() {
     let mut r = report(NOW, 500 * G);

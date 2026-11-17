@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 
 use super::{NotRead, NotReadKind};
 use crate::model::ScanReport;
-use crate::rules::Matcher;
+use crate::platform::PLATFORM;
+use crate::rules::{Matcher, never_walked, never_walked_in_home};
 use crate::scan::SkipReason;
 
 /// The cloud folders of the platform's catalog (the `user.cloud` rule,
@@ -22,9 +23,16 @@ pub fn cloud_roots(home: &Path) -> Vec<PathBuf> {
 /// `not_scanned`, then `skipped`, then `inaccessible`; a path listed twice
 /// (a person's skip is in `not_scanned` and in `skipped`) keeps its first
 /// kind, a cloud folder's being `cloud`. A path skipped as `holds-subvolume`
-/// is not among them: the walk entered and counted it.
+/// is not among them: the walk entered and counted it. Nor is a folder the
+/// catalog never walks ([`never_walked`], [`never_walked_in_home`]: root
+/// container storage and eCryptfs's folders on Linux): no scan reads it, so
+/// no comparison misses it, and it is behind no prompt.
 pub fn not_read(report: &ScanReport, cloud: &[PathBuf]) -> Vec<NotRead> {
     let in_cloud = |p: &Path| cloud.iter().any(|c| p.starts_with(c));
+    let never = |p: &Path| {
+        never_walked(PLATFORM).iter().any(|n| p == Path::new(n))
+            || never_walked_in_home(PLATFORM).iter().any(|n| p == report.home.join(n))
+    };
     let skip = |p: &Path| report.not_scanned.iter().any(|n| p.starts_with(n));
     let mut listed: Vec<(&Path, NotReadKind)> = Vec::new();
     for p in &report.not_scanned {
@@ -33,6 +41,7 @@ pub fn not_read(report: &ScanReport, cloud: &[PathBuf]) -> Vec<NotRead> {
     for s in &report.skipped {
         let kind = match s.reason {
             SkipReason::Excluded if in_cloud(&s.path) => NotReadKind::Cloud,
+            SkipReason::Excluded if never(&s.path) => continue,
             _ if skip(&s.path) => NotReadKind::Skip,
             SkipReason::Excluded => NotReadKind::Prompting,
             SkipReason::Dataless => NotReadKind::Evicted,
