@@ -887,7 +887,7 @@
           ]
         },
         {
-          "description": "Another process holds the folder (Windows only, safety ADR §5,\namendment of 2026-11-02): a process works inside it, or a file below\nit is open, so the tombstone rename, or the Recycle Bin's move, was\nrefused. Nothing moved.",
+          "description": "Another process holds the folder. On Windows (safety ADR §5,\namendment of 2026-11-02) a process works inside it, or a file below\nit is open, so the tombstone rename, or the Recycle Bin's move, was\nrefused. On Linux the scan found a silly rename inside, a file still\nopen on this NFS client (amendment of 2026-11-17, \"NFS silly\nrenames\"). Nothing moved.",
           "type": "object",
           "properties": {
             "reason": {

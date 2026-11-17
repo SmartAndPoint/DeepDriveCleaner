@@ -217,6 +217,7 @@ fn status(f: &Finding, home: &Path) -> String {
         Some(NotSelected::UnknownActivity) => parts.push("activity unknown".to_owned()),
         Some(NotSelected::ForeignOwner) => parts.push("another user's".to_owned()),
         Some(NotSelected::Immutable) => parts.push("immutable".to_owned()),
+        Some(NotSelected::HeldOpen) => parts.push("a file held open".to_owned()),
         _ => {}
     }
     if let Some(days) = f.project.as_ref().and_then(|p| p.idle_days).filter(|_| f.selected) {
@@ -1280,7 +1281,12 @@ pub fn agent_clean(
     for item in &r.items {
         let path = tilde(&item.path, home);
         match &item.outcome {
-            Outcome::Deleted => writeln!(w, "  removed    {path}")?,
+            Outcome::Deleted => {
+                writeln!(w, "  removed    {path}")?;
+                for left in &item.left_open {
+                    writeln!(w, "  left open  {}: {}", tilde(left, home), crate::prompt::LEFT_OPEN)?;
+                }
+            }
             Outcome::NotRun => writeln!(w, "  would go   {path}")?,
             Outcome::Skipped(why) => writeln!(w, "  left       {path}: {}", crate::prompt::reason(why))?,
             Outcome::Failed { error } => writeln!(w, "  failed     {path}: {}", escaped(error))?,

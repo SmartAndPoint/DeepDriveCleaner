@@ -95,6 +95,12 @@ pub struct JournalEntry {
     pub entry: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trash: Option<TrashedTo>,
+    /// A `deleted` item's files left open on this NFS client, silly renames
+    /// in its tombstone (safety ADR §5, amendment of 2026-11-17, "NFS silly
+    /// renames"); absent otherwise.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(serialize_with = "crate::json_path::paths")]
+    pub left_open: Vec<PathBuf>,
     /// Who consented; set on the lines of `ddc agent clean`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub consent: Option<super::ConsentKind>,
@@ -123,6 +129,7 @@ impl JournalEntry {
             private_bytes: f.private_bytes,
             entry: None,
             trash: None,
+            left_open: Vec::new(),
             consent: None,
             project: None,
             outcome: outcome.clone(),
@@ -147,6 +154,7 @@ impl JournalEntry {
             private_bytes: None,
             entry: Some(f.path.clone()),
             trash: moved.place.clone().map(TrashedTo::from),
+            left_open: Vec::new(),
             consent: None,
             project: None,
             outcome: if moved.recycled { Outcome::Trashed } else { Outcome::RemovedNotRecycled },

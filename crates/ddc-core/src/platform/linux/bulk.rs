@@ -27,7 +27,9 @@ use rustix::io::Errno;
 
 use super::fsid::ZFS_SUPER_MAGIC;
 use super::statfs::Mount;
-use crate::platform::types::{Boundary, DirListing, EntryKind, EntryMeta, EntryStat, ReadError, ReadErrorKind, Times};
+use crate::platform::types::{
+    Boundary, DirListing, EntryKind, EntryMeta, EntryStat, LeftOpen, ReadError, ReadErrorKind, Times, is_silly_rename,
+};
 use crate::scan::reader::{UF_APPEND, UF_IMMUTABLE};
 
 const BUF_LEN: usize = 64 * 1024;
@@ -364,15 +366,23 @@ pub(super) fn stat_child(dir: &OwnedFd, name: &OsStr) -> Result<EntryStat, Errno
     })
 }
 
+/// `statfs`'s `f_type` of NFS, every version (`NFS_SUPER_MAGIC`).
+const NFS_SUPER_MAGIC: u32 = 0x6969;
+
 /// One folder of a tree being removed ([`remove_tree`]).
 struct Doomed {
     fd: OwnedFd,
     /// Its name in the folder above.
     name: rustix::ffi::CString,
     dev: u64,
+    ino: u64,
     mnt_id: Option<u64>,
     /// What is left to remove in it.
     left: Vec<(rustix::ffi::CString, FileType)>,
+    /// Its path below the removed folder, for [`LeftOpen`].
+    rel: PathBuf,
+    /// Its folders left holding silly renames only.
+    kept: Vec<rustix::ffi::CString>,
 }
 
 /// Removes the folder `name` of `dir` and everything in it, through
@@ -390,12 +400,22 @@ struct Doomed {
 /// anything in it is touched. An entry gone meanwhile is already removed.
 /// `mapped` is the owner a mapped root shows for the user's files (safety
 /// ADR, amendment of 2026-11-17): its folders are made `u+rwx` too.
+///
+/// On NFS a folder whose `rmdir` meets `ENOTEMPTY` is listed once more
+/// ([`second_listing`]): a file another process on this client still holds
+/// was turned into a silly rename by its unlink. When only such files are
+/// left, each still open, the error carries [`LeftOpen`] naming them, and
+/// the folders that hold them stay (safety ADR §5, amendment of
+/// 2026-11-17, "NFS silly renames").
 pub(super) fn remove_tree(dir: &OwnedFd, name: &OsStr, id: (u64, u64), mapped: Option<u32>) -> std::io::Result<()> {
     let me = (crate::platform::procs::uid(), mapped);
     let top = stat(dir, c"", AtFlags::EMPTY_PATH, false)?;
     let parent = (top.dev, mount_id(dir, top.mnt_id));
     let name = rustix::ffi::CString::new(name.as_bytes()).map_err(|_| std::io::ErrorKind::InvalidInput)?;
-    let mut stack = vec![doomed(dir, name, parent, me, Some(id))?];
+    let mut stack = vec![doomed(dir, name, parent, me, Some(id), PathBuf::new())?];
+    // Asked once, at the first `ENOTEMPTY`: `fstatfs` waits on the server.
+    let mut nfs: Option<bool> = None;
+    let mut left_open: Vec<PathBuf> = Vec::new();
     while let Some(last) = stack.last_mut() {
         match last.left.pop() {
             Some((child, kind)) => {
@@ -409,7 +429,8 @@ pub(super) fn remove_tree(dir: &OwnedFd, name: &OsStr, id: (u64, u64), mapped: O
                     kind
                 };
                 if kind == FileType::Directory {
-                    match doomed(&last.fd, child, (last.dev, last.mnt_id), me, None) {
+                    let rel = last.rel.join(OsStr::from_bytes(child.to_bytes()));
+                    match doomed(&last.fd, child, (last.dev, last.mnt_id), me, None, rel) {
                         Ok(next) => stack.push(next),
                         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                         Err(e) => return Err(e),
@@ -422,14 +443,75 @@ pub(super) fn remove_tree(dir: &OwnedFd, name: &OsStr, id: (u64, u64), mapped: O
                 }
             }
             None => {
-                let Doomed { fd, name, .. } = stack.pop().expect("the last level");
+                let Doomed { fd, name, dev, ino, rel, kept, .. } = stack.pop().expect("the last level");
                 drop(fd);
-                let above = stack.last().map_or(dir, |l| &l.fd);
-                retry(|| rustix::fs::unlinkat(above, &name, AtFlags::REMOVEDIR))?;
+                let (above, within) = stack.last().map_or((dir, parent), |l| (&l.fd, (l.dev, l.mnt_id)));
+                let stays = match retry(|| rustix::fs::unlinkat(above, &name, AtFlags::REMOVEDIR)) {
+                    Ok(()) => false,
+                    Err(Errno::NOTEMPTY) if *nfs.get_or_insert_with(|| fs_magic(dir) == Some(NFS_SUPER_MAGIC)) => {
+                        // Opened and listed again through the same checks, and
+                        // still the folder emptied.
+                        let again = doomed(above, name.clone(), within, me, None, PathBuf::new())?;
+                        if (again.dev, again.ino) != (dev, ino) {
+                            return Err(std::io::Error::other(format!(
+                                "{} changed during the removal",
+                                name.to_string_lossy()
+                            )));
+                        }
+                        let names: Vec<_> = again.left.iter().map(|(n, _)| n.clone()).collect();
+                        let mut held = Vec::new();
+                        let unlink = |n: &CStr| retry(|| rustix::fs::unlinkat(&again.fd, n, AtFlags::empty()));
+                        let stays = second_listing(&names, &kept, unlink, &mut held)?;
+                        drop(again);
+                        left_open.extend(held.iter().map(|n| rel.join(OsStr::from_bytes(n.to_bytes()))));
+                        if !stays {
+                            retry(|| rustix::fs::unlinkat(above, &name, AtFlags::REMOVEDIR))?;
+                        }
+                        stays
+                    }
+                    Err(e) => return Err(e.into()),
+                };
+                if stays && let Some(up) = stack.last_mut() {
+                    up.kept.push(name);
+                }
             }
         }
     }
-    Ok(())
+    if left_open.is_empty() { Ok(()) } else { Err(std::io::Error::other(LeftOpen { below: left_open })) }
+}
+
+/// A folder's second listing, after its `rmdir` met `ENOTEMPTY` on NFS
+/// (safety ADR §5, amendment of 2026-11-17, "NFS silly renames"). Only a
+/// silly rename is unlinked again: success removed an orphan, whose client
+/// is gone; `EBUSY` leaves it, still open on this client, in `held`. A
+/// folder of its own `kept` below stays. Any other name, which the first
+/// listing never saw, stops the removal with `ENOTEMPTY`, as without this
+/// listing. `Ok(true)`: something stays in the folder.
+fn second_listing(
+    names: &[rustix::ffi::CString],
+    kept: &[rustix::ffi::CString],
+    mut unlink: impl FnMut(&CStr) -> Result<(), Errno>,
+    held: &mut Vec<rustix::ffi::CString>,
+) -> Result<bool, Errno> {
+    let mut stays = false;
+    for name in names {
+        if kept.contains(name) {
+            stays = true;
+            continue;
+        }
+        if !is_silly_rename(OsStr::from_bytes(name.to_bytes())) {
+            return Err(Errno::NOTEMPTY);
+        }
+        match unlink(name) {
+            Ok(()) | Err(Errno::NOENT) => {}
+            Err(Errno::BUSY) => {
+                held.push(name.clone());
+                stays = true;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(stays)
 }
 
 /// The folder `name` of `parent`, opened for [`remove_tree`] and listed, or
@@ -440,6 +522,7 @@ fn doomed(
     (dev, mnt_id): (u64, Option<u64>),
     me: (u32, Option<u32>),
     expect: Option<(u64, u64)>,
+    rel: PathBuf,
 ) -> std::io::Result<Doomed> {
     let other = || std::io::Error::other(format!("another filesystem at {}, left in place", name.to_string_lossy()));
     let fd = match openat2(parent, &name) {
@@ -481,7 +564,7 @@ fn doomed(
             left.push((child.to_owned(), entry.file_type()));
         }
     }
-    Ok(Doomed { fd, name, dev: st.dev, mnt_id: id, left })
+    Ok(Doomed { fd, name, dev: st.dev, ino: st.ino, mnt_id: id, left, rel, kept: Vec::new() })
 }
 
 fn openat2(dir: &OwnedFd, rel: &CStr) -> Result<OwnedFd, Errno> {
@@ -1335,5 +1418,59 @@ mod tests {
         let err = list(&shut, None, false, Times::None).unwrap_err();
         fs::set_permissions(&shut, fs::Permissions::from_mode(0o700)).unwrap();
         assert_eq!(err.kind, ReadErrorKind::PermissionDenied);
+    }
+
+    /// A silly rename is `.nfs` and 24 lowercase hex digits, nothing else.
+    #[test]
+    fn only_the_nfs_clients_own_names_are_silly_renames() {
+        let silly = OsStr::new(".nfs00000000002a5c1f00000001");
+        assert!(is_silly_rename(silly));
+        for other in [
+            ".nfs",
+            ".nfs00000000002a5c1f0000000",
+            ".nfs00000000002a5c1f000000011",
+            ".nfs00000000002A5C1F00000001",
+            ".nfs00000000002a5c1f0000000g",
+            "nfs000000000002a5c1f00000001",
+            ".nfs.00000000002a5c1f0000001",
+            ".nfsrc",
+        ] {
+            assert!(!is_silly_rename(OsStr::new(other)), "{other}");
+        }
+    }
+
+    /// The second listing unlinks silly renames only: an `EBUSY` leaves one,
+    /// an orphan goes, a folder kept below stays; any other name, or another
+    /// error, stops the removal.
+    #[test]
+    fn only_silly_renames_still_open_are_left_by_the_second_listing() {
+        let c = |s: &str| rustix::ffi::CString::new(s).unwrap();
+        let (open, orphan) = (c(".nfs00000000002a5c1f00000001"), c(".nfs00000000002a5c2000000002"));
+        let run = |names: &[rustix::ffi::CString], kept: &[rustix::ffi::CString], busy: &[&rustix::ffi::CString]| {
+            let mut tried = Vec::new();
+            let mut held = Vec::new();
+            let out = second_listing(
+                names,
+                kept,
+                |n| {
+                    tried.push(n.to_owned());
+                    if busy.iter().any(|b| b.as_c_str() == n) { Err(Errno::BUSY) } else { Ok(()) }
+                },
+                &mut held,
+            );
+            (out, held, tried)
+        };
+        let (out, held, tried) = run(&[open.clone(), orphan.clone()], &[], &[&open]);
+        assert_eq!((out, held), (Ok(true), vec![open.clone()]), "one still open stays, the orphan goes");
+        assert_eq!(tried, vec![open.clone(), orphan.clone()]);
+        let (out, held, _) = run(std::slice::from_ref(&orphan), &[], &[]);
+        assert_eq!((out, held.len()), (Ok(false), 0), "orphans only: the folder can go");
+        let (out, _, tried) = run(&[c("sub"), orphan.clone()], &[c("sub")], &[]);
+        assert_eq!((out, tried.len()), (Ok(true), 1), "a kept folder stays and is not unlinked");
+        let (out, _, tried) = run(&[c("late.txt"), open.clone()], &[], &[&open]);
+        assert_eq!((out, tried.len()), (Err(Errno::NOTEMPTY), 0), "a name the first listing never saw");
+        let mut held = Vec::new();
+        let out = second_listing(std::slice::from_ref(&open), &[], |_| Err(Errno::ACCESS), &mut held);
+        assert_eq!(out, Err(Errno::ACCESS), "another error stops it");
     }
 }

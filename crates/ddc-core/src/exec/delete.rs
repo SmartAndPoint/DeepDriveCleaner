@@ -3,14 +3,15 @@
 //! path. An interrupted or stopped removal leaves a `*.ddc-deleting-*`
 //! directory that the next scan finds as `ddc.tombstone`.
 
+use std::cell::Cell;
 use std::ffi::{OsStr, OsString};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::Outcome;
 use super::guard::Verified;
-use crate::platform::types::HeldOpen;
+use crate::platform::types::{HeldOpen, LeftOpen};
 
 /// The longest name most filesystems take, in bytes (Linux, APFS) or UTF-16
 /// units (NTFS, exFAT). A shorter limit (eCryptfs) is found by the retry.
@@ -22,7 +23,12 @@ const NAME_MAX: usize = 255;
 /// read-only attribute is cleared when the first try fails. On a mapped root
 /// the `mapped` owner's folders are made writable as the user's own are
 /// (safety ADR, amendment of 2026-11-17).
-pub(super) fn remove(v: &Verified, path: &Path, mapped: Option<u32>) -> Outcome {
+///
+/// A removal on NFS that left only silly renames, files still open on this
+/// client, is `deleted`; `left_open` gets their paths, in the tombstone that
+/// holds them until they are closed (safety ADR §5, amendment of
+/// 2026-11-17, "NFS silly renames").
+pub(super) fn remove(v: &Verified, path: &Path, mapped: Option<u32>, left_open: &Cell<Vec<PathBuf>>) -> Outcome {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or_default();
     let suffix = format!(".ddc-deleting-{stamp}-{}", std::process::id());
     if !v.unchanged() {
@@ -51,7 +57,13 @@ pub(super) fn remove(v: &Verified, path: &Path, mapped: Option<u32>) -> Outcome 
     // its tombstone, never renamed back.
     match v.parent.remove_tree(&tomb, &tomb_path, v.id, mapped) {
         Ok(()) => Outcome::Deleted,
-        Err(e) => Outcome::Failed { error: format!("{e} (left as {})", tomb_path.display()) },
+        Err(e) => match LeftOpen::of(&e) {
+            Some(left) => {
+                left_open.set(left.below.iter().map(|rel| tomb_path.join(rel)).collect());
+                Outcome::Deleted
+            }
+            None => Outcome::Failed { error: format!("{e} (left as {})", tomb_path.display()) },
+        },
     }
 }
 
@@ -156,7 +168,7 @@ mod tests {
         fs::rename(dir.path().join("cache"), dir.path().join("moved")).unwrap();
         fs::create_dir_all(dir.path().join("cache/new")).unwrap();
 
-        let out = remove(&v, &dir.path().join("cache"), None);
+        let out = remove(&v, &dir.path().join("cache"), None, &Cell::default());
 
         assert_eq!(out, Outcome::Skipped(SkipReason::ChangedSinceScan));
         assert!(dir.path().join("cache/new").is_dir());

@@ -239,16 +239,19 @@ pub(crate) fn scan_inner(
     let canonical: Vec<PathBuf> = roots_of(env, opts).iter().filter_map(|r| r.canonical().ok()).collect();
     let mapped_roots = volumes::mapped_roots(&canonical, statfs, env.home(), mapped);
     let owner = mapped.filter(|_| !mapped_roots.is_empty()).map(|(owner, _)| owner);
+    let nfs_roots = volumes::nfs_roots(&canonical, statfs);
     let probed;
-    let opts = if opts.walk.mapped == owner && opts.walk.mapped_roots == mapped_roots {
-        opts
-    } else {
-        let mut o = opts.clone();
-        o.walk.mapped = owner;
-        o.walk.mapped_roots = mapped_roots.clone();
-        probed = o;
-        &probed
-    };
+    let opts =
+        if opts.walk.mapped == owner && opts.walk.mapped_roots == mapped_roots && opts.walk.nfs_roots == nfs_roots {
+            opts
+        } else {
+            let mut o = opts.clone();
+            o.walk.mapped = owner;
+            o.walk.mapped_roots = mapped_roots.clone();
+            o.walk.nfs_roots = nfs_roots;
+            probed = o;
+            &probed
+        };
     let Walked { out, findings, index, large_files, not_scanned, started, .. } =
         walk_classified(env, opts, progress, reader, reach, worktree::Assess::Scan)?;
     let totals = totals(&findings, &out);
@@ -371,6 +374,10 @@ pub(crate) fn walk_classified(
         .collect();
     let mut findings: Vec<Finding> = classified
         .iter()
+        // Every file a silly rename still open, as in the tombstone a delete
+        // on NFS left: nothing ddc could remove (safety ADR §5, amendment of
+        // 2026-11-17, "NFS silly renames").
+        .filter(|c| !held_open_only(&c.owner))
         .map(|c| {
             let mut f = finding(c, env.now(), opts, &mut activity);
             if worktree::is_worktree_rule(c.rule) && locked.iter().any(|l| l.starts_with(&f.path)) {
@@ -447,6 +454,13 @@ pub(crate) fn roots_of(env: &Env, opts: &ScanOptions) -> Vec<PathBuf> {
     if opts.roots.is_empty() { vec![env.home().to_path_buf()] } else { opts.roots.clone() }
 }
 
+/// An owner whose every file is a silly rename still open on this NFS
+/// client (`files == held_open > 0`), whatever folders lead to them: no
+/// finding.
+fn held_open_only(o: &crate::scan::OwnerResult) -> bool {
+    o.held_open > 0 && o.files == o.held_open
+}
+
 fn finding(
     c: &Classified,
     now: SystemTime,
@@ -490,6 +504,8 @@ fn finding(
         RiskClass::Review => Some(NotSelected::Review),
         RiskClass::UserData => Some(NotSelected::UserData),
     };
+    // A file still open on this NFS client: its folder stays until it is closed.
+    let not_selected = if c.owner.held_open > 0 { Some(NotSelected::HeldOpen) } else { not_selected };
     // Another user's entries cannot be removed by this one: never planned.
     let not_selected = if c.owner.foreign > 0 { Some(NotSelected::ForeignOwner) } else { not_selected };
     // Nor can an entry with an immutable or append-only flag, and a folder

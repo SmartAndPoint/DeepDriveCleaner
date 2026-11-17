@@ -331,6 +331,13 @@
           "format": "uint64",
           "minimum": 0
         },
+        "left_open": {
+          "description": "A `deleted` item's files left open on this NFS client, each a silly\nrename in the tombstone that holds it until it is closed (safety ADR\n§5, amendment of 2026-11-17, \"NFS silly renames\"). Absent otherwise.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "path": {
           "type": "string"
         },
@@ -1233,7 +1240,7 @@
           ]
         },
         {
-          "description": "Another process holds the folder (Windows only, safety ADR §5,\namendment of 2026-11-02): a process works inside it, or a file below\nit is open, so the tombstone rename, or the Recycle Bin's move, was\nrefused. Nothing moved.",
+          "description": "Another process holds the folder. On Windows (safety ADR §5,\namendment of 2026-11-02) a process works inside it, or a file below\nit is open, so the tombstone rename, or the Recycle Bin's move, was\nrefused. On Linux the scan found a silly rename inside, a file still\nopen on this NFS client (amendment of 2026-11-17, \"NFS silly\nrenames\"). Nothing moved.",
           "type": "object",
           "properties": {
             "reason": {

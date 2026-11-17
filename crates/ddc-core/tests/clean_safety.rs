@@ -982,6 +982,28 @@ fn a_flagged_entry_keeps_a_finding_unselected_and_unremoved() {
     assert!(file.join("dep/locked.js").exists() && folder.join("logs/out.log").exists());
 }
 
+/// A finding that holds a silly rename still open on NFS, named by a plan
+/// anyway, is refused `held-open` before its `incomplete` check, and left
+/// whole (safety ADR §5, amendment of 2026-11-17, "NFS silly renames").
+#[test]
+fn a_held_open_finding_is_refused_held_open_before_incomplete() {
+    if common::unsupported("a_held_open_finding_is_refused_held_open_before_incomplete") {
+        return;
+    }
+    let fx = Fx::new();
+    let held = fx.node_project("a");
+    let partly = fx.node_project("b");
+    let mut plan = fx.plan();
+    for item in plan.items.iter_mut().filter(|i| [&held, &partly].contains(&&i.finding.path)) {
+        item.finding.not_selected = Some(ddc_core::model::NotSelected::HeldOpen);
+        item.finding.incomplete = item.finding.path == partly;
+    }
+    let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs::new(vec![]));
+    assert_eq!(outcome(&r, &held), &Outcome::Skipped(SkipReason::HeldOpen));
+    assert_eq!(outcome(&r, &partly), &Outcome::Skipped(SkipReason::HeldOpen), "before incomplete");
+    assert!(held.exists() && partly.exists());
+}
+
 struct Spawned(Child);
 
 impl Drop for Spawned {

@@ -55,6 +55,11 @@ pub enum SkipReason {
     /// listed so that the finding that holds it, or is it, is never
     /// planned; ddc does not remove either (Linux; same amendment).
     HoldsSubvolume,
+    /// A file named as a silly rename on NFS: still open on this client,
+    /// which renamed it at its unlink. Counted in its owner, which stays
+    /// complete, and never planned (Linux; safety ADR §5, amendment of
+    /// 2026-11-17, "NFS silly renames").
+    HeldOpen,
 }
 
 /// Decision taken before a directory is read.
@@ -173,6 +178,9 @@ pub struct WalkOptions {
     pub mapped: Option<u32>,
     /// The roots, canonical, that are mapped to [`Self::mapped`].
     pub mapped_roots: Vec<PathBuf>,
+    /// The roots, canonical, on NFS by mountinfo, where a file named as a
+    /// silly rename is one ([`SkipReason::HeldOpen`]); Linux only.
+    pub nfs_roots: Vec<PathBuf>,
 }
 
 impl Default for WalkOptions {
@@ -186,6 +194,7 @@ impl Default for WalkOptions {
             claim_times: true,
             mapped: None,
             mapped_roots: Vec::new(),
+            nfs_roots: Vec::new(),
         }
     }
 }
@@ -226,6 +235,10 @@ pub struct OwnerResult {
     /// selected and never removed (safety ADR, amendment of 2026-11-04,
     /// "Linux file kinds"). 0 where the reader does not tell the flags.
     pub locked: u64,
+    /// Files inside that are silly renames on NFS, each still open on this
+    /// client ([`SkipReason::HeldOpen`]): a finding with any is never
+    /// selected, and an owner whose every file is one is no finding.
+    pub held_open: u64,
     /// The newest modification time inside, Unix seconds: of every entry
     /// listed without an error, each directory itself included. Only for a
     /// claim that [wants times](Visitor::wants_times); `None` when its root

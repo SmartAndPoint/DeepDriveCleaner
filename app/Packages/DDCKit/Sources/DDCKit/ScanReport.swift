@@ -9,7 +9,7 @@ import Foundation
 /// their defaults, so a report of this version without them still reads.
 public struct ScanReport: Decodable, Sendable, Equatable {
     /// `SCHEMA_VERSION` of the CLI this app embeds.
-    public static let schemaVersion = 9
+    public static let schemaVersion = 10
 
     public enum ReadError: Error, Equatable {
         /// Another schema; `ddcVersion` is the report's maker when its
@@ -94,6 +94,9 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         case excluded, dataless, changed, automount, snapshot
         case otherFilesystem = "other-filesystem"
         case holdsSubvolume = "holds-subvolume"
+        /// A file still open on this computer that an NFS home keeps under
+        /// a `.nfs` name until it is closed: counted, never removed.
+        case heldOpen = "held-open"
     }
 
     public struct Totals: Decodable, Sendable, Equatable {
@@ -395,6 +398,9 @@ public struct ScanReport: Decodable, Sendable, Equatable {
         /// Something inside, or the folder itself, has an immutable or
         /// append-only flag: it cannot be removed until that flag is cleared.
         case immutable
+        /// A file inside is still open on this computer, on an NFS home: the
+        /// folder cannot go until it is closed.
+        case heldOpen
 
         private enum CodingKeys: String, CodingKey {
             case reason, idleDays
@@ -409,6 +415,7 @@ public struct ScanReport: Decodable, Sendable, Equatable {
             case "unknown-activity": self = .unknownActivity
             case "foreign-owner": self = .foreignOwner
             case "immutable": self = .immutable
+            case "held-open": self = .heldOpen
             case let other:
                 throw DecodingError.dataCorruptedError(forKey: .reason, in: c, debugDescription: "unknown reason \(other)")
             }

@@ -246,6 +246,10 @@ pub fn interactive(
     Ok(if yes(ask(&mut input, w, &question)?) { Decision::Proceed } else { Decision::Abort })
 }
 
+/// Why a file of a removed item is still there: a program on this computer
+/// holds it open on an NFS home, and the server keeps it until it is closed.
+pub const LEFT_OPEN: &str = "a program still has this file open; it goes once that program closes it";
+
 pub fn reason(r: &SkipReason) -> String {
     match r {
         SkipReason::InUse { pid, name } => format!("in use by {name} (pid {pid})"),
@@ -438,6 +442,12 @@ pub fn print_result(w: &mut impl Write, r: &ExecReport, home: &Path, journal: &P
             Outcome::Native { commands } if commands.iter().any(|c| !c.success) => {
                 writeln!(w, "  tool failed for {}", tilde(&item.path, home))?
             }
+            // Silly renames on NFS (safety ADR §5, amendment of 2026-11-17).
+            Outcome::Deleted => {
+                for left in &item.left_open {
+                    writeln!(w, "  left open {}: {LEFT_OPEN}", tilde(left, home))?;
+                }
+            }
             _ => {}
         }
     }
@@ -566,6 +576,7 @@ mod tests {
                 action: "trash",
                 bytes: 4096,
                 outcome,
+                left_open: Vec::new(),
             }],
             ..ExecReport::default()
         };
@@ -580,6 +591,36 @@ mod tests {
         assert!(destroyed.contains("failed 0"), "not a failure: {destroyed}");
         let trashed = text(&report(Outcome::Trashed));
         assert!(!trashed.contains("not recycled"), "{trashed}");
+    }
+
+    /// A delete on NFS that left a silly rename names the file, still a
+    /// deletion, not a failure (safety ADR §5, amendment of 2026-11-17).
+    #[test]
+    fn a_file_left_open_by_a_delete_is_named_under_its_item() {
+        let silly = PathBuf::from("/h/x/cache.ddc-deleting-1-2/http/.nfs00000000002a5c1f00000001");
+        let r = ExecReport {
+            items: vec![ddc_core::exec::ItemReport {
+                path: PathBuf::from("/h/x/cache"),
+                rule: "cache.pip".into(),
+                class: RiskClass::Safe,
+                action: "delete",
+                bytes: 4096,
+                outcome: Outcome::Deleted,
+                left_open: vec![silly],
+            }],
+            ..ExecReport::default()
+        };
+        let mut out = Vec::new();
+        print_result(&mut out, &r, Path::new("/h"), Path::new("/h/j"), &Style { color: false, all: false }).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("deleted 1"), "{text}");
+        assert!(text.contains("failed 0"), "{text}");
+        assert!(
+            text.contains(&format!(
+                "  left open ~/x/cache.ddc-deleting-1-2/http/.nfs00000000002a5c1f00000001: {LEFT_OPEN}"
+            )),
+            "{text}"
+        );
     }
 
     #[test]
