@@ -3,7 +3,8 @@
 //! amendment of 2026-10-29). It reads and parses only: the one command it
 //! runs, `conda config --show`, prints conda's computed settings and writes
 //! nothing. Conda is never the first `conda` on the tool path: each known
-//! install is run as `<prefix>/bin/conda`, through [`CommandRunner::at`].
+//! install is run as its own conda (`<prefix>/bin/conda`, `<prefix>\Scripts\conda.exe`
+//! on Windows: `platform::folders::CONDA_PROGRAM`), through [`CommandRunner::at`].
 
 use std::cell::OnceCell;
 use std::path::{Path, PathBuf};
@@ -175,7 +176,7 @@ impl Install {
     }
 }
 
-/// Asks the install at `prefix`; `None` when it has no `bin/conda`, or its
+/// Asks the install at `prefix`; `None` when it has no own conda ([`exe`]), or its
 /// answer is a failure, a timeout or JSON ddc cannot read: it claims nothing.
 pub fn ask(commands: &dyn CommandRunner, prefix: &Path) -> Option<Install> {
     let exe = commands.at(&exe(prefix))?;

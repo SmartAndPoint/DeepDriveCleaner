@@ -303,7 +303,7 @@ fn check(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
             Prediction::WouldRun
         }
         Action::Native { cmd, fallback } => {
-            // conda is never run here: a candidate install's `bin/conda`
+            // conda is never run here: a candidate install's own conda
             // existing predicts it, as every tool is predicted by its presence.
             let present = match cmd.location {
                 Some(Location::Conda(_)) => {

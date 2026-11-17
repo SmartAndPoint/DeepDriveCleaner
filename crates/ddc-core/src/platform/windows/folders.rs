@@ -223,6 +223,27 @@ mod tests {
         assert!(dirs.iter().all(|d| d.is_absolute() && d.ends_with(r"Git\cmd")), "{dirs:?}");
     }
 
+    /// With an empty tool path, a machine install's git is still found, in
+    /// Program Files, under a test home that reaches no real profile.
+    #[test]
+    fn git_is_found_with_an_empty_tool_path_where_it_is_installed() {
+        let installed = known_folder(&FOLDERID_ProgramFiles).map(|p| p.join(r"Git\cmd\git.exe"));
+        if !installed.as_ref().is_some_and(|p| p.exists()) {
+            return; // no machine install of git here: nothing to find
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let env = crate::env::Env::with_paths(
+            dir.path(),
+            &dir.path().join("data"),
+            &dir.path().join("logs"),
+            std::time::SystemTime::now(),
+        )
+        .unwrap();
+        let commands = crate::exec::SystemCommands::new(&env);
+        let found = crate::git::locate(&commands, &env.git_dirs(), crate::git::PROBE_TIMEOUT).expect("a git");
+        assert!(git_system_dirs(env.home(), None).iter().any(|d| found.starts_with(d)), "{found:?}");
+    }
+
     #[test]
     fn the_home_is_the_user_profile_or_the_home_drive_and_path() {
         let s = |v: &str| Some(OsString::from(v));

@@ -73,7 +73,7 @@ pub enum Location {
     Probe(LocationProbe),
     /// The known conda installs, each asked for its folders (safety ADR,
     /// amendment of 2026-10-29). The command runs as the claiming install's
-    /// `bin/conda`, never as a `conda` found on the tool path.
+    /// conda (`CONDA_PROGRAM`), never as a `conda` found on the tool path.
     Conda(CondaFolder),
     /// A linked git worktree (ADR "Agent footprint: worktrees, harness data
     /// and bounded consent for agents", §2, "Removal"): its main checkout is
