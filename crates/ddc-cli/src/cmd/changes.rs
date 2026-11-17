@@ -39,7 +39,7 @@ pub fn run_with(args: &ChangesArgs, env: &Env, out: &mut dyn Write) -> anyhow::R
     let loaded = changes::load(env).context("cannot read the scan reports")?;
     let journal = changes::read_journal(env)
         .with_context(|| format!("cannot read {}", env.log_dir().join("actions.jsonl").display()))?;
-    let report = changes::compare_loaded(&loaded, &journal, &cloud_roots(env.home()));
+    let report = changes::compare_loaded(&loaded, &journal, &cloud_roots(env));
     let written = if args.json {
         serde_json::to_writer_pretty(&mut *out, &report).map_err(io::Error::from).and_then(|()| writeln!(out))
     } else {
@@ -80,7 +80,7 @@ pub fn after_scan(out: &mut dyn Write, env: &Env, current: ScanReport) -> io::Re
             return Ok(());
         }
     };
-    let report = changes::compare_loaded(&loaded, &journal, &cloud_roots(env.home()));
+    let report = changes::compare_loaded(&loaded, &journal, &cloud_roots(env));
     let now = humantime::format_rfc3339_seconds(env.now()).to_string();
     out.write_all(block(&report, &loaded, env.home(), &now).as_bytes())
 }

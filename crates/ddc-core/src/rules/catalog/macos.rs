@@ -224,16 +224,7 @@ pub(super) static RULES: [Rule; COUNT] = [
         Removal::None,
         Matcher::KnownPaths(&["Library/Group Containers/group.net.whatsapp.WhatsApp.shared"]),
     ),
-    Rule {
-        hint: "cloud folders are not scanned",
-        ..rule(
-            "user.cloud",
-            Personal,
-            UserData,
-            Removal::None,
-            Matcher::NoTraverse(&["Library/CloudStorage", "Library/Mobile Documents"]),
-        )
-    },
+    shared::user_cloud(Platform::Macos),
     // ---- generic, lowest priority -------------------------------------------------------
     shared::GENERIC_CACHEDIR_TAG,
 ];

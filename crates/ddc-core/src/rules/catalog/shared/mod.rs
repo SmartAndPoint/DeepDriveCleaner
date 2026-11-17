@@ -62,7 +62,7 @@ impl PerOs {
 }
 
 /// How many rules every platform shares.
-pub(super) const COUNT: usize = 77;
+pub(super) const COUNT: usize = 78;
 
 /// Every shared rule resolved for `p`, in the macOS order.
 pub(super) const fn all(p: Platform) -> [Rule; COUNT] {
@@ -143,6 +143,7 @@ pub(super) const fn all(p: Platform) -> [Rule; COUNT] {
         user_movies(p),
         USER_MUSIC,
         USER_DOWNLOADS,
+        user_cloud(p),
         GENERIC_CACHEDIR_TAG,
     ]
 }

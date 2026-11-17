@@ -1110,5 +1110,7 @@ fn every_entry_folder_and_vm_rule_has_a_path() {
     let listed = |id: &str| RULES.iter().any(|r| r.id == id);
     assert_eq!(ENTRY_FOLDERS.len(), ENTRY_RULES.iter().filter(|id| listed(id)).count());
     assert!(!ENTRY_FOLDERS.is_empty() && !VM.is_empty() && !NATIVE_ONLY.is_empty());
-    assert_eq!(CLOUD.is_empty(), !listed("user.cloud"), "the cloud folders are the user.cloud rule's");
+    let cloud_paths =
+        RULES.iter().any(|r| r.id == "user.cloud" && matches!(r.matcher, Matcher::NoTraverse(p) if !p.is_empty()));
+    assert_eq!(CLOUD.is_empty(), !cloud_paths, "the cloud folders are the user.cloud rule's");
 }

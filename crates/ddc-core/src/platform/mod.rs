@@ -155,6 +155,7 @@ mod pins {
     const _: fn(&Path) -> (PathBuf, PathBuf) = imp::folders::default_data_and_log;
     const _: fn() -> Vec<(super::types::Redirect, PathBuf)> = imp::folders::redirected;
     const _: fn() -> Vec<PathBuf> = imp::folders::system_folders;
+    const _: fn() -> Vec<PathBuf> = imp::folders::cloud_roots;
     const _: &str = imp::folders::GIT_PROGRAM;
     const _: &[&str] = imp::folders::GIT_SHIM_DIRS;
     const _: fn(&Path, Option<&Path>) -> Vec<PathBuf> = imp::folders::git_system_dirs;

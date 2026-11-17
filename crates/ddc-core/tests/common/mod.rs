@@ -227,6 +227,20 @@ pub fn no_rule(test: &str, id: &str) -> bool {
     true
 }
 
+/// The cloud rule's first folder on this platform, or `None` after printing
+/// why `test` skips: Linux lists no cloud folder.
+pub fn cloud_folder(test: &str) -> Option<&'static str> {
+    use ddc_core::platform::PLATFORM;
+    let folder = ddc_core::rules::RULES.iter().find(|r| r.id == "user.cloud").and_then(|r| match r.matcher {
+        ddc_core::rules::Matcher::NoTraverse(paths) => paths.first().copied(),
+        _ => None,
+    });
+    if folder.is_none() {
+        eprintln!("skipped {test}: {PLATFORM} lists no cloud folder");
+    }
+    folder
+}
+
 /// Whether this platform's catalog lists rule `id`, for a test that adds a
 /// platform's own rule to what it checks of the shared ones.
 pub fn has_rule(id: &str) -> bool {

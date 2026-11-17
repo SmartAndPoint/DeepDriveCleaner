@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use common::fixtures::{TAG, rule_fixture};
 use common::{OLD, TreeBuilder};
 use ddc_core::class::{Removal, RiskClass};
-use ddc_core::rules::{Catalog, Classified, Note, RULES, RuleVisitor, classify};
+use ddc_core::rules::{Catalog, Classified, Matcher, NeverOpen, Note, RULES, RuleVisitor, classify};
 use ddc_core::scan::{self, Progress, ReaderKind, SkipReason, WalkOptions, WalkOutput};
 
 struct Scan {
@@ -344,6 +344,53 @@ fn old_editor_server_builds_are_found_and_the_last_used_stays() {
     assert_eq!(s.found.len(), 3, "{:?}", s.summary(&t));
 }
 
+/// A cloud root the environment names (on Windows, the OneDrive
+/// variables) is never opened, is protected with its ancestors and is
+/// named a cloud folder, wherever it lies outside the home; one at or above
+/// the home is not taken (safety ADR §6, Windows, neither removed nor
+/// walked, planned 2026-11-17).
+#[test]
+fn a_cloud_root_the_environment_names_is_never_walked_and_protected() {
+    let (base, outside) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let home = base.path().join("home");
+    let (root, inside) = (outside.path().join("OneDrive - Org"), home.join("OneDrive - Org"));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&inside).unwrap();
+    let env = ddc_core::env::Env::with_paths(&home, &home, &home, std::time::SystemTime::now())
+        .unwrap()
+        // As written: under a temporary folder reached through a link on
+        // macOS, the home's written spelling is not its canonical one.
+        .with_cloud(vec![root.clone(), home.clone(), base.path().to_path_buf(), inside.clone()]);
+    let at_or_above = |r: &std::path::PathBuf| env.home().starts_with(r) || home.starts_with(r);
+    assert!(!env.cloud().iter().any(at_or_above), "no spelling at or above the home: {:?}", env.cloud());
+    let catalog = Catalog::builtin(&env);
+    for taken in [&root, &inside] {
+        assert!(env.cloud().contains(taken), "{taken:?} in {:?}", env.cloud());
+        assert_eq!(catalog.never_open(taken, &[]), Some(NeverOpen::NoTraverse), "{taken:?}");
+        assert!(catalog.protected().contains(taken), "{taken:?}");
+    }
+    assert!(catalog.protected().contains(outside.path()), "an ancestor");
+    assert!(ddc_core::changes::cloud_roots(&env).contains(&root));
+}
+
+/// The cloud rule's folders on each platform are the safety ADR's (§6, and
+/// the Windows bullet planned 2026-11-17), each one protected itself.
+#[test]
+fn the_cloud_folders_are_each_platforms_and_protected() {
+    use ddc_core::platform::Platform;
+    use ddc_core::rules::{protected_in_home, rules_of};
+    let expected: [(Platform, &[&str]); 3] = [
+        (Platform::Macos, &["Library/CloudStorage", "Library/Mobile Documents"]),
+        (Platform::Linux, &[]),
+        (Platform::Windows, &["OneDrive", "Dropbox", "Box", "iCloudDrive"]),
+    ];
+    for (p, paths) in expected {
+        let rule = rules_of(p).iter().find(|r| r.id == "user.cloud").unwrap_or_else(|| panic!("{p}"));
+        assert_eq!(rule.matcher, Matcher::NoTraverse(paths), "{p}");
+        assert!(paths.iter().all(|f| protected_in_home(p).contains(f)), "{p}: each protected");
+    }
+}
+
 #[test]
 fn global_packages_and_cloud_folders_are_not_findings() {
     if common::unsupported("global_packages_and_cloud_folders_are_not_findings") {
@@ -352,17 +399,20 @@ fn global_packages_and_cloud_folders_are_not_findings() {
     let t = TreeBuilder::new();
     t.write(".npm-global/lib/package.json", "{}");
     t.file(".npm-global/lib/node_modules/tool/node_modules/dep/i.js", 10);
-    // The cloud folders, where the catalog has them (macOS).
-    let cloud = common::has_rule("user.cloud");
-    if cloud {
-        t.file("Library/CloudStorage/GoogleDrive/doc.txt", 10);
+    // The cloud rule's first folder, where the catalog has one (none on Linux).
+    let cloud = RULES.iter().find(|r| r.id == "user.cloud").and_then(|r| match r.matcher {
+        Matcher::NoTraverse(paths) => paths.first().copied(),
+        _ => None,
+    });
+    if let Some(cloud) = cloud {
+        t.file(&format!("{cloud}/GoogleDrive/doc.txt"), 10);
     }
 
     let s = scan(&t);
 
     assert!(s.found.is_empty(), "{:?}", s.summary(&t));
-    if cloud {
-        let skipped = |k: &&ddc_core::scan::Skipped| k.path == t.path("Library/CloudStorage");
+    if let Some(cloud) = cloud {
+        let skipped = |k: &&ddc_core::scan::Skipped| k.path == t.path(cloud);
         assert!(s.out.skipped.iter().filter(skipped).any(|k| k.reason == SkipReason::Excluded));
     }
 }
@@ -750,18 +800,19 @@ fn a_keep_marker_inside_downloads_protects_only_its_finding() {
 
 #[test]
 fn excluding_a_cloud_folder_still_never_traverses_it() {
-    if common::unsupported("excluding_a_cloud_folder_still_never_traverses_it")
-        || common::no_rule("excluding_a_cloud_folder_still_never_traverses_it", "user.cloud")
-    {
+    if common::unsupported("excluding_a_cloud_folder_still_never_traverses_it") {
         return;
     }
+    let Some(cloud) = common::cloud_folder("excluding_a_cloud_folder_still_never_traverses_it") else {
+        return;
+    };
     let t = TreeBuilder::new();
-    t.file("Library/CloudStorage/Drive/doc.txt", 10);
+    t.file(&format!("{cloud}/Drive/doc.txt"), 10);
 
-    let s = scan_with(&t, &[""], &["Library/CloudStorage"]);
+    let s = scan_with(&t, &[""], &[cloud]);
 
-    assert!(s.out.skipped.iter().any(|k| k.path == t.path("Library/CloudStorage")));
-    s.absent(&t, "Library/CloudStorage");
+    assert!(s.out.skipped.iter().any(|k| k.path == t.path(cloud)));
+    s.absent(&t, cloud);
 }
 
 /// Every rule of every platform sits in exactly one group of the Types

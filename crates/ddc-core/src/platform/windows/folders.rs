@@ -9,7 +9,11 @@
 //!   never reach the user's real profile;
 //! - ddc's data from `LOCALAPPDATA`;
 //! - `APPDATA` and `LOCALAPPDATA` as folders to protect wherever they point
-//!   (safety ADR §6, Windows, redirected folders, planned 2026-11-08).
+//!   (safety ADR §6, Windows, redirected folders, planned 2026-11-08);
+//! - the OneDrive roots, from `OneDrive`, `OneDriveConsumer` and
+//!   `OneDriveCommercial`, never walked and protected (the bullet "§6,
+//!   Windows, neither removed nor walked", planned 2026-11-17). A value is
+//!   never printed: a business OneDrive is named after the organisation.
 //!
 //! It is also the one place that calls the known-folder API, for five
 //! machine-wide folders only, which the guard protects: Windows, Program
@@ -82,6 +86,29 @@ fn redirected_from([roaming, local]: [Option<OsString>; 2]) -> Vec<(Redirect, Pa
         .filter(|(_, p)| p.is_absolute())
         .map(|(var, p)| (var, super::paths::simplified(p)))
         .collect()
+}
+
+/// The OneDrive roots the three variables name, when set to an absolute
+/// path, with a `\\?\` prefix dropped, each once. `Env` adds their
+/// canonical spellings and leaves out one at or above the home.
+#[allow(clippy::disallowed_methods)] // OneDrive, OneDriveConsumer and OneDriveCommercial, read only here
+pub fn cloud_roots() -> Vec<PathBuf> {
+    cloud_roots_from([
+        std::env::var_os("OneDrive"),
+        std::env::var_os("OneDriveConsumer"),
+        std::env::var_os("OneDriveCommercial"),
+    ])
+}
+
+fn cloud_roots_from(values: [Option<OsString>; 3]) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for root in values.into_iter().flatten().map(PathBuf::from).filter(|p| p.is_absolute()) {
+        let root = super::paths::simplified(root);
+        if !roots.iter().any(|r| super::paths::key(r) == super::paths::key(&root)) {
+            roots.push(root);
+        }
+    }
+    roots
 }
 
 /// The machine's own system folders, as the known-folder API names them,
@@ -187,6 +214,19 @@ mod tests {
         assert_eq!(
             redirected_from([s(r"\\?\D:\Roaming"), s(r"\\?\UNC\srv\share\Local")]),
             [r(r"D:\Roaming"), l(r"\\srv\share\Local")]
+        );
+    }
+
+    #[test]
+    fn the_cloud_roots_are_the_absolute_values_simplified_each_once() {
+        let s = |v: &str| Some(OsString::from(v));
+        let at = |v: &[&str]| v.iter().map(PathBuf::from).collect::<Vec<_>>();
+        assert_eq!(cloud_roots_from([None, None, None]), at(&[]));
+        assert_eq!(cloud_roots_from([s(""), s("OneDrive"), None]), at(&[]), "empty and relative");
+        assert_eq!(
+            cloud_roots_from([s(r"C:\Users\u\OneDrive"), s(r"c:\users\u\onedrive"), s(r"\\?\D:\Work\OneDrive - Org")]),
+            at(&[r"C:\Users\u\OneDrive", r"D:\Work\OneDrive - Org"]),
+            "Consumer is usually the same folder"
         );
     }
 

@@ -9,13 +9,15 @@ use crate::model::ScanReport;
 use crate::rules::Matcher;
 use crate::scan::SkipReason;
 
-/// The cloud folders of the platform's catalog (the `user.cloud` rule,
-/// never read), under `home`. None where the catalog has no such rule.
-pub fn cloud_roots(home: &Path) -> Vec<PathBuf> {
-    match crate::rules::RULES.iter().find(|r| r.id == "user.cloud").map(|r| &r.matcher) {
-        Some(Matcher::NoTraverse(paths)) => paths.iter().map(|p| home.join(p)).collect(),
+/// The cloud folders of `env`'s catalog, never read: the `user.cloud`
+/// rule's, under the home, and the roots the environment names.
+pub fn cloud_roots(env: &crate::env::Env) -> Vec<PathBuf> {
+    let mut roots = match crate::rules::RULES.iter().find(|r| r.id == "user.cloud").map(|r| &r.matcher) {
+        Some(Matcher::NoTraverse(paths)) => paths.iter().map(|p| env.home().join(p)).collect(),
         _ => Vec::new(),
-    }
+    };
+    roots.extend(env.cloud().iter().cloned());
+    roots
 }
 
 /// Every path `report` did not read, once each, in the report's order:

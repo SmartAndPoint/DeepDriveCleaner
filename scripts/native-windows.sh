@@ -102,6 +102,8 @@ export CARGO_HOME="\$(w "\$d/cargo")" RUSTUP_HOME="\$(w "\$d/rustup")" CARGO_TAR
 export HOME="\$h" USERPROFILE="\$(w "\$h")" APPDATA="\$(w "\$h/AppData/Roaming")" LOCALAPPDATA="\$(w "\$h/AppData/Local")"
 export HOMEDRIVE="\${USERPROFILE%%\\\\*}" HOMEPATH="\${USERPROFILE#*:}"
 export TMP="\$(w "\$d/tmp")" TEMP="\$(w "\$d/tmp")"
+# No test reads the machine's cloud folders (safety ADR §6, Windows, neither removed nor walked).
+unset OneDrive OneDriveConsumer OneDriveCommercial
 export PATH="\$d/cargo/bin:\$PATH" NEXTEST_PROFILE=ci CARGO_TERM_COLOR=never
 ${recycle:+export DDC_RECYCLE_TEST_VOLUME=$(printf '%q' "$recycle")}
 cd "\$d/src"
