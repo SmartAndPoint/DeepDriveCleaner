@@ -12,9 +12,11 @@ use crate::rules::{Matcher, Rule};
 /// The folders in the home only Linux protects (safety ADR "Cleanup safety
 /// model", §6, amendment of 2026-10-31): XDG's data, state and program
 /// folders, the keyrings, the Trash, the NSS certificate store, browser
-/// and mail profiles, and `~/Videos`. The folders themselves, not their
-/// contents: a cache rule still matches inside `~/.local/share`.
-pub(super) const OWN_PROTECTED_IN_HOME: [&str; 9] = [
+/// and mail profiles, and `~/Videos`; and eCryptfs's lower folder and its
+/// key folder (amendment of 2026-11-17, story "Network and encrypted homes
+/// on Linux"). The folders themselves, not their contents: a cache rule
+/// still matches inside `~/.local/share`.
+pub(super) const OWN_PROTECTED_IN_HOME: [&str; 11] = [
     ".local/share",
     ".local/state",
     ".local/bin",
@@ -24,14 +26,24 @@ pub(super) const OWN_PROTECTED_IN_HOME: [&str; 9] = [
     ".mozilla",
     ".thunderbird",
     "Videos",
+    ".Private",
+    ".ecryptfs",
 ];
 
 /// The shared protected folders and Linux's own.
-pub(super) static PROTECTED_IN_HOME: [&str; 21] = super::concat(&shared::PROTECTED_IN_HOME, &OWN_PROTECTED_IN_HOME);
+pub(super) static PROTECTED_IN_HOME: [&str; 23] = super::concat(&shared::PROTECTED_IN_HOME, &OWN_PROTECTED_IN_HOME);
 
 /// Neither removed nor walked (§6, amendment of 2026-10-31): root Docker's
-/// and root Podman's storage.
-pub(super) static NEVER_WALKED: [&str; 2] = ["/var/lib/docker", "/var/lib/containers"];
+/// and root Podman's storage; and eCryptfs's encrypted homes (amendment of
+/// 2026-11-17), whose files are the ciphertext of a home.
+pub(super) static NEVER_WALKED: [&str; 3] = ["/var/lib/docker", "/var/lib/containers", "/home/.ecryptfs"];
+
+/// Neither removed nor walked, relative to the home (§6, amendment of
+/// 2026-11-17): eCryptfs's lower folder, the ciphertext of `~/Private` or
+/// of the home, and its key folder. Ubuntu makes both symbolic links into
+/// `/home/.ecryptfs/<user>`, which the walk never follows anyway; a real
+/// folder is skipped here.
+pub(super) static NEVER_WALKED_IN_HOME: [&str; 2] = [".Private", ".ecryptfs"];
 
 /// System folders that are never removed (§6, amendment of 2026-10-31).
 pub(super) static PROTECTED_SYSTEM: [&str; 7] = ["/", "/home", "/usr", "/etc", "/opt", "/var", "/boot"];
