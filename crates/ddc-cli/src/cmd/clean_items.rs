@@ -128,7 +128,7 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
     let commands = SystemCommands::new(&env);
     let worktrees = worktree::Recheck {
         commands: &commands,
-        tool_dirs: env.tool_dirs(),
+        tool_dirs: env.git_dirs(),
         timeout: opts.probe_timeout,
         now: env.now(),
         min_age: opts.worktree_min_age,

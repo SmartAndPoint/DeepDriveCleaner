@@ -671,7 +671,7 @@ impl WorktreeRecheck<'_> {
         let path = item.finding.path.as_path();
         let rc = worktree::Recheck {
             commands: self.commands,
-            tool_dirs: self.env.tool_dirs(),
+            tool_dirs: self.env.git_dirs(),
             timeout: self.opts.probe_timeout,
             now: self.env.now(),
             min_age: self.opts.worktree_min_age,

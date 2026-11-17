@@ -215,7 +215,8 @@ impl SharedCommands {
 
     /// The calls of a program named `git`.
     pub fn git_calls(&self) -> Vec<Recorded> {
-        self.calls().into_iter().filter(|c| c.exe.file_name().is_some_and(|n| n == "git")).collect()
+        // By stem: the program is `git.exe` on Windows.
+        self.calls().into_iter().filter(|c| c.exe.file_stem().is_some_and(|n| n == "git")).collect()
     }
 
     fn record(&self, exe: &Path, args: &[String], cleared: Option<&str>, env: &[(&str, &str)], timeout: Duration) {

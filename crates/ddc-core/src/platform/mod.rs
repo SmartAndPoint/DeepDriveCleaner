@@ -157,7 +157,8 @@ mod pins {
     const _: fn() -> Vec<PathBuf> = imp::folders::system_folders;
     const _: &str = imp::folders::GIT_PROGRAM;
     const _: &[&str] = imp::folders::GIT_SHIM_DIRS;
-    const _: &[&str] = imp::folders::GIT_SYSTEM_DIRS;
+    const _: fn(&Path, Option<&Path>) -> Vec<PathBuf> = imp::folders::git_system_dirs;
+    const _: &str = imp::folders::CONDA_PROGRAM;
     const _: Option<&str> = imp::folders::DEVELOPER_DIR_TOOL;
 
     const _: fn() -> io::Result<()> = imp::iopolicy::disable_dataless_materialization;

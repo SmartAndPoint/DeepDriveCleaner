@@ -59,7 +59,7 @@ impl Home {
     fn footprint_with(&self, root: &Path, procs: FakeProcs) -> (FootprintReport, Arc<SharedCommands>) {
         let env = self.env();
         let commands = Arc::new(SharedCommands::system(&env));
-        let scope = Scope::resolve(root, env.home(), &*commands, &env.tool_dirs(), PROBE_TIMEOUT).unwrap();
+        let scope = Scope::resolve(root, env.home(), &*commands, &env.git_dirs(), PROBE_TIMEOUT).unwrap();
         let opts = footprint::scan_options(&scope, self.opts(&commands, procs));
         let scoped = footprint::scoped(&env, scope, &opts, &Progress::default(), None).unwrap();
         (footprint::report(&env, scoped, &opts), commands)
@@ -292,7 +292,7 @@ fn a_skipped_worktree_is_not_scanned_and_an_excluded_one_is_kept() {
     let excluded = harness_worktree(&main, "excluded");
     let env = h.env();
     let commands = Arc::new(SharedCommands::system(&env));
-    let scope = Scope::resolve(&main, env.home(), &*commands, &env.tool_dirs(), PROBE_TIMEOUT).unwrap();
+    let scope = Scope::resolve(&main, env.home(), &*commands, &env.git_dirs(), PROBE_TIMEOUT).unwrap();
     let base = ScanOptions {
         user_skips: vec![skipped.clone()],
         excludes: vec![excluded.clone()],
@@ -352,7 +352,7 @@ fn a_worktree_git_cannot_probe_is_held_back_unknown() {
     let env = h.env();
     // The listing asks the real git; the walk's probes find none.
     let listing = SharedCommands::system(&env);
-    let scope = Scope::resolve(&main, env.home(), &listing, &env.tool_dirs(), PROBE_TIMEOUT).unwrap();
+    let scope = Scope::resolve(&main, env.home(), &listing, &env.git_dirs(), PROBE_TIMEOUT).unwrap();
     let no_git = Arc::new(SharedCommands::answering(&[], &[]));
     let opts = footprint::scan_options(&scope, h.opts(&no_git, FakeProcs::new(vec![])));
     let scoped = footprint::scoped(&env, scope, &opts, &Progress::default(), None).unwrap();
@@ -394,7 +394,7 @@ fn the_walk_opens_only_the_checkouts_and_their_parents_and_changes_no_index() {
 
     let env = h.env();
     let commands = Arc::new(SharedCommands::system(&env));
-    let scope = Scope::resolve(&a, env.home(), &*commands, &env.tool_dirs(), PROBE_TIMEOUT).unwrap();
+    let scope = Scope::resolve(&a, env.home(), &*commands, &env.git_dirs(), PROBE_TIMEOUT).unwrap();
     let opts = footprint::scan_options(&scope, h.opts(&commands, FakeProcs::new(vec![])));
     let reader = Counting::default();
     let scoped = footprint::scoped(&env, scope, &opts, &Progress::default(), Some(&reader)).unwrap();

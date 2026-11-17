@@ -55,7 +55,7 @@ pub fn run(args: &AgentCleanArgs) -> anyhow::Result<ExitCode> {
         None => std::env::current_dir().context("cannot read the current folder")?,
     };
     let commands = SystemCommands::new(&env);
-    let scope = Scope::resolve(&root, env.home(), &commands, &env.tool_dirs(), PROBE_TIMEOUT)?;
+    let scope = Scope::resolve(&root, env.home(), &commands, &env.git_dirs(), PROBE_TIMEOUT)?;
     let journal_path = FileJournal::path_in(&env);
     let part = |opt_in: bool, settings_error: Option<String>, left_out: Vec<(PathBuf, String)>| AgentPart {
         project: Some(scope.main.clone()),

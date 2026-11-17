@@ -331,7 +331,7 @@ pub(crate) fn walk_classified(
         min_age: opts.worktree_min_age,
         processes: opts.processes.table(),
         commands: &*commands,
-        tool_dirs: env.tool_dirs(),
+        tool_dirs: env.git_dirs(),
         timeout: opts.probe_timeout,
         disabled_rules: &opts.disabled_rules,
         mode: assess,

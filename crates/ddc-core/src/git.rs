@@ -20,9 +20,7 @@ use std::time::Duration;
 pub use crate::exec::PROBE_TIMEOUT;
 use crate::exec::{CmdOutput, CommandRunner};
 use crate::platform::Canonical as _;
-use crate::platform::folders::{
-    DEVELOPER_DIR_TOOL, GIT_PROGRAM as PROGRAM, GIT_SHIM_DIRS as SHIM_DIRS, GIT_SYSTEM_DIRS as SYSTEM_DIRS,
-};
+use crate::platform::folders::{DEVELOPER_DIR_TOOL, GIT_PROGRAM as PROGRAM, GIT_SHIM_DIRS as SHIM_DIRS};
 
 /// The `-c` overrides every probe carries. The command line outranks every
 /// configuration file, so no repository or user setting can start a helper:
@@ -78,14 +76,14 @@ impl<T> From<Result<T, String>> for Probe<T> {
     }
 }
 
-/// The git to run: the first `git` in `tool_dirs` (then the system's
-/// folder, off macOS) outside the shim folders, else the developer
-/// directory's (`xcode-select -p`, macOS only), else `None`: no probe runs.
+/// The git to run: the first `git` in `tool_dirs` ([`crate::env::Env::git_dirs`]:
+/// the tool folders, then the system's git folders) outside the shim
+/// folders, else the developer directory's (`xcode-select -p`, macOS only),
+/// else `None`: no probe runs.
 pub fn locate(commands: &dyn CommandRunner, tool_dirs: &[PathBuf], timeout: Duration) -> Option<PathBuf> {
     let found = tool_dirs
         .iter()
         .map(PathBuf::as_path)
-        .chain(SYSTEM_DIRS.iter().map(Path::new))
         .filter(|dir| !shim_dir(dir))
         .find_map(|dir| commands.at(&dir.join(PROGRAM)).filter(|exe| !shim(exe)));
     found.or_else(|| developer_git(commands, timeout))

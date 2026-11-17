@@ -152,6 +152,16 @@ impl Env {
         dirs
     }
 
+    /// Where a git is looked for: [`Self::tool_dirs`], then the system's git
+    /// folders (`/usr/bin` on Linux; on Windows Program Files' and the one
+    /// below `LOCALAPPDATA`, as this environment has it).
+    pub fn git_dirs(&self) -> Vec<PathBuf> {
+        let local = self.redirected.iter().find(|(var, _)| *var == Redirect::Local).map(|(_, p)| p.as_path());
+        let mut dirs = self.tool_dirs();
+        dirs.extend(crate::platform::folders::git_system_dirs(&self.home, local));
+        dirs
+    }
+
     /// `NO_COLOR` is set (<https://no-color.org>).
     #[allow(clippy::disallowed_methods)] // process environment, read here only
     pub fn no_color() -> bool {

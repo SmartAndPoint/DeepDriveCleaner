@@ -439,7 +439,7 @@ fn commits_held_by_a_surviving_ref_are_not_its_own() {
     // the probe names commits, not `HEAD`.
     let env = h.env();
     let system = SystemCommands::new(&env);
-    let exe = ddc_core::git::locate(&system, &env.tool_dirs(), PROBE_TIMEOUT).expect("a git");
+    let exe = ddc_core::git::locate(&system, &env.git_dirs(), PROBE_TIMEOUT).expect("a git");
     let probe = Git::new(&system, exe, PROBE_TIMEOUT);
     for (wt, own) in [(&merged, 0), (&detached, 0), (&held, 0), (&unique, 1), (&lone, 1)] {
         let head = probe.head(wt).known().unwrap();

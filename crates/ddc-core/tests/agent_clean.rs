@@ -79,7 +79,7 @@ impl Home {
     fn walk(&self, root: &Path) -> (ScanReport, AgentBound) {
         let env = self.env();
         let commands = Arc::new(SharedCommands::system(&env));
-        let scope = Scope::resolve(root, env.home(), &*commands, &env.tool_dirs(), PROBE_TIMEOUT).unwrap();
+        let scope = Scope::resolve(root, env.home(), &*commands, &env.git_dirs(), PROBE_TIMEOUT).unwrap();
         let opts = footprint::scan_options(&scope, self.opts(&commands));
         let report = recheck::scoped(&env, &opts, &scope.reach(), &Progress::default(), &SystemStatFs, None).unwrap();
         let bound = AgentBound::new(&report, &scope.main, scope.bare, &scope.checkouts, env.home());

@@ -24,7 +24,7 @@ pub fn run(args: &FootprintArgs) -> anyhow::Result<ExitCode> {
         None => std::env::current_dir().context("cannot read the current folder")?,
     };
     let commands = SystemCommands::new(&env);
-    let scope = Scope::resolve(&root, env.home(), &commands, &env.tool_dirs(), PROBE_TIMEOUT)?;
+    let scope = Scope::resolve(&root, env.home(), &commands, &env.git_dirs(), PROBE_TIMEOUT)?;
     // Settings' skips, excludes and disabled rules apply as in a scan.
     let flags = ScanFlags {
         paths: vec![scope.main.clone()],
