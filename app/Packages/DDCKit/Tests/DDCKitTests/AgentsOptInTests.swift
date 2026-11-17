@@ -54,7 +54,7 @@ struct AgentsOptInTests {
         )
     }
 
-    @Test("the toggle runs settings set once per switch, on with --approved, and then shows the file as the CLI left it")
+    @Test("the toggle runs settings set once per switch, on with --from-app, and then shows the file as the CLI left it")
     func toggleRunsTheCLI() async throws {
         let runner = SwitchRunner(settings: data.directory.settings)
         let model = try settings(runner)
@@ -65,7 +65,7 @@ struct AgentsOptInTests {
         var calls = await runner.calls
         #expect(calls.count == 1)
         #expect(calls.first?.0 == .settingsSet)
-        #expect(calls.first?.1 == ["settings", "set", "agents_clean_safe", "on", "--approved"])
+        #expect(calls.first?.1 == ["settings", "set", "agents_clean_safe", "on", "--from-app"])
         #expect(model.agentsCleanSafe)
         #expect(model.agentsOptInFailure == nil && !model.agentsOptInRunning)
 

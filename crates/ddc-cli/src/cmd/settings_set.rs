@@ -3,7 +3,7 @@
 //! menu bar ADR §6 item 6): the one writer that changes the key. It takes no
 //! ddc lock: it holds `settings.lock` for a moment, and a change is
 //! journaled. At a terminal `on` asks first; without one it needs the app's
-//! hidden `--approved`. `off` never asks.
+//! hidden `--from-app`. `off` never asks.
 
 use std::io::{IsTerminal as _, Write as _};
 use std::process::ExitCode;
@@ -27,7 +27,7 @@ pub fn run(args: &SettingsSetArgs) -> anyhow::Result<ExitCode> {
     // nothing is written: an `off` landing in between must not be undone by
     // an `on` nobody confirmed. Anything written is decided under settings.lock.
     let already = settings::load(&env)?.agents_clean_safe;
-    if on && !args.approved {
+    if on && !args.from_app {
         if already {
             return say(true, false);
         }

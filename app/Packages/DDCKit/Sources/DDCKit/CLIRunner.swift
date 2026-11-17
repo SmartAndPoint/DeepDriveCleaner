@@ -93,7 +93,7 @@ public actor CLIRunner {
         /// 2026-11-08): no lock, milliseconds; queued like `space`.
         case lockStatus, lockStop
 
-        /// `settings set agents_clean_safe on --approved|off`, the Automation
+        /// `settings set agents_clean_safe on --from-app|off`, the Automation
         /// pane's "Let coding agents clean safe items" (story "Settings: let
         /// coding agents clean safe items"; menu bar ADR §1, amended
         /// 2026-11-15): milliseconds and no ddc lock, in a lane of its own so

@@ -6,7 +6,7 @@ import Foundation
 /// writes `agents_clean_safe` from its own state: it runs the CLI, the one
 /// writer that changes the key, then reads the file again. The toggle, with
 /// its risk text beside it, is the person's consent, so `on` passes
-/// `--approved`; `off` needs nothing.
+/// `--from-app`; `off` needs nothing.
 public enum AgentsOptIn {
     nonisolated public static let title = "Let coding agents clean safe items"
     nonisolated public static let help =
@@ -20,7 +20,7 @@ public enum AgentsOptIn {
     nonisolated public static let popoverLine = "Coding agents may clean safe items"
 
     static func arguments(_ on: Bool) -> [String] {
-        on ? ["settings", "set", "agents_clean_safe", "on", "--approved"] : ["settings", "set", "agents_clean_safe", "off"]
+        on ? ["settings", "set", "agents_clean_safe", "on", "--from-app"] : ["settings", "set", "agents_clean_safe", "off"]
     }
 
     /// Runs the switch: nil when it is done, else what to show under the

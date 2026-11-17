@@ -248,9 +248,9 @@
       "expect": {"exit": 2, "stderr": {"contains": ["needs you at a terminal"]}}
     },
     {
-      "name": "settings set agents_clean_safe on --approved, as the app's toggle, switches it on",
+      "name": "settings set agents_clean_safe on --from-app, as the app's toggle, switches it on",
       "group": "commands",
-      "args": ["settings", "set", "agents_clean_safe", "on", "--approved"],
+      "args": ["settings", "set", "agents_clean_safe", "on", "--from-app"],
       "expect": {"exit": 0, "stdout": {"contains": ["agents_clean_safe: on"]}}
     },
     {
