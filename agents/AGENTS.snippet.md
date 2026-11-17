@@ -11,6 +11,7 @@ what agent sessions left behind.
 **What to run** (read-only; with `--json` only the report goes to stdout):
 
 ```sh
+ddc changes --json                  # what grew between the last two scans; before any scan
 ddc agent status --json --no-sizes  # harnesses and live sessions (macOS, Linux)
 ddc scan "$PWD" --json              # what can be freed under this project
 ddc rules --json                    # what each rule id means
@@ -18,7 +19,11 @@ ddc rules --json                    # what each rule id means
 
 An older `ddc` that has no `ddc agent status` has it as `ddc disk agents`, with the same options.
 
-**How to read it.** `ddc agent status` (docs/agents.schema.json): `harnesses[]`, and per
+**How to read it.** `ddc changes` (docs/changes.schema.json) compares the person's last two
+scans, so ask it before you scan; `status` is `not-compared`, with its `reason`, until two scans
+are saved. `compared_roots` says what it compared, often the whole home: show only what the
+person asked about, and leave removing what grew to them.
+`ddc agent status` (docs/agents.schema.json): `harnesses[]`, and per
 session in `sessions.list[]` its `cwd` and `state`: `live` is hands off, `stale` has ended,
 `unknown` counts as live.
 Each session's bytes (Claude Code only, and absent under `--no-sizes`, so drop that flag for

@@ -1,8 +1,8 @@
 # ddc for coding agents
 
 Guidance that teaches a coding agent to ask `ddc` about the disk before it guesses, and to leave
-the cleaning to you. It is read-only: the agent runs `ddc agent status --json`, `ddc scan <dir>
---json` and `ddc rules --json`, tells you what it found, and hands you the `ddc clean` command
+the cleaning to you. It is read-only: the agent runs `ddc changes --json`, `ddc agent status --json`,
+`ddc scan <dir> --json` and `ddc rules --json`, tells you what it found, and hands you the `ddc clean` command
 (or the Mac app's Review window) to run yourself. Why an agent never cleans on its own: ADR
 "Agent footprint: worktrees, harness data and bounded consent for agents", §5, in the
 [vault](https://github.com/SmartAndPoint/DeepDriveCleaner-projectstore).
@@ -47,7 +47,7 @@ folder `agents/`". It should:
    the rest of the file.
 4. Show you the diff of what it wrote, and run `ddc --version` to check that `ddc` is there.
 
-The guidance cites the JSON contracts in [`docs/`](../docs): `agents.schema.json` and
-`scan.schema.json`. A test (`crates/ddc-cli/tests/structure.rs`) checks that every field the
+The guidance cites the JSON contracts in [`docs/`](../docs): `changes.schema.json`,
+`agents.schema.json` and `scan.schema.json`. A test (`crates/ddc-cli/tests/structure.rs`) checks that every field the
 skill names exists in them, that every `ddc` command it runs parses, and that its runnable
 commands remove nothing.

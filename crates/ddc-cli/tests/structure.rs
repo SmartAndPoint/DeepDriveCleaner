@@ -1234,6 +1234,13 @@ const SCAN_NAMES: &[Cited] = &[
     ("lock", "findings[].contents.entries[].lock", &["live-session"]),
 ];
 
+/// What the guidance cites of `ddc changes --json`.
+const CHANGES_NAMES: &[Cited] = &[
+    ("status", "status", &["compared", "not-compared"]),
+    ("reason", "reason", &["no-report", "no-previous"]),
+    ("compared_roots", "compared_roots", &[]),
+];
+
 /// Fields the guidance names before a released ddc writes them: named only
 /// on a line that says "when available". None now: the per-session
 /// footprint shipped in 0.14.0 and its names are checked above.
@@ -1337,7 +1344,11 @@ fn allowed_values(schema: &serde_json::Value, node: &serde_json::Value, depth: u
 #[test]
 fn the_agent_guidance_names_only_schema_fields() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    for (file, names) in [("docs/agents.schema.json", AGENTS_NAMES), ("docs/scan.schema.json", SCAN_NAMES)] {
+    for (file, names) in [
+        ("docs/agents.schema.json", AGENTS_NAMES),
+        ("docs/scan.schema.json", SCAN_NAMES),
+        ("docs/changes.schema.json", CHANGES_NAMES),
+    ] {
         let schema: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(root.join(file)).unwrap()).unwrap();
         for (name, path, values) in names {
@@ -1360,7 +1371,7 @@ fn the_agent_guidance_names_only_schema_fields() {
         }
     }
     let skill = std::fs::read_to_string(root.join(GUIDANCE[0])).unwrap();
-    let cited = || AGENTS_NAMES.iter().chain(SCAN_NAMES);
+    let cited = || AGENTS_NAMES.iter().chain(SCAN_NAMES).chain(CHANGES_NAMES);
     for name in cited().flat_map(|(name, _, values)| std::iter::once(name).chain(values.iter())) {
         assert!(skill.contains(&format!("`{name}`")), "{} does not name `{name}`", GUIDANCE[0]);
     }
@@ -1384,7 +1395,7 @@ fn the_agent_guidance_names_only_schema_fields() {
 
 /// Every `ddc` line of the guidance's code blocks parses, the ones it runs and
 /// the ones it shows the person: its subcommand's `--help` succeeds and names
-/// each option the line passes. Only `--help` runs. The skill asks the three
+/// each option the line passes. Only `--help` runs. The skill asks the four
 /// read-only questions of the story, each with `--json`.
 #[test]
 fn every_ddc_line_of_the_agent_guidance_parses() {
@@ -1434,7 +1445,7 @@ fn every_ddc_line_of_the_agent_guidance_parses() {
             }
         }
     }
-    for question in ["agent status", "scan", "rules"] {
+    for question in ["changes", "agent status", "scan", "rules"] {
         assert!(asked.iter().any(|a| a == question), "the skill does not run `ddc {question} --json`");
     }
 }
