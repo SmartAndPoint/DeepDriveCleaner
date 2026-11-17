@@ -34,9 +34,21 @@ pub struct Protected {
 }
 
 impl Protected {
-    /// The set of `env`: its home's list and its redirected folders.
+    /// The set of `env`: its home's list, its redirected folders and its
+    /// cloud roots, with their ancestors.
     pub fn of(env: &Env) -> Self {
-        Self::new(env.home(), env.redirected())
+        let mut set = Self::new(env.home(), env.redirected());
+        for root in env.cloud() {
+            root.ancestors().for_each(|a| set.insert(a));
+        }
+        set
+    }
+
+    fn insert(&mut self, path: &Path) {
+        let key = paths::key(path).into_owned();
+        if !self.folders.iter().any(|(_, k)| *k == key) {
+            self.folders.push((path.to_path_buf(), key));
+        }
     }
 
     /// The platform's list under `home`, and `redirected`, with their ancestors.

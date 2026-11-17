@@ -14,7 +14,7 @@ use crate::rules::Rule;
 /// not name. Spelled with `/`, as the rules' paths are; their ancestors are
 /// protected through `rules::Protected`, so `AppData/Roaming/Microsoft` is
 /// not listed.
-pub(super) const OWN_PROTECTED_IN_HOME: [&str; 25] = [
+pub(super) const OWN_PROTECTED_IN_HOME: [&str; 28] = [
     "AppData",
     "AppData/Roaming",
     "AppData/Local",
@@ -37,13 +37,16 @@ pub(super) const OWN_PROTECTED_IN_HOME: [&str; 25] = [
     "source",
     "source/repos",
     "OneDrive",
+    "Dropbox",
+    "Box",
+    "iCloudDrive",
     "Videos",
     "Favorites",
     "Saved Games",
 ];
 
 /// The shared protected folders and Windows's own.
-pub(super) static PROTECTED_IN_HOME: [&str; 37] = super::concat(&shared::PROTECTED_IN_HOME, &OWN_PROTECTED_IN_HOME);
+pub(super) static PROTECTED_IN_HOME: [&str; 40] = super::concat(&shared::PROTECTED_IN_HOME, &OWN_PROTECTED_IN_HOME);
 
 /// System folders that are never removed (safety ADR §6, Windows, system
 /// folders), at their default places. The guard adds where the known-folder

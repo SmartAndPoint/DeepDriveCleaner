@@ -244,7 +244,15 @@ impl Catalog {
     /// The catalog of `env`: its home, and the folders it protects there and
     /// wherever the environment redirects them.
     pub fn builtin(env: &crate::env::Env) -> Self {
-        Self::resolved(RULES, env.home(), Protected::of(env))
+        let mut c = Self::resolved(RULES, env.home(), Protected::of(env));
+        // The cloud roots the environment names are never walked, as the
+        // cloud rule's own (safety ADR §6, Windows, neither removed nor walked).
+        if let Some(tag) = c.rules.iter().position(|r| r.id == "user.cloud") {
+            for root in env.cloud() {
+                c.no_traverse.insert(root.clone(), tag as Tag);
+            }
+        }
+        c
     }
 
     /// The catalog of `home` alone, without the redirected folders an `Env`

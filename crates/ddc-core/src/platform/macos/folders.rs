@@ -22,6 +22,12 @@ pub fn redirected() -> Vec<(crate::platform::types::Redirect, PathBuf)> {
     Vec::new()
 }
 
+/// Cloud roots an environment variable names, besides the catalog's: none
+/// here.
+pub fn cloud_roots() -> Vec<PathBuf> {
+    Vec::new()
+}
+
 /// System folders found at run time, besides the catalog's static list:
 /// none here.
 pub fn system_folders() -> Vec<PathBuf> {

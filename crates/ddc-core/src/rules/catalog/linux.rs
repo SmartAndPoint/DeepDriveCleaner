@@ -153,6 +153,7 @@ pub(super) static RULES: [Rule; COUNT] = [
     shared::user_movies(Platform::Linux),
     shared::USER_MUSIC,
     shared::USER_DOWNLOADS,
+    shared::user_cloud(Platform::Linux),
     // ---- generic, lowest priority -------------------------------------------------------
     shared::GENERIC_CACHEDIR_TAG,
 ];

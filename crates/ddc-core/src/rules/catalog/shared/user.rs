@@ -29,3 +29,20 @@ pub(crate) const USER_MUSIC: Rule =
 
 pub(crate) const USER_DOWNLOADS: Rule =
     rule("user.downloads", Personal, UserData, Removal::None, Matcher::KnownRegion(&["Downloads"]));
+
+/// The cloud folders, never walked (safety ADR §6): macOS's File Provider
+/// and iCloud folders; none on Linux; the default folders of OneDrive,
+/// Dropbox, Box and iCloud Drive on Windows, where `Env` adds the roots the
+/// OneDrive variables name (the bullet "§6, Windows, neither removed nor
+/// walked", planned 2026-11-17).
+pub(crate) const fn user_cloud(p: Platform) -> Rule {
+    let paths = PerOs {
+        macos: &["Library/CloudStorage", "Library/Mobile Documents"],
+        linux: &[],
+        windows: &["OneDrive", "Dropbox", "Box", "iCloudDrive"],
+    };
+    Rule {
+        hint: "cloud folders are not scanned",
+        ..rule("user.cloud", Personal, UserData, Removal::None, Matcher::NoTraverse(paths.of(p)))
+    }
+}

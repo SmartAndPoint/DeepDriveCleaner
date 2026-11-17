@@ -51,6 +51,11 @@ pub struct Env {
     /// Windows, redirected folders). Empty off Windows and from
     /// [`Self::with_paths`].
     redirected: Vec<(Redirect, PathBuf)>,
+    /// The cloud roots the environment names (the OneDrive variables on
+    /// Windows), each as written and, on a local volume, as it resolves:
+    /// never walked and protected. One at or above the home is left out.
+    /// Empty off Windows and from [`Self::with_paths`].
+    cloud: Vec<PathBuf>,
 }
 
 impl Env {
@@ -76,6 +81,7 @@ impl Env {
         let claude_tmpdir = std::env::var_os("CLAUDE_CODE_TMPDIR").filter(|v| !v.is_empty()).map(PathBuf::from);
         let tmpdir = std::env::var_os("TMPDIR").filter(|v| !v.is_empty()).map(PathBuf::from);
         let redirected = spellings(crate::platform::folders::redirected());
+        let cloud = cloud_spellings(&home, crate::platform::folders::cloud_roots());
         Ok(Self {
             home,
             data_dir,
@@ -88,6 +94,7 @@ impl Env {
             tmpdir,
             default_data_dir,
             redirected,
+            cloud,
         })
     }
 
@@ -105,6 +112,7 @@ impl Env {
             tmpdir: None,
             default_data_dir: false,
             redirected: Vec::new(),
+            cloud: Vec::new(),
         })
     }
 
@@ -130,6 +138,18 @@ impl Env {
     pub fn with_redirected(mut self, folders: Vec<(Redirect, PathBuf)>) -> Self {
         self.redirected = spellings(folders);
         self
+    }
+
+    /// Replaces the cloud roots (tests name one as `OneDrive` would), each in
+    /// its spellings as [`Self::from_process`] finds them.
+    pub fn with_cloud(mut self, roots: Vec<PathBuf>) -> Self {
+        self.cloud = cloud_spellings(&self.home, roots);
+        self
+    }
+
+    /// The cloud roots the environment names, besides the catalog's own.
+    pub fn cloud(&self) -> &[PathBuf] {
+        &self.cloud
     }
 
     /// The folders protected wherever they point, besides the home's list:
@@ -236,14 +256,28 @@ impl Env {
 /// resolves (an 8.3 name or a junction is another key). A folder on a share
 /// is never resolved: a clean never waits on the network.
 fn spellings(folders: Vec<(Redirect, PathBuf)>) -> Vec<(Redirect, PathBuf)> {
-    let mut all = Vec::new();
-    for (var, folder) in folders {
-        let canonical = crate::platform::paths::is_local(&folder).then(|| folder.canonical().ok()).flatten();
-        let canonical = canonical.filter(|c| *c != folder);
-        all.push((var, folder));
-        all.extend(canonical.map(|c| (var, c)));
-    }
-    all
+    folders.into_iter().flat_map(|(var, folder)| spelled(folder).into_iter().map(move |f| (var, f))).collect()
+}
+
+/// `folder` as written and, on a local volume where it exists, as it resolves.
+fn spelled(folder: PathBuf) -> Vec<PathBuf> {
+    let canonical = crate::platform::paths::is_local(&folder).then(|| folder.canonical().ok()).flatten();
+    let canonical = canonical.filter(|c| *c != folder);
+    std::iter::once(folder).chain(canonical).collect()
+}
+
+/// The cloud roots in their spellings, without a root any spelling of which
+/// is at or above `home`: a scan would read nothing (safety ADR §6, Windows,
+/// neither removed nor walked). `home` is canonical; a root that reaches it
+/// through a link is caught by its canonical spelling.
+fn cloud_spellings(home: &Path, roots: Vec<PathBuf>) -> Vec<PathBuf> {
+    let home = crate::platform::paths::key(home).into_owned();
+    roots
+        .into_iter()
+        .map(spelled)
+        .filter(|spellings| spellings.iter().all(|r| !home.starts_with(crate::platform::paths::key(r))))
+        .flatten()
+        .collect()
 }
 
 /// Where Claude Code keeps its temporary folder: `claude-<uid>` under
@@ -320,6 +354,7 @@ mod tests {
             tmpdir: Some(PathBuf::from("/var/tmp/me")),
             default_data_dir: false,
             redirected: Vec::new(),
+            cloud: Vec::new(),
         }
         .with_system_root(Path::new("/fixture"));
         let base = env.claude_temp_base();
@@ -342,6 +377,7 @@ mod tests {
             tmpdir: Some(PathBuf::from("/var/tmp/me")),
             default_data_dir: true,
             redirected: Vec::new(),
+            cloud: Vec::new(),
         };
         assert_eq!(env.pinned_vars(), vec![("DOCKER_CONFIG", PathBuf::from("/cfg/docker"))]);
     }

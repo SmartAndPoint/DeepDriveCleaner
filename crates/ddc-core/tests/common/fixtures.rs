@@ -10,7 +10,8 @@ use super::TreeBuilder;
 pub const TAG: &str = "Signature: 8a477f597d28d172789f06886806bc55\n# cache\n";
 
 /// Builds `rule`'s fixture in `t`; the finding it must produce, relative to
-/// the root, or `None` for an unlisted or untraversed rule.
+/// the root, or `None` for an unlisted or untraversed rule, or one with no
+/// path on this platform.
 pub fn rule_fixture(t: &TreeBuilder, rule: &Rule) -> Option<String> {
     match rule.matcher {
         // A sealed folder: a project inside it is no finding either.
@@ -26,10 +27,14 @@ pub fn rule_fixture(t: &TreeBuilder, rule: &Rule) -> Option<String> {
             for p in paths {
                 t.file(&format!("{p}/payload"), 100);
             }
-            Some(paths[0].to_owned())
+            // A platform may list no path for a shared rule (Windows' Trash).
+            paths.first().map(|p| (*p).to_owned())
         }
         Matcher::NoTraverse(paths) => {
-            t.file(&format!("{}/payload", paths[0]), 100);
+            // Linux lists no cloud folder.
+            if let Some(p) = paths.first() {
+                t.file(&format!("{p}/payload"), 100);
+            }
             None
         }
         Matcher::KnownChildren(parents) => {
