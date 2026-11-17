@@ -388,8 +388,10 @@ struct Doomed {
 /// anything in it is removed (Go's module cache is read-only). The folder
 /// opened must still be `id`, the `(dev, ino)` the caller checked, before
 /// anything in it is touched. An entry gone meanwhile is already removed.
-pub(super) fn remove_tree(dir: &OwnedFd, name: &OsStr, id: (u64, u64)) -> std::io::Result<()> {
-    let me = crate::platform::procs::uid();
+/// `mapped` is the owner a mapped root shows for the user's files (safety
+/// ADR, amendment of 2026-11-17): its folders are made `u+rwx` too.
+pub(super) fn remove_tree(dir: &OwnedFd, name: &OsStr, id: (u64, u64), mapped: Option<u32>) -> std::io::Result<()> {
+    let me = (crate::platform::procs::uid(), mapped);
     let top = stat(dir, c"", AtFlags::EMPTY_PATH, false)?;
     let parent = (top.dev, mount_id(dir, top.mnt_id));
     let name = rustix::ffi::CString::new(name.as_bytes()).map_err(|_| std::io::ErrorKind::InvalidInput)?;
@@ -436,7 +438,7 @@ fn doomed(
     parent: &OwnedFd,
     name: rustix::ffi::CString,
     (dev, mnt_id): (u64, Option<u64>),
-    me: u32,
+    me: (u32, Option<u32>),
     expect: Option<(u64, u64)>,
 ) -> std::io::Result<Doomed> {
     let other = || std::io::Error::other(format!("another filesystem at {}, left in place", name.to_string_lossy()));
@@ -463,8 +465,9 @@ fn doomed(
         return Err(std::io::Error::other(format!("{} changed since the check", name.to_string_lossy())));
     }
     // Another user's folder is never changed (safety ADR, amendment of
-    // 2026-10-31). Best effort: where chmod is refused, the unlink says why.
-    if st.uid == me
+    // 2026-10-31), the mapped owner's on a mapped root aside (2026-11-17).
+    // Best effort: where chmod is refused, the unlink says why.
+    if (st.uid == me.0 || Some(st.uid) == me.1)
         && let Ok(md) = retry(|| rustix::fs::fstat(&fd))
         && md.st_mode & 0o700 != 0o700
     {

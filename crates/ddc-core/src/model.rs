@@ -159,6 +159,19 @@ pub struct Volume {
     pub id_mapping: Option<IdMapping>,
 }
 
+impl ScanReport {
+    /// The owner a mapped volume of this report shows for the user's files
+    /// ([`Volume::id_mapping`]): one probe per run, so one owner.
+    pub fn mapped_owner(&self) -> Option<u32> {
+        self.volumes.iter().find_map(|v| v.id_mapping.as_ref().map(|m| m.owner))
+    }
+
+    /// Every mapped root of this report ([`IdMapping::roots`]).
+    pub fn mapped_roots(&self) -> Vec<PathBuf> {
+        self.volumes.iter().filter_map(|v| v.id_mapping.as_ref()).flat_map(|m| m.roots.iter().cloned()).collect()
+    }
+}
+
 /// How a server maps the user's ids on one volume ([`Volume::id_mapping`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct IdMapping {

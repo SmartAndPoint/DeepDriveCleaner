@@ -43,6 +43,28 @@ impl StatFs for SystemStatFs {
     }
 }
 
+/// One entry per mount point, in the order of the roots, each with the roots
+/// on it. A root whose volume cannot be read (a share gone during the scan)
+/// is left out: the low-disk check cannot fire for it.
+pub fn volumes(roots: &[&Path], statfs: &dyn StatFs) -> Vec<Volume> {
+    let mut out: Vec<Volume> = Vec::new();
+    for root in roots {
+        let Ok(st) = statfs.statfs(root) else { continue };
+        match out.iter_mut().find(|v| v.mount_point == st.mount_point) {
+            Some(v) => v.roots.push(root.to_path_buf()),
+            None => out.push(Volume {
+                mount_point: st.mount_point,
+                roots: vec![root.to_path_buf()],
+                free_bytes: st.available_bytes,
+                total_bytes: st.total_bytes,
+                read_at: None,
+                id_mapping: None,
+            }),
+        }
+    }
+    out
+}
+
 /// The uid the kernel shows for an owner name an NFSv4 client cannot map
 /// (its -2): every such owner alike, so it maps to no one.
 pub const UNMAPPED_UID: u32 = u32::MAX - 1;
@@ -66,54 +88,38 @@ pub fn is_mapped(fs_type: &str, root: &Path, home: &Path, record_mount: u64, acc
         && access.is_some_and(|(mount, writable)| mount == record_mount && writable)
 }
 
-/// Sets each volume's [`IdMapping`] from its mapped roots, with `entries(root)`
-/// the walk's count of M's entries under a root.
+/// The roots, as the walk will hold them, that are mapped to the
+/// record's owner ([`is_mapped`]), decided before the walk so that it and
+/// every finding see the same answer.
+pub fn mapped_roots(roots: &[PathBuf], statfs: &dyn StatFs, home: &Path, mapped: Option<(u32, u64)>) -> Vec<PathBuf> {
+    let Some((_, record_mount)) = mapped else { return Vec::new() };
+    roots
+        .iter()
+        .filter(|r| {
+            statfs.statfs(r).is_ok_and(|st| is_mapped(&st.fs_type, r, home, record_mount, statfs.root_access(r)))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Sets each volume's [`IdMapping`] from the `mapped` roots on it, with
+/// `entries(root)` the walk's count of M's entries under a root.
 pub fn id_mappings(
     volumes: &mut [Volume],
     statfs: &dyn StatFs,
-    home: &Path,
-    mapped: Option<(u32, u64)>,
+    owner: Option<u32>,
+    mapped: &[PathBuf],
     entries: &dyn Fn(&Path) -> u64,
 ) {
-    let Some((owner, record_mount)) = mapped else { return };
+    let Some(owner) = owner else { return };
     for v in volumes {
-        let Some(fs_type) = v.roots.first().and_then(|r| statfs.statfs(r).ok()).map(|st| st.fs_type) else {
+        let roots: Vec<PathBuf> = v.roots.iter().filter(|r| mapped.contains(r)).cloned().collect();
+        let Some(fs_type) = roots.first().and_then(|r| statfs.statfs(r).ok()).map(|st| st.fs_type) else {
             continue;
         };
-        let roots: Vec<PathBuf> = v
-            .roots
-            .iter()
-            .filter(|r| is_mapped(&fs_type, r, home, record_mount, statfs.root_access(r)))
-            .cloned()
-            .collect();
-        if roots.is_empty() {
-            continue;
-        }
         let entries = roots.iter().map(|r| entries(r)).sum();
         v.id_mapping = Some(IdMapping { owner, roots, entries, filesystem: fs_type });
     }
-}
-
-/// One entry per mount point, in the order of the roots, each with the roots
-/// on it. A root whose volume cannot be read (a share gone during the scan)
-/// is left out: the low-disk check cannot fire for it.
-pub fn volumes(roots: &[&Path], statfs: &dyn StatFs) -> Vec<Volume> {
-    let mut out: Vec<Volume> = Vec::new();
-    for root in roots {
-        let Ok(st) = statfs.statfs(root) else { continue };
-        match out.iter_mut().find(|v| v.mount_point == st.mount_point) {
-            Some(v) => v.roots.push(root.to_path_buf()),
-            None => out.push(Volume {
-                mount_point: st.mount_point,
-                roots: vec![root.to_path_buf()],
-                free_bytes: st.available_bytes,
-                total_bytes: st.total_bytes,
-                read_at: None,
-                id_mapping: None,
-            }),
-        }
-    }
-    out
 }
 
 #[cfg(test)]

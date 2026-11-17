@@ -185,6 +185,8 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
                 skips: &skips,
                 worktree_min_age: opts.worktree_min_age,
                 probe_timeout: opts.probe_timeout,
+                mapped_owner: scanned.mapped_owner(),
+                mapped_roots: &scanned.mapped_roots(),
             },
         )
     })?;

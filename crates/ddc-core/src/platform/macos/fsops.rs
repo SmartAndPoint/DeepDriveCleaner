@@ -222,8 +222,9 @@ impl DirFd {
     /// the guard checked, before anything in it is touched; an entry gone
     /// meanwhile is already removed. `path` names it in an error alone.
     /// Only `exec::delete` calls it.
-    pub fn remove_tree(&self, name: &OsStr, _path: &Path, id: (u64, u64)) -> io::Result<()> {
-        let me = crate::platform::procs::uid();
+    /// `mapped` is never set on macOS, which maps no root.
+    pub fn remove_tree(&self, name: &OsStr, _path: &Path, id: (u64, u64), mapped: Option<u32>) -> io::Result<()> {
+        let me = (crate::platform::procs::uid(), mapped);
         let dev = self.identity()?.0;
         let mut stack = vec![doomed(self.0, cstring(name.as_bytes())?, dev, me, Some(id))?];
         while let Some(last) = stack.last_mut() {
@@ -306,7 +307,13 @@ struct Doomed {
 /// The folder `name` of `parent`, opened for [`DirFd::remove_tree`] and
 /// listed, or why it must not be entered; `expect`, the `(dev, ino)` it
 /// must have.
-fn doomed(parent: c_int, name: CString, dev: u64, me: u32, expect: Option<(u64, u64)>) -> io::Result<Doomed> {
+fn doomed(
+    parent: c_int,
+    name: CString,
+    dev: u64,
+    me: (u32, Option<u32>),
+    expect: Option<(u64, u64)>,
+) -> io::Result<Doomed> {
     // SAFETY: open fd, NUL-terminated name.
     let raw = unsafe {
         libc::openat(parent, name.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
@@ -330,7 +337,7 @@ fn doomed(parent: c_int, name: CString, dev: u64, me: u32, expect: Option<(u64, 
     }
     // Another user's folder is never changed (safety ADR, amendment of
     // 2026-10-31). Best effort: where chmod is refused, the unlink says why.
-    if st.st_uid == me && st.st_mode & 0o700 != 0o700 {
+    if (st.st_uid == me.0 || Some(st.st_uid) == me.1) && st.st_mode & 0o700 != 0o700 {
         // SAFETY: open fd.
         unsafe { libc::fchmod(fd.0, (st.st_mode & 0o7777) | 0o700) };
     }

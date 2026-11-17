@@ -494,7 +494,7 @@ pub fn report(w: &mut impl Write, r: &ScanReport, style: &Style, own_roots: bool
 /// amendment of 2026-11-17, "a mapped root").
 fn id_mapping_text(m: &ddc_core::model::IdMapping, mount: &Path, home: &Path) -> String {
     format!(
-        "files on {} ({}) are owned by uid {}: the server maps ids ({} entr{}).",
+        "files on {} ({}) are owned by uid {}: the server maps ids ({} entr{}). Their Trash is not private there: what would go to the Trash needs `ddc clean --permanent`.",
         tilde(mount, home),
         m.filesystem,
         m.owner,
@@ -1362,10 +1362,10 @@ mod tests {
         };
         assert_eq!(
             id_mapping_text(&m, Path::new("/h"), Path::new("/h")),
-            "files on ~ (nfs4) are owned by uid 65534: the server maps ids (20.2K entries)."
+            "files on ~ (nfs4) are owned by uid 65534: the server maps ids (20.2K entries). Their Trash is not private there: what would go to the Trash needs `ddc clean --permanent`."
         );
         let one = ddc_core::model::IdMapping { entries: 1, ..m };
-        assert!(id_mapping_text(&one, Path::new("/srv/home"), Path::new("/h")).ends_with("ids (1 entry)."));
+        assert!(id_mapping_text(&one, Path::new("/srv/home"), Path::new("/h")).contains("ids (1 entry)."));
     }
 
     /// Story "Clean: --agent bounded consent": the person's command quotes

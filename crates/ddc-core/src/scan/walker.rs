@@ -96,7 +96,11 @@ struct RootAcc {
     bytes: AtomicU64,
     files: AtomicU64,
     dirs: AtomicU64,
-    /// Entries owned by [`WalkOptions::mapped`].
+    /// The owner the server maps the user to under this root, when the
+    /// root is one of [`WalkOptions::mapped_roots`]: its entries are not
+    /// foreign (safety ADR, amendment of 2026-11-17, "a mapped root").
+    m: Option<u32>,
+    /// Entries owned by `m`.
     mapped: AtomicU64,
 }
 
@@ -202,6 +206,7 @@ pub fn walk_with_reader(
                 bytes: AtomicU64::new(0),
                 files: AtomicU64::new(0),
                 dirs: AtomicU64::new(0),
+                m: opts.mapped.filter(|_| opts.mapped_roots.contains(path)),
                 mapped: AtomicU64::new(0),
             })
             .collect(),
@@ -293,7 +298,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
     }
     let Task { dir, expect, parent, depth, root, mut owner, entry, mut hooks, uid, flags, blocks, subvol, anchor } =
         task;
-    let foreign_dir = uid.is_some_and(|u| u != sh.me);
+    let foreign_dir = sh.foreign(root, uid);
     let locked_dir = flags & LOCKED != 0;
     let name = dir.file_name().unwrap_or(dir.as_os_str());
     let mut lists = false;
@@ -441,8 +446,8 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         // of a pnpm or uv tree), a skipped or unreadable directory still tells
         // when it last changed.
         newest = newest.max(meta.modified);
-        foreign += u64::from(meta.uid.is_some_and(|u| u != sh.me));
-        mapped += u64::from(meta.uid.is_some() && meta.uid == sh.opts.mapped);
+        foreign += u64::from(sh.foreign(root, meta.uid));
+        mapped += u64::from(meta.uid.is_some() && meta.uid == sh.roots[root].m);
         // A folder too: one with the flag cannot be emptied (safety ADR,
         // amendment of 2026-11-04, "Linux file kinds").
         if meta.flags & LOCKED != 0 {
@@ -585,6 +590,12 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl Shared<'_> {
+    /// Whether an entry under root `root` owned by `uid` is another user's:
+    /// not the scanning user's, nor the mapped owner's on a mapped root.
+    fn foreign(&self, root: usize, uid: Option<u32>) -> bool {
+        uid.is_some_and(|u| u != self.me && Some(u) != self.roots[root].m)
+    }
+
     /// Lists `dir` beneath its anchor, or by path without one.
     fn read(
         &self,

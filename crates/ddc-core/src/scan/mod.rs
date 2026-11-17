@@ -167,9 +167,12 @@ pub struct WalkOptions {
     /// ([`Visitor::lists_entries`]) are read either way.
     pub claim_times: bool,
     /// The owner the server shows for a file this run made, when that is
-    /// not the user (safety ADR, amendment of 2026-11-17, "a mapped root"):
-    /// the walk counts its entries per root ([`RootResult::mapped`]).
+    /// not the user (safety ADR, amendment of 2026-11-17, "a mapped root").
+    /// Under each of [`Self::mapped_roots`] its entries are not foreign, and
+    /// the walk counts them ([`RootResult::mapped`]).
     pub mapped: Option<u32>,
+    /// The roots, canonical, that are mapped to [`Self::mapped`].
+    pub mapped_roots: Vec<PathBuf>,
 }
 
 impl Default for WalkOptions {
@@ -182,6 +185,7 @@ impl Default for WalkOptions {
             max_recorded: 10_000,
             claim_times: true,
             mapped: None,
+            mapped_roots: Vec::new(),
         }
     }
 }
@@ -281,7 +285,8 @@ pub struct RootResult {
     pub bytes: u64,
     pub files: u64,
     pub dirs: u64,
-    /// Entries owned by [`WalkOptions::mapped`]; 0 without one.
+    /// Entries owned by [`WalkOptions::mapped`] under a mapped root; 0
+    /// elsewhere.
     pub mapped: u64,
 }
 

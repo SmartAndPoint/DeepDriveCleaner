@@ -700,7 +700,7 @@ fn only_the_tombstone_removal_removes_a_tree() {
             }
         }
     }
-    assert_eq!(calls, [("ddc-core/src/exec/delete.rs".to_owned(), "&tomb, &tomb_path, v.id".to_owned())]);
+    assert_eq!(calls, [("ddc-core/src/exec/delete.rs".to_owned(), "&tomb, &tomb_path, v.id, mapped".to_owned())]);
 }
 
 /// A command's catalog is built from its `Env`, so the folders the

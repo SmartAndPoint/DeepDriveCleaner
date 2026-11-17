@@ -20,6 +20,7 @@ use ddc_core::footprint::{self, Scope};
 use ddc_core::holders::HolderCommand;
 use ddc_core::plan::{AgentBound, ListedItems, plan_agent};
 use ddc_core::platform::{procs, signals};
+use ddc_core::report::ScanOptions;
 use ddc_core::report::recheck;
 use ddc_core::report::volumes::SystemStatFs;
 use ddc_core::rules::Catalog;
@@ -90,7 +91,10 @@ pub fn run(args: &AgentCleanArgs) -> anyhow::Result<ExitCode> {
     let resolved = settings.resolve(&env, &ScanFlags { paths: vec![scope.main.clone()], ..ScanFlags::default() })?;
     super::note_missing(&resolved.missing);
     ddc_core::report::require_own_roots(&env, &resolved.options)?;
-    let opts = footprint::scan_options(&scope, resolved.options);
+    let opts = ScanOptions {
+        holder_record: lock.as_ref().and_then(store::DataLock::record),
+        ..footprint::scan_options(&scope, resolved.options)
+    };
     let walked = recheck::scoped(&env, &opts, &scope.reach(), &Progress::default(), &SystemStatFs, None)?;
     let bound = AgentBound::new(&walked, &scope.main, scope.bare, &scope.checkouts, env.home());
     let catalog = Catalog::builtin(&env);
@@ -116,6 +120,8 @@ pub fn run(args: &AgentCleanArgs) -> anyhow::Result<ExitCode> {
                 skips: &skips,
                 worktree_min_age: opts.worktree_min_age,
                 probe_timeout: opts.probe_timeout,
+                mapped_owner: walked.mapped_owner(),
+                mapped_roots: &walked.mapped_roots(),
                 ..ExecOptions::default()
             },
         )?;

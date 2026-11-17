@@ -424,6 +424,14 @@ pub struct ExecOptions<'a> {
     pub worktree_min_age: Duration,
     /// Each git probe's timeout in a worktree's re-check.
     pub probe_timeout: Duration,
+    /// The owner the server maps the user to on a mapped root, as this
+    /// run's own probe saw it (the rescan's `id_mapping`): its folders are
+    /// made writable on their way out, as the user's own are (safety ADR,
+    /// amendment of 2026-11-17), under [`Self::mapped_roots`] only. Nothing
+    /// else follows from it: which findings are planned is the rescan's.
+    pub mapped_owner: Option<u32>,
+    /// The rescan's mapped roots ([`crate::model::ScanReport::mapped_roots`]).
+    pub mapped_roots: &'a [PathBuf],
 }
 
 static NEVER: AtomicBool = AtomicBool::new(false);
@@ -438,6 +446,8 @@ impl Default for ExecOptions<'_> {
             skips: &[],
             worktree_min_age: crate::report::DEFAULT_WORKTREE_MIN_AGE,
             probe_timeout: PROBE_TIMEOUT,
+            mapped_owner: None,
+            mapped_roots: &[],
         }
     }
 }
@@ -706,6 +716,8 @@ fn act(
 ) -> Outcome {
     let opts = worktrees.opts;
     let path = item.finding.path.as_path();
+    // The mapped owner's folders are made writable on a mapped root only.
+    let mapped = opts.mapped_owner.filter(|_| opts.mapped_roots.iter().any(|r| path.starts_with(r)));
     // Anything slow (a probe subprocess) may have run: re-check before acting.
     let fallback = |fb: Fallback, program: &str| {
         // A probe killed by a forwarded signal fails like a location mismatch:
@@ -717,7 +729,7 @@ fn act(
             return Outcome::Skipped(SkipReason::ChangedSinceScan);
         }
         match fb {
-            Fallback::Delete | Fallback::DeleteWritable => delete::remove(v, path),
+            Fallback::Delete | Fallback::DeleteWritable => delete::remove(v, path, mapped),
             Fallback::Trash => trash(ports, v, path, item.finding.bytes, place),
             Fallback::Skip => Outcome::Skipped(SkipReason::ToolNotReady {
                 program: program.to_owned(),
@@ -726,7 +738,7 @@ fn act(
         }
     };
     match item.action {
-        Action::Delete { .. } => delete::remove(v, path),
+        Action::Delete { .. } => delete::remove(v, path, mapped),
         Action::Trash | Action::TrashEntry => trash(ports, v, path, item.finding.bytes, place),
         Action::Native { cmd, fallback: fb } => {
             // A long clean reaches this item minutes after the guard's snapshot,

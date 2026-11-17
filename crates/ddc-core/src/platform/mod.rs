@@ -145,7 +145,9 @@ mod pins {
     const _: fn(&DirFd, &OsStr) -> io::Result<ChildTimes> = DirFd::child_times;
     const _: fn(&DirFd, &OsStr, &OsStr) -> io::Result<()> = DirFd::rename_child;
     const _: fn(&DirFd, &OsStr) -> io::Result<()> = DirFd::unlink_child;
-    const _: fn(&DirFd, &OsStr, &Path, (u64, u64)) -> io::Result<()> = DirFd::remove_tree;
+    // The folder's name, its path for errors, its `(dev, ino)`, the mapped owner.
+    type RemoveTree = fn(&DirFd, &OsStr, &Path, (u64, u64), Option<u32>) -> io::Result<()>;
+    const _: RemoveTree = DirFd::remove_tree;
 
     const _: fn(&Path) -> io::Result<PathBuf> = imp::paths::canonicalize;
     const _: for<'a> fn(&'a Path) -> std::borrow::Cow<'a, Path> = imp::paths::key;

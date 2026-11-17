@@ -411,7 +411,7 @@ fn a_removal_never_crosses_a_mount_made_inside_a_tombstone() {
         let tomb = parent.join(name);
         let dir = DirFd::open(parent).unwrap();
         let st = dir.stat_child(name.as_ref()).unwrap();
-        let err = dir.remove_tree(name.as_ref(), &tomb, (st.dev, st.ino)).unwrap_err();
+        let err = dir.remove_tree(name.as_ref(), &tomb, (st.dev, st.ino), None).unwrap_err();
         assert!(err.to_string().contains("another filesystem"), "{name}: {err}");
         assert!(tomb.join(keep).exists(), "{name}: what lies beyond was removed");
     }
