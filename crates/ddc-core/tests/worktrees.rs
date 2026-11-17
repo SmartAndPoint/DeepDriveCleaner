@@ -527,3 +527,52 @@ fn a_worktree_whose_dot_git_is_a_symlink_is_not_one() {
     h.none_at(&r, &main);
     assert_eq!(r.findings.iter().filter(|f| f.rule.starts_with("git.")).count(), 0, "{:?}", h.summary(&r));
 }
+
+/// The system's answers, every root on NFS.
+#[cfg(target_os = "linux")]
+struct OnNfs;
+
+#[cfg(target_os = "linux")]
+impl ddc_core::report::volumes::StatFs for OnNfs {
+    fn statfs(&self, path: &Path) -> io::Result<ddc_core::platform::statfs::VolumeStats> {
+        let mut st = ddc_core::report::volumes::StatFs::statfs(&ddc_core::report::volumes::SystemStatFs, path)?;
+        st.fs_type = "nfs4".into();
+        Ok(st)
+    }
+}
+
+/// A silly rename still open on NFS inside a finding of a worktree holds
+/// the worktree too: git's removal would stop at its `EBUSY` and leave the
+/// worktree half removed (safety ADR §5, amendment of 2026-11-17, "NFS
+/// silly renames"). The NFS root is a fake statfs's answer.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_silly_rename_inside_a_worktrees_finding_holds_the_worktree() {
+    use ddc_core::report::volumes::{StatFs, SystemStatFs};
+    let Some(h) = Home::ready("a_silly_rename_inside_a_worktrees_finding_holds_the_worktree") else {
+        return;
+    };
+    let main = git::repo(&h.t, "proj");
+    let wt = git::worktree(&main, &main.join(".claude/worktrees/x"), &[]);
+    let rel = h.rel(&wt).to_owned();
+    h.t.write(&format!("{rel}/uv.lock"), "");
+    h.t.write(&format!("{rel}/.venv/pyvenv.cfg"), "home = /usr/bin\n");
+    h.t.file(&format!("{rel}/.venv/lib/site.py"), 10_000);
+    h.t.file(&format!("{rel}/.venv/lib/.nfs00000000002a5c1f00000001"), 100);
+    let opts = ScanOptions {
+        walk: WalkOptions { threads: Some(4), ..Default::default() },
+        processes: Processes::fixed(FakeProcs::new(vec![])),
+        ..Default::default()
+    };
+    let scan = |statfs: &dyn StatFs| {
+        report::scan_with_reader(&h.env(), &opts, &Progress::default(), statfs, &ddc_core::scan::StdReader).unwrap()
+    };
+
+    let r = scan(&OnNfs);
+    assert_eq!(h.finding(&r, &wt.join(".venv")).not_selected, Some(NotSelected::HeldOpen));
+    let worktree = h.finding(&r, &wt);
+    assert_eq!((worktree.not_selected, worktree.selected), (Some(NotSelected::HeldOpen), false), "{worktree:?}");
+
+    let r = scan(&SystemStatFs);
+    assert_ne!(h.finding(&r, &wt).not_selected, Some(NotSelected::HeldOpen), "a plain file elsewhere");
+}
