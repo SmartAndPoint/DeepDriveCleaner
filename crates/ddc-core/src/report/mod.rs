@@ -366,6 +366,9 @@ pub(crate) fn walk_classified(
     // A worktree's removal takes the findings inside it: a flag in one holds
     // the worktree too (safety ADR, amendment of 2026-11-04, "Linux file kinds").
     let locked: Vec<&Path> = out.owners.iter().filter(|o| o.locked > 0).map(|o| o.path.as_path()).collect();
+    // So does a silly rename still open on NFS: git stops at its `EBUSY`
+    // (safety ADR §5, amendment of 2026-11-17, "NFS silly renames").
+    let held_open: Vec<&Path> = out.owners.iter().filter(|o| o.held_open > 0).map(|o| o.path.as_path()).collect();
     let classified = classify_probed(&out, &visitor, &probing);
     let held = classified
         .iter()
@@ -382,6 +385,12 @@ pub(crate) fn walk_classified(
             let mut f = finding(c, env.now(), opts, &mut activity);
             if worktree::is_worktree_rule(c.rule) && locked.iter().any(|l| l.starts_with(&f.path)) {
                 f.not_selected = Some(NotSelected::Immutable);
+                f.selected = false;
+            } else if worktree::is_worktree_rule(c.rule)
+                && f.not_selected != Some(NotSelected::ForeignOwner)
+                && held_open.iter().any(|l| l.starts_with(&f.path))
+            {
+                f.not_selected = Some(NotSelected::HeldOpen);
                 f.selected = false;
             }
             f

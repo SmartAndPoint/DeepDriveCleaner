@@ -83,7 +83,7 @@ pub fn mapped_owner(record: Option<(u32, u64)>, me: u32) -> Option<(u32, u64)> {
 /// macOS calls an NFS mount `nfs` too, but its probe reads no owner
 /// ([`StatFs::record`] is `None` there), so only Linux maps.
 pub fn is_mapped(fs_type: &str, root: &Path, home: &Path, record_mount: u64, access: Option<(u64, bool)>) -> bool {
-    matches!(fs_type, "nfs" | "nfs4")
+    is_nfs(fs_type)
         && root.starts_with(home)
         && access.is_some_and(|(mount, writable)| mount == record_mount && writable)
 }
@@ -102,6 +102,11 @@ pub fn mapped_roots(roots: &[PathBuf], statfs: &dyn StatFs, home: &Path, mapped:
         .collect()
 }
 
+/// Whether mountinfo's filesystem type is NFS, any version.
+fn is_nfs(fs_type: &str) -> bool {
+    matches!(fs_type, "nfs" | "nfs4")
+}
+
 /// The roots, as the walk will hold them, on NFS by mountinfo's type, where
 /// a file named as a silly rename is one (safety ADR §5, amendment of
 /// 2026-11-17, "NFS silly renames"). Only the Linux client renames so: none
@@ -110,11 +115,7 @@ pub fn nfs_roots(roots: &[PathBuf], statfs: &dyn StatFs) -> Vec<PathBuf> {
     if crate::platform::PLATFORM != crate::platform::Platform::Linux {
         return Vec::new();
     }
-    roots
-        .iter()
-        .filter(|r| statfs.statfs(r).is_ok_and(|st| matches!(st.fs_type.as_str(), "nfs" | "nfs4")))
-        .cloned()
-        .collect()
+    roots.iter().filter(|r| statfs.statfs(r).is_ok_and(|st| is_nfs(&st.fs_type))).cloned().collect()
 }
 
 /// Sets each volume's [`IdMapping`] from the `mapped` roots on it, with

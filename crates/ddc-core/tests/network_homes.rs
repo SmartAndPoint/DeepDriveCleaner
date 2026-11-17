@@ -194,8 +194,9 @@ impl Drop for Holder {
 /// finding again, and its clean leaves nothing.
 #[test]
 fn a_file_held_open_on_nfs_is_left_open_in_its_tombstone_and_goes_once_closed() {
-    let name = "a_file_held_open_on_nfs_is_left_open_in_its_tombstone_and_goes_once_closed";
-    let Some(dir) = common::mount(name, Mount::Nfs) else {
+    let Some(dir) =
+        common::mount("a_file_held_open_on_nfs_is_left_open_in_its_tombstone_and_goes_once_closed", Mount::Nfs)
+    else {
         return;
     };
     let tree = TreeBuilder::new_in(&dir);
@@ -247,6 +248,11 @@ fn a_file_held_open_on_nfs_is_left_open_in_its_tombstone_and_goes_once_closed() 
     assert!(silly.starts_with(&tomb[0]), "{silly:?} in {tomb:?}");
     assert!(ddc_core::platform::types::is_silly_rename(silly.file_name().unwrap()), "{silly:?}");
     assert!(silly.exists(), "the client keeps it while it is open");
+    let names = |d: &Path| -> Vec<std::ffi::OsString> {
+        std::fs::read_dir(d).unwrap().flatten().map(|e| e.file_name()).collect()
+    };
+    assert_eq!(names(&tomb[0]), ["http"], "only the folder that holds it");
+    assert_eq!(names(&tomb[0].join("http")), [silly.file_name().unwrap()], "only the silly rename");
     let line = journal.0.iter().find(|l| l.path == cache).expect("its journal line");
     assert_eq!(&line.left_open, &done.left_open);
     assert!(!cache.exists());
