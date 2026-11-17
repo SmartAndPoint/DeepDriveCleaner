@@ -152,7 +152,7 @@ impl Home {
         .unwrap();
         let rc = worktree::Recheck {
             commands,
-            tool_dirs: env.tool_dirs(),
+            tool_dirs: env.git_dirs(),
             timeout: ddc_core::git::PROBE_TIMEOUT,
             now: env.now(),
             min_age: report::DEFAULT_WORKTREE_MIN_AGE,

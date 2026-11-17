@@ -47,7 +47,12 @@ pub const GIT_PROGRAM: &str = "git";
 /// Folders whose git is never run: none here.
 pub const GIT_SHIM_DIRS: &[&str] = &[];
 /// Searched for git after the tool folders: the system's, a real git here.
-pub const GIT_SYSTEM_DIRS: &[&str] = &["/usr/bin"];
+pub fn git_system_dirs(_home: &Path, _local: Option<&Path>) -> Vec<PathBuf> {
+    vec![PathBuf::from("/usr/bin")]
+}
+
+/// An install's own conda, below its prefix.
+pub const CONDA_PROGRAM: &str = "bin/conda";
 /// The tool that prints the developer directory, whose `usr/bin/git` runs
 /// when no tool folder has a git: none here.
 pub const DEVELOPER_DIR_TOOL: Option<&str> = None;

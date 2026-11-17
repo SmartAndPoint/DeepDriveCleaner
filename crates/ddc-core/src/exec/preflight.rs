@@ -293,7 +293,7 @@ fn check(item: &ListedItem, sheet: &Sheet<'_>) -> Checked {
         Action::Native { cmd, .. } if cmd.location == Some(Location::GitWorktree) => {
             let rc = worktree::Recheck {
                 commands: ports.commands,
-                tool_dirs: env.tool_dirs(),
+                tool_dirs: env.git_dirs(),
                 timeout: crate::git::PROBE_TIMEOUT,
                 now: env.now(),
                 min_age: std::time::Duration::ZERO,

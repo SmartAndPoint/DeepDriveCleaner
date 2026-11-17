@@ -127,8 +127,25 @@ fn known_folder(id: &GUID) -> Option<PathBuf> {
 pub const GIT_PROGRAM: &str = "git.exe";
 /// Folders whose git is never run: none here.
 pub const GIT_SHIM_DIRS: &[&str] = &[];
-/// Searched for git after the tool folders.
-pub const GIT_SYSTEM_DIRS: &[&str] = &[];
+/// Searched for git after the tool folders (safety ADR §6, Windows, neither
+/// removed nor walked, planned 2026-11-17): a machine install's `Git\cmd`
+/// in Program Files (winget's too) and in Program Files (x86), then a
+/// per-user one's below `LOCALAPPDATA` (`local`, as `Env` has it, else the
+/// home's `AppData\Local`). Never a per-user known folder.
+pub fn git_system_dirs(home: &Path, local: Option<&Path>) -> Vec<PathBuf> {
+    git_dirs_from(known_folder(&FOLDERID_ProgramFiles), known_folder(&FOLDERID_ProgramFilesX86), home, local)
+}
+
+fn git_dirs_from(pf: Option<PathBuf>, pf86: Option<PathBuf>, home: &Path, local: Option<&Path>) -> Vec<PathBuf> {
+    let local = local.map_or_else(|| home.join(r"AppData\Local"), Path::to_path_buf);
+    let mut dirs: Vec<PathBuf> = pf.into_iter().chain(pf86).map(|p| p.join(r"Git\cmd")).collect();
+    dirs.push(local.join(r"Programs\Git\cmd"));
+    dirs.dedup();
+    dirs
+}
+
+/// An install's own conda, below its prefix.
+pub const CONDA_PROGRAM: &str = r"Scripts\conda.exe";
 /// The tool that prints the developer directory, whose `usr/bin/git` runs
 /// when no tool folder has a git: none here.
 pub const DEVELOPER_DIR_TOOL: Option<&str> = None;
@@ -181,6 +198,29 @@ mod tests {
         let windows = known_folder(&FOLDERID_Windows).expect("the Windows folder");
         let root = windows.ancestors().last().unwrap();
         assert!(folders.iter().any(|f| f == root), "{root:?} in {folders:?}");
+    }
+
+    #[test]
+    fn git_is_looked_for_in_program_files_and_below_local_app_data() {
+        let home = Path::new(r"C:\Users\u");
+        let pf = || Some(PathBuf::from(r"C:\Program Files"));
+        let pf86 = || Some(PathBuf::from(r"C:\Program Files (x86)"));
+        let at = |v: &[&str]| v.iter().map(PathBuf::from).collect::<Vec<_>>();
+        assert_eq!(
+            git_dirs_from(pf(), pf86(), home, None),
+            at(&[
+                r"C:\Program Files\Git\cmd",
+                r"C:\Program Files (x86)\Git\cmd",
+                r"C:\Users\u\AppData\Local\Programs\Git\cmd"
+            ])
+        );
+        assert_eq!(
+            git_dirs_from(None, None, home, Some(Path::new(r"D:\Local"))),
+            at(&[r"D:\Local\Programs\Git\cmd"]),
+            "a redirected LOCALAPPDATA, no known folder"
+        );
+        let dirs = git_system_dirs(home, None);
+        assert!(dirs.iter().all(|d| d.is_absolute() && d.ends_with(r"Git\cmd")), "{dirs:?}");
     }
 
     #[test]

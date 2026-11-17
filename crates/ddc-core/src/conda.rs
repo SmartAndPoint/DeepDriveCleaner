@@ -57,14 +57,22 @@ pub fn candidates(home: &Path, system_root: &Path) -> Vec<PathBuf> {
     candidates_in(home, &system_root.join("opt"))
 }
 
-/// [`candidates`], with `/opt` given (`opt`).
+/// [`candidates`], with `/opt` given (`opt`). A relative candidate is
+/// dropped: on Windows `/opt` names a folder at the current drive's root,
+/// which any user may create, so only the home's installs are asked there
+/// (safety ADR, "Which conda", amended 2026-11-17).
 pub fn candidates_in(home: &Path, opt: &Path) -> Vec<PathBuf> {
-    PREFIXES.iter().map(|p| home.join(p)).chain(PREFIXES.iter().map(|p| opt.join(p))).collect()
+    PREFIXES
+        .iter()
+        .map(|p| home.join(p))
+        .chain(PREFIXES.iter().map(|p| opt.join(p)))
+        .filter(|p| p.is_absolute())
+        .collect()
 }
 
-/// An install's own `conda`.
+/// An install's own `conda`: `bin/conda`, `Scripts\conda.exe` on Windows.
 pub fn exe(prefix: &Path) -> PathBuf {
-    prefix.join("bin/conda")
+    prefix.join(crate::platform::folders::CONDA_PROGRAM)
 }
 
 /// The path as conda is given it, in `-p` and in [`PKGS_DIRS_VAR`]: `None`
@@ -245,6 +253,16 @@ pub fn same_folder(a: &Path, b: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only absolute candidates are asked: on Windows `/opt` is relative
+    /// (the current drive's root), so only the home's installs remain.
+    #[test]
+    fn a_relative_candidate_is_dropped() {
+        let home = std::env::temp_dir();
+        assert_eq!(candidates_in(&home, Path::new("opt")), PREFIXES.iter().map(|p| home.join(p)).collect::<Vec<_>>());
+        let all = candidates_in(&home, &home.join("opt"));
+        assert_eq!(all.len(), 2 * PREFIXES.len());
+    }
 
     #[test]
     fn a_comma_or_a_non_utf8_path_is_never_given_to_conda() {
