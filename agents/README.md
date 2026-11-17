@@ -1,10 +1,12 @@
 # ddc for coding agents
 
 Guidance that teaches a coding agent to ask `ddc` about the disk before it guesses, and to leave
-the cleaning to you. It is read-only: the agent runs `ddc changes --json`, `ddc agent status --json`,
-`ddc scan <dir> --json` and `ddc rules --json`, tells you what it found, and hands you the `ddc clean` command
-(or the Mac app's Review window) to run yourself. Why an agent never cleans on its own: ADR
-"Agent footprint: worktrees, harness data and bounded consent for agents", §5, in the
+the cleaning to you. The agent runs `ddc changes --json`, `ddc agent footprint --json`,
+`ddc agent status --json`, `ddc scan <dir> --json` and `ddc rules --json`, tells you what it
+found, and hands you the `ddc clean` command (or the Mac app's Review window) to run yourself.
+The one removal it runs is `ddc agent clean`: the `safe` items of its own project, only while
+you allow it in DeepDriveCleaner's settings. Why an agent cleans no more than that: ADR "Agent
+footprint: worktrees, harness data and bounded consent for agents", §5 and §7, in the
 [vault](https://github.com/SmartAndPoint/DeepDriveCleaner-projectstore).
 
 | File | For |
@@ -26,8 +28,9 @@ mkdir -p ~/.claude/skills
 cp -R agents/claude-code/ddc ~/.claude/skills/
 ```
 
-Claude Code finds the skill in its next session and uses it when you ask about disk space or a
-command runs out of it. Updating is the same copy again.
+Claude Code finds the skill in its next session and uses it when you ask about disk space, when a
+command runs out of it, at the start and end of a session in a worktree, and when you ask it to
+clean up after itself. Updating is the same copy again.
 
 `AGENTS.md`: paste [`AGENTS.snippet.md`](AGENTS.snippet.md) into the project's `AGENTS.md`
 (or `~/.codex/AGENTS.md` for every Codex project), markers included. To update it, replace
@@ -48,6 +51,7 @@ folder `agents/`". It should:
 4. Show you the diff of what it wrote, and run `ddc --version` to check that `ddc` is there.
 
 The guidance cites the JSON contracts in [`docs/`](../docs): `changes.schema.json`,
-`agents.schema.json` and `scan.schema.json`. A test (`crates/ddc-cli/tests/structure.rs`) checks that every field the
-skill names exists in them, that every `ddc` command it runs parses, and that its runnable
-commands remove nothing.
+`footprint.schema.json`, `clean.schema.json`, `agents.schema.json` and `scan.schema.json`. A test (`crates/ddc-cli/tests/structure.rs`) checks that every field the
+skill names exists in them, that every `ddc` command it runs parses, that its runnable
+commands remove nothing but through `ddc agent clean`, and that `allowed-tools` lets it run
+only the commands that read without asking you.

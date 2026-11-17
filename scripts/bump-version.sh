@@ -7,7 +7,8 @@
 #   scripts/bump-version.sh major|minor|patch|X.Y.Z
 #
 # Writes Cargo.toml, the workspace's crates in Cargo.lock and fuzz/Cargo.lock, and the
-# app's MARKETING_VERSION and CURRENT_PROJECT_VERSION (build + 1) in Debug and Release.
+# app's MARKETING_VERSION and CURRENT_PROJECT_VERSION (build + 1) in Debug and Release, and
+# the agent skill's metadata.version (agents/claude-code/ddc/SKILL.md).
 # Commits nothing. Prints what merged since the last release tag: the release notes,
 # docs/releases/X.Y.Z.md, cover all of it, whichever session wrote it. Run it on a branch
 # fresh from origin/main (`make bump V=minor`).
@@ -62,6 +63,10 @@ with open(pbxproj) as f:
 text = re.sub(r'(MARKETING_VERSION = )"?[^";]*"?;', rf'\g<1>{nxt};', old)
 text = re.sub(r'(CURRENT_PROJECT_VERSION = )\d+;', rf'\g<1>{int(build) + 1};', text)
 write(pbxproj, text, old)
+skill = "agents/claude-code/ddc/SKILL.md"
+with open(skill) as f:
+    old = f.read()
+write(skill, re.sub(r'^(metadata:\n  version: )"%s"$' % re.escape(current), rf'\g<1>"{nxt}"', old, count=1, flags=re.M), old)
 PY
 
 echo "version $CURRENT → $NEXT, build $BUILD → $((BUILD + 1))"

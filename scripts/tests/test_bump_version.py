@@ -26,6 +26,8 @@ LOCK = (
     '[[package]]\nname = "ddc-core"\nversion = "0.13.0"\n'
 )
 FUZZ_LOCK = '[[package]]\nname = "ddc-core"\nversion = "0.13.0"\n'
+SKILL = "agents/claude-code/ddc/SKILL.md"
+SKILL_TEXT = '---\nname: ddc\nmetadata:\n  version: "0.13.0"\n---\n\nversion: "0.13.0" in the body stays.\n'
 PBX = (
     "\t\t\t\tCURRENT_PROJECT_VERSION = 20;\n\t\t\t\tMARKETING_VERSION = 0.13.0;\n"
     "\t\t\t\tCURRENT_PROJECT_VERSION = 20;\n\t\t\t\tMARKETING_VERSION = 0.13.0;\n"
@@ -36,7 +38,7 @@ class BumpVersion(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = self.tmp.name
-        for path, text in [("Cargo.toml", CARGO), ("Cargo.lock", LOCK), ("fuzz/Cargo.lock", FUZZ_LOCK), (PBXPROJ, PBX)]:
+        for path, text in [("Cargo.toml", CARGO), ("Cargo.lock", LOCK), ("fuzz/Cargo.lock", FUZZ_LOCK), (PBXPROJ, PBX), (SKILL, SKILL_TEXT)]:
             full = os.path.join(self.repo, path)
             os.makedirs(os.path.dirname(full), exist_ok=True)
             with open(full, "w") as f:
@@ -73,6 +75,9 @@ class BumpVersion(unittest.TestCase):
         pbx = self.read(PBXPROJ)
         self.assertEqual(pbx.count("MARKETING_VERSION = 0.14.0;"), 2)
         self.assertEqual(pbx.count("CURRENT_PROJECT_VERSION = 21;"), 2)
+        skill = self.read(SKILL)
+        self.assertIn('metadata:\n  version: "0.14.0"\n', skill)
+        self.assertIn('version: "0.13.0" in the body stays.', skill)
         self.assertIn("feat: after the tag", result.stdout)
 
     def test_patch_major_and_an_explicit_version(self):
