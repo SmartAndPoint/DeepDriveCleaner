@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillReport",
+  "description": "`ddc agent skill status --json` (spec \"Agent skill install\", contracts 9\nand 10): docs/skill.schema.json.",
+  "type": "object",
+  "properties": {
+    "agents_md": {
+      "description": "The `AGENTS.md` of `--agents-md`; absent without it.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FileStatus"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ddc_version": {
+      "description": "The `ddc` that reports, whose copy the states compare with.",
+      "type": "string"
+    },
+    "schema_version": {
+      "description": "[`SKILL_SCHEMA_VERSION`].",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "skills": {
+      "description": "The home's skill folder, then the project's with `--project`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/FolderStatus"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "ddc_version",
+    "skills"
+  ],
+  "$defs": {
+    "FileState": {
+      "description": "What an `AGENTS.md` holds of the block.",
+      "oneOf": [
+        {
+          "description": "No file, or no block in it.",
+          "type": "string",
+          "const": "absent"
+        },
+        {
+          "description": "The block is this copy's.",
+          "type": "string",
+          "const": "current"
+        },
+        {
+          "description": "The block differs from this copy's.",
+          "type": "string",
+          "const": "differs"
+        },
+        {
+          "description": "What `install` refuses: an unpaired or second marker line, or a CRLF.",
+          "type": "string",
+          "const": "malformed"
+        },
+        {
+          "description": "The file is a symbolic link.",
+          "type": "string",
+          "const": "link"
+        }
+      ]
+    },
+    "FileStatus": {
+      "description": "An `AGENTS.md`'s state.",
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/FileState"
+        }
+      },
+      "required": [
+        "path",
+        "state"
+      ]
+    },
+    "FolderStatus": {
+      "description": "A skill folder's state and the files in it that are no shipped file.",
+      "type": "object",
+      "properties": {
+        "extra": {
+          "description": "Files that are no shipped file and that the old marker does not list\n(a temporary file an install left among them).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "no_longer_shipped": {
+          "description": "Files the old marker lists that this copy no longer ships.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "oneOf": [
+        {
+          "description": "No folder.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "absent"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "description": "Unedited, and every file is this copy's.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "current"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "description": "Unedited, written by another version or from another copy.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "older"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "version"
+          ]
+        },
+        {
+          "description": "A file the marker lists is missing or differs from both its hash and this copy.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "edited"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "description": "No marker, or one that does not parse; `version` is a `SKILL.md`'s\n`metadata.version` when it has one.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "not-ours"
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "description": "The folder, a shipped file or the marker is a symbolic link.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "link"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        }
+      ],
+      "required": [
+        "path"
+      ]
+    }
+  }
+}

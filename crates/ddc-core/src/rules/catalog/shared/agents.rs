@@ -186,14 +186,14 @@ pub(crate) const fn agent_cursor_agent_builds(p: Platform) -> Rule {
 // installed; the person's plans and chats. `.cursor/worktrees` and
 // `.codex/worktrees` are not sealed: the rules work inside a worktree.
 pub(crate) const AGENT_CLAUDE_CODE_SEALED: Rule = Rule {
-    hint: "Claude Code's live session records, shell snapshots and installed plugins",
+    hint: "Claude Code's live session records, shell snapshots, installed plugins and skills",
     listed: false,
     ..rule(
         "agent.claude-code-sealed",
         Personal,
         UserData,
         Removal::None,
-        Matcher::KnownPaths(&[".claude/sessions", ".claude/shell-snapshots", ".claude/plugins"]),
+        Matcher::KnownPaths(&[".claude/sessions", ".claude/shell-snapshots", ".claude/plugins", ".claude/skills"]),
     )
 };
 
