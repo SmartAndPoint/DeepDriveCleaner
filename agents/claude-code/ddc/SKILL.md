@@ -24,17 +24,30 @@ output parses as it is.
 
 ```sh
 ddc --version                       # installed? if not, try: deepdrivecleaner --version
+ddc changes --json                  # what grew between the person's last two scans; before any scan
 ddc agent status --json --no-sizes  # harnesses and live sessions, in a fraction of a second
 ddc agent status --json             # the same, with folder sizes and each session's bytes
 ddc scan "$PWD" --json              # what can be freed under this project
 ddc rules --json                    # what each rule id means: its class and how it is removed
 ```
 
-Scan the project first. `ddc scan` without a path walks the whole home folder and can take a
-minute: run it only when the person asks. `ddc agent status` runs on macOS and Linux: when a scan's
+Ask `ddc changes` before you scan: it compares the person's last two scans, their own cleans
+apart, and a scan replaces the latest report. After `ddc scan "$PWD"` it compares that project
+only. Then scan the project. `ddc scan` without a path walks the whole home folder and can take a
+minute: run it only when the person asks, never to get a comparison. `ddc agent status` runs on macOS and Linux: when a scan's
 `capabilities` lacks `coding-agents`, skip it. An older `ddc` that has no `ddc agent status`
 (its `ddc --help` lists no agent command) has it as `ddc disk agents`, with the same options
 and the same report.
+
+## Reading `ddc changes --json` (docs/changes.schema.json)
+
+- `status` is `compared` or `not-compared`. With `not-compared`, `reason` says why; `no-report`
+  or `no-previous` is the normal answer at first, before two scans are saved. Say so and go on.
+- `compared_roots` says what was compared. After two scans of the home folder that is the whole
+  home, the builds in coding agents' worktrees included. Show the person only what they asked
+  about.
+- Showing what grew is fine. Removing it is not yours under this guidance: it goes to the person
+  like any other finding.
 
 ## Reading `ddc agent status --json` (docs/agents.schema.json)
 
@@ -114,5 +127,5 @@ agent writes carries no person's consent, and nobody looks at it. So never:
 - touch a live session's files: its transcript, its temporary folder or its worktree, yours
   included.
 
-A bounded cleanup for agents is planned (the same ADR, §5); until it ships, cleaning is the
-person's.
+Since 0.37.0 `ddc agent clean` removes an agent's safe items, only after the person allows it
+(the same ADR, §7). This guidance does not use it: here, cleaning is the person's.
