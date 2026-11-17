@@ -131,8 +131,8 @@ impl DirFd {
     /// through descriptors, never crossing a mount (`bulk::remove_tree`),
     /// once it is still `id`, the `(dev, ino)` the guard checked. `path`
     /// names it in an error alone. Only `exec::delete` calls it.
-    pub fn remove_tree(&self, name: &OsStr, _path: &Path, id: (u64, u64)) -> io::Result<()> {
-        super::bulk::remove_tree(&self.0, name, id)
+    pub fn remove_tree(&self, name: &OsStr, _path: &Path, id: (u64, u64), mapped: Option<u32>) -> io::Result<()> {
+        super::bulk::remove_tree(&self.0, name, id, mapped)
     }
 
     /// Unlinks the child `name` of this directory (`unlinkat` without

@@ -234,13 +234,18 @@ pub(crate) fn scan_inner(
 ) -> Result<Scanned, ScanError> {
     let me = crate::platform::procs::uid();
     let mapped = volumes::mapped_owner(opts.holder_record.as_deref().and_then(|p| statfs.record(p)), me);
-    // The probe alone decides what the walk counts, whatever the caller set.
+    // The probe alone decides, before the walk and whatever the caller set,
+    // which roots are mapped: the walk and every finding see one answer.
+    let canonical: Vec<PathBuf> = roots_of(env, opts).iter().filter_map(|r| r.canonical().ok()).collect();
+    let mapped_roots = volumes::mapped_roots(&canonical, statfs, env.home(), mapped);
+    let owner = mapped.filter(|_| !mapped_roots.is_empty()).map(|(owner, _)| owner);
     let probed;
-    let opts = if opts.walk.mapped == mapped.map(|(owner, _)| owner) {
+    let opts = if opts.walk.mapped == owner && opts.walk.mapped_roots == mapped_roots {
         opts
     } else {
         let mut o = opts.clone();
-        o.walk.mapped = mapped.map(|(owner, _)| owner);
+        o.walk.mapped = owner;
+        o.walk.mapped_roots = mapped_roots.clone();
         probed = o;
         &probed
     };
@@ -284,7 +289,7 @@ pub(crate) fn scan_inner(
         rules_in_force: Some(crate::rules::listing::rule_ids(crate::platform::PLATFORM)),
     };
     let mapped_entries = |r: &Path| out.roots.iter().find(|x| x.path == r).map_or(0, |x| x.mapped);
-    volumes::id_mappings(&mut report.volumes, statfs, env.home(), mapped, &mapped_entries);
+    volumes::id_mappings(&mut report.volumes, statfs, owner, &mapped_roots, &mapped_entries);
     report.lossy_paths = crate::json_path::count_lossy(&report);
     Ok(Scanned { report, index, errors: out.errors })
 }

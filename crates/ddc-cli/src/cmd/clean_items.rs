@@ -67,10 +67,10 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
         return dry_run(args, &env, &catalog, &list, &resolved.options);
     }
 
-    let _lock = store::try_lock(&env, LockMode::Exclusive, ddc_core::holders::HolderCommand::CleanItems)?;
+    let lock = store::try_lock(&env, LockMode::Exclusive, ddc_core::holders::HolderCommand::CleanItems)?;
     let reporter = progress::Reporter::new(args.progress.is_some());
     reporter.phase(Phase::Preparing);
-    let opts = ScanOptions { walk: WalkOptions::default(), ..resolved.options };
+    let opts = ScanOptions { walk: WalkOptions::default(), holder_record: lock.record(), ..resolved.options };
     // A skipped folder is never read, so no re-check sees it: an item at, under
     // or above one is kept, as the dry run's preflight says (safety ADR,
     // amendment of 2026-10-28).
@@ -161,6 +161,8 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
                 skips: &skips,
                 worktree_min_age: opts.worktree_min_age,
                 probe_timeout: opts.probe_timeout,
+                mapped_owner: scanned.mapped_owner(),
+                mapped_roots: &scanned.mapped_roots(),
             },
         )
     })?;

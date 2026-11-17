@@ -650,7 +650,7 @@ fn a_tool_cleaned_item_is_measured_as_the_scan_measures_it() {
     };
     assert!(expected.modified.is_some(), "{f:?}");
     assert_eq!(after_clean::remeasure(&catalog, "cache.uv", &path, &walk), Remeasured::Measured(expected));
-    let no_times = WalkOptions { claim_times: false, ..walk };
+    let no_times = WalkOptions { claim_times: false, ..walk.clone() };
     match after_clean::remeasure(&catalog, "cache.uv", &path, &no_times) {
         Remeasured::Measured(m) => assert_eq!(m, Measure { modified: None, ..expected }),
         other => panic!("{other:?}"),

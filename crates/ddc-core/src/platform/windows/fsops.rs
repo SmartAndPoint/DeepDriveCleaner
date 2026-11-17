@@ -227,7 +227,8 @@ impl DirFd {
     /// error is the one reported. `id` is the guard's, checked by the
     /// caller's rename. Only `exec::delete` calls it.
     #[allow(clippy::disallowed_methods)] // the one place that deletes directory trees on Windows
-    pub fn remove_tree(&self, _name: &OsStr, path: &Path, _id: (u64, u64)) -> io::Result<()> {
+    /// `mapped` is never set on Windows, which maps no root.
+    pub fn remove_tree(&self, _name: &OsStr, path: &Path, _id: (u64, u64), _mapped: Option<u32>) -> io::Result<()> {
         std::fs::remove_dir_all(path).or_else(|first| {
             folders_writable(path);
             let _ = clear_read_only(path);

@@ -23,6 +23,7 @@ use ddc_core::exec::{
 };
 use ddc_core::model::ScanReport;
 use ddc_core::plan::{Action, Plan, PlanItem, PlanOptions, build_plan};
+use ddc_core::platform::Canonical as _;
 use ddc_core::platform::procs::ProcInfo;
 use ddc_core::platform::types::Redirect;
 use ddc_core::report::{self, ScanOptions};
@@ -810,7 +811,7 @@ fn a_tombstone_swapped_after_the_check_is_left_whole() {
     fs::rename(t.path("p/checked"), t.path("p/elsewhere")).unwrap();
     t.file("p/checked/b.js", 100);
 
-    let err = parent.remove_tree("checked".as_ref(), &t.path("p/checked"), (st.dev, st.ino)).unwrap_err();
+    let err = parent.remove_tree("checked".as_ref(), &t.path("p/checked"), (st.dev, st.ino), None).unwrap_err();
 
     assert!(err.to_string().contains("changed since the check"), "{err}");
     assert!(t.path("p/checked/b.js").exists() && t.path("p/elsewhere/a.js").exists());
@@ -2013,6 +2014,116 @@ fn another_users_entries_keep_a_finding_unselected_and_unremoved() {
     let (r, _) = fx.run(&plan, Consent::Interactive, &FakeCommands::default(), &FakeProcs::new(vec![]));
     assert_eq!(outcome(&r, &nm), &Outcome::Skipped(SkipReason::ForeignOwner));
     assert!(nm.join("dep/index.js").exists());
+}
+
+/// The uid an `all_squash` export shows for every file the user writes.
+const SQUASH: u32 = 65534;
+
+/// A fake mount of type `.0` whose probe shows the run's holder record as
+/// `.1`'s, on the root's own mount, writable.
+struct MappedNfs(&'static str, u32);
+
+impl report::volumes::StatFs for MappedNfs {
+    fn statfs(&self, _path: &Path) -> std::io::Result<ddc_core::platform::statfs::VolumeStats> {
+        Ok(ddc_core::platform::statfs::VolumeStats {
+            fs_type: self.0.into(),
+            mount_point: "/srv/home".into(),
+            available_bytes: 50,
+            total_bytes: 100,
+            free_bytes: 50,
+            mounted_from: "127.0.0.1:/export".into(),
+        })
+    }
+    fn record(&self, _path: &Path) -> Option<(u32, u64)> {
+        Some((self.1, 7))
+    }
+    fn root_access(&self, _path: &Path) -> Option<(u64, bool)> {
+        Some((7, true))
+    }
+}
+
+/// Every entry [`SQUASH`]'s, as the export shows them, but `dep` in
+/// `p2/node_modules`, a third uid's.
+struct SquashedButOne;
+
+impl ddc_core::scan::DirReader for SquashedButOne {
+    fn read(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: ddc_core::scan::Times,
+    ) -> Result<ddc_core::scan::DirListing, ddc_core::scan::ReadError> {
+        let mut listing = ddc_core::scan::StdReader.read(dir, expect, want_private, times)?;
+        for e in &mut listing.entries {
+            let third = dir.ends_with("p2/node_modules") && e.name == "dep";
+            e.uid = Some(if third { SQUASH + 7 } else { SQUASH });
+        }
+        Ok(listing)
+    }
+}
+
+/// On a mapped root the mapped owner's entries are the user's: a finding of
+/// them is selected, while one holding a third uid's entry stays
+/// `foreign-owner` and is refused before any rename, even when a plan
+/// selects it. A root outside the home, a filesystem that is not NFS and a
+/// probe that shows another owner map nothing (safety ADR, amendment of
+/// 2026-11-17, "M's entries count as the user's").
+#[test]
+fn on_a_mapped_root_the_mapped_owners_findings_are_planned_and_a_third_uid_is_not() {
+    if common::unsupported("on_a_mapped_root_the_mapped_owners_findings_are_planned_and_a_third_uid_is_not") {
+        return;
+    }
+    let fx = Fx::new();
+    let (mine, third) = (fx.node_project("p"), fx.node_project("p2"));
+    let outside = TreeBuilder::new();
+    outside.write("q/package.json", "{}");
+    outside.write("q/package-lock.json", "{}");
+    outside.file("q/node_modules/dep/index.js", 20_000);
+    let far = outside.path("q/node_modules");
+    let opts = ScanOptions {
+        roots: vec![fx.t.root().to_path_buf(), outside.root().to_path_buf()],
+        walk: WalkOptions { threads: Some(2), ..Default::default() },
+        holder_record: Some(fx.data.path().join("record")),
+        ..Default::default()
+    };
+    let scan_as = |fs: &'static str, owner: u32| {
+        let statfs = MappedNfs(fs, owner);
+        report::scan_with_reader(&fx.env(), &opts, &Progress::default(), &statfs, &SquashedButOne).unwrap()
+    };
+    let scan_on = |fs: &'static str| scan_as(fs, SQUASH);
+    let finding = |r: &ScanReport, p: &Path| r.findings.iter().find(|f| f.path == p).cloned().expect("a finding");
+    let foreign = Some(ddc_core::model::NotSelected::ForeignOwner);
+
+    let mapped = scan_on("nfs4");
+    assert_eq!(mapped.mapped_owner(), Some(SQUASH));
+    let f = finding(&mapped, &mine);
+    assert!(f.selected && f.not_selected.is_none(), "{f:?}");
+    assert_eq!(finding(&mapped, &third).not_selected, foreign, "a third uid stays another user's");
+    let plan = build_plan(&mapped, &Catalog::builtin(&fx.env()), &PlanOptions::default());
+    let selected = |p: &Path| plan.items.iter().find(|i| i.finding.path == p).map(|i| i.selected);
+    assert_eq!((selected(&mine), selected(&third)), (Some(true), Some(false)), "planned and selected, not selected");
+    assert_eq!(finding(&mapped, &far).not_selected, foreign, "a root outside the home is not mapped");
+    assert_eq!(mapped.mapped_roots(), [fx.t.root().canonical().unwrap()]);
+
+    // A plan that selects the third uid's finding anyway: refused before any rename.
+    let mut forced = plan.clone();
+    forced.items.retain(|i| i.finding.path == third);
+    forced.items.iter_mut().for_each(|i| i.selected = true);
+    let (r, _) = fx.run(&forced, Consent::Interactive, &FakeCommands::default(), &FakeProcs::new(vec![]));
+    assert_eq!(outcome(&r, &third), &Outcome::Skipped(SkipReason::ForeignOwner));
+    assert!(third.join("dep/index.js").exists());
+
+    let local = scan_on("ext4");
+    assert_eq!(local.mapped_owner(), None);
+    assert_eq!(finding(&local, &mine).not_selected, foreign, "not mapped: the squashed uid is another user");
+    let other = scan_as("nfs4", SQUASH + 1);
+    assert_eq!(other.mapped_owner(), Some(SQUASH + 1));
+    assert_eq!(
+        finding(&other, &mine).not_selected,
+        foreign,
+        "the probe shows another owner: the squashed uid is a third"
+    );
 }
 
 #[cfg(unix)]
