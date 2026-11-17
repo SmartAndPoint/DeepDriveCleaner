@@ -205,6 +205,17 @@ pub fn owner(_md: &Metadata) -> Option<u32> {
     None
 }
 
+/// Not read: Windows reports no user id ([`owner`]), so no root is mapped (safety ADR, amendment of
+/// 2026-11-17).
+pub fn owner_and_mount(_path: &Path) -> Option<(u32, u64)> {
+    None
+}
+
+/// Not read, as [`owner_and_mount`].
+pub fn mount_and_writable(_path: &Path) -> Option<(u64, bool)> {
+    None
+}
+
 /// Not reported, as [`owner`]: a folder that must be the user's is not.
 pub fn uid(_md: &Metadata) -> Option<u32> {
     None

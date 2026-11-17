@@ -39,9 +39,9 @@ pub fn run(args: ScanArgs) -> anyhow::Result<ExitCode> {
         eprintln!("ddc: {}", prompt::dropped_excludes(&resolved.dropped_excludes, env.home()));
     }
     report::require_own_roots(&env, &resolved.options)?;
-    let _lock = store::try_lock(&env, LockMode::Shared, ddc_core::holders::HolderCommand::Scan)?;
+    let lock = store::try_lock(&env, LockMode::Shared, ddc_core::holders::HolderCommand::Scan)?;
     let walk = WalkOptions { threads: args.threads, claim_times: !args.no_times, ..WalkOptions::default() };
-    let opts = ScanOptions { walk, ..resolved.options };
+    let opts = ScanOptions { walk, holder_record: lock.record(), ..resolved.options };
     let reporter = progress::Reporter::new(args.progress.is_some());
     let progress = Progress::default();
     let mut report =

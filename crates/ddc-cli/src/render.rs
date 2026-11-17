@@ -481,7 +481,26 @@ pub fn report(w: &mut impl Write, r: &ScanReport, style: &Style, own_roots: bool
         };
         writeln!(w, "{} {n} folder{} could not be read.{hint}", style.dim("note:"), if n == 1 { "" } else { "s" })?;
     }
+    for v in &r.volumes {
+        if let Some(m) = &v.id_mapping {
+            writeln!(w)?;
+            writeln!(w, "{} {}", style.dim("note:"), id_mapping_text(m, &v.mount_point, home))?;
+        }
+    }
     Ok(())
+}
+
+/// The scan's one line for a volume whose server maps ids (safety ADR,
+/// amendment of 2026-11-17, "a mapped root").
+fn id_mapping_text(m: &ddc_core::model::IdMapping, mount: &Path, home: &Path) -> String {
+    format!(
+        "files on {} ({}) are owned by uid {}: the server maps ids ({} entr{}).",
+        tilde(mount, home),
+        m.filesystem,
+        m.owner,
+        count(m.entries),
+        if m.entries == 1 { "y" } else { "ies" }
+    )
 }
 
 /// The whole-disk report as a table (`ddc disk`).
@@ -1330,6 +1349,24 @@ pub fn person_command(list: &ddc_core::plan::ListedItems, folders: &[PathBuf], h
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A volume whose server maps ids gets one line, not a line per finding
+    /// (safety ADR, amendment of 2026-11-17, "a mapped root").
+    #[test]
+    fn a_mapped_volume_is_named_once_with_its_owner() {
+        let m = ddc_core::model::IdMapping {
+            owner: 65534,
+            roots: vec![PathBuf::from("/h")],
+            entries: 20_203,
+            filesystem: "nfs4".into(),
+        };
+        assert_eq!(
+            id_mapping_text(&m, Path::new("/h"), Path::new("/h")),
+            "files on ~ (nfs4) are owned by uid 65534: the server maps ids (20.2K entries)."
+        );
+        let one = ddc_core::model::IdMapping { entries: 1, ..m };
+        assert!(id_mapping_text(&one, Path::new("/srv/home"), Path::new("/h")).ends_with("ids (1 entry)."));
+    }
 
     /// Story "Clean: --agent bounded consent": the person's command quotes
     /// its delimiter, carries at most 50 items and no path a terminal

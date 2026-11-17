@@ -318,6 +318,13 @@ pub(crate) fn claim(env: &Env, command: HolderCommand, mode: LockMode) -> Option
     Some(dir)
 }
 
+/// This process's record in the records folder `dir`, while one of its
+/// locks holds it: a file this process made (safety ADR, amendment of
+/// 2026-11-17, "a mapped root", reads who the server says owns it).
+pub(crate) fn record_of(dir: &Path) -> Option<PathBuf> {
+    state().records.iter().find(|o| o.dir == dir).map(|o| o.path.clone())
+}
+
 /// One lock of this process in `dir` is released: the last one forgets the
 /// record. Called from the lock's `Drop`, before the file closes.
 pub(crate) fn release(dir: &Path) {

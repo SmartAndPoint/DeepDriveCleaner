@@ -268,6 +268,27 @@ fn mount_id(fd: &OwnedFd, statx: Option<u64>) -> Option<u64> {
     })
 }
 
+/// The owner and the mount id of the file at `path`, links not followed,
+/// as the filesystem shows them now: on NFS the server's answer (safety
+/// ADR, amendment of 2026-11-17, "a mapped root").
+pub(super) fn owner_and_mount(path: &Path) -> Option<(u32, u64)> {
+    let fd = rustix::fs::open(path, OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty()).ok()?;
+    let st = stat(&fd, c"", AtFlags::EMPTY_PATH, false).ok()?;
+    Some((st.uid, mount_id(&fd, st.mnt_id)?))
+}
+
+/// The mount id of the folder at `path`, and whether the user may write
+/// into and search it by an effective-access check (`faccessat` with
+/// `AT_EACCESS`), which on NFS asks the server. An answer that cannot be
+/// read is `false`.
+pub(super) fn mount_and_writable(path: &Path) -> Option<(u64, bool)> {
+    let fd = rustix::fs::open(path, OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC, Mode::empty()).ok()?;
+    let st = stat(&fd, c"", AtFlags::EMPTY_PATH, false).ok()?;
+    let mnt = mount_id(&fd, st.mnt_id)?;
+    let access = rustix::fs::Access::WRITE_OK | rustix::fs::Access::EXEC_OK;
+    Some((mnt, rustix::fs::accessat(rustix::fs::CWD, path, access, AtFlags::EACCESS).is_ok()))
+}
+
 /// An open folder's `(dev, ino)`, its device the reported one
 /// (`super::fsid`), and mount id ([`mount_id`]), for the Trash's choice of
 /// a trash folder on the item's own mount.

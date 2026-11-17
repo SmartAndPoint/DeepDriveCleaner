@@ -45,6 +45,17 @@ pub fn owner(_md: &Metadata) -> Option<u32> {
     None
 }
 
+/// Not read: macOS reports no owner ([`owner`]), so no root is mapped (safety ADR, amendment of
+/// 2026-11-17).
+pub fn owner_and_mount(_path: &Path) -> Option<(u32, u64)> {
+    None
+}
+
+/// Not read, as [`owner_and_mount`].
+pub fn mount_and_writable(_path: &Path) -> Option<(u64, bool)> {
+    None
+}
+
 /// The owner's user id (`st_uid`), only as a gate that refuses: the agents
 /// report opens Claude Code's temporary folder only when the user owns it,
 /// and an agent's clean leaves out a checkout in another account's folder. Never

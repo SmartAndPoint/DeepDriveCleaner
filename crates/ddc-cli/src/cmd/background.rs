@@ -70,7 +70,7 @@ pub fn run_with(
     out: &mut dyn Write,
 ) -> anyhow::Result<ExitCode> {
     let json = args.notify.is_some();
-    let _lock = match store::try_lock(env, LockMode::Shared, ddc_core::holders::HolderCommand::BackgroundScan) {
+    let lock = match store::try_lock(env, LockMode::Shared, ddc_core::holders::HolderCommand::BackgroundScan) {
         Ok(lock) => lock,
         Err(LockError::Busy { .. }) => {
             log(env, "skipped: ddc clean is running");
@@ -105,6 +105,7 @@ pub fn run_with(
         low_disk: settings.notify_low_disk.unwrap_or(true),
     };
     let opts = ScanOptions {
+        holder_record: lock.record(),
         // With Full Disk Access granted to this binary nothing prompts.
         skip: if report::full_disk_access(env) {
             Vec::new()

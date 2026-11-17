@@ -96,6 +96,8 @@ struct RootAcc {
     bytes: AtomicU64,
     files: AtomicU64,
     dirs: AtomicU64,
+    /// Entries owned by [`WalkOptions::mapped`].
+    mapped: AtomicU64,
 }
 
 #[derive(Default)]
@@ -200,6 +202,7 @@ pub fn walk_with_reader(
                 bytes: AtomicU64::new(0),
                 files: AtomicU64::new(0),
                 dirs: AtomicU64::new(0),
+                mapped: AtomicU64::new(0),
             })
             .collect(),
         owners: Mutex::new(Vec::new()),
@@ -396,7 +399,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
     // The folder's own blocks, as `du` counts them (none on APFS).
     let (mut files, mut bytes, mut private, mut errors) = (0u64, listing.alloc, 0u64, 0u64);
     let (mut linked_bytes, mut skipped, mut private_missing, mut foreign) = (0u64, 0u64, 0u64, 0u64);
-    let mut locked = 0u64;
+    let (mut locked, mut mapped) = (0u64, 0u64);
     // The directory's own time, then each entry's, which the listing has only
     // when it asked for times.
     let mut newest = listing.modified;
@@ -439,6 +442,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
         // when it last changed.
         newest = newest.max(meta.modified);
         foreign += u64::from(meta.uid.is_some_and(|u| u != sh.me));
+        mapped += u64::from(meta.uid.is_some() && meta.uid == sh.opts.mapped);
         // A folder too: one with the flag cannot be emptied (safety ADR,
         // amendment of 2026-11-04, "Linux file kinds").
         if meta.flags & LOCKED != 0 {
@@ -541,6 +545,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
     acc.bytes.fetch_add(bytes, Relaxed);
     acc.files.fetch_add(files, Relaxed);
     acc.dirs.fetch_add(1, Relaxed);
+    acc.mapped.fetch_add(mapped, Relaxed);
     match &owner {
         Some(o) => {
             o.bytes.fetch_add(bytes, Relaxed);
@@ -843,6 +848,7 @@ impl Shared<'_> {
                 bytes: r.bytes.load(Relaxed),
                 files: r.files.load(Relaxed),
                 dirs: r.dirs.load(Relaxed),
+                mapped: r.mapped.load(Relaxed),
             })
             .collect();
 

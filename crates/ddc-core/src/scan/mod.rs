@@ -166,6 +166,10 @@ pub struct WalkOptions {
     /// cost (`ddc scan --no-times`); a listed folder's own entry times
     /// ([`Visitor::lists_entries`]) are read either way.
     pub claim_times: bool,
+    /// The owner the server shows for a file this run made, when that is
+    /// not the user (safety ADR, amendment of 2026-11-17, "a mapped root"):
+    /// the walk counts its entries per root ([`RootResult::mapped`]).
+    pub mapped: Option<u32>,
 }
 
 impl Default for WalkOptions {
@@ -177,6 +181,7 @@ impl Default for WalkOptions {
             private_size: crate::platform::CAPABILITIES.contains(&crate::platform::Capability::PrivateSize),
             max_recorded: 10_000,
             claim_times: true,
+            mapped: None,
         }
     }
 }
@@ -276,6 +281,8 @@ pub struct RootResult {
     pub bytes: u64,
     pub files: u64,
     pub dirs: u64,
+    /// Entries owned by [`WalkOptions::mapped`]; 0 without one.
+    pub mapped: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

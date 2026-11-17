@@ -30,6 +30,15 @@ pub struct DataLock {
     _file: File,
 }
 
+impl DataLock {
+    /// This run's holder record, a file it made right after the lock;
+    /// `None` when none could be written. A scan reads who owns it to see
+    /// whether the server maps ids (safety ADR, amendment of 2026-11-17).
+    pub fn record(&self) -> Option<PathBuf> {
+        self.holders.as_deref().and_then(holders::record_of)
+    }
+}
+
 impl Drop for DataLock {
     fn drop(&mut self) {
         // Before the file closes: a record never outlives its lock.
@@ -67,7 +76,9 @@ pub fn try_lock(env: &Env, mode: LockMode, command: HolderCommand) -> Result<Dat
     let path = env.data_dir().join(LOCK);
     let io_err = |source| LockError::Io { path: path.clone(), source };
     fs::create_dir_all(env.data_dir()).map_err(io_err)?;
-    let file = OpenOptions::new().create(true).truncate(false).write(true).open(&path).map_err(io_err)?;
+    // Read and write: on NFSv4 a shared `flock` is a POSIX read lock, which
+    // the client refuses (`EBADF`) on a file not open for reading.
+    let file = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&path).map_err(io_err)?;
     let res = match mode {
         LockMode::Shared => file.try_lock_shared(),
         LockMode::Exclusive => file.try_lock(),

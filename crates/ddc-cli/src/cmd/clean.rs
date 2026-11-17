@@ -82,7 +82,7 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
             return Ok(ExitCode::SUCCESS);
         }
     }
-    let _lock = store::try_lock(
+    let lock = store::try_lock(
         &env,
         LockMode::Exclusive,
         if args.dry_run {
@@ -94,7 +94,7 @@ pub fn run(args: CleanArgs) -> anyhow::Result<ExitCode> {
     let reporter = progress::Reporter::new(args.progress.is_some());
     reporter.phase(Phase::Preparing);
 
-    let opts = ScanOptions { walk: WalkOptions::default(), ..resolved.options };
+    let opts = ScanOptions { walk: WalkOptions::default(), holder_record: lock.record(), ..resolved.options };
     let scan_progress = Progress::default();
     // Read before the rescan replaces the file.
     let expected = store::last_scan_files(&env);

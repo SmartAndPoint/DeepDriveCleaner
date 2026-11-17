@@ -914,6 +914,41 @@
         "folder"
       ]
     },
+    "IdMapping": {
+      "description": "How a server maps the user's ids on one volume ([`Volume::id_mapping`]).",
+      "type": "object",
+      "properties": {
+        "entries": {
+          "description": "Entries of `owner` the walk read under those roots.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "filesystem": {
+          "description": "The volume's filesystem type, as mountinfo names it (`nfs4`).",
+          "type": "string"
+        },
+        "owner": {
+          "description": "The uid the server shows for a file this run made.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "roots": {
+          "description": "The scan roots on this volume that are mapped.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "owner",
+        "roots",
+        "entries",
+        "filesystem"
+      ]
+    },
     "IgnoredContent": {
       "description": "The ignored paths that hold a worktree back: the first ones, and how\nmany there are in all.",
       "type": "object",
@@ -1470,6 +1505,17 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 0
+        },
+        "id_mapping": {
+          "description": "Set when the server shows the user's files under another owner on\nthis volume (safety ADR \"Cleanup safety model\", amendment of\n2026-11-17, \"a mapped root\"): an NFS export that squashes every\nclient user to one uid. Reported once here, not per finding.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdMapping"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "mount_point": {
           "type": "string"

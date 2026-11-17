@@ -73,6 +73,10 @@ pub struct ScanOptions {
     pub worktree_min_age: Duration,
     /// Each git probe's timeout.
     pub probe_timeout: Duration,
+    /// This run's holder record ([`crate::store::DataLock::record`]): who
+    /// the server says owns it tells whether it maps ids (safety ADR,
+    /// amendment of 2026-11-17, "a mapped root"). `None`: nothing is mapped.
+    pub holder_record: Option<PathBuf>,
 }
 
 /// The tools a scan runs: the system's, found in the environment's tool
@@ -142,6 +146,7 @@ impl Default for ScanOptions {
             commands: Commands::default(),
             worktree_min_age: DEFAULT_WORKTREE_MIN_AGE,
             probe_timeout: PROBE_TIMEOUT,
+            holder_record: None,
         }
     }
 }
@@ -227,6 +232,18 @@ pub(crate) fn scan_inner(
     reader: Option<&dyn DirReader>,
     reach: Option<&recheck::Reach>,
 ) -> Result<Scanned, ScanError> {
+    let me = crate::platform::procs::uid();
+    let mapped = volumes::mapped_owner(opts.holder_record.as_deref().and_then(|p| statfs.record(p)), me);
+    // The probe alone decides what the walk counts, whatever the caller set.
+    let probed;
+    let opts = if opts.walk.mapped == mapped.map(|(owner, _)| owner) {
+        opts
+    } else {
+        let mut o = opts.clone();
+        o.walk.mapped = mapped.map(|(owner, _)| owner);
+        probed = o;
+        &probed
+    };
     let Walked { out, findings, index, large_files, not_scanned, started, .. } =
         walk_classified(env, opts, progress, reader, reach, worktree::Assess::Scan)?;
     let totals = totals(&findings, &out);
@@ -266,6 +283,8 @@ pub(crate) fn scan_inner(
         previous_written_at: None,
         rules_in_force: Some(crate::rules::listing::rule_ids(crate::platform::PLATFORM)),
     };
+    let mapped_entries = |r: &Path| out.roots.iter().find(|x| x.path == r).map_or(0, |x| x.mapped);
+    volumes::id_mappings(&mut report.volumes, statfs, env.home(), mapped, &mapped_entries);
     report.lossy_paths = crate::json_path::count_lossy(&report);
     Ok(Scanned { report, index, errors: out.errors })
 }
