@@ -1290,6 +1290,19 @@
           "required": [
             "reason"
           ]
+        },
+        {
+          "description": "A file inside is a silly rename on NFS, still open on this client:\nthe folder that holds it cannot go until it is closed. Never\nselected, refused as `held-open` (safety ADR §5, amendment of\n2026-11-17, \"NFS silly renames\").",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "held-open"
+            }
+          },
+          "required": [
+            "reason"
+          ]
         }
       ]
     },

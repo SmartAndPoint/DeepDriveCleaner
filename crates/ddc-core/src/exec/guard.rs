@@ -351,6 +351,12 @@ impl<'a> Guard<'a> {
         if self.roots.iter().any(|r| r == path) {
             return Err(SkipReason::ScanRoot);
         }
+        if f.not_selected == Some(NotSelected::HeldOpen) {
+            // A silly rename inside, still open on this NFS client: its
+            // folder would stay as a tombstone (safety ADR §5, amendment of
+            // 2026-11-17).
+            return Err(SkipReason::HeldOpen);
+        }
         if f.incomplete {
             // Unreadable parts or another filesystem mounted inside: never delete blind.
             return Err(SkipReason::Incomplete);

@@ -351,7 +351,7 @@
   "scan_roots": [
     "<run>/tree"
   ],
-  "schema_version": 9,
+  "schema_version": 10,
   "skipped": [],
   "skipped_total": 0,
   "totals": {

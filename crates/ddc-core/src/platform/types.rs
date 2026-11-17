@@ -502,6 +502,47 @@ impl fmt::Display for HeldOpen {
 
 impl std::error::Error for HeldOpen {}
 
+/// Whether `name` has the form the Linux NFS client gives a file it was
+/// asked to unlink while a process on that client still holds it open, a
+/// silly rename: `.nfs` and 24 lowercase hex digits (16 of the file id, 8 of
+/// a counter). It is one only on NFS (safety ADR §5, amendment of
+/// 2026-11-17, "NFS silly renames"); the caller tells the filesystem.
+#[must_use]
+pub fn is_silly_rename(name: &std::ffi::OsStr) -> bool {
+    let name = name.as_encoded_bytes();
+    name.len() == 28
+        && name.starts_with(b".nfs")
+        && name[4..].iter().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(b))
+}
+
+/// A removal that left only silly renames behind (safety ADR §5,
+/// amendment of 2026-11-17, "NFS silly renames"): every other entry is
+/// gone, and each of these files is still open on this client, so its
+/// unlink gave `EBUSY`; the folders that hold them stay until it is closed.
+/// The payload of `DirFd::remove_tree`'s error on Linux only, recognised by
+/// [`LeftOpen::of`]. `below` are the files' paths relative to the removed
+/// folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeftOpen {
+    pub below: Vec<PathBuf>,
+}
+
+impl LeftOpen {
+    /// The [`LeftOpen`] `e` carries, if any.
+    #[must_use]
+    pub fn of(e: &io::Error) -> Option<&Self> {
+        e.get_ref().and_then(|p| p.downcast_ref::<Self>())
+    }
+}
+
+impl fmt::Display for LeftOpen {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} file(s) still open on this NFS client left as silly renames", self.below.len())
+    }
+}
+
+impl std::error::Error for LeftOpen {}
+
 // ---- Resource usage (`platform::usage`) ----
 
 /// What one process used.

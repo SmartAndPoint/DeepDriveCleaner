@@ -209,6 +209,7 @@ pub fn run(args: &CleanArgs, items: &Path) -> anyhow::Result<ExitCode> {
                     action: i.action.as_str(),
                     bytes: i.bytes.unwrap_or(0),
                     outcome: i.outcome.clone(),
+                    left_open: i.left_open.clone(),
                 })
                 .collect(),
             ..result.clone()

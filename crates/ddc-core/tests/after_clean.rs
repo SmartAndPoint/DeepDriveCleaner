@@ -95,6 +95,7 @@ fn item(path: &Path, rule: &str, bytes: Option<u64>, outcome: Outcome) -> CleanI
         permanent: false,
         bytes,
         outcome,
+        left_open: Vec::new(),
     }
 }
 
@@ -564,6 +565,7 @@ fn a_terminal_cleans_run_edits_as_its_clean_report_does() {
                 action: "delete",
                 bytes: 1,
                 outcome: outcome.clone(),
+                left_open: Vec::new(),
             })
             .collect(),
         volumes: volumes.clone(),

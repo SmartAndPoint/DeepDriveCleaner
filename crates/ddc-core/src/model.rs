@@ -30,7 +30,10 @@ use crate::scan::SkipReason;
 /// another version and is scanned again (same amendment, "Stable
 /// identities"). 9: the reason `immutable` in `not_selected` and as an
 /// entry lock (same ADR, amendment of 2026-11-04, "Linux file kinds").
-pub const SCHEMA_VERSION: u32 = 9;
+/// 10: the reason `held-open` in `not_selected` and as a skip reason, for a
+/// silly rename on NFS (same ADR §5, amendment of 2026-11-17, "NFS silly
+/// renames").
+pub const SCHEMA_VERSION: u32 = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ScanReport {
@@ -609,6 +612,11 @@ pub enum NotSelected {
     /// one can never be emptied. Never selected, never removed (safety ADR,
     /// amendment of 2026-11-04, "Linux file kinds").
     Immutable,
+    /// A file inside is a silly rename on NFS, still open on this client:
+    /// the folder that holds it cannot go until it is closed. Never
+    /// selected, refused as `held-open` (safety ADR §5, amendment of
+    /// 2026-11-17, "NFS silly renames").
+    HeldOpen,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -126,6 +126,12 @@ pub struct CleanItem {
     pub bytes: Option<u64>,
     #[serde(flatten)]
     pub outcome: Outcome,
+    /// A `deleted` item's files left open on this NFS client, each a silly
+    /// rename in the tombstone that holds it until it is closed (safety ADR
+    /// §5, amendment of 2026-11-17, "NFS silly renames"). Absent otherwise.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(serialize_with = "crate::json_path::paths")]
+    pub left_open: Vec<PathBuf>,
 }
 
 /// What `ddc agent clean` adds to its report.
@@ -184,12 +190,12 @@ impl CleanReport {
         let items: Vec<CleanItem> = listed
             .iter()
             .map(|item| {
-                let (bytes, outcome) = match refused.iter().find(|r| r.item.path == item.path) {
-                    Some(r) => (None, Outcome::Skipped(r.reason.clone())),
+                let (bytes, outcome, left_open) = match refused.iter().find(|r| r.item.path == item.path) {
+                    Some(r) => (None, Outcome::Skipped(r.reason.clone()), Vec::new()),
                     None => match run.items.iter().find(|i| i.path == item.path) {
-                        Some(done) => (Some(done.bytes), done.outcome.clone()),
+                        Some(done) => (Some(done.bytes), done.outcome.clone(), done.left_open.clone()),
                         // Every confirmed item is executed; this only guards the invariant.
-                        None => (None, Outcome::NotRun),
+                        None => (None, Outcome::NotRun, Vec::new()),
                     },
                 };
                 CleanItem {
@@ -202,6 +208,7 @@ impl CleanReport {
                     permanent: item.permanent,
                     bytes,
                     outcome,
+                    left_open,
                 }
             })
             .collect();

@@ -315,7 +315,7 @@ fn a_report_without_the_new_fields_still_decodes_and_they_stay_optional() {
     assert_eq!(schema["$defs"]["Finding"]["properties"]["modified"]["type"], serde_json::json!(["string", "null"]));
     let totals = required(&schema["$defs"]["Totals"]);
     assert!(!totals.contains(&"ignored_count".to_owned()) && !totals.contains(&"ignored_bytes".to_owned()));
-    assert_eq!(ddc_core::model::SCHEMA_VERSION, 9);
+    assert_eq!(ddc_core::model::SCHEMA_VERSION, 10);
 }
 
 /// Story "Review window: sort a group's rows by name, size or last change":
@@ -518,6 +518,51 @@ fn a_squashed_home_is_reported_once_as_mapped_on_its_volume() {
     }
 }
 
+/// On NFS a file named as a silly rename is one still open on this client
+/// (safety ADR §5, amendment of 2026-11-17, "NFS silly renames"): its cache
+/// is `held-open`, complete, and the file is listed `held-open` and left out
+/// of the large files; a tombstone whose every file is one, whatever
+/// folders lead to it, is no finding. On a local filesystem the same names
+/// are plain files.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_silly_rename_on_nfs_holds_its_finding_and_a_tombstone_of_them_is_none() {
+    if common::unsupported("a_silly_rename_on_nfs_holds_its_finding_and_a_tombstone_of_them_is_none") {
+        return;
+    }
+    const SILLY: &str = ".nfs00000000002a5c1f00000001";
+    let fx = Fixture::new();
+    let t = &fx.tree;
+    t.file(".cache/pip/http/a", 100);
+    let held = t.file(&format!(".cache/pip/http/{SILLY}"), 100);
+    let big = t.file(&format!("Documents/{SILLY}"), 2 << 20);
+    t.file(&format!("p/node_modules.ddc-deleting-1700000000000-42/dep/{SILLY}"), 100);
+    let (cache, tomb) = (t.path(".cache/pip"), t.path("p/node_modules.ddc-deleting-1700000000000-42"));
+    let scan = |fs_type| {
+        let statfs = FakeNfs { fs_type, record: None, access: None };
+        report::scan_with_reader(&fx.env(), &fx.opts(), &Progress::default(), &statfs, &ddc_core::scan::StdReader)
+            .unwrap()
+    };
+
+    let r = scan("nfs4");
+    let f = r.findings.iter().find(|f| f.path == cache).expect("the cache is a finding");
+    assert_eq!(f.not_selected, Some(NotSelected::HeldOpen), "{f:?}");
+    assert!(!f.selected && !f.incomplete, "{f:?}");
+    let listed: Vec<_> = r.skipped.iter().filter(|s| s.reason == ddc_core::scan::SkipReason::HeldOpen).collect();
+    assert!(listed.iter().any(|s| s.path == held), "{:?}", r.skipped);
+    assert!(r.large_files.iter().all(|l| l.path != big), "not a large file: {:?}", r.large_files);
+    assert!(r.findings.iter().all(|f| f.path != tomb), "silly renames only: no finding: {:?}", r.findings);
+    let json = serde_json::to_value(&r).unwrap();
+    assert_eq!(json["schema_version"], 10);
+
+    let r = scan("ext4");
+    let f = r.findings.iter().find(|f| f.path == cache).expect("the cache is a finding");
+    assert_ne!(f.not_selected, Some(NotSelected::HeldOpen), "{f:?}");
+    assert!(r.skipped.iter().all(|s| s.reason != ddc_core::scan::SkipReason::HeldOpen), "{:?}", r.skipped);
+    assert!(r.large_files.iter().any(|l| l.path == big), "a plain file: {:?}", r.large_files);
+    assert!(r.findings.iter().any(|f| f.path == tomb), "a plain tombstone");
+}
+
 #[test]
 fn volumes_list_each_volume_once_with_its_roots() {
     if common::unsupported("volumes_list_each_volume_once_with_its_roots") {
@@ -696,7 +741,7 @@ fn a_skipped_folder_is_never_opened_and_is_listed_as_not_scanned() {
     let mut json = serde_json::to_value(&r).unwrap();
     json.as_object_mut().unwrap().remove("not_scanned");
     assert!(serde_json::from_value::<ScanReport>(json).unwrap().not_scanned.is_empty(), "optional");
-    assert_eq!(ddc_core::model::SCHEMA_VERSION, 9);
+    assert_eq!(ddc_core::model::SCHEMA_VERSION, 10);
 }
 
 #[test]

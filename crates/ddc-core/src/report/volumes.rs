@@ -102,6 +102,21 @@ pub fn mapped_roots(roots: &[PathBuf], statfs: &dyn StatFs, home: &Path, mapped:
         .collect()
 }
 
+/// The roots, as the walk will hold them, on NFS by mountinfo's type, where
+/// a file named as a silly rename is one (safety ADR §5, amendment of
+/// 2026-11-17, "NFS silly renames"). Only the Linux client renames so: none
+/// elsewhere.
+pub fn nfs_roots(roots: &[PathBuf], statfs: &dyn StatFs) -> Vec<PathBuf> {
+    if crate::platform::PLATFORM != crate::platform::Platform::Linux {
+        return Vec::new();
+    }
+    roots
+        .iter()
+        .filter(|r| statfs.statfs(r).is_ok_and(|st| matches!(st.fs_type.as_str(), "nfs" | "nfs4")))
+        .cloned()
+        .collect()
+}
+
 /// Sets each volume's [`IdMapping`] from the `mapped` roots on it, with
 /// `entries(root)` the walk's count of M's entries under a root.
 pub fn id_mappings(

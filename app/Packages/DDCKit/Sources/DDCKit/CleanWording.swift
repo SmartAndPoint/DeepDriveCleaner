@@ -188,6 +188,7 @@ public enum CleanWording {
         case .unknownActivity: "Activity unknown · not selected"
         case .foreignOwner: "Another user's files · not selected"
         case .immutable: "Locked or append-only files · not selected"
+        case .heldOpen: "A file in it is still open · not selected"
         }
     }
 
@@ -373,7 +374,7 @@ extension CleanWording {
         }
         if row.lock == nil || row.lock == .protected, let reason = finding.notSelected {
             switch reason {
-            case .activeProject, .unknownActivity, .foreignOwner, .immutable: parts.append(notSelected(reason))
+            case .activeProject, .unknownActivity, .foreignOwner, .immutable, .heldOpen: parts.append(notSelected(reason))
             case .review, .userData: break
             }
         }

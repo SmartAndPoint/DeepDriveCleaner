@@ -87,10 +87,12 @@ pub enum SkipReason {
         pid: i32,
         name: String,
     },
-    /// Another process holds the folder (Windows only, safety ADR §5,
-    /// amendment of 2026-11-02): a process works inside it, or a file below
+    /// Another process holds the folder. On Windows (safety ADR §5,
+    /// amendment of 2026-11-02) a process works inside it, or a file below
     /// it is open, so the tombstone rename, or the Recycle Bin's move, was
-    /// refused. Nothing moved.
+    /// refused. On Linux the scan found a silly rename inside, a file still
+    /// open on this NFS client (amendment of 2026-11-17, "NFS silly
+    /// renames"). Nothing moved.
     HeldOpen,
     /// An app that owns the item is running; `name` is its bundle name.
     OwnerRunning {
@@ -205,6 +207,10 @@ pub struct ItemReport {
     pub action: &'static str,
     pub bytes: u64,
     pub outcome: Outcome,
+    /// A `deleted` item's files left open on this NFS client, each a silly
+    /// rename in the tombstone that holds it until it is closed (safety ADR
+    /// §5, amendment of 2026-11-17, "NFS silly renames"); else empty.
+    pub left_open: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -511,6 +517,8 @@ pub fn execute(
         let mut companions: Vec<MovedCompanion> = Vec::new();
         // Where the item went in the Trash, for its journal line.
         let place: Cell<Option<TrashPlace>> = Cell::new(None);
+        // Silly renames a delete on NFS left, for its line and its report.
+        let left_open: Cell<Vec<PathBuf>> = Cell::default();
         let outcome = if opts.cancelled() {
             Outcome::NotRun
         } else {
@@ -534,11 +542,14 @@ pub fn execute(
                             companions = moved;
                             outcome
                         }
-                        None => act(item, &verified, &guard, &ports, &installs, &worktrees, progress, &place),
+                        None => {
+                            act(item, &verified, &guard, &ports, &installs, &worktrees, progress, &place, &left_open)
+                        }
                     },
                 }
             }
         };
+        let left_open = left_open.take();
         let gone = matches!(outcome, Outcome::Trashed | Outcome::RemovedNotRecycled);
         if (item.action == Action::TrashEntry && gone) || removed_by_git(item, &outcome) {
             removed.push(path.clone());
@@ -561,6 +572,7 @@ pub fn execute(
                     line.bytes = bytes;
                 }
                 line.trash = place.take().map(TrashedTo::from);
+                line.left_open.clone_from(&left_open);
                 recorded = ports.journal.record(&tagged(line, consent));
             }
             if recorded.is_err() {
@@ -579,6 +591,7 @@ pub fn execute(
             action: item.action.name(),
             bytes: item.finding.bytes,
             outcome,
+            left_open,
         });
     }
     report.volumes = volumes
@@ -703,7 +716,7 @@ fn removed_by_git(item: &PlanItem, outcome: &Outcome) -> bool {
         && matches!(outcome, Outcome::Native { commands } if !commands.is_empty() && commands.iter().all(|c| c.success))
 }
 
-#[allow(clippy::too_many_arguments)] // `place`: where the Trash put it, for the journal
+#[allow(clippy::too_many_arguments)] // `place` and `left_open`: where it went and what stayed, for the journal
 fn act(
     item: &PlanItem,
     v: &guard::Verified,
@@ -713,6 +726,7 @@ fn act(
     worktrees: &WorktreeRecheck<'_>,
     progress: &ExecProgress,
     place: &Cell<Option<TrashPlace>>,
+    left_open: &Cell<Vec<PathBuf>>,
 ) -> Outcome {
     let opts = worktrees.opts;
     let path = item.finding.path.as_path();
@@ -729,7 +743,7 @@ fn act(
             return Outcome::Skipped(SkipReason::ChangedSinceScan);
         }
         match fb {
-            Fallback::Delete | Fallback::DeleteWritable => delete::remove(v, path, mapped),
+            Fallback::Delete | Fallback::DeleteWritable => delete::remove(v, path, mapped, left_open),
             Fallback::Trash => trash(ports, v, path, item.finding.bytes, place),
             Fallback::Skip => Outcome::Skipped(SkipReason::ToolNotReady {
                 program: program.to_owned(),
@@ -738,7 +752,7 @@ fn act(
         }
     };
     match item.action {
-        Action::Delete { .. } => delete::remove(v, path, mapped),
+        Action::Delete { .. } => delete::remove(v, path, mapped, left_open),
         Action::Trash | Action::TrashEntry => trash(ports, v, path, item.finding.bytes, place),
         Action::Native { cmd, fallback: fb } => {
             // A long clean reaches this item minutes after the guard's snapshot,

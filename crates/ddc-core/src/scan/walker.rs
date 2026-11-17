@@ -20,6 +20,7 @@ use super::{
 };
 use crate::platform::meta;
 use crate::platform::types::FileStat;
+use crate::platform::types::is_silly_rename;
 
 /// [`OwnerAcc::modified`] before any time is folded in.
 const NO_TIME: i64 = i64::MIN;
@@ -72,6 +73,9 @@ struct OwnerAcc {
     /// append-only flag (safety ADR, amendment of 2026-11-04, "Linux file
     /// kinds").
     locked: AtomicU64,
+    /// Files inside that are silly renames on NFS, still open on this client
+    /// (safety ADR §5, amendment of 2026-11-17, "NFS silly renames").
+    held_open: AtomicU64,
 }
 
 /// A direct child of an owner that lists entries; deeper tasks inherit it,
@@ -102,6 +106,9 @@ struct RootAcc {
     m: Option<u32>,
     /// Entries owned by `m`.
     mapped: AtomicU64,
+    /// The root is on NFS ([`WalkOptions::nfs_roots`]): a file named as a
+    /// silly rename is one.
+    nfs: bool,
 }
 
 #[derive(Default)]
@@ -208,6 +215,7 @@ pub fn walk_with_reader(
                 dirs: AtomicU64::new(0),
                 m: opts.mapped.filter(|_| opts.mapped_roots.contains(path)),
                 mapped: AtomicU64::new(0),
+                nfs: opts.nfs_roots.contains(path),
             })
             .collect(),
         owners: Mutex::new(Vec::new()),
@@ -404,7 +412,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
     // The folder's own blocks, as `du` counts them (none on APFS).
     let (mut files, mut bytes, mut private, mut errors) = (0u64, listing.alloc, 0u64, 0u64);
     let (mut linked_bytes, mut skipped, mut private_missing, mut foreign) = (0u64, 0u64, 0u64, 0u64);
-    let (mut locked, mut mapped) = (0u64, 0u64);
+    let (mut locked, mut mapped, mut held_open) = (0u64, 0u64, 0u64);
     // The directory's own time, then each entry's, which the listing has only
     // when it asked for times.
     let mut newest = listing.modified;
@@ -526,7 +534,16 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             }
             _ => {
                 files += 1;
-                sh.visitor.on_file(&dir, here, meta, ctx_owner);
+                // A silly rename on NFS: a file still open on this client,
+                // which an unlink renamed (safety ADR §5, amendment of
+                // 2026-11-17). Counted, listed, and kept out of the large
+                // files; it leaves its owner complete.
+                if sh.roots[root].nfs && is_silly_rename(&meta.name) {
+                    held_open += 1;
+                    sh.skip(dir.join(&meta.name), SkipReason::HeldOpen);
+                } else {
+                    sh.visitor.on_file(&dir, here, meta, ctx_owner);
+                }
                 if meta.nlink > 1 && meta.kind == EntryKind::File {
                     let holder = Holder { root, owner: owner_id, entry: within.map(|e| e.id) };
                     sh.inodes.record(meta.dev, meta.ino, meta.alloc, meta.private, meta.nlink, holder);
@@ -562,6 +579,7 @@ fn visit<'s>(s: &rayon::Scope<'s>, sh: &'s Shared<'s>, task: Task) {
             o.private_missing.fetch_add(private_missing, Relaxed);
             o.foreign.fetch_add(foreign, Relaxed);
             o.locked.fetch_add(locked, Relaxed);
+            o.held_open.fetch_add(held_open, Relaxed);
             if o.want_times
                 && let Some(t) = newest
             {
@@ -651,6 +669,7 @@ impl Shared<'_> {
             private_missing: AtomicU64::new(0),
             foreign: AtomicU64::new(0),
             locked: AtomicU64::new(0),
+            held_open: AtomicU64::new(0),
         });
         owners.push(Arc::clone(&acc));
         acc
@@ -818,6 +837,7 @@ impl Shared<'_> {
                 skipped: o.skipped.load(Relaxed),
                 foreign: o.foreign.load(Relaxed),
                 locked: o.locked.load(Relaxed),
+                held_open: o.held_open.load(Relaxed),
                 modified: Some(o.modified.load(Relaxed)).filter(|&t| t != NO_TIME),
             })
             .collect();

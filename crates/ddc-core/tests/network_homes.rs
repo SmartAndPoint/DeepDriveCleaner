@@ -14,7 +14,9 @@ use common::fakes::{CrossingTrash, FakeCommands, FakeProcs};
 use common::{Mount, TreeBuilder};
 use ddc_core::class::RiskClass;
 use ddc_core::env::Env;
-use ddc_core::exec::{self, Consent, ExecOptions, MemoryJournal, Outcome, Ports};
+use ddc_core::exec::{
+    self, Consent, ExecOptions, ExecReport, MemoryJournal, Outcome, Ports, ProcessTable, SkipReason, SystemProcesses,
+};
 use ddc_core::holders::HolderCommand;
 use ddc_core::model::{IdMapping, ScanReport};
 use ddc_core::plan::{PlanOptions, build_plan};
@@ -154,4 +156,114 @@ fn a_squashed_exports_trash_is_refused_and_nothing_moves() {
     assert!(matches!(trash::trash_item(&folder, name, &file, id), Err(TrashError::CrossesFilesystem)));
     assert!(file.exists(), "nothing moved");
     assert!(matches!(admit(), Err(TrashError::CrossesFilesystem)), "the Trash is nobody's now: refused");
+}
+
+/// A child that holds `file` open on its standard input, killed on drop.
+struct Holder(std::process::Child);
+
+impl Holder {
+    fn of(file: &Path) -> Self {
+        let child =
+            std::process::Command::new("sleep").arg("600").stdin(std::fs::File::open(file).unwrap()).spawn().unwrap();
+        let pid = child.id() as i32;
+        let holder = Self(child);
+        // Until the in-use check can see its descriptor.
+        for _ in 0..100 {
+            if SystemProcesses.open_files(pid).iter().any(|f| f.file_name() == file.file_name()) {
+                return holder;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        panic!("the holder's open file never showed");
+    }
+}
+
+impl Drop for Holder {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// On the plain NFS export a file another process holds open in a selected
+/// cache (safety ADR §5, amendment of 2026-11-17, "NFS silly renames"): the
+/// in-use check refuses the cache; a clean that cannot see the holder
+/// deletes it, and the NFS client's silly rename stays in the tombstone,
+/// named by `left_open` on the item and its journal line; a rescan while it
+/// is open has no finding there; once it is closed the tombstone is a safe
+/// finding again, and its clean leaves nothing.
+#[test]
+fn a_file_held_open_on_nfs_is_left_open_in_its_tombstone_and_goes_once_closed() {
+    let name = "a_file_held_open_on_nfs_is_left_open_in_its_tombstone_and_goes_once_closed";
+    let Some(dir) = common::mount(name, Mount::Nfs) else {
+        return;
+    };
+    let tree = TreeBuilder::new_in(&dir);
+    tree.file(".cache/pip/http/a", 1000);
+    let open = tree.file(".cache/pip/http/b", 1000);
+    let (home, cache) = (tree.root().to_path_buf(), tree.path(".cache/pip"));
+    let data = tree.path(".local/share/ddc");
+    let env = Env::with_paths(&home, &data, &data.join("logs"), SystemTime::now()).unwrap();
+    let catalog = Catalog::for_home(&home);
+    let scan = || {
+        let walk = WalkOptions { threads: Some(2), ..WalkOptions::default() };
+        report::scan(&env, &ScanOptions { walk, ..ScanOptions::default() }, &Progress::default()).unwrap()
+    };
+    let clean = |procs: &dyn ProcessTable, path: &Path| -> (ExecReport, MemoryJournal) {
+        let plan = build_plan(&scan(), &catalog, &PlanOptions::default());
+        assert!(plan.items.iter().any(|i| i.finding.path == path && i.selected), "{path:?} planned");
+        let mut journal = MemoryJournal::default();
+        let consent = Consent::AssumeYes { classes: vec![RiskClass::Safe, RiskClass::Rebuildable] };
+        let ports = Ports { commands: &FakeCommands::default(), trash: &CrossingTrash, procs, journal: &mut journal };
+        let r = exec::execute(&env, &catalog, &plan, &consent, ports, &ExecOptions::default()).unwrap();
+        (r, journal)
+    };
+    let item = |r: &ExecReport, path: &Path| r.items.iter().find(|i| i.path == path).cloned().expect("its outcome");
+    let tombs = || -> Vec<std::path::PathBuf> {
+        std::fs::read_dir(tree.path(".cache"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.to_string_lossy().contains(".ddc-deleting-"))
+            .collect()
+    };
+
+    let holder = Holder::of(&open);
+    let (r, _) = clean(&SystemProcesses, &cache);
+    let refused = item(&r, &cache);
+    assert!(
+        matches!(&refused.outcome, Outcome::Skipped(SkipReason::InUse { pid, .. }) if *pid == holder.0.id() as i32),
+        "{refused:?}"
+    );
+    assert!(open.exists());
+
+    let (r, journal) = clean(&FakeProcs::new(vec![]), &cache);
+    let done = item(&r, &cache);
+    assert_eq!(done.outcome, Outcome::Deleted, "{done:?}");
+    assert_eq!(done.left_open.len(), 1, "{done:?}");
+    let silly = &done.left_open[0];
+    let tomb = tombs();
+    assert_eq!(tomb.len(), 1, "one tombstone: {tomb:?}");
+    assert!(silly.starts_with(&tomb[0]), "{silly:?} in {tomb:?}");
+    assert!(ddc_core::platform::types::is_silly_rename(silly.file_name().unwrap()), "{silly:?}");
+    assert!(silly.exists(), "the client keeps it while it is open");
+    let line = journal.0.iter().find(|l| l.path == cache).expect("its journal line");
+    assert_eq!(&line.left_open, &done.left_open);
+    assert!(!cache.exists());
+
+    let r = scan();
+    assert!(r.findings.iter().all(|f| !f.path.starts_with(&tomb[0])), "nothing to offer: {:?}", r.findings);
+
+    drop(holder);
+    for _ in 0..250 {
+        if !silly.exists() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(!silly.exists(), "the client removes it once it is closed");
+    let (r, _) = clean(&FakeProcs::new(vec![]), &tomb[0]);
+    let done = item(&r, &tomb[0]);
+    assert_eq!((&done.outcome, done.left_open.len()), (&Outcome::Deleted, 0), "{done:?}");
+    assert!(tombs().is_empty(), "nothing left");
 }

@@ -25,7 +25,8 @@ pub fn cloud_roots(env: &crate::env::Env) -> Vec<PathBuf> {
 /// `not_scanned`, then `skipped`, then `inaccessible`; a path listed twice
 /// (a person's skip is in `not_scanned` and in `skipped`) keeps its first
 /// kind, a cloud folder's being `cloud`. A path skipped as `holds-subvolume`
-/// is not among them: the walk entered and counted it. Nor is a folder the
+/// or `held-open` is not among them: the walk entered and counted it, or
+/// counted the file. Nor is a folder the
 /// catalog never walks ([`never_walked`], [`never_walked_in_home`]: root
 /// container storage and eCryptfs's folders on Linux): no scan reads it, so
 /// no comparison misses it, and it is behind no prompt.
@@ -50,7 +51,7 @@ pub fn not_read(report: &ScanReport, cloud: &[PathBuf]) -> Vec<NotRead> {
             SkipReason::OtherFilesystem | SkipReason::Automount => NotReadKind::OtherDisk,
             SkipReason::Snapshot => NotReadKind::Snapshot,
             SkipReason::Changed => NotReadKind::Changed,
-            SkipReason::HoldsSubvolume => continue,
+            SkipReason::HoldsSubvolume | SkipReason::HeldOpen => continue,
         };
         listed.push((&s.path, kind));
     }
