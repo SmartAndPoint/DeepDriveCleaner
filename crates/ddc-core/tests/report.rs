@@ -421,6 +421,103 @@ impl StatFs for TwoVolumes {
     }
 }
 
+/// A home on a fake NFS mount: the filesystem type, the holder record's
+/// owner and mount, and the root's mount and access, as a fake answers them.
+struct FakeNfs {
+    fs_type: &'static str,
+    record: Option<(u32, u64)>,
+    access: Option<(u64, bool)>,
+}
+
+impl StatFs for FakeNfs {
+    fn statfs(&self, _path: &Path) -> io::Result<VolumeStats> {
+        Ok(VolumeStats {
+            fs_type: self.fs_type.into(),
+            mount_point: "/srv/home".into(),
+            available_bytes: 50,
+            total_bytes: 100,
+            free_bytes: 50,
+            mounted_from: "127.0.0.1:/export".into(),
+        })
+    }
+    fn record(&self, _path: &Path) -> Option<(u32, u64)> {
+        self.record
+    }
+    fn root_access(&self, _path: &Path) -> Option<(u64, bool)> {
+        self.access
+    }
+}
+
+/// A reader that reports every entry as `uid`'s, as an `all_squash` export
+/// shows the files the user wrote.
+struct Squashed(u32);
+
+impl ddc_core::scan::DirReader for Squashed {
+    fn read(
+        &self,
+        dir: &Path,
+        expect: Option<(u64, u64)>,
+        want_private: bool,
+        times: ddc_core::scan::Times,
+    ) -> Result<ddc_core::scan::DirListing, ddc_core::scan::ReadError> {
+        let mut listing = ddc_core::scan::StdReader.read(dir, expect, want_private, times)?;
+        for e in &mut listing.entries {
+            e.uid = Some(self.0);
+        }
+        Ok(listing)
+    }
+}
+
+/// A home whose server shows the run's own holder record under another
+/// uid is reported once as mapped, on its volume, with the entries of that
+/// uid; every condition that fails leaves no mapping (safety ADR, amendment
+/// of 2026-11-17, "a mapped root").
+#[test]
+fn a_squashed_home_is_reported_once_as_mapped_on_its_volume() {
+    if common::unsupported("a_squashed_home_is_reported_once_as_mapped_on_its_volume") {
+        return;
+    }
+    let fx = Fixture::new();
+    let t = &fx.tree;
+    t.file("Documents/a.txt", 100);
+    t.file(".cache/pip/http/b", 100);
+    let me = ddc_core::platform::procs::uid();
+    let squash = 65534;
+    let nfs = FakeNfs { fs_type: "nfs4", record: Some((squash, 7)), access: Some((7, true)) };
+    let scan = |statfs: &FakeNfs, record: bool| {
+        let opts = ScanOptions { holder_record: record.then(|| fx.data.path().join("record")), ..fx.opts() };
+        report::scan_with_reader(&fx.env(), &opts, &Progress::default(), statfs, &Squashed(squash)).unwrap()
+    };
+
+    let r = scan(&nfs, true);
+    assert_eq!(r.volumes.len(), 1);
+    let m = r.volumes[0].id_mapping.as_ref().expect("mapped");
+    assert_eq!((m.owner, &m.roots, m.filesystem.as_str()), (squash, &r.scan_roots, "nfs4"));
+    assert!(m.entries >= 5, "the walk counted the squashed entries: {}", m.entries);
+    let json = serde_json::to_value(&r).unwrap();
+    assert_eq!(json["volumes"][0]["id_mapping"]["owner"], squash);
+
+    let unmapped = [
+        (FakeNfs { fs_type: "ext4", ..nfs }, true, "a local filesystem"),
+        (FakeNfs { fs_type: "cifs", ..nfs }, true, "CIFS"),
+        (FakeNfs { fs_type: "fuse.sshfs", ..nfs }, true, "sshfs"),
+        (FakeNfs { record: Some((me, 7)), ..nfs }, true, "a holder record of the user's"),
+        (FakeNfs { record: Some((0, 7)), ..nfs }, true, "root"),
+        (FakeNfs { record: Some((u32::MAX - 1, 7)), ..nfs }, true, "the unmapped -2"),
+        (FakeNfs { record: None, ..nfs }, true, "a record that cannot be read"),
+        (FakeNfs { ..nfs }, false, "no holder record"),
+        (FakeNfs { access: Some((8, true)), ..nfs }, true, "the data dir on another mount"),
+        (FakeNfs { access: Some((7, false)), ..nfs }, true, "a root the user may not write"),
+        (FakeNfs { access: None, ..nfs }, true, "an access answer that cannot be read"),
+    ];
+    for (statfs, record, why) in unmapped {
+        let r = scan(&statfs, record);
+        assert!(r.volumes.iter().all(|v| v.id_mapping.is_none()), "{why}: {:?}", r.volumes);
+        let json = serde_json::to_value(&r).unwrap();
+        assert!(json["volumes"][0].get("id_mapping").is_none(), "{why}: no key");
+    }
+}
+
 #[test]
 fn volumes_list_each_volume_once_with_its_roots() {
     if common::unsupported("volumes_list_each_volume_once_with_its_roots") {

@@ -151,6 +151,26 @@ pub struct Volume {
     /// item 13).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub read_at: Option<String>,
+    /// Set when the server shows the user's files under another owner on
+    /// this volume (safety ADR "Cleanup safety model", amendment of
+    /// 2026-11-17, "a mapped root"): an NFS export that squashes every
+    /// client user to one uid. Reported once here, not per finding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id_mapping: Option<IdMapping>,
+}
+
+/// How a server maps the user's ids on one volume ([`Volume::id_mapping`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct IdMapping {
+    /// The uid the server shows for a file this run made.
+    pub owner: u32,
+    /// The scan roots on this volume that are mapped.
+    #[serde(serialize_with = "crate::json_path::paths")]
+    pub roots: Vec<PathBuf>,
+    /// Entries of `owner` the walk read under those roots.
+    pub entries: u64,
+    /// The volume's filesystem type, as mountinfo names it (`nfs4`).
+    pub filesystem: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

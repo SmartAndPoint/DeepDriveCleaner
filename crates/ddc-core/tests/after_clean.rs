@@ -603,6 +603,7 @@ fn only_a_volume_the_clean_read_again_takes_its_read_time() {
         free_bytes: 7,
         total_bytes: 70,
         read_at: None,
+        id_mapping: None,
     };
     before.volumes.push(other.clone());
     let mount = before.volumes[0].mount_point.clone();

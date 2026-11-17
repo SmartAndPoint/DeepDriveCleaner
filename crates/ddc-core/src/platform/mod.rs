@@ -170,6 +170,8 @@ mod pins {
     const _: fn(&Metadata) -> u32 = imp::meta::st_flags;
     const _: fn(&Metadata) -> Option<u32> = imp::meta::owner;
     const _: fn(&Metadata) -> Option<u32> = imp::meta::uid;
+    const _: fn(&Path) -> Option<(u32, u64)> = imp::meta::owner_and_mount;
+    const _: fn(&Path) -> Option<(u64, bool)> = imp::meta::mount_and_writable;
     const _: fn(&mut Permissions) = imp::meta::add_owner_rwx;
     const _: fn(&Path, &Metadata) -> bool = imp::meta::is_executable;
 

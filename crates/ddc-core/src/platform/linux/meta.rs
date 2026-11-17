@@ -44,6 +44,19 @@ pub fn uid(md: &Metadata) -> Option<u32> {
     Some(md.uid())
 }
 
+/// The owner and the mount id of the file at `path`, as the filesystem
+/// shows them now: the run's holder record, whose owner tells whether the
+/// server maps ids (safety ADR, amendment of 2026-11-17, "a mapped root").
+pub fn owner_and_mount(path: &Path) -> Option<(u32, u64)> {
+    super::bulk::owner_and_mount(path)
+}
+
+/// The mount id of the folder at `path`, and whether the user may write
+/// into and search it as the filesystem answers (on NFS, the server).
+pub fn mount_and_writable(path: &Path) -> Option<(u64, bool)> {
+    super::bulk::mount_and_writable(path)
+}
+
 /// Adds `u+rwx`.
 pub fn add_owner_rwx(perms: &mut Permissions) {
     perms.set_mode(perms.mode() | 0o700);
