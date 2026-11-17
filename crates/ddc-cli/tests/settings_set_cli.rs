@@ -140,7 +140,7 @@ fn on_and_off_change_the_one_key_and_journal_each_change() {
     let fx = Fx::new();
     let before = fx.full();
 
-    let out = fx.set(&["on", "--approved"]);
+    let out = fx.set(&["on", "--from-app"]);
 
     let (stdout, stderr) = text(&out);
     assert_eq!(out.status.code(), Some(0), "{stderr}");
@@ -190,7 +190,7 @@ fn a_fresh_data_folder_gets_no_settings_file_for_nothing() {
     assert_eq!(out.status.code(), Some(0), "{}", text(&out).1);
     assert!(!fx.settings_path().exists() && !fx.journal().exists());
 
-    let out = fx.set(&["on", "--approved"]);
+    let out = fx.set(&["on", "--from-app"]);
     assert_eq!(out.status.code(), Some(0), "{}", text(&out).1);
     assert_eq!(fx.file(), serde_json::json!({"schema_version": 1, "agents_clean_safe": true}));
 }
@@ -207,7 +207,7 @@ fn on_without_a_terminal_is_refused_and_names_no_way_around_it() {
     let (_, stderr) = text(&out);
     assert_eq!(out.status.code(), Some(2), "{stderr}");
     assert!(stderr.contains("needs you at a terminal, or DeepDriveCleaner's Settings"), "{stderr}");
-    assert!(!stderr.contains("--approved"), "{stderr}");
+    assert!(!stderr.contains("--from-app"), "{stderr}");
     assert!(!fx.settings_path().exists() && !fx.journal().exists());
     let help = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
@@ -216,7 +216,7 @@ fn on_without_a_terminal_is_refused_and_names_no_way_around_it() {
         .output()
         .unwrap();
     let help = String::from_utf8_lossy(&help.stdout);
-    assert!(help.contains("agents_clean_safe") && !help.contains("--approved"), "{help}");
+    assert!(help.contains("agents_clean_safe") && !help.contains("--from-app"), "{help}");
 }
 
 #[test]
@@ -242,12 +242,12 @@ fn at_a_terminal_on_says_what_it_allows_and_asks() {
     assert_eq!(fx.file()["agents_clean_safe"], true);
     assert_eq!(fx.lines().len(), 1);
 
-    // off never asks; nor does --approved, which answers the question.
+    // off never asks; nor does --from-app, which answers the question.
     let (code, off) = fx.in_terminal("at_a_terminal_on_says_what_it_allows_and_asks", &["off"], "").unwrap();
     assert!(!off.contains("[y/N]") && off.contains("agents_clean_safe: off"), "{off}");
     assert_eq!(code, Some(0));
     let (code, approved) =
-        fx.in_terminal("at_a_terminal_on_says_what_it_allows_and_asks", &["on", "--approved"], "").unwrap();
+        fx.in_terminal("at_a_terminal_on_says_what_it_allows_and_asks", &["on", "--from-app"], "").unwrap();
     assert!(!approved.contains("[y/N]") && approved.contains("agents_clean_safe: on"), "{approved}");
     assert_eq!(code, Some(0));
 }
@@ -258,7 +258,7 @@ fn on_when_it_is_on_already_asks_nothing_and_writes_nothing() {
         return;
     }
     let fx = Fx::new();
-    assert_eq!(fx.set(&["on", "--approved"]).status.code(), Some(0));
+    assert_eq!(fx.set(&["on", "--from-app"]).status.code(), Some(0));
     let bytes = fs::read(fx.settings_path()).unwrap();
 
     let out = fx.set(&["on"]);
@@ -275,12 +275,28 @@ fn a_typo_is_never_answered_with_the_hidden_option() {
         return;
     }
     let fx = Fx::new();
-    for typo in ["--approve", "--aproved", "--approval"] {
+    // `--approved` is `skill install`'s visible flag, never this one's.
+    for typo in ["--from-ap", "--fromapp", "--fron-app", "--app", "--approved"] {
         let out = fx.set(&["on", typo]);
         let (_, stderr) = text(&out);
         assert_eq!(out.status.code(), Some(2), "{typo}: {stderr}");
-        assert!(!stderr.contains("--approved"), "{typo}: {stderr}");
+        assert!(!stderr.contains("--from-app"), "{typo}: {stderr}");
     }
+    assert!(!fx.settings_path().exists() && !fx.journal().exists(), "nothing written");
+    // Per command: `--data-dir` is hidden on `settings set` and shown on `disk docker`.
+    let typo = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
+            .clear_env()
+            .home_env(&fx.home)
+            .args(args)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stderr).into_owned()
+    };
+    let hidden_here = typo(&["settings", "set", "agents_clean_safe", "on", "--data-dirr", "x"]);
+    assert!(!hidden_here.contains("'--data-dir'"), "{hidden_here}");
+    let shown_there = typo(&["disk", "docker", "--data-dirr", "x"]);
+    assert!(shown_there.contains("'--data-dir'"), "{shown_there}");
     // A visible option is still suggested.
     let out = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
         .clear_env()
@@ -309,7 +325,7 @@ fn an_unreadable_file_or_journal_changes_nothing() {
     // The journal's folder is a file: the switch is not written.
     let before = fx.full();
     fs::write(fx.data.join("logs"), "not a folder").unwrap();
-    let out = fx.set(&["on", "--approved"]);
+    let out = fx.set(&["on", "--from-app"]);
     assert_eq!(out.status.code(), Some(1));
     assert!(text(&out).1.contains("cannot open the action journal"), "{}", text(&out).1);
     assert_eq!(fx.file(), before);
@@ -321,7 +337,7 @@ fn it_takes_no_ddc_lock_so_a_running_clean_never_holds_it_back() {
         return;
     }
     let fx = Fx::new();
-    assert_eq!(fx.set(&["on", "--approved"]).status.code(), Some(0));
+    assert_eq!(fx.set(&["on", "--from-app"]).status.code(), Some(0));
     let env = Env::with_paths(&fx.home, &fx.data, &fx.data.join("logs"), SystemTime::now()).unwrap();
     let _clean = store::try_lock(&env, LockMode::Exclusive, HolderCommand::AgentClean).unwrap();
 

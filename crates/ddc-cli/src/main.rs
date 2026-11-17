@@ -20,7 +20,8 @@ fn main() -> ExitCode {
     // A no-op unless built with `ddc-core/dhat-heap` (`make heap-profile`).
     let _heap = ddc_core::heap::start();
     // `try_parse`, so help and usage errors get the warning too; `--version` does not.
-    let parsed = cli::Cli::try_parse().map_err(cli::without_hidden_hints);
+    let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    let parsed = cli::Cli::try_parse_from(&args).map_err(|e| cli::without_hidden_hints(e, &args));
     if !matches!(&parsed, Err(e) if e.kind() == clap::error::ErrorKind::DisplayVersion) {
         disclaimer::warn_if_terminal();
     }

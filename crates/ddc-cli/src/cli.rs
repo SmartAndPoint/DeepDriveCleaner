@@ -510,15 +510,29 @@ pub struct FreeArgs {
     pub system_root: Option<PathBuf>,
 }
 
-/// A usage error never suggests an option that is hidden wherever it exists
-/// (story "Settings: let coding agents clean safe items", D5): clap's typo
-/// hint takes every long name, hidden or not, so `--approve` would name the
-/// app's `--approved`.
-pub fn without_hidden_hints(mut e: clap::Error) -> clap::Error {
+/// A usage error never suggests an option that the command it is about
+/// hides (story "Settings: let coding agents clean safe items", D5; spec
+/// "Settings file writers", contract 10, amended 2026-11-17): clap's typo
+/// hint takes every long name of the command, hidden or not, so `--from-ap`
+/// would name the app's `--from-app`. Every hidden name of the whole tree
+/// is a candidate; `args`, the command line, says which commands it walks
+/// through, and only a flag one of those shows is suggested again. A walk
+/// that guesses wrong (a flag's value that reads like a command) can only
+/// drop a hint, never bring one back.
+pub fn without_hidden_hints(mut e: clap::Error, args: &[std::ffi::OsString]) -> clap::Error {
     use clap::CommandFactory as _;
     use clap::error::{ContextKind, ContextValue};
-    let (mut hidden, mut shown) = (Vec::new(), Vec::new());
-    longs(&Cli::command(), &mut hidden, &mut shown);
+    let root = Cli::command();
+    let (mut hidden, mut shown, mut elsewhere) = (Vec::new(), Vec::new(), Vec::new());
+    every_hidden(&root, &mut hidden);
+    longs(&root, &mut elsewhere, &mut shown);
+    let mut cmd = &root;
+    for word in args.iter().skip(1).filter_map(|a| a.to_str()) {
+        if let Some(sub) = cmd.find_subcommand(word) {
+            cmd = sub;
+            longs(cmd, &mut elsewhere, &mut shown);
+        }
+    }
     hidden.retain(|h| !shown.contains(h));
     let names = |text: &str| hidden.iter().any(|h| text.contains(&format!("--{h}")));
     if matches!(e.get(ContextKind::SuggestedArg), Some(ContextValue::String(s)) if names(s)) {
@@ -534,15 +548,22 @@ pub fn without_hidden_hints(mut e: clap::Error) -> clap::Error {
     e
 }
 
+/// Every hidden long name of `cmd` and the commands under it.
+fn every_hidden(cmd: &clap::Command, hidden: &mut Vec<String>) {
+    let mut shown = Vec::new();
+    longs(cmd, hidden, &mut shown);
+    for sub in cmd.get_subcommands() {
+        every_hidden(sub, hidden);
+    }
+}
+
+/// The long names of `cmd`'s own arguments, hidden apart from shown.
 fn longs(cmd: &clap::Command, hidden: &mut Vec<String>, shown: &mut Vec<String>) {
     for arg in cmd.get_arguments() {
         if let Some(long) = arg.get_long() {
             let to = if arg.is_hide_set() { &mut *hidden } else { &mut *shown };
             to.push(long.to_owned());
         }
-    }
-    for sub in cmd.get_subcommands() {
-        longs(sub, hidden, shown);
     }
 }
 
@@ -561,8 +582,9 @@ pub struct SettingsSetArgs {
     #[arg(value_enum, value_name = "VALUE")]
     pub value: OnOff,
     /// The app's toggle, which shows the risk itself (hidden: a person answers at a terminal, an agent never passes it).
-    #[arg(long, hide = true)]
-    pub approved: bool,
+    /// Named apart from `skill install`'s visible `--approved` (spec "Settings file writers", contract 10).
+    #[arg(long = "from-app", hide = true)]
+    pub from_app: bool,
     /// Where settings.json and the action journal live (tests). Hidden, as on agent clean.
     #[arg(long, value_name = "DIR", hide = true)]
     pub data_dir: Option<PathBuf>,
