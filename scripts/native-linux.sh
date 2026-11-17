@@ -89,8 +89,11 @@ git ls-files -z | COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --null -T
     # -m: every file gets the time of this copy, so a tree copied after another one
     # never looks older than the last build (cargo would keep a stale binary).
     on_host "mkdir -p $remote/src && tar -xmf - -C $remote/src"
-on_host "cd $remote/src && find . -type f | sed 's|^\./||' | LC_ALL=C sort" | comm -13 "$list" - |
-    on_host "cd $remote/src && xargs -r -d '\n' rm -f --"
+# NUL-separated, so no backslash has to survive the quoting through Windows' ssh and
+# wsl.exe: there `-d '\n'` arrived as `-d n`, which cut each path at its n's, so no stale
+# file was ever removed.
+on_host "cd $remote/src && find . -type f | sed 's|^\./||' | LC_ALL=C sort" | comm -13 "$list" - | tr '\n' '\0' |
+    on_host "cd $remote/src && xargs -r -0 rm -f --"
 
 if [ -n "${DDC_LINUX_LIMITS:-}" ]; then
     on_host "cat > $remote/src/bench/load-limits-linux.tsv" <"$DDC_LINUX_LIMITS"
