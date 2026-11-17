@@ -554,7 +554,7 @@ These checks lower the risk; they do not remove it. See the [Disclaimer](#discla
 
 ## For coding agents
 
-[`agents/`](agents/) holds guidance for coding agents: a Claude Code skill and a snippet for `AGENTS.md` (Codex, opencode). It teaches an agent to ask `ddc` before it guesses about the disk, on a full disk, `ENOSPC` or before installing dependencies into a new worktree, with read-only commands (`ddc changes --json`, `ddc agent status --json`, `ddc scan <dir> --json`, `ddc rules --json`), and to hand the cleanup to you rather than run it. [`agents/README.md`](agents/README.md) says how to install it. `ddc changes --json` shows you what grew, builds in coding agents' worktrees included, and the cleanup stays yours.
+[`agents/`](agents/) holds guidance for coding agents: a Claude Code skill and a snippet for `AGENTS.md` (Codex, opencode). It teaches an agent to ask `ddc` before it guesses about the disk, on a full disk, `ENOSPC` or before installing dependencies into a new worktree, at the start and end of a session in a worktree, with read-only commands (`ddc changes --json`, `ddc agent footprint --json`, `ddc agent status --json`, `ddc scan <dir> --json`, `ddc rules --json`). The one removal it runs is `ddc agent clean`, the `safe` items of its own project while you allow it; the rest it hands to you rather than run it. [`agents/README.md`](agents/README.md) says how to install it.
 
 ## Full Disk Access
 

@@ -1241,6 +1241,45 @@ const CHANGES_NAMES: &[Cited] = &[
     ("compared_roots", "compared_roots", &[]),
 ];
 
+/// What the guidance cites of `ddc agent footprint --json`.
+const FOOTPRINT_NAMES: &[Cited] = &[
+    ("main", "main", &[]),
+    ("checkouts[]", "checkouts[]", &[]),
+    ("path", "checkouts[].path", &[]),
+    ("kind", "checkouts[].kind", &["main", "linked", "orphan"]),
+    ("bytes", "checkouts[].bytes", &[]),
+    ("bucket", "checkouts[].bucket", &["now", "after-sessions", "held-back"]),
+    ("reason", "checkouts[].reason", &["dirty", "own-commits", "ignored-content", "yours"]),
+    ("totals.reclaimable_now", "totals.reclaimable_now", &[]),
+    ("safe", "totals.reclaimable_now.safe", &[]),
+    ("rebuildable", "totals.reclaimable_now.rebuildable", &[]),
+    ("clean_roots", "clean_roots", &[]),
+];
+
+/// What the guidance cites of `ddc agent clean --json`. An item's outcome and
+/// skip reason are variants of one type: their values are checked on the item.
+const CLEAN_NAMES: &[Cited] = &[
+    ("agents_clean_safe", "agents_clean_safe", &[]),
+    ("settings_error", "settings_error", &[]),
+    ("dry_run", "dry_run", &[]),
+    ("items[]", "items[]", &[]),
+    ("path", "items[].path", &[]),
+    ("class", "items[].class", &[]),
+    ("outcome", "items[].outcome", &[]),
+    ("outcome", "items[]", &["deleted", "not-run", "failed", "skipped"]),
+    ("error", "items[].error", &[]),
+    ("reason", "items[].reason", &[]),
+    ("reason", "items[]", &["agent-opt-in-off", "not-consented"]),
+    ("for_person", "for_person", &[]),
+    ("left_out", "left_out", &[]),
+];
+
+/// The skill's `allowed-tools`: the commands it may run without a prompt,
+/// each under both names. Only commands that read (ADR "Agent footprint", §7,
+/// note of 2026-11-17): `ddc scan` stays a prompt, since it replaces the
+/// person's latest report, and so do `ddc agent clean` and the install.
+const ALLOWED_TOOLS: [&str; 5] = ["changes", "agent status", "agent footprint", "agent clean --dry-run", "rules"];
+
 /// Fields the guidance names before a released ddc writes them: named only
 /// on a line that says "when available". None now: the per-session
 /// footprint shipped in 0.14.0 and its names are checked above.
@@ -1315,12 +1354,19 @@ fn step<'a>(schema: &'a serde_json::Value, node: &'a serde_json::Value, key: &st
     })
 }
 
-/// Every string a node or anything below it allows by `const` or `enum`.
+/// Every string a node or anything below it allows by `const` or `enum`. A
+/// node with both a `$ref` and properties of its own (a clean item's
+/// `skipped` variant) allows what both say.
 fn allowed_values(schema: &serde_json::Value, node: &serde_json::Value, depth: usize, out: &mut Vec<String>) {
-    let node = deref(schema, node);
     if depth == 0 {
         return;
     }
+    if node.get("$ref").is_some() {
+        for property in node.get("properties").and_then(|p| p.as_object()).into_iter().flat_map(|p| p.values()) {
+            allowed_values(schema, property, depth - 1, out);
+        }
+    }
+    let node = deref(schema, node);
     out.extend(node.get("const").and_then(|c| c.as_str()).map(str::to_owned));
     for value in node.get("enum").and_then(|e| e.as_array()).into_iter().flatten() {
         out.extend(value.as_str().map(str::to_owned));
@@ -1348,6 +1394,8 @@ fn the_agent_guidance_names_only_schema_fields() {
         ("docs/agents.schema.json", AGENTS_NAMES),
         ("docs/scan.schema.json", SCAN_NAMES),
         ("docs/changes.schema.json", CHANGES_NAMES),
+        ("docs/footprint.schema.json", FOOTPRINT_NAMES),
+        ("docs/clean.schema.json", CLEAN_NAMES),
     ] {
         let schema: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(root.join(file)).unwrap()).unwrap();
@@ -1371,7 +1419,7 @@ fn the_agent_guidance_names_only_schema_fields() {
         }
     }
     let skill = std::fs::read_to_string(root.join(GUIDANCE[0])).unwrap();
-    let cited = || AGENTS_NAMES.iter().chain(SCAN_NAMES).chain(CHANGES_NAMES);
+    let cited = || AGENTS_NAMES.iter().chain(SCAN_NAMES).chain(CHANGES_NAMES).chain(FOOTPRINT_NAMES).chain(CLEAN_NAMES);
     for name in cited().flat_map(|(name, _, values)| std::iter::once(name).chain(values.iter())) {
         assert!(skill.contains(&format!("`{name}`")), "{} does not name `{name}`", GUIDANCE[0]);
     }
@@ -1395,8 +1443,8 @@ fn the_agent_guidance_names_only_schema_fields() {
 
 /// Every `ddc` line of the guidance's code blocks parses, the ones it runs and
 /// the ones it shows the person: its subcommand's `--help` succeeds and names
-/// each option the line passes. Only `--help` runs. The skill asks the four
-/// read-only questions of the story, each with `--json`.
+/// each option the line passes. Only `--help` runs. The skill asks the read-only
+/// questions of the stories, and runs `ddc agent clean`, each with `--json`.
 #[test]
 fn every_ddc_line_of_the_agent_guidance_parses() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -1445,16 +1493,17 @@ fn every_ddc_line_of_the_agent_guidance_parses() {
             }
         }
     }
-    for question in ["changes", "agent status", "scan", "rules"] {
+    for question in ["changes", "agent footprint", "agent status", "scan", "rules", "agent clean"] {
         assert!(asked.iter().any(|a| a == question), "the skill does not run `ddc {question} --json`");
     }
 }
 
-/// The guidance runs nothing that removes a file (ADR "Agent footprint:
-/// worktrees, harness data and bounded consent for agents", §5): no
-/// `ddc clean`, `ddc disk free`, `--yes`, `--items`, `--actions`, `rm`, `mv`,
-/// the Trash or `git worktree` in a runnable block. Those appear only as text, for the person or in what never to do,
-/// and that list cites §5 and names each of them.
+/// The guidance runs nothing that removes a file but `ddc agent clean` (ADR
+/// "Agent footprint: worktrees, harness data and bounded consent for agents",
+/// §5 and §7): no `ddc clean`, `ddc disk free`, `--yes`, `--items`,
+/// `--actions`, `rm`, `mv`, the Trash or `git worktree` in a runnable block,
+/// and `ddc agent clean` only without a list. Those appear only as text, for
+/// the person or in what never to do, and that list cites §5 and names each.
 #[test]
 fn the_agent_guidance_runs_nothing_that_removes() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -1505,7 +1554,15 @@ fn the_agent_guidance_runs_nothing_that_removes() {
     let front = skill.strip_prefix("---\n").and_then(|s| s.split_once("\n---\n")).map(|(f, _)| f).unwrap();
     assert!(front.lines().any(|l| l == "name: ddc"), "{front}");
     let description = front.lines().find_map(|l| l.strip_prefix("description: ")).unwrap();
-    for trigger in ["disk space", "ENOSPC", "No space left on device", "worktree", "left behind"] {
+    for trigger in [
+        "disk space",
+        "ENOSPC",
+        "No space left on device",
+        "worktree",
+        "left behind",
+        "end of a session",
+        "clean up after yourself",
+    ] {
         assert!(description.contains(trigger), "the skill's description does not say {trigger:?}");
     }
     let snippet = std::fs::read_to_string(root.join(GUIDANCE[1])).unwrap();
@@ -1514,6 +1571,50 @@ fn the_agent_guidance_runs_nothing_that_removes() {
         "the snippet's markers"
     );
     assert_eq!(snippet.matches("<!-- ddc:").count(), 2, "one begin and one end marker");
+}
+
+/// The skill's `allowed-tools` is exactly the commands that read, under both
+/// names, each a pattern `Bash(<command> *)` whose command parses; and its
+/// `metadata.version` is this release's, as `make bump` writes it
+/// ([skill-install#5]).
+#[test]
+fn the_skill_allows_only_what_reads_and_carries_the_version() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let skill = std::fs::read_to_string(root.join(GUIDANCE[0])).unwrap();
+    let front = skill.strip_prefix("---\n").and_then(|s| s.split_once("\n---\n")).map(|(f, _)| f).unwrap();
+    let allowed: Vec<&str> = front
+        .split_once("\nallowed-tools:\n")
+        .map(|(_, rest)| rest.lines().map_while(|l| l.strip_prefix("  - ")).collect())
+        .unwrap_or_default();
+    let expected: Vec<String> = ["ddc", "deepdrivecleaner"]
+        .iter()
+        .flat_map(|bin| ALLOWED_TOOLS.iter().map(move |command| format!("Bash({bin} {command} *)")))
+        .collect();
+    assert_eq!(allowed, expected, "the skill's allowed-tools");
+    for command in ALLOWED_TOOLS {
+        let words: Vec<&str> = command.split_whitespace().collect();
+        let path: Vec<&str> = words.iter().take_while(|w| !w.starts_with("--")).copied().collect();
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"))
+            .clear_env()
+            .args(&path)
+            .arg("--help")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "`ddc {command}`: {}", String::from_utf8_lossy(&out.stderr));
+        let help = String::from_utf8(out.stdout).unwrap();
+        for option in words.iter().filter(|w| w.starts_with("--")) {
+            assert!(names_whole(&help, option), "`ddc {}` has no {option}", path.join(" "));
+        }
+        assert!(
+            !command.starts_with("agent clean") || command == "agent clean --dry-run",
+            "{command}: agent clean is allowed only as a dry run"
+        );
+    }
+    let version = front
+        .split_once("\nmetadata:\n  version: ")
+        .and_then(|(_, rest)| rest.lines().next())
+        .expect("metadata.version");
+    assert_eq!(version, format!("\"{}\"", env!("CARGO_PKG_VERSION")), "the skill's metadata.version");
 }
 
 /// The licences follow their paths (ADR "Licensing: AGPL-3.0 with a
