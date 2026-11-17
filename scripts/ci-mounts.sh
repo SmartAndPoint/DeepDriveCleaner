@@ -10,7 +10,7 @@
 # (tests/common/mounts.rs reads them), and a table of each mount's filesystem type to
 # stderr and to $GITHUB_STEP_SUMMARY when it is set. Every privileged step goes through
 # `sudo -n`, which fails instead of asking. It builds the CLI of this checkout once, for
-# the scan a remount must not make stale. CI only: it edits /etc/exports and Samba's
+# the scan a remount must not make stale and for the measurements below. CI only: it edits /etc/exports and Samba's
 # configuration, starts their servers and makes a zpool, with nothing to undo it, which
 # only a runner thrown away after the job can take.
 set -euo pipefail
@@ -421,6 +421,63 @@ for fs in btrfs zfs; do
     eval "b=\$m_${fs}_random_bytes f=\$m_${fs}_random_freed"
     near "$b" "$f" || fail "$fs: random bytes were counted as $b and freed $f, more than 2% under or 10% over"
 done
+
+# What a scan of an NFS home costs (story "Network and encrypted homes on Linux: NFS, CIFS,
+# fscrypt and eCryptfs", DDC-010; the safety ADR's amendment of 2026-11-17). The same tree
+# of 200 folders of 100 small files lies on the loopback NFS export and on the runner's own
+# disk, and this checkout's `ddc scan` walks each twice: cold, after every cache of the
+# machine is dropped (and the NFS client remounted, so its attribute cache is empty too),
+# then warm. The server is this machine, so a real network adds its round trip to each
+# uncached statx: a lower bound. Each mount's stx_dev before and after the remount is
+# printed too. Nothing here fails on a time, only on a scan that fails or counts too little.
+lat_tree() {
+    local d i j
+    for i in $(seq -w 1 200); do
+        d="$1/.cache/latency/d$i"
+        mkdir -p "$d"
+        for j in $(seq -w 1 100); do printf x >"$d/f$j"; done
+    done
+}
+lat_tree "$base/export/plain/latency"
+lat_tree "$img/latency-local"
+drop_caches() { sync; echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null; }
+# $1 the home to scan, $2 a name for its data folder: prints "<ns> <entries>".
+lat_scan() {
+    local start end out
+    start="$(date +%s%N)"
+    out="$(env -i PATH= NO_COLOR=1 HOME="$1" DDC_DATA_DIR="$img/latency-data-$2" "$ddc" scan --json 2>"$img/lat.err")" ||
+        fail "ddc scan $1 failed: $(cat "$img/lat.err")"
+    end="$(date +%s%N)"
+    echo "$((end - start)) $(python3 -c 'import json,sys; t=json.load(sys.stdin)["totals"]; print(t["files"] + t["dirs"])' <<<"$out")"
+}
+dev_before="$(stat -c %d "$base/nfs")"
+sudo -n umount "$base/nfs"
+drop_caches
+sudo -n mount -t nfs -o vers=4.2 "127.0.0.1:$base/export/plain" "$base/nfs"
+dev_after="$(stat -c %d "$base/nfs")"
+ltable=
+# $1 where, $2 cold or warm, $3 the home, $4 the data folder's name.
+lat_row() {
+    local ns entries
+    read -r ns entries < <(lat_scan "$3" "$4")
+    [ "$entries" -ge 20000 ] || fail "ddc scan $3 counted $entries entries, fewer than the 20000 written"
+    ltable+="$(printf '| %s | %s | %d | %d | %s |' "$1" "$2" "$entries" "$((ns / 1000000))" \
+        "$(awk -v n="$ns" -v e="$entries" 'BEGIN { printf "%.1f", n / e / 1000 }')")"$'\n'
+}
+lat_row nfs cold "$base/nfs/latency" nfs
+lat_row nfs warm "$base/nfs/latency" nfs
+drop_caches
+lat_row "local disk" cold "$img/latency-local" local
+lat_row "local disk" warm "$img/latency-local" local
+lheader='| where | caches | entries | ms | µs per entry |'
+printf '%s\n%s' "$lheader" "$ltable" >&2
+printf 'NFS stx_dev before the remount %s, after %s\n' "$dev_before" "$dev_after" >&2
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    { echo "### What a scan of an NFS home costs (loopback, a lower bound)"; echo
+      echo "$lheader"; echo "|---|---|---|---|---|"; printf '%s' "$ltable"; echo
+      echo "NFS stx_dev before the remount $dev_before, after $dev_after."; } >>"$GITHUB_STEP_SUMMARY"
+fi
+rm -r "$base/export/plain/latency" "$img/latency-local" "$img"/latency-data-*
 
 say DDC_MOUNTS "$base"
 
