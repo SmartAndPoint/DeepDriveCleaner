@@ -158,15 +158,21 @@ fn a_squashed_exports_trash_is_refused_and_nothing_moves() {
     assert!(matches!(admit(), Err(TrashError::CrossesFilesystem)), "the Trash is nobody's now: refused");
 }
 
-/// A child that holds `file` open on its standard input, killed on drop.
-struct Holder(std::process::Child);
+/// A process that holds `file` open on its standard input, killed on drop.
+/// Not a child of this process: the process table leaves the open files of
+/// the clean's own children unread, so `sh` starts it in the background and
+/// exits.
+struct Holder(i32);
 
 impl Holder {
     fn of(file: &Path) -> Self {
-        let child =
-            std::process::Command::new("sleep").arg("600").stdin(std::fs::File::open(file).unwrap()).spawn().unwrap();
-        let pid = child.id() as i32;
-        let holder = Self(child);
+        let out = std::process::Command::new("sh")
+            .args(["-c", "sleep 600 <\"$1\" >/dev/null 2>&1 & echo $!", "sh"])
+            .arg(file)
+            .output()
+            .unwrap();
+        let pid: i32 = String::from_utf8(out.stdout).unwrap().trim().parse().unwrap();
+        let holder = Self(pid);
         // Until the in-use check can see its descriptor.
         for _ in 0..100 {
             if SystemProcesses.open_files(pid).iter().any(|f| f.file_name() == file.file_name()) {
@@ -180,8 +186,13 @@ impl Holder {
 
 impl Drop for Holder {
     fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        let _ = std::process::Command::new("kill").arg(self.0.to_string()).status();
+        for _ in 0..250 {
+            if !Path::new(&format!("/proc/{}", self.0)).exists() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
     }
 }
 
@@ -233,7 +244,7 @@ fn a_file_held_open_on_nfs_is_left_open_in_its_tombstone_and_goes_once_closed() 
     let (r, _) = clean(&SystemProcesses, &cache);
     let refused = item(&r, &cache);
     assert!(
-        matches!(&refused.outcome, Outcome::Skipped(SkipReason::InUse { pid, .. }) if *pid == holder.0.id() as i32),
+        matches!(&refused.outcome, Outcome::Skipped(SkipReason::InUse { pid, .. }) if *pid == holder.0),
         "{refused:?}"
     );
     assert!(open.exists());
