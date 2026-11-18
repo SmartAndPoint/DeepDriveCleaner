@@ -5,6 +5,16 @@
 [advisories]
 # Known vulnerabilities always fail; unmaintained crates fail by default too.
 yanked = "deny"
+# Unmaintained, with no vulnerability: each kept until its replacement lands,
+# and named here with why (2026-11-17).
+ignore = [
+    # chrono: the Linux trash's DeletionDate, and the `trash` crate's own
+    # dependency, which ddc cannot drop alone.
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained, not vulnerable; the trash crate depends on it too" },
+    # humantime, unmaintained because it wraps chrono: RFC 3339 times in
+    # every report and the journal; its replacement is jiff, a change of its own.
+    { id = "RUSTSEC-2026-0542", reason = "humantime is unmaintained, not vulnerable; replacing it with jiff is its own change" },
+]
 
 [licenses]
 # Permissive licenses only: the workspace is AGPL-3.0-only and also offered
