@@ -14,7 +14,7 @@ allowed-tools:
   - Bash(deepdrivecleaner agent clean --dry-run *)
   - Bash(deepdrivecleaner rules *)
 metadata:
-  version: "0.37.0"
+  version: "0.38.0"
 ---
 
 # ddc: ask the disk before guessing
