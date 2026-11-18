@@ -233,6 +233,8 @@ fn sealed_folders_and_auto_memory_are_never_findings() {
     t.write(".claude/skills/ddc/SKILL.md", "---\nname: ddc\n---\n");
     t.write(".claude/skills/ddc/.ddc-skill", "{}");
     project(".claude/skills/other");
+    t.write(".agents/skills/ddc/SKILL.md", "---\nname: ddc\n---\n");
+    project(".agents/skills/other");
     t.file(".claude/plugins/cache/p/target/debug/x", 1_000);
     project(".cursor/extensions/vendor.ext-1.0.0");
     project(".cursor/plugins/p");
@@ -251,6 +253,7 @@ fn sealed_folders_and_auto_memory_are_never_findings() {
         ".claude/shell-snapshots",
         ".claude/plugins",
         ".claude/skills",
+        ".agents/skills",
         ".cursor/extensions",
         ".cursor/plugins",
         ".cursor/plans",
@@ -430,7 +433,7 @@ fn every_platform_lists_the_agent_rules() {
     use ddc_core::rules::rules_of;
     let agent =
         |p: Platform| rules_of(p).iter().filter(|r| r.id.starts_with("agent.")).map(|r| r.id).collect::<Vec<_>>();
-    assert_eq!(agent(Platform::Macos).len(), 12);
+    assert_eq!(agent(Platform::Macos).len(), 13);
     for p in [Platform::Linux, Platform::Windows] {
         assert_eq!(agent(p), agent(Platform::Macos), "{p}");
     }

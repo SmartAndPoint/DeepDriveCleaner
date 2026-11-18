@@ -157,7 +157,7 @@ fn rules_json_lists_the_coding_agents_group_with_a_switch() {
     }
     assert_eq!(rule("agent.claude-code-transcripts").removal, ddc_core::model::RemovalKind::None);
     // The sealed folders are no finding and have no switch.
-    for id in ["agent.claude-code-sealed", "agent.cursor-sealed"] {
+    for id in ["agent.claude-code-sealed", "agent.shared-skills-sealed", "agent.cursor-sealed"] {
         assert!(!rule(id).listed && !rule(id).switchable, "{id}");
     }
     // The user's own folders keep no switch, though they have entries.

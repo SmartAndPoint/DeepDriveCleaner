@@ -30,9 +30,39 @@ pub const SNIPPET: &str = include_str!("../../../../agents/AGENTS.snippet.md");
 /// The marker `install` leaves in the skill folder (spec "Agent skill install", contract 5).
 pub const MARKER: &str = ".ddc-skill";
 
-/// The skill folder under `root`: the home folder, or a project's folder.
+/// Whose skill folder it is (spec "Agent skill install", contract 1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum Family {
+    /// Claude Code: `.claude/skills`.
+    ClaudeCode,
+    /// The shared `.agents/skills`: Codex, opencode, Gemini CLI and Qwen Code.
+    Agents,
+}
+
+impl Family {
+    /// Every family, in the order `install` and `status` take them.
+    pub const ALL: [Family; 2] = [Family::ClaudeCode, Family::Agents];
+
+    /// Its skill folder under `root`: the home folder, or a project's folder.
+    pub fn folder(self, root: &Path) -> PathBuf {
+        let parent = match self {
+            Family::ClaudeCode => ".claude",
+            Family::Agents => ".agents",
+        };
+        root.join(parent).join("skills").join("ddc")
+    }
+
+    /// The family whose folder `dir` is: `.agents/skills/ddc` is the shared one.
+    fn of(dir: &Path) -> Family {
+        let family = dir.parent().and_then(Path::parent).and_then(Path::file_name);
+        if family.is_some_and(|f| f == ".agents") { Family::Agents } else { Family::ClaudeCode }
+    }
+}
+
+/// Claude Code's skill folder under `root`: the home folder, or a project's folder.
 pub fn skill_folder(root: &Path) -> PathBuf {
-    root.join(".claude").join("skills").join("ddc")
+    Family::ClaudeCode.folder(root)
 }
 
 /// 64-bit FNV-1a: it finds edits and protects against no one (spec "Agent skill install", contract 5).
@@ -90,6 +120,8 @@ pub enum FolderState {
 pub struct FolderStatus {
     #[serde(serialize_with = "crate::json_path::path")]
     pub path: PathBuf,
+    /// Whose folder it is: Claude Code's, or the shared one.
+    pub family: Family,
     #[serde(flatten)]
     pub state: FolderState,
     /// Files that are no shipped file and that the old marker does not list
@@ -156,8 +188,13 @@ pub fn metadata_version(skill_md: &str) -> Option<String> {
 
 /// The state of the skill folder `dir` against this copy. Reads only.
 pub fn folder_status(dir: &Path) -> io::Result<FolderStatus> {
-    let status =
-        |state, extra, no_longer_shipped| FolderStatus { path: dir.to_owned(), state, extra, no_longer_shipped };
+    let status = |state, extra, no_longer_shipped| FolderStatus {
+        path: dir.to_owned(),
+        family: Family::of(dir),
+        state,
+        extra,
+        no_longer_shipped,
+    };
     let meta = match fs::symlink_metadata(dir) {
         Ok(meta) => meta,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(status(FolderState::Absent, vec![], vec![])),

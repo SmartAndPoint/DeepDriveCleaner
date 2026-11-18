@@ -197,6 +197,15 @@ pub(crate) const AGENT_CLAUDE_CODE_SEALED: Rule = Rule {
     )
 };
 
+/// The skills folder Codex, opencode, Gemini CLI and Qwen Code share, where
+/// `ddc agent skill install` writes too (spec "Agent skill install",
+/// contract 1, amended 2026-11-18): what a person installed, never claimed.
+pub(crate) const AGENT_SHARED_SKILLS_SEALED: Rule = Rule {
+    hint: "the skills Codex, opencode, Gemini CLI and Qwen Code share (ddc agent skill install writes ddc's there)",
+    listed: false,
+    ..rule("agent.shared-skills-sealed", Personal, UserData, Removal::None, Matcher::KnownPaths(&[".agents/skills"]))
+};
+
 pub(crate) const AGENT_CURSOR_SEALED: Rule = Rule {
     hint: "Cursor's installed extensions and plugins, and the person's plans and chats",
     listed: false,

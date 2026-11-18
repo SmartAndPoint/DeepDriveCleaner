@@ -153,7 +153,7 @@ public struct ReviewItems: Sendable, Equatable {
         "user.kept", "user.pictures", "user.movies", "user.music", "user.downloads", "user.ios-backups",
         "user.imazing-backups", "user.telegram", "user.whatsapp", "user.cloud", "xcode.archives",
         "ide.workspace-storage", "macos.app-bundle", "node.global-packages",
-        "agent.claude-code-sealed", "agent.cursor-sealed",
+        "agent.claude-code-sealed", "agent.shared-skills-sealed", "agent.cursor-sealed",
     ]
 
     /// A coding agent's session folder (`SESSION_ENTRY_RULES` in

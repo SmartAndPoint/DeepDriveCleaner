@@ -32,6 +32,10 @@ impl Fx {
         guidance::skill_folder(&self.home)
     }
 
+    fn shared(&self) -> PathBuf {
+        guidance::Family::Agents.folder(&self.home)
+    }
+
     fn ddc(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_deepdrivecleaner"));
         cmd.clear_env().home_env(&self.home).env("PATH", "").env("NO_COLOR", "1").args(args).stdin(Stdio::null());
@@ -89,12 +93,15 @@ fn without_a_terminal_it_needs_approved_and_then_writes_once() {
         stdout.contains(&fx.skill().join("SKILL.md").display().to_string()),
         "it lists what it would write: {stdout}"
     );
-    assert!(!fx.home.join(".claude").exists(), "nothing written");
+    assert!(!fx.home.join(".claude").exists() && !fx.home.join(".agents").exists(), "nothing written");
 
     let out = fx.run(&["agent", "skill", "install", "--approved"]);
     assert_eq!(out.status.code(), Some(0), "{}", text(&out).1);
-    assert_eq!(fs::read_to_string(fx.skill().join("SKILL.md")).unwrap(), SKILL_FILES[0].1);
-    assert!(fx.skill().join(guidance::MARKER).is_file());
+    // [skill-install#1]: both families by default.
+    for dir in [fx.skill(), fx.shared()] {
+        assert_eq!(fs::read_to_string(dir.join("SKILL.md")).unwrap(), SKILL_FILES[0].1, "{}", dir.display());
+        assert!(dir.join(guidance::MARKER).is_file(), "{}", dir.display());
+    }
 
     let before = fs::metadata(fx.skill().join("SKILL.md")).unwrap().modified().unwrap();
     let out = fx.run(&["agent", "skill", "install"]);
@@ -152,7 +159,8 @@ fn a_project_gets_its_skill_and_its_agents_md_block() {
     ]);
     assert_eq!(out.status.code(), Some(0), "{}", text(&out).1);
     assert!(guidance::skill_folder(&project).join("SKILL.md").is_file());
-    assert!(!fx.home.join(".claude").exists(), "not the home's");
+    assert!(guidance::Family::Agents.folder(&project).join("SKILL.md").is_file());
+    assert!(!fx.home.join(".claude").exists() && !fx.home.join(".agents").exists(), "not the home's");
     assert_eq!(fs::read_to_string(&agents_md).unwrap(), format!("# Project rules\n\n{SNIPPET}"));
 
     let missing = fx.home.join("nowhere");
@@ -234,8 +242,91 @@ fn status_reports_each_place_and_writes_nothing() {
 
     assert_eq!(fx.run(&["agent", "skill", "install", "--approved"]).status.code(), Some(0));
     let v = json(&fx.run(&["agent", "skill", "status", "--json"]));
-    assert_eq!(v["skills"][0]["state"], "current");
+    assert_eq!((&v["skills"][0]["family"], &v["skills"][0]["state"]), (&"claude-code".into(), &"current".into()));
+    assert_eq!((&v["skills"][1]["family"], &v["skills"][1]["state"]), (&"agents".into(), &"current".into()));
     assert_eq!(v["ddc_version"], env!("CARGO_PKG_VERSION"));
     let (stdout, _) = text(&fx.run(&["agent", "skill", "status"]));
     assert!(stdout.contains("current"), "{stdout}");
+}
+
+// [skill-install#1]: --family narrows it; a refusal in one folder writes neither.
+#[test]
+fn family_narrows_the_install_and_one_refusal_stops_both() {
+    if common::unsupported("family_narrows_the_install_and_one_refusal_stops_both") {
+        return;
+    }
+    let fx = Fx::new();
+    let out = fx.run(&["agent", "skill", "install", "--approved", "--family", "agents"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out).1);
+    assert!(fx.shared().join("SKILL.md").is_file());
+    assert!(!fx.home.join(".claude").exists(), "only the shared folder");
+
+    fs::write(fx.shared().join("SKILL.md"), "edited by hand\n").unwrap();
+    let out = fx.run(&["agent", "skill", "install", "--approved"]);
+    assert_eq!(out.status.code(), Some(2), "{}", text(&out).1);
+    assert!(text(&out).1.contains("edited"), "{}", text(&out).1);
+    assert!(!fx.home.join(".claude").exists(), "Claude Code's folder is not written either");
+    assert_eq!(fs::read_to_string(fx.shared().join("SKILL.md")).unwrap(), "edited by hand\n");
+    let out = fx.run(&["agent", "skill", "install", "--approved", "--family", "claude-code"]);
+    assert_eq!(out.status.code(), Some(0), "the edited shared folder is not asked about: {}", text(&out).1);
+    assert!(fx.skill().join("SKILL.md").is_file());
+}
+
+// [skill-install#4] [skill-install#1]: a linked shared folder refuses the whole install.
+#[cfg(unix)]
+#[test]
+fn a_linked_shared_folder_refuses_the_whole_install() {
+    if common::unsupported("a_linked_shared_folder_refuses_the_whole_install") {
+        return;
+    }
+    let fx = Fx::new();
+    let elsewhere = fx.home.join("p/elsewhere");
+    fs::create_dir_all(&elsewhere).unwrap();
+    fs::create_dir_all(fx.shared().parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, fx.shared()).unwrap();
+    let out = fx.run(&["agent", "skill", "install", "--approved"]);
+    assert_eq!(out.status.code(), Some(2), "{}", text(&out).1);
+    assert!(text(&out).1.contains("symbolic link"), "{}", text(&out).1);
+    assert!(!fx.home.join(".claude").exists(), "Claude Code's folder is not written either");
+    assert!(fs::read_dir(&elsewhere).unwrap().next().is_none(), "nothing written through the link");
+}
+
+// [skill-install#9]: with --project, four folders: the home's and the project's, each family.
+#[test]
+fn status_with_a_project_reports_both_families_of_both_places() {
+    if common::unsupported("status_with_a_project_reports_both_families_of_both_places") {
+        return;
+    }
+    let fx = Fx::new();
+    let project = fx.home.join("p");
+    let p = project.to_str().unwrap();
+    assert_eq!(
+        fx.run(&["agent", "skill", "install", "--approved", "--project", p, "--family", "agents"]).status.code(),
+        Some(0)
+    );
+    let out = fx.run(&["agent", "skill", "status", "--json", "--project", p]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out).1);
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let rows: Vec<(String, String, String)> = v["skills"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            (
+                s["path"].as_str().unwrap().to_owned(),
+                s["family"].as_str().unwrap().to_owned(),
+                s["state"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    let path = |dir: PathBuf| dir.display().to_string();
+    assert_eq!(
+        rows,
+        [
+            (path(fx.skill()), "claude-code".to_owned(), "absent".to_owned()),
+            (path(fx.shared()), "agents".to_owned(), "absent".to_owned()),
+            (path(guidance::skill_folder(&project)), "claude-code".to_owned(), "absent".to_owned()),
+            (path(guidance::Family::Agents.folder(&project)), "agents".to_owned(), "current".to_owned()),
+        ]
+    );
 }

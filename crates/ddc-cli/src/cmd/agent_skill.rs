@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use ddc_core::env::Env;
-use ddc_core::guidance::{self, FileState, FolderState, FolderStatus, PlanError, SkillReport};
+use ddc_core::guidance::{self, Family, FileState, FolderPlan, FolderState, FolderStatus, PlanError, SkillReport};
 use ddc_core::platform::procs;
 
 use crate::cli::{SkillInstallArgs, SkillStatusArgs};
@@ -27,11 +27,21 @@ pub fn install(args: &SkillInstallArgs) -> anyhow::Result<ExitCode> {
         Ok(root) => root,
         Err(why) => return refuse("install", &why),
     };
-    let folder = match guidance::folder_plan(&guidance::skill_folder(&root), VERSION, args.replace) {
-        Ok(plan) => plan,
-        Err(PlanError::Io(e)) => return Err(e.into()),
-        Err(refusal) => return refuse("install", &refusal.to_string()),
-    };
+    // Every folder planned first: a refusal in one refuses the install.
+    let mut families: Vec<Family> = args.family.iter().map(|h| (*h).into()).collect();
+    if families.is_empty() {
+        families = Family::ALL.to_vec();
+    }
+    families.sort();
+    families.dedup();
+    let mut folders: Vec<FolderPlan> = Vec::new();
+    for family in families {
+        match guidance::folder_plan(&family.folder(&root), VERSION, args.replace) {
+            Ok(plan) => folders.push(plan),
+            Err(PlanError::Io(e)) => return Err(e.into()),
+            Err(refusal) => return refuse("install", &refusal.to_string()),
+        }
+    }
     let agents_md = match &args.agents_md {
         None => None,
         Some(file) => match guidance::agents_md_plan(file) {
@@ -41,18 +51,22 @@ pub fn install(args: &SkillInstallArgs) -> anyhow::Result<ExitCode> {
         },
     };
     let mut out = std::io::stdout().lock();
-    let mut writes: Vec<&Path> = folder.writes.iter().map(PathBuf::as_path).collect();
+    let mut writes: Vec<&Path> = folders.iter().flat_map(|f| f.writes.iter().map(PathBuf::as_path)).collect();
     writes.extend(agents_md.iter().map(|(file, _)| file.as_path()));
     if writes.is_empty() {
-        writeln!(out, "The ddc guidance is current: {}", folder.status.path.display())?;
-        others(&mut out, &folder.status)?;
+        for folder in &folders {
+            writeln!(out, "The ddc guidance is current: {}", folder.status.path.display())?;
+            others(&mut out, &folder.status)?;
+        }
         return Ok(ExitCode::SUCCESS);
     }
     writeln!(out, "ddc {VERSION} will write its guidance for coding agents, and delete nothing:")?;
     for path in &writes {
         writeln!(out, "  {}", path.display())?;
     }
-    others(&mut out, &folder.status)?;
+    for folder in &folders {
+        others(&mut out, &folder.status)?;
+    }
     if !args.approved {
         if !std::io::stdin().is_terminal() {
             return refuse(
@@ -65,7 +79,9 @@ pub fn install(args: &SkillInstallArgs) -> anyhow::Result<ExitCode> {
             return Ok(ExitCode::FAILURE);
         }
     }
-    guidance::write_folder(&folder)?;
+    for folder in &folders {
+        guidance::write_folder(folder)?;
+    }
     if let Some((file, bytes)) = &agents_md {
         guidance::write_agents_md(file, bytes)?;
     }
@@ -83,9 +99,11 @@ pub fn status(args: &SkillStatusArgs) -> anyhow::Result<ExitCode> {
     if let Some(file) = args.agents_md.as_deref().filter(|f| !parent_exists(f)) {
         return refuse("status", &format!("{}: its folder does not exist", file.display()));
     }
-    let mut skills = vec![guidance::folder_status(&guidance::skill_folder(env.home()))?];
-    if let Some(root) = &project {
-        skills.push(guidance::folder_status(&guidance::skill_folder(root))?);
+    let mut skills = Vec::new();
+    for root in std::iter::once(env.home()).chain(project.as_deref()) {
+        for family in Family::ALL {
+            skills.push(guidance::folder_status(&family.folder(root))?);
+        }
     }
     let agents_md = args.agents_md.as_deref().map(guidance::agents_md_status).transpose()?;
     let report = SkillReport::new(skills, agents_md);

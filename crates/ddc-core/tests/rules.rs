@@ -846,6 +846,7 @@ fn every_rule_has_a_group() {
     // a liveness check lets them go to the Trash (story "Harness data rules").
     const AGENTS_FIXED: &[&str] = &[
         "agent.claude-code-sealed",
+        "agent.shared-skills-sealed",
         "agent.cursor-sealed",
         "agent.codex-sessions",
         "agent.codex-runtimes",
