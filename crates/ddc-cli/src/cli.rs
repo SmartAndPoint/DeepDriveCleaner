@@ -97,6 +97,8 @@ impl Command {
             Command::Agent { action: AgentAction::Status(a) } => a.json,
             Command::Agent { action: AgentAction::Footprint(a) } => a.json,
             Command::Agent { action: AgentAction::Clean(a) } => a.json,
+            Command::Agent { action: AgentAction::Skill { action: SkillAction::Status(a) } } => a.json,
+            Command::Agent { action: AgentAction::Skill { action: SkillAction::Install(_) } } => false,
             Command::Keep { action: KeepAction::Remove(a) } => a.json,
             Command::Settings { .. } => false,
             Command::Lock { action: LockAction::Status(a) } => a.json,
@@ -611,6 +613,48 @@ pub enum AgentAction {
     Footprint(FootprintArgs),
     /// Remove the safe build caches inside one project's checkouts, if settings.json allows it; list the rest for you.
     Clean(AgentCleanArgs),
+    /// Install or check ddc's guidance for coding agents: the Claude Code skill and an AGENTS.md block.
+    Skill {
+        #[command(subcommand)]
+        action: SkillAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SkillAction {
+    /// Write the skill to ~/.claude/skills/ddc (or a project's), and the block into an AGENTS.md; asks first, deletes nothing.
+    Install(SkillInstallArgs),
+    /// Say whether the installed skill and an AGENTS.md block are this ddc's (read-only).
+    Status(SkillStatusArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct SkillInstallArgs {
+    /// Install into this project's .claude/skills instead of your home folder's.
+    #[arg(long, value_name = "DIR")]
+    pub project: Option<PathBuf>,
+    /// Also write ddc's block into this AGENTS.md (for Codex, opencode and the like).
+    #[arg(long, value_name = "FILE")]
+    pub agents_md: Option<PathBuf>,
+    /// Write over a skill folder ddc did not install, or one edited since.
+    #[arg(long)]
+    pub replace: bool,
+    /// Write without asking: for a coding agent, only after you said yes to it.
+    #[arg(long)]
+    pub approved: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct SkillStatusArgs {
+    /// Also check this project's .claude/skills.
+    #[arg(long, value_name = "DIR")]
+    pub project: Option<PathBuf>,
+    /// Also check ddc's block in this AGENTS.md.
+    #[arg(long, value_name = "FILE")]
+    pub agents_md: Option<PathBuf>,
+    /// Print the report as JSON (schema: docs/skill.schema.json).
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]

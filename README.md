@@ -400,6 +400,13 @@ ddc agent clean [ROOT] [--items FILE] [--dry-run] [--json]
 ddc agent clean --dry-run --json | jq '.for_person'
 ```
 
+`ddc agent skill install` writes ddc's guidance for coding agents (see [For coding agents](#for-coding-agents)) from the copy built into this `ddc`: the Claude Code skill into `~/.claude/skills/ddc` (or a project's `.claude/skills/ddc` with `--project`), and with `--agents-md FILE` ddc's block into that `AGENTS.md`. It lists the files and asks first; without a terminal it needs `--approved`, which a coding agent passes only after you said yes in the chat. It deletes nothing. It writes only into a skill folder it installed and nobody edited since, which it tells by its `.ddc-skill` file (`--replace` writes over one it did not install or one edited since, never a symbolic link), and in `AGENTS.md` it replaces only the block between `<!-- ddc:begin -->` and `<!-- ddc:end -->`, keeping the rest of the file and its permissions; a symbolic link, a block with a missing or second marker, or CRLF line endings are refused. As root it exits 2. `ddc agent skill status` says whether each is this `ddc`'s (`current`), an older one's, edited, or not installed by ddc; `--json` follows [`docs/skill.schema.json`](docs/skill.schema.json). Neither takes a lock or writes the journal.
+
+```
+ddc agent skill install [--project DIR] [--agents-md FILE] [--replace] [--approved]
+ddc agent skill status [--project DIR] [--agents-md FILE] [--json]
+```
+
 ### `ddc settings`: what only you switch
 
 `ddc settings set agents_clean_safe on` lets coding agents remove, with `ddc agent clean`, the safe build caches inside their own project without asking you; `off` takes that back. At a terminal, `on` first says what it allows and links the [Disclaimer](DISCLAIMER.md), then asks, default No; a No exits 1 and changes nothing. `off` never asks. Without a terminal `on` is refused (exit 2), so a coding agent's command alone does not switch it on; it does not stop a program that edits `settings.json` itself.
@@ -554,7 +561,7 @@ These checks lower the risk; they do not remove it. See the [Disclaimer](#discla
 
 ## For coding agents
 
-[`agents/`](agents/) holds guidance for coding agents: a Claude Code skill and a snippet for `AGENTS.md` (Codex, opencode). It teaches an agent to ask `ddc` before it guesses about the disk, on a full disk, `ENOSPC` or before installing dependencies into a new worktree, at the start and end of a session in a worktree, with read-only commands (`ddc changes --json`, `ddc agent footprint --json`, `ddc agent status --json`, `ddc scan <dir> --json`, `ddc rules --json`). The one removal it runs is `ddc agent clean`, the `safe` items of its own project while you allow it; the rest it hands to you rather than run it. [`agents/README.md`](agents/README.md) says how to install it.
+[`agents/`](agents/) holds guidance for coding agents: a Claude Code skill and a snippet for `AGENTS.md` (Codex, opencode). It teaches an agent to ask `ddc` before it guesses about the disk, on a full disk, `ENOSPC` or before installing dependencies into a new worktree, at the start and end of a session in a worktree, with read-only commands (`ddc changes --json`, `ddc agent footprint --json`, `ddc agent status --json`, `ddc scan <dir> --json`, `ddc rules --json`). The one removal it runs is `ddc agent clean`, the `safe` items of its own project while you allow it; the rest it hands to you rather than run it. `ddc agent skill install` installs it; [`agents/README.md`](agents/README.md) says how, and how by hand.
 
 ## Full Disk Access
 

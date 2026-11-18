@@ -54,6 +54,10 @@ fn refusal_for(cmd: &Command, supported: Result<(), Unsupported>, declared: &[Ca
         // is a capability of its own, as `clean` (story "Clean: --agent
         // bounded consent").
         Command::Agent { action: AgentAction::Clean(_) } => None,
+        // ddc's own text into the person's files, nothing of the platform's;
+        // refused with every command but `rules` until a port is done (spec
+        // "Agent skill install", contract 12).
+        Command::Agent { action: AgentAction::Skill { .. } } => None,
         // One file of the data folder, as `notify` (story "Settings: let
         // coding agents clean safe items").
         Command::Settings { .. } => None,
@@ -181,6 +185,9 @@ mod tests {
         &["agent", "footprint", "--json"],
         &["agent", "clean"],
         &["agent", "clean", "--json"],
+        &["agent", "skill", "install"],
+        &["agent", "skill", "status"],
+        &["agent", "skill", "status", "--json"],
         &["settings", "set", "agents_clean_safe", "off"],
         &["keep", "remove", "/p", "--folder-dev", "1", "--folder-ino", "2", "--json"],
         &["schedule", "status"],
@@ -191,6 +198,7 @@ mod tests {
         &["diag"],
     ];
 
+    /// `agent skill install|status` among them ([skill-install#12]).
     #[test]
     fn an_unported_platform_runs_only_rules() {
         for args in EVERY {

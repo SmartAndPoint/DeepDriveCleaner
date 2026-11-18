@@ -65,6 +65,10 @@ when its `unreadable` is above 0.
 call, one by one; `user-data` is theirs and never planned. A `lock` of `live-session` marks a
 live session's files.
 
+**Updating this block.** `ddc agent skill install --agents-md AGENTS.md --approved` replaces it
+with the installed `ddc`'s and keeps the rest of the file; it also writes ddc's Claude Code skill
+into `~/.claude/skills/ddc`. Say both to the person, and run it only after they said yes.
+
 **What to do.** Tell the person what is there, by class, with sizes and paths, and which
 sessions are live. Clean what is yours with `ddc agent clean`; hand them the rest to run
 themselves: `ddc clean <project> --dry-run`,

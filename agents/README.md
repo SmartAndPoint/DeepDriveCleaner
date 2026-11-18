@@ -36,7 +36,24 @@ clean up after itself. Updating is the same copy again.
 (or `~/.codex/AGENTS.md` for every Codex project), markers included. To update it, replace
 everything from `<!-- ddc:begin -->` to `<!-- ddc:end -->` with the new snippet.
 
-## Install by an agent
+## Install with ddc
+
+`ddc` 0.38 and later carry this guidance and install it themselves:
+
+```sh
+ddc agent skill install                          # the skill, into ~/.claude/skills/ddc
+ddc agent skill install --project .              # into this project's .claude/skills instead
+ddc agent skill install --agents-md AGENTS.md    # also the block in this AGENTS.md
+ddc agent skill status                           # is what is installed this ddc's?
+```
+
+It lists the files it will write and asks first; it deletes nothing. It writes only into a skill
+folder it installed itself and nobody edited since (`--replace` writes over one), and in
+`AGENTS.md` it replaces only the block between the markers. It leaves a `.ddc-skill` file in the
+skill folder, so it can tell its own copy from a hand edit. A coding agent runs it with
+`--approved`, and only after you said yes in the chat.
+
+## Install by an agent, without ddc
 
 Ask your agent: "Install the ddc agent guidance from github.com/SmartAndPoint/DeepDriveCleaner,
 folder `agents/`". It should:

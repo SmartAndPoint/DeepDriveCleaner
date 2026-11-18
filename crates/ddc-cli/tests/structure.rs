@@ -1575,12 +1575,14 @@ fn the_agent_guidance_runs_nothing_that_removes() {
 
 /// The guidance installer writes ddc's own text and nothing else (spec "Agent
 /// skill install", contracts 2 and 11): it removes, renames, locks, journals
-/// and runs nothing; its one write is `store::write_atomic`.
+/// and runs nothing; its one write is `store::write_atomic`. [skill-install#2]
+/// [skill-install#11]
 #[test]
 fn the_guidance_installer_deletes_locks_and_runs_nothing() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ddc-core/src/guidance");
-    for entry in std::fs::read_dir(&dir).unwrap() {
-        let path = entry.unwrap().path();
+    let cli = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/cmd/agent_skill.rs");
+    let core = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path());
+    for path in core.chain([cli]) {
         let text = std::fs::read_to_string(&path).unwrap();
         for forbidden in [
             "remove_file",

@@ -187,6 +187,8 @@ const COMMANDS: &[&str] = &[
     "agent status",
     "agent footprint",
     "agent clean",
+    "agent skill install",
+    "agent skill status",
     "settings set",
     "keep remove",
     "lock status",
@@ -203,6 +205,10 @@ const COMMANDS: &[&str] = &[
 /// The command `argv` calls, and how many words name it; `""` for a bare
 /// `--help` or `--version`.
 fn command_path(argv: &[String]) -> (&'static str, usize) {
+    let three = argv.get(..3).map(|w| w.join(" "));
+    if let Some(c) = COMMANDS.iter().find(|c| Some(**c) == three.as_deref()) {
+        return (c, 3);
+    }
     let two = argv.get(..2).map(|w| w.join(" "));
     if let Some(c) = COMMANDS.iter().find(|c| Some(**c) == two.as_deref()) {
         return (c, 2);
@@ -438,7 +444,8 @@ mod allow {
         "--local-snapshots",
     ];
     /// Options whose value is a path.
-    const PATHS: &[&str] = &["--exclude", "--skip", "--data-dir", "--system-root", "--items", "--actions"];
+    const PATHS: &[&str] =
+        &["--exclude", "--skip", "--data-dir", "--system-root", "--items", "--actions", "--project", "--agents-md"];
 
     struct Parsed<'a> {
         flags: Vec<&'a str>,
@@ -504,6 +511,9 @@ mod allow {
             "agent clean" if !has("--dry-run") => return Err("agent clean without --dry-run".into()),
             "agent clean" if has("--items") => return Err("agent clean --items".into()),
             "agent clean" => {}
+            // ddc's own text into the synthetic home, or a project and an
+            // AGENTS.md inside the temporary root (the paths are checked below).
+            "agent skill install" | "agent skill status" => {}
             "settings set" if !inside(value("--data-dir")) => {
                 return Err("settings set without --data-dir inside the temporary root".into());
             }

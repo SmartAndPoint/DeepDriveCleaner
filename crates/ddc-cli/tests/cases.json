@@ -236,6 +236,42 @@
       "expect": {"exit": 0, "schema": "agents"}
     },
     {
+      "name": "agent skill status in a fresh home says nothing is installed",
+      "group": "commands",
+      "args": ["agent", "skill", "status"],
+      "expect": {"exit": 0, "stdout": {"contains": ["not installed"]}}
+    },
+    {
+      "name": "agent skill status --json follows docs/skill.schema.json",
+      "group": "commands",
+      "args": ["agent", "skill", "status", "--json"],
+      "expect": {"exit": 0, "stdout": {"contains": ["\"state\": \"absent\""]}}
+    },
+    {
+      "name": "agent skill install without a terminal or --approved is refused and writes nothing",
+      "group": "commands",
+      "args": ["agent", "skill", "install"],
+      "expect": {"exit": 2, "stderr": {"contains": ["--approved once the person has agreed"]}}
+    },
+    {
+      "name": "agent skill install --approved writes the skill into the home",
+      "group": "commands",
+      "args": ["agent", "skill", "install", "--approved"],
+      "expect": {"exit": 0, "stdout": {"contains": ["Wrote the ddc guidance"]}}
+    },
+    {
+      "name": "agent skill install --replace --project --agents-md writes a project's skill and its AGENTS.md block",
+      "group": "commands",
+      "args": ["agent", "skill", "install", "--replace", "--approved", "--project", "{home}/Projects/web", "--agents-md", "{home}/Projects/web/AGENTS.md"],
+      "expect": {"exit": 0, "stdout": {"contains": ["AGENTS.md"]}}
+    },
+    {
+      "name": "agent skill status --project --agents-md checks a project's skill and its AGENTS.md",
+      "group": "commands",
+      "args": ["agent", "skill", "status", "--project", "{home}/Projects/web", "--agents-md", "{home}/Projects/web/AGENTS.md"],
+      "expect": {"exit": 0, "stdout": {"contains": ["no ddc block"]}}
+    },
+    {
       "name": "settings set agents_clean_safe off in a fresh data folder changes nothing",
       "group": "commands",
       "args": ["settings", "set", "agents_clean_safe", "off"],
