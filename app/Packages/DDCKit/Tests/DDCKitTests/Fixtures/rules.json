@@ -699,6 +699,15 @@
       "switchable": false
     },
     {
+      "id": "agent.shared-skills-sealed",
+      "group": "Coding agents",
+      "category": "personal",
+      "class": "user-data",
+      "removal": "none",
+      "listed": false,
+      "switchable": false
+    },
+    {
       "id": "agent.cursor-sealed",
       "group": "Coding agents",
       "category": "personal",

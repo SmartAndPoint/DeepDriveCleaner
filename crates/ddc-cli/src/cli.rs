@@ -622,7 +622,7 @@ pub enum AgentAction {
 
 #[derive(Debug, Subcommand)]
 pub enum SkillAction {
-    /// Write the skill to ~/.claude/skills/ddc (or a project's), and the block into an AGENTS.md; asks first, deletes nothing.
+    /// Write the skill to ~/.claude/skills/ddc and ~/.agents/skills/ddc (or a project's), and the block into an AGENTS.md; asks first, deletes nothing.
     Install(SkillInstallArgs),
     /// Say whether the installed skill and an AGENTS.md block are this ddc's (read-only).
     Status(SkillStatusArgs),
@@ -630,12 +630,15 @@ pub enum SkillAction {
 
 #[derive(Debug, Args)]
 pub struct SkillInstallArgs {
-    /// Install into this project's .claude/skills instead of your home folder's.
+    /// Install into this project's .claude/skills and .agents/skills instead of your home folder's.
     #[arg(long, value_name = "DIR")]
     pub project: Option<PathBuf>,
     /// Also write ddc's block into this AGENTS.md (for Codex, opencode and the like).
     #[arg(long, value_name = "FILE")]
     pub agents_md: Option<PathBuf>,
+    /// Only these skill folders: claude-code (.claude/skills) or agents (.agents/skills, which Codex, opencode, Gemini CLI and Qwen Code read); default both.
+    #[arg(long, value_enum, value_name = "FAMILY")]
+    pub family: Vec<SkillFamily>,
     /// Write over a skill folder ddc did not install, or one edited since.
     #[arg(long)]
     pub replace: bool,
@@ -644,9 +647,25 @@ pub struct SkillInstallArgs {
     pub approved: bool,
 }
 
+/// Who reads a skill folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum SkillFamily {
+    ClaudeCode,
+    Agents,
+}
+
+impl From<SkillFamily> for ddc_core::guidance::Family {
+    fn from(h: SkillFamily) -> Self {
+        match h {
+            SkillFamily::ClaudeCode => Self::ClaudeCode,
+            SkillFamily::Agents => Self::Agents,
+        }
+    }
+}
+
 #[derive(Debug, Args)]
 pub struct SkillStatusArgs {
-    /// Also check this project's .claude/skills.
+    /// Also check this project's .claude/skills and .agents/skills.
     #[arg(long, value_name = "DIR")]
     pub project: Option<PathBuf>,
     /// Also check ddc's block in this AGENTS.md.

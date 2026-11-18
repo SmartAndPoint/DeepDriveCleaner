@@ -341,6 +341,7 @@ fn the_status_report_names_each_state() {
     assert_eq!(v["agents_md"]["state"], "absent");
     let hand = guidance::FolderStatus {
         path: dir.clone(),
+        family: guidance::Family::ClaudeCode,
         state: FolderState::NotOurs { version: None },
         extra: vec![],
         no_longer_shipped: vec![],
@@ -358,4 +359,20 @@ fn committed_skill_schema_is_current() {
     }
     let committed = fs::read_to_string(&path).unwrap_or_default();
     assert!(committed == schema, "docs/skill.schema.json is stale: run DDC_UPDATE_SCHEMA=1 cargo test");
+}
+
+// [skill-install#1]: the shared folder is a skill folder like Claude Code's.
+#[test]
+fn the_shared_agents_folder_is_one_more_skill_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let shared = guidance::Family::Agents.folder(tmp.path());
+    assert!(shared.ends_with(".agents/skills/ddc"), "{}", shared.display());
+    assert_eq!(guidance::Family::ClaudeCode.folder(tmp.path()), guidance::skill_folder(tmp.path()));
+    install(&shared, false).unwrap();
+    let status = guidance::folder_status(&shared).unwrap();
+    assert_eq!((status.family, &status.state), (guidance::Family::Agents, &FolderState::Current));
+    let v = serde_json::to_value(&status).unwrap();
+    assert_eq!(v["family"], "agents");
+    let claude = guidance::folder_status(&guidance::skill_folder(tmp.path())).unwrap();
+    assert_eq!((claude.family, claude.state), (guidance::Family::ClaudeCode, FolderState::Absent));
 }

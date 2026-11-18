@@ -39,6 +39,21 @@
     "skills"
   ],
   "$defs": {
+    "Family": {
+      "description": "Whose skill folder it is (spec \"Agent skill install\", contract 1).",
+      "oneOf": [
+        {
+          "description": "Claude Code: `.claude/skills`.",
+          "type": "string",
+          "const": "claude-code"
+        },
+        {
+          "description": "The shared `.agents/skills`: Codex, opencode, Gemini CLI and Qwen Code.",
+          "type": "string",
+          "const": "agents"
+        }
+      ]
+    },
     "FileState": {
       "description": "What an `AGENTS.md` holds of the block.",
       "oneOf": [
@@ -95,6 +110,10 @@
           "items": {
             "type": "string"
           }
+        },
+        "family": {
+          "description": "Whose folder it is: Claude Code's, or the shared one.",
+          "$ref": "#/$defs/Family"
         },
         "no_longer_shipped": {
           "description": "Files the old marker lists that this copy no longer ships.",
@@ -198,7 +217,8 @@
         }
       ],
       "required": [
-        "path"
+        "path",
+        "family"
       ]
     }
   }

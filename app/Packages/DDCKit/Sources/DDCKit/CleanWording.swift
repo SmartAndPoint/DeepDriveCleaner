@@ -237,6 +237,7 @@ extension CleanWording {
         case "macos.app-bundle": "Apps"
         case "node.global-packages": "Global packages"
         case "agent.claude-code-sealed": "Claude Code sessions, shell snapshots and plugins"
+        case "agent.shared-skills-sealed": "Skills coding agents share"
         case "agent.cursor-sealed": "Cursor extensions, plans and chats"
         default: nil
         }

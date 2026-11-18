@@ -182,6 +182,7 @@ pub(super) static RULES: [Rule; COUNT] = [
     shared::agent_claude_code_builds(Platform::Windows),
     shared::agent_cursor_agent_builds(Platform::Windows),
     shared::AGENT_CLAUDE_CODE_SEALED,
+    shared::AGENT_SHARED_SKILLS_SEALED,
     shared::AGENT_CURSOR_SEALED,
     // ---- application caches -------------------------------------------------------
     shared::app_chrome_cache(Platform::Windows),

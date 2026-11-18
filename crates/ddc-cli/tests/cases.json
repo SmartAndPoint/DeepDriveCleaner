@@ -236,6 +236,12 @@
       "expect": {"exit": 0, "schema": "agents"}
     },
     {
+      "name": "agent skill install --family agents writes only the shared skills folder",
+      "group": "commands",
+      "args": ["agent", "skill", "install", "--approved", "--family", "agents"],
+      "expect": {"exit": 0, "stdout": {"contains": [".agents/skills/ddc"]}}
+    },
+    {
       "name": "agent skill status in a fresh home says nothing is installed",
       "group": "commands",
       "args": ["agent", "skill", "status"],

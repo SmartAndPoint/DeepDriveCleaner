@@ -21,14 +21,16 @@ repository (AGPL-3.0): copy it into any project.
 
 ## Install by hand
 
-Claude Code, for every project (or into one project's `.claude/skills/` instead):
+Claude Code, for every project (or into one project's `.claude/skills/` instead), and Codex,
+opencode, Gemini CLI and Qwen Code, which read `~/.agents/skills/`:
 
 ```sh
-mkdir -p ~/.claude/skills
+mkdir -p ~/.claude/skills ~/.agents/skills
 cp -R agents/claude-code/ddc ~/.claude/skills/
+cp -R agents/claude-code/ddc ~/.agents/skills/
 ```
 
-Claude Code finds the skill in its next session and uses it when you ask about disk space, when a
+Each finds the skill in its next session and uses it when you ask about disk space, when a
 command runs out of it, at the start and end of a session in a worktree, and when you ask it to
 clean up after itself. Updating is the same copy again.
 
@@ -41,17 +43,19 @@ everything from `<!-- ddc:begin -->` to `<!-- ddc:end -->` with the new snippet.
 `ddc` 0.38 and later carry this guidance and install it themselves:
 
 ```sh
-ddc agent skill install                          # the skill, into ~/.claude/skills/ddc
-ddc agent skill install --project .              # into this project's .claude/skills instead
+ddc agent skill install                          # the skill, into ~/.claude/skills and ~/.agents/skills
+ddc agent skill install --family agents          # only ~/.agents/skills: Codex, opencode, Gemini CLI, Qwen Code
+ddc agent skill install --project .              # into this project's .claude/skills and .agents/skills
 ddc agent skill install --agents-md AGENTS.md    # also the block in this AGENTS.md
 ddc agent skill status                           # is what is installed this ddc's?
 ```
 
-It lists the files it will write and asks first; it deletes nothing. It writes only into a skill
+`ddc agent skill install` lists the files it will write and asks first; it deletes nothing. It writes only into a skill
 folder it installed itself and nobody edited since (`--replace` writes over one), and in
 `AGENTS.md` it replaces only the block between the markers. It leaves a `.ddc-skill` file in the
 skill folder, so it can tell its own copy from a hand edit. A coding agent runs it with
-`--approved`, and only after you said yes in the chat.
+`--approved`, and only after you said yes in the chat. Install into the home or into a project,
+not both: Codex lists a skill it finds in two places twice.
 
 ## Install by an agent, without ddc
 
@@ -60,8 +64,9 @@ folder `agents/`". It should:
 
 1. Read this file and the two files above from a clone of this repository, or from
    `https://raw.githubusercontent.com/SmartAndPoint/DeepDriveCleaner/main/agents/`.
-2. Claude Code: write `claude-code/ddc/SKILL.md` to `~/.claude/skills/ddc/SKILL.md`, or to
-   `.claude/skills/ddc/SKILL.md` of the project you name.
+2. Write `claude-code/ddc/SKILL.md` to `~/.claude/skills/ddc/SKILL.md` (Claude Code) and to
+   `~/.agents/skills/ddc/SKILL.md` (Codex, opencode, Gemini CLI, Qwen Code), or under the
+   project you name.
 3. `AGENTS.md`: when the file already has a `<!-- ddc:begin -->` … `<!-- ddc:end -->` block,
    replace that block and nothing else; otherwise append the snippet at the end. Never rewrite
    the rest of the file.

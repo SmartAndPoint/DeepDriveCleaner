@@ -201,11 +201,13 @@ The risk classes, in `class`:
 `ddc`'s. To install or update them, ask the person first; once they said yes, run:
 
 ```text
-ddc agent skill install --approved                         # this skill, in ~/.claude/skills/ddc
+ddc agent skill install --approved                         # for Claude Code and the shared folder
 ddc agent skill install --approved --agents-md AGENTS.md   # also the block in an AGENTS.md
 ```
 
-It writes `ddc`'s own text, deletes nothing, and refuses a copy someone edited.
+It writes the skill into `~/.claude/skills/ddc` (Claude Code) and `~/.agents/skills/ddc` (Codex,
+opencode and others), writes only `ddc`'s own text, deletes nothing, and refuses a copy someone
+edited.
 
 ## What never to do
 

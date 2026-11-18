@@ -701,6 +701,15 @@
       "category": "personal",
       "class": "user-data",
       "group": "Coding agents",
+      "id": "agent.shared-skills-sealed",
+      "listed": false,
+      "removal": "none",
+      "switchable": false
+    },
+    {
+      "category": "personal",
+      "class": "user-data",
+      "group": "Coding agents",
       "id": "agent.cursor-sealed",
       "listed": false,
       "removal": "none",
