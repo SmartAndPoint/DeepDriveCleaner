@@ -2,6 +2,7 @@
 
 mod agent_clean;
 mod agent_footprint;
+mod agent_skill;
 mod agent_status;
 mod background;
 mod changes;
@@ -31,7 +32,9 @@ use ddc_core::report::recheck::{same_roots, walked_roots};
 use ddc_core::settings::{self, Resolved, ScanFlags, Settings};
 use ddc_core::store::{Kept, PREVIOUS_SCAN};
 
-use crate::cli::{AgentAction, Cli, Command, DiskAction, DiskArgs, KeepAction, LockAction, SettingsAction};
+use crate::cli::{
+    AgentAction, Cli, Command, DiskAction, DiskArgs, KeepAction, LockAction, SettingsAction, SkillAction,
+};
 
 pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
@@ -48,6 +51,12 @@ pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Agent { action: AgentAction::Status(args) } => agent_status::run(&args),
         Command::Agent { action: AgentAction::Footprint(args) } => agent_footprint::run(&args),
         Command::Agent { action: AgentAction::Clean(args) } => agent_clean::run(&args),
+        Command::Agent { action: AgentAction::Skill { action: SkillAction::Install(args) } } => {
+            agent_skill::install(&args)
+        }
+        Command::Agent { action: AgentAction::Skill { action: SkillAction::Status(args) } } => {
+            agent_skill::status(&args)
+        }
         Command::Keep { action: KeepAction::Remove(args) } => keep::remove(&args),
         Command::Settings { action: SettingsAction::Set(args) } => settings_set::run(&args),
         Command::Lock { action: LockAction::Status(args) } => lock::status(&args),

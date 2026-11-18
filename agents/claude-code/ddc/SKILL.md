@@ -195,6 +195,18 @@ The risk classes, in `class`:
 4. On `ENOSPC`, report and wait for the person. Do not free space outside `ddc agent clean` to
    make your own command pass.
 
+## Installing or updating this guidance
+
+`ddc agent skill status --json` says whether the skill here and an `AGENTS.md` block are this
+`ddc`'s. To install or update them, ask the person first; once they said yes, run:
+
+```text
+ddc agent skill install --approved                         # this skill, in ~/.claude/skills/ddc
+ddc agent skill install --approved --agents-md AGENTS.md   # also the block in an AGENTS.md
+```
+
+It writes `ddc`'s own text, deletes nothing, and refuses a copy someone edited.
+
 ## What never to do
 
 ADR "Agent footprint: worktrees, harness data and bounded consent for agents", §5 and §7: a

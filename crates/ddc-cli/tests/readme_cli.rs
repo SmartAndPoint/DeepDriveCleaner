@@ -107,8 +107,16 @@ fn the_guide_covers_every_command_and_option_of_the_help() {
         let h = help(&[command]);
         // A command with subcommands (`schedule`): each is shown, with its
         // options; one with options of its own too (`disk`) is shown itself.
-        let subs: Vec<(String, Help)> =
-            h.commands.iter().map(|sub| (format!("{command} {sub}"), help(&[command, sub]))).collect();
+        // A subcommand with subcommands of its own (`agent skill`) is shown
+        // with each of them.
+        let mut subs: Vec<(String, Help)> = Vec::new();
+        for sub in &h.commands {
+            let sh = help(&[command, sub]);
+            for leaf in &sh.commands {
+                subs.push((format!("{command} {sub} {leaf}"), help(&[command, sub, leaf])));
+            }
+            subs.push((format!("{command} {sub}"), sh));
+        }
         let leaves: Vec<(String, Help)> = if subs.is_empty() || !h.options.is_empty() {
             std::iter::once((command.clone(), h)).chain(subs).collect()
         } else {
